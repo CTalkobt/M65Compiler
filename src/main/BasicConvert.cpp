@@ -375,8 +375,8 @@ const std::map<std::string, std::string>& v7Differ() {
 // BASIC 7.0 keywords with no BASIC 65 counterpart, and why
 const std::map<std::string, std::string>& v7Missing() {
     static const std::map<std::string, std::string> m = {
-        {"SSHAPE", "BASIC 65 copies screen areas with GCOPY / CUT / PASTE"},
-        {"GSHAPE", "BASIC 65 copies screen areas with GCOPY / CUT / PASTE"},
+        {"SSHAPE", "several shapes: BASIC 65's GCOPY / PASTE keep one"},
+        {"GSHAPE", "several shapes: BASIC 65's GCOPY / PASTE keep one"},
         {"WIDTH", "BASIC 65's lines are one pixel wide"},
         {"RLUM", "the MEGA65's colours have no luminance"},
     };
@@ -565,6 +565,12 @@ void convertV7(std::vector<DecompiledLine>& lines, const BasicDecompileOptions& 
         for (const auto& pc : l.pieces)
             if (pc.isKw && pc.text == "SCALE") scale = true;
     const std::string SX = scale ? fresh() : "", SY = scale ? fresh() : "";
+    // SSHAPE / GSHAPE: BASIC 65 has one buffer (GCOPY, PASTE): converted when the program keeps one shape
+    std::set<std::string> shapes;
+    for (const auto& l : lines)
+        for (size_t q = 0; q + 1 < l.pieces.size(); q++)
+            if (l.pieces[q].isKw && (l.pieces[q].text == "SSHAPE" || l.pieces[q].text == "GSHAPE") && !l.pieces[q + 1].isKw)
+                shapes.insert(lower(l.pieces[q + 1].text));
     auto sx = [&](const std::string& x) { return scale && !x.empty() ? "(" + x + ") * " + SX : x; };
     auto sy = [&](const std::string& y) { return scale && !y.empty() ? "(" + y + ") * " + SY : y; };
     for (auto& l : lines)
@@ -761,6 +767,8 @@ void convertV7(std::vector<DecompiledLine>& lines, const BasicDecompileOptions& 
                     p.erase(p.begin() + (long)i + 1, p.begin() + (long)close + 1);
                     p[i] = {false, GM};
                 } else warn(line.num, "RGR: arguments not understood, left as written");
+            } else if ((k == "SSHAPE" || k == "GSHAPE") && shapes.size() == 1) {
+                // (converted below)
             } else if (auto it = v7Missing().find(k); it != v7Missing().end()) {
                 warn(line.num, k + " has no BASIC 65 counterpart (" + it->second + "): left as written");
             } else if (auto it = v7Differ().find(k); it != v7Differ().end()) {
@@ -1131,6 +1139,36 @@ void convertV7(std::vector<DecompiledLine>& lines, const BasicDecompileOptions& 
                     replacePieces(np);
                     penNow.clear();
                 }
+            } else if ((k == "SSHAPE" || k == "GSHAPE") && shapes.size() == 1) {
+                // SSHAPE a$, x1, y1 [, x2, y2] (to the pixel cursor): the area in BASIC 65's buffer (GCOPY x, y, width,
+                // height; under 1024 pixels on a 16-colour screen, or ?ILLEGAL QUANTITY); GSHAPE a$ [, x, y] [, mode]: PASTE
+                Args a = splitArgs(p, i + 1, e);
+                auto at = [&](size_t q) { return q < a.list.size() ? a.list[q] : std::string(); };
+                int f = mode >= 3 ? 2 : 1;
+                auto X = [&](size_t q) { return at(q).empty() ? PX : times(sx(at(q)), f); };
+                auto Y = [&](size_t q) { return at(q).empty() ? PY : sy(at(q)); };
+                if (k == "SSHAPE") {
+                    std::string x1 = X(1), y1 = Y(2), x2 = X(3), y2 = Y(4);
+                    auto size = [](const std::string& lo, const std::string& hi, int g) {
+                        if (isNumber(lo) && isNumber(hi)) {
+                            std::ostringstream o;
+                            o << std::stod(hi) - std::stod(lo) + g;
+                            return o.str();
+                        }
+                        return "(" + hi + ") - (" + lo + ") + " + std::to_string(g);
+                    };
+                    std::string w = size(x1, x2, f), h = size(y1, y2, 1);
+                    if (isNumber(w) && isNumber(h) && std::stod(w) * std::stod(h) >= 1024)
+                        warn(line.num, "SSHAPE of " + w + " x " + h + " pixels: BASIC 65's GCOPY holds fewer than 1024 (?ILLEGAL QUANTITY)");
+                    replace("gcopy " + x1 + ", " + y1 + ", " + w + ", " + h);
+                    if (at(3).empty() || at(4).empty()) usedState = true;
+                } else {
+                    std::string m = at(3);
+                    if (!m.empty() && m != "0")
+                        warn(line.num, "GSHAPE mode " + m + " (inverted, OR, AND, XOR): BASIC 65's PASTE copies the shape as it is");
+                    replace("paste " + X(1) + ", " + Y(2));
+                    if (at(1).empty() || at(2).empty()) usedState = true;
+                }
             } else if (k == "PAINT") {
                 Args a = splitArgs(p, i + 1, e);
                 auto at = [&](size_t q) { return q < a.list.size() ? a.list[q] : std::string(); };
@@ -1317,10 +1355,6 @@ void convertV7(std::vector<DecompiledLine>& lines, const BasicDecompileOptions& 
 // Simons' keywords with no BASIC 65 counterpart, and why
 const std::map<std::string, std::string>& simonsMissing() {
     static const std::map<std::string, std::string> m = {
-        {"BFLASH", "the C64's border flashing"},
-        {"ON KEY", "keys checked between statements"},
-        {"DISABLE", "keys checked between statements (ON KEY)"}, {"RESUME", "RESUME after ON KEY"},
-        {"INKEY", "the function key held"},
         {"OLD", "a direct-mode command"}, {"SECURE", "a direct-mode command"},
         {"DISAPA", "lines hidden from LIST"}, {"DUMP", "a direct-mode command"}, 
         {"HRDCPY", "the MPS 801 printer"}, {"COPY", "the MPS 801 printer"}, {"OPTION", "LIST's display"},
@@ -1408,6 +1442,14 @@ void convertSimons(std::vector<DecompiledLine>& lines, const BasicDecompileOptio
     };
     std::map<std::string, uint16_t> procs;
     bool rcomp = false;
+    // ON KEY: its handlers (the rest of each ON KEY line), in program order; checked at each line's start
+    std::vector<uint16_t> onKeys;
+    bool onKey = false, readsSt = false;
+    for (const auto& l : lines)
+        for (const auto& pc : l.pieces) {
+            if (pc.isKw && pc.text == "ON KEY") onKey = true;
+            if (!pc.isKw && lower(pc.text) == "st") readsSt = true;
+        }
     for (auto& line : lines) {
         auto& p = line.pieces;
         // @ rows (DESIGN's) are not statements: kept as REM text
@@ -1760,6 +1802,36 @@ void convertSimons(std::vector<DecompiledLine>& lines, const BasicDecompileOptio
                 replace("getkey " + joinPieces(p, i + 2, e));   // (TSB's KEY GET v$)
             } else if (k == "VOL" && i + 1 < e && p[i + 1].isKw && (p[i + 1].text == "ON" || p[i + 1].text == "OFF")) {
                 replace(p[i + 1].text == "ON" ? "vol 10" : "vol 0");   // (TSBneo)
+            } else if (k == "BFLASH") {
+                // the border flashing between c1 and c2 every n frames: an IRQ routine at $1600 (unused by BASIC 65's
+                // ROM; the DOS block buffer ends at $15FF), in front of the KERNAL's ($0314: installed by SYS with
+                // interrupts off, which sets it back at BFLASH 0 / OFF; it counts the raster IRQs only: frames); n, c1, c2 at $1661-$1663
+                bool off = (a.list.size() == 1 && at(0) == "0") || (i + 1 < e && p[i + 1].isKw && p[i + 1].text == "OFF");
+                bool on = i + 1 < e && p[i + 1].isKw && p[i + 1].text == "ON";
+                if (!off && !on && !argc(3)) continue;
+                const std::string mine = "peek(788) = 0 and peek(789) = 22";
+                if (!names.count("subBFLASH")) {
+                    std::string HX = var("bflash") + "$", I = var("i");
+                    uint16_t n0 = addLine({{false, "if " + mine + " then return"}});
+                    addLine({{false, HX + " = \"ad19d02901f020ce6016d01bad61168d6016ad20d0290fcd6216d005ad63168003ad62168d20d06c641678ad14038d6416ad15038d6516a9008d1403a9168d1503586078ad64168d1403ad65168d15035860\""}});
+                    addLine({{false, "for " + I + " = 0 to " + std::to_string(81) + " : poke 5632 + " + I + ", dec(mid$(" + HX + ", " + I +
+                                         " * 2 + 1, 2)) : next : sys 5674 : return"}});
+                    uint16_t n1 = addLine({{false, "if " + mine + " then sys 5699"}});
+                    addLine({{true, "RETURN"}});
+                    names["subBFLASH"] = std::to_string(n0);
+                    names["subBFLASHoff"] = std::to_string(n1);
+                }
+                if (off) replacePieces({{true, "GOSUB"}, {false, names["subBFLASHoff"]}});
+                else if (on) replacePieces({{true, "GOSUB"}, {false, names["subBFLASH"]}});
+                else {
+                    auto col = [](const std::string& c) { return isNumber(c) ? std::to_string(std::stoi(c) & 15) : "(" + c + ") and 15"; };
+                    std::string set = "poke 5729, " + at(0) + " : poke 5730, " + col(at(1)) + " : poke 5731, " + col(at(2)) + " : poke 5728, 1";
+                    if (isNumber(at(0)))
+                        replacePieces({{false, set}, {false, ":"}, {true, "GOSUB"}, {false, names["subBFLASH"]}});
+                    else
+                        replacePieces({{false, set + " : on -((" + at(0) + ") <> 0) + 1"}, {true, "GOSUB"}, {false, names["subBFLASHoff"]}, {false, ","},
+                                       {false, names["subBFLASH"]}});
+                }
             } else if (k == "FLASH" && i + 1 < e && p[i + 1].isKw && p[i + 1].text == "OFF") {
                 p.erase(p.begin() + (long)i + 1);
                 p[i] = {true, "OFF"};
@@ -1886,6 +1958,45 @@ void convertSimons(std::vector<DecompiledLine>& lines, const BasicDecompileOptio
                 }
                 break;
             } else if (k == "NO ERROR") replace("trap");
+            else if (k == "ON KEY") {
+                // ON KEY "keys",: handler. Simons' looks for one of the keys between statements; here at each
+                // line's start (a subroutine peeking the key queue: other keys stay for the program's GET).
+                // The handler is the rest of the line, reached by GOTO from that subroutine: RESUME returns
+                std::string keys = at(0);
+                size_t r = e;
+                if (r < p.size() && p[r].text == ":") r++;
+                Pieces rest(p.begin() + (long)r, p.end());
+                if (rest.empty()) rest = {{false, var("onkey") + " = " + var("onkeyl")}, {false, ":"}, {true, "RETURN"}};
+                uint16_t h = addLine(rest);
+                addLine({{false, var("onkey") + " = " + var("onkeyl")}, {false, ":"}, {true, "RETURN"}});
+                onKeys.push_back(h);
+                std::string n = std::to_string(onKeys.size());
+                p.erase(p.begin() + (long)i, p.end());
+                p.push_back({false, var("onkey") + "$ = " + keys + " : " + var("onkey") + " = " + n + " : " + var("onkeyl") + " = " + n});
+                if (readsSt) warn(line.num, "ON KEY: the key is in " + var("onkeyk") + " (PETSCII), not in ST");
+                break;
+            } else if (k == "DISABLE") replace(var("onkey") + " = 0");
+            else if (k == "RESUME" && onKey && e == i + 1) {
+                // (RESUME alone in a program with ON KEY: back to where the key was found, ON KEY on again;
+                // TSB's RESUME [NEXT | line] after ON ERROR is BASIC 65's)
+                replacePieces({{false, var("onkey") + " = " + var("onkeyl")}, {false, ":"}, {true, "RETURN"}});
+            } else if (k == "RESUME") {
+                // (BASIC 65's RESUME [NEXT | line], after the TRAP ON ERROR became)
+            } else if (k == "INKEY") {
+                // the function key held: F1-F8 1-8, with C= 9-16, 0 none (the keyboard's matrix row 0 at $D614 /
+                // $D613, the shift and C= keys at $D611)
+                if (!names.count("subINKEY")) {
+                    std::string K = var("inkey");
+                    uint16_t n0 = addLine({{false, "poke 54804, 0 : " + K + " = 255 - peek(54803) : " + K + " = -((" + K + " and 16) > 0) - 3 * ((" + K +
+                                                       " and 32) > 0) - 5 * ((" + K + " and 64) > 0) - 7 * ((" + K + " and 8) > 0)"}});
+                    addLine({{false, "if " + K + " then " + K + " = " + K + " - ((peek(54801) and 3) > 0) - 8 * ((peek(54801) and 8) > 0)"}});
+                    addLine({{true, "RETURN"}});
+                    names["subINKEY"] = std::to_string(n0);
+                }
+                p[i] = {false, var("inkey")};
+                p.insert(p.begin() + (long)stmtAt, {{true, "GOSUB"}, {false, names["subINKEY"]}, {false, ":"}});
+                i += 3;
+            }
             else if (k == "ERR") {
                 // ERRN / ERRLN: ERR and the letters
                 if (i + 1 < p.size() && !p[i + 1].isKw && p[i + 1].text.rfind("ln", 0) == 0) { p[i + 1].text = "el" + p[i + 1].text.substr(2); p.erase(p.begin() + (long)i); }
@@ -2456,6 +2567,25 @@ void convertSimons(std::vector<DecompiledLine>& lines, const BasicDecompileOptio
         }
         flushExtra();
     }
+    if (!onKeys.empty()) {
+        // the key check: a key waiting in the queue ($D619, PETSCII; 255 none) that ON KEY lists is taken
+        // ($D619 written) and its handler run; RESUME returns to the line's start
+        std::string K = var("onkey"), Y = var("onkeyk");
+        uint16_t c = addLine({{false, Y + " = peek(54809) : if " + Y + " = 255 or " + Y + " = 0 then return"}});
+        addLine({{false, "if instr(" + K + "$, chr$(" + Y + ")) = 0 then return"}});
+        Pieces go{{false, "poke 54809, 0 : on " + K}, {true, "GOTO"}};
+        for (size_t q = 0; q < onKeys.size(); q++) {
+            if (q) go.push_back({false, ","});
+            go.push_back({false, std::to_string(onKeys[q])});
+        }
+        addLine(go);
+        flushExtra();
+        for (auto& l : lines) {
+            if (l.num > last || l.pieces.empty()) continue;
+            if (l.pieces[0].isKw && l.pieces[0].text == "REM") continue;
+            l.pieces.insert(l.pieces.begin(), {{false, "on sgn(" + K + ")"}, {true, "GOSUB"}, {false, std::to_string(c)}, {false, ":"}});
+        }
+    }
     if (designAt) {
         std::string B = var("mobblock"), N = var("mobn"), D = var("mobdata"), I = var("i");
         for (auto& l : lines) {
@@ -2497,10 +2627,17 @@ void convertSimons(std::vector<DecompiledLine>& lines, const BasicDecompileOptio
                 std::string c = joinPieces(p, i + 1, t);
                 if (c == var("rcomp")) continue;   // (RCOMP's own)
                 if (names.count("cgoto") && c.rfind(names["cgoto"] + " = ", 0) == 0) continue;   // (the CGOTO table's: not the program's IFs)
+                // (the condition kept as pieces: BASIC 7.0's rules convert in it too, TI for one)
+                Pieces cond(p.begin() + (long)i + 1, p.begin() + (long)t);
                 p.erase(p.begin() + (long)i + 1, p.begin() + (long)t);
                 p.insert(p.begin() + (long)i + 1, {false, var("rcomp")});
-                p.insert(p.begin() + (long)i, {{false, var("rcomp") + " = ((" + c + ") <> 0)"}, {false, ":"}});
-                i += 3;
+                Pieces save{{false, var("rcomp") + " = (("}};
+                save.insert(save.end(), cond.begin(), cond.end());
+                if (!save.back().isKw && save.size() > 1) save.back().text += ") <> 0)";
+                else save.push_back({false, ") <> 0)"});
+                save.push_back({false, ":"});
+                p.insert(p.begin() + (long)i, save.begin(), save.end());
+                i += save.size() + 1;
             }
         }
 
