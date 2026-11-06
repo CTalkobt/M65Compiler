@@ -8,7 +8,7 @@
     "gen-data": "node scripts/gen-data.mjs",
     "watch": "esbuild src/server.ts --bundle --platform=node --target=node18 --format=cjs --sourcemap --outfile=dist/server.js --watch",
     "lint": "eslint src/**/*.ts",
-    "test": "node --import tsx --test \"src/**/*.test.ts\"",
+    "test": "node scripts/test.mjs",
     "prepack": "npm run build"
   },
   "keywords": [
