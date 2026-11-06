@@ -1,0 +1,589 @@
+; basic_rt.s45 — the runtime of BASIC 65 programs compiled by basic45 --compile (#369)
+;
+; The compiled code passes values in these variables (no parameters):
+;   __float_a, __float_b  floats (float_rom.s45's: the float routines' own)
+;   __bas_n, __bas_m      16-bit integers (a count, a column, an error number)
+;   __bas_sa, __bas_sb    strings: a pointer to a length byte and the characters
+;   __bas_sr              where a string result goes (a buffer), or the
+;                         variable a string is assigned to (basic_str.c)
+;   __bas_line            the BASIC line running (for the error message)
+;
+; Output goes through the KERNAL's BSOUT ($FFD2), as BASIC's PRINT does.
+; An error prints BASIC's message ("?DIVISION BY ZERO ERROR IN 30") and ends
+; the program: its exit status is the error number.
+
+; no calls through pointers here (ln45's call graph)
+.weak cc45.icallinfo
+cc45.icallinfo = 1
+
+    .cpu 45gs02
+
+.extern __bp_rom
+.extern __bp_prog
+.extern __exit
+.extern __float_a
+.extern __float_b
+.extern __float_str
+.extern __float_fout
+.extern __float_utof
+.extern __float_ltof
+.extern __float_cmp
+.extern __float_div
+.extern __float_mul
+.extern __float_sqr
+.extern __float_log
+.extern __float_exp
+.extern __float_load_fac
+.extern __float_load_arg
+.extern __float_store_fac
+.extern __jsrfar_basic
+
+BSOUT       = $FFD2
+PLOT        = $FFF0
+BJT_LOG     = $7F2A
+BJT_INT     = $7F2D
+BJT_FPWRT   = $7F39
+
+; ---------------------------------------------------------------------------
+; Output
+; ---------------------------------------------------------------------------
+
+; A character (A) through BSOUT. Keeps X, Y, Z.
+    .split "__bas_out"
+.global __bas_out
+__bas_out:
+    phx
+    phy
+    phz
+    jsr __bp_rom
+    jsr BSOUT
+    jsr __bp_prog
+    plz
+    ply
+    plx
+    rts
+
+; PRINT of a string: __bas_sa (through $F6/$F7, library temps of the
+; program's base page)
+    .split "__bas_prs"
+.global __bas_prs
+__bas_prs:
+    lda __bas_sa
+    sta $F6
+    lda __bas_sa+1
+    sta $F7
+    ldy #0
+    lda ($F6),y
+    beq @done
+    tax                 ; X = characters left
+@loop:
+    iny
+    lda ($F6),y
+    jsr __bas_out
+    dex
+    bne @loop
+@done:
+    rts
+
+; PRINT of a number: __float_a as BASIC prints it, then a cursor right
+    .split "__bas_prn"
+.global __bas_prn
+__bas_prn:
+    jsr __float_fout
+    ldx #0
+@loop:
+    lda __float_str,x
+    beq @done
+    jsr __bas_out
+    inx
+    bra @loop
+@done:
+    lda #29
+    jmp __bas_out
+
+; The end of a PRINT without ; or , (a carriage return)
+    .split "__bas_prcr"
+.global __bas_prcr
+__bas_prcr:
+    lda #13
+    jmp __bas_out
+
+; The cursor's column in A (KERNAL PLOT)
+    .split "__bas_column"
+__bas_column:
+    phz
+    jsr __bp_rom
+    sec
+    jsr PLOT
+    jsr __bp_prog
+    plz
+    tya
+    rts
+
+; PRINT's comma: cursor rights to the next column of ten
+    .split "__bas_prcomma"
+.global __bas_prcomma
+__bas_prcomma:
+    jsr __bas_column
+    sec
+@mod:
+    sbc #10
+    bcs @mod
+    eor #$FF
+    adc #1
+    tax
+    bra __bas_rights
+
+; SPC(__bas_n): that many cursor rights
+    .split "__bas_prspc"
+.global __bas_prspc
+__bas_prspc:
+    ldx __bas_n
+    bra __bas_rights
+
+; TAB(__bas_n): cursor rights to that column (none if past it)
+    .split "__bas_prtab"
+.global __bas_prtab
+__bas_prtab:
+    jsr __bas_column
+    sta __bas_m
+    lda __bas_n
+    sec
+    sbc __bas_m
+    bcc __bas_rights_done
+    tax
+    .split "__bas_rights"
+__bas_rights:
+    cpx #0
+    beq __bas_rights_done
+@loop:
+    lda #29
+    jsr __bas_out
+    dex
+    bne @loop
+__bas_rights_done:
+    rts
+
+; ---------------------------------------------------------------------------
+; Errors
+; ---------------------------------------------------------------------------
+
+; The error __bas_n in line __bas_line: BASIC's message, then the program
+; ends (exit status: the error number); the READY. after it is BASIC's
+    .split "__bas_error"
+.global __bas_error
+__bas_error:
+    lda #13
+    jsr __bas_out
+    lda __bas_n
+    cmp #30                 ; BREAK: no "?"
+    beq @nomark
+    lda #'?'
+    jsr __bas_out
+@nomark:
+    ; find the message: "N" + text, zero-terminated, in the table
+    ldx #0
+@find:
+    lda __bas_msgs,x
+    beq @print              ; the end: "ERROR" alone
+    cmp __bas_n
+    beq @found
+@skip:
+    inx
+    lda __bas_msgs,x
+    bne @skip
+    inx
+    bra @find
+@found:
+    inx
+@msg:
+    lda __bas_msgs,x
+    beq @print
+    jsr __bas_out
+    inx
+    bra @msg
+@print:
+    lda __bas_n
+    cmp #30                 ; BREAK: no " ERROR"
+    beq @in
+    ldx #0
+@err:
+    lda __bas_errtxt,x
+    beq @in
+    jsr __bas_out
+    inx
+    bra @err
+@in:
+    ldx #0
+@intxt:
+    lda __bas_intxt,x
+    beq @num
+    jsr __bas_out
+    inx
+    bra @intxt
+@num:
+    lda __bas_line
+    ldx __bas_line+1
+    jsr __float_utof
+    jsr __float_fout
+    ldx #1                  ; (no leading space)
+@digits:
+    lda __float_str,x
+    beq @end
+    jsr __bas_out
+    inx
+    bra @digits
+@end:
+    lda __bas_n
+    ldx #0
+    jmp __exit
+
+; The error A
+    .split "__bas_raise"
+.global __bas_raise
+__bas_raise:
+    sta __bas_n
+    lda #0
+    sta __bas_n+1
+    jmp __bas_error
+
+; ---------------------------------------------------------------------------
+; Numbers
+; ---------------------------------------------------------------------------
+
+; __float_a / __float_b, ?DIVISION BY ZERO when __float_b is 0
+    .split "__bas_fdiv"
+.global __bas_fdiv
+__bas_fdiv:
+    lda __float_b
+    beq @zero
+    jmp __float_div
+@zero:
+    lda #20
+    jmp __bas_raise
+
+; INT(__float_a), the ROM's
+    .split "__bas_int"
+.global __bas_int
+__bas_int:
+    lda #<BJT_INT
+    ldx #>BJT_INT
+    .split "__bas_rom1"
+; __float_a := ROM routine A/X (FAC in, FAC out)
+__bas_rom1:
+    pha
+    phx
+    jsr __bp_rom
+    lda #<__float_a
+    ldx #>__float_a
+    jsr __float_load_fac
+    plx
+    pla
+    jsr __jsrfar_basic
+    lda #<__float_a
+    ldx #>__float_a
+    jsr __float_store_fac
+    jmp __bp_prog
+
+; SQR, ?ILLEGAL QUANTITY for a negative number
+    .split "__bas_sqr"
+.global __bas_sqr
+__bas_sqr:
+    lda __float_a
+    beq @ok
+    lda __float_a+1
+    bmi __bas_illegal
+@ok:
+    jmp __float_sqr
+
+    .split "__bas_illegal"
+.global __bas_illegal
+__bas_illegal:
+    lda #14
+    jmp __bas_raise
+
+; LOG, ?ILLEGAL QUANTITY for 0 or a negative number
+    .split "__bas_log"
+.global __bas_log
+__bas_log:
+    lda __float_a
+    beq __bas_illegal
+    lda __float_a+1
+    bmi __bas_illegal
+    jmp __float_log
+
+; EXP, ?OVERFLOW above 88.0296919 (the ROM's limit)
+    .split "__bas_exp"
+.global __bas_exp
+__bas_exp:
+    ldx #4
+@b:
+    lda __bas_explim,x
+    sta __float_b,x
+    dex
+    bpl @b
+    jsr __float_cmp
+    cmp #1
+    beq __bas_overflow
+    jmp __float_exp
+
+    .split "__bas_overflow"
+.global __bas_overflow
+__bas_overflow:
+    lda #15
+    jmp __bas_raise
+
+; __float_a ^ __float_b (the ROM's FPWRT: ARG ^ FAC). 0 ^ negative is
+; ?DIVISION BY ZERO, a negative number to a power that is not a whole
+; number ?ILLEGAL QUANTITY, a result past the float range ?OVERFLOW.
+    .split "__bas_pow"
+.global __bas_pow
+__bas_pow:
+    lda __float_b
+    beq @rom                ; x ^ 0 = 1
+    lda __float_a
+    bne @nonzero
+    lda __float_b+1
+    bmi @divzero
+    bra @rom                ; 0 ^ positive = 0
+@divzero:
+    lda #20
+    jmp __bas_raise
+@nonzero:
+    ; keep a and b
+    ldx #4
+@keep:
+    lda __float_a,x
+    sta __bas_fx,x
+    lda __float_b,x
+    sta __bas_fy,x
+    dex
+    bpl @keep
+    lda __float_a+1
+    bpl @range
+    ; a < 0: b must be a whole number (INT(b) = b)
+    ldx #4
+@tb:
+    lda __bas_fy,x
+    sta __float_a,x
+    dex
+    bpl @tb
+    jsr __bas_int
+    ldx #4
+@cb:
+    lda __bas_fy,x
+    sta __float_b,x
+    dex
+    bpl @cb
+    jsr __float_cmp
+    cmp #0
+    bne __bas_illegal
+@range:
+    ; LOG(|a|) * b above 88: ?OVERFLOW (EXP's limit)
+    ldx #4
+@la:
+    lda __bas_fx,x
+    sta __float_a,x
+    dex
+    bpl @la
+    lda __float_a+1
+    and #$7F
+    sta __float_a+1
+    jsr __float_log
+    ldx #4
+@lb:
+    lda __bas_fy,x
+    sta __float_b,x
+    dex
+    bpl @lb
+    jsr __float_mul
+    ldx #4
+@lim:
+    lda __bas_explim,x
+    sta __float_b,x
+    dex
+    bpl @lim
+    jsr __float_cmp
+    cmp #1
+    beq __bas_overflow
+    ldx #4
+@back:
+    lda __bas_fx,x
+    sta __float_a,x
+    lda __bas_fy,x
+    sta __float_b,x
+    dex
+    bpl @back
+@rom:
+    jsr __bp_rom
+    lda #<__float_a
+    ldx #>__float_a
+    jsr __float_load_arg
+    lda #<__float_b
+    ldx #>__float_b
+    jsr __float_load_fac
+    lda #<BJT_FPWRT
+    ldx #>BJT_FPWRT
+    jsr __jsrfar_basic
+    lda #<__float_a
+    ldx #>__float_a
+    jsr __float_store_fac
+    jmp __bp_prog
+
+; __float_a to a 16-bit integer in __bas_n, as BASIC's AYINT: rounded down
+; (INT), ?ILLEGAL QUANTITY outside -32768..32767
+    .split "__bas_ayint"
+.global __bas_ayint
+__bas_ayint:
+    jsr __bas_int
+    lda __float_a
+    beq @zero
+    cmp #$91
+    bcs __bas_illegal       ; |x| >= 65536
+    cmp #$90
+    bcc @fits               ; |x| < 32768
+    ; |x| in 32768..65535: only -32768
+    lda __float_a+1
+    cmp #$80
+    bne __bas_illegal
+    lda __float_a+2
+    ora __float_a+3
+    ora __float_a+4
+    bne __bas_illegal
+    lda #0
+    sta __bas_n
+    lda #$80
+    sta __bas_n+1
+    rts
+@zero:
+    sta __bas_n
+    sta __bas_n+1
+    rts
+@fits:
+    ; a whole number now: the mantissa shifted right by 144 - exponent
+    lda __float_a+1
+    ora #$80
+    sta __bas_n+1
+    lda __float_a+2
+    sta __bas_n
+    lda #$90
+    sec
+    sbc __float_a
+    tax
+    beq @sign
+@shift:
+    lsr __bas_n+1
+    ror __bas_n
+    dex
+    bne @shift
+@sign:
+    lda __float_a+1
+    bpl @done
+    sec
+    lda #0
+    sbc __bas_n
+    sta __bas_n
+    lda #0
+    sbc __bas_n+1
+    sta __bas_n+1
+@done:
+    rts
+
+; A whole number 0..65535 for POKE's address, PEEK, WAIT (as GETADR):
+; INT(__float_a) into __bas_n, ?ILLEGAL QUANTITY outside it
+    .split "__bas_getadr"
+.global __bas_getadr
+__bas_getadr:
+    lda __float_a
+    beq __bas_n0
+    lda __float_a+1
+    bmi __bas_illegal2
+    jsr __bas_int
+    lda __float_a
+    beq __bas_n0
+    cmp #$91
+    bcs __bas_illegal2      ; >= 65536
+    lda __float_a+1
+    ora #$80
+    sta __bas_n+1
+    lda __float_a+2
+    sta __bas_n
+    lda #$90
+    sec
+    sbc __float_a
+    tax
+    beq @done
+@shift:
+    lsr __bas_n+1
+    ror __bas_n
+    dex
+    bne @shift
+@done:
+    rts
+    .split "__bas_n0"
+__bas_n0:
+    sta __bas_n
+    sta __bas_n+1
+    rts
+    .split "__bas_illegal2"
+__bas_illegal2:
+    jmp __bas_illegal
+
+; A byte 0..255 (POKE's value, CHR$, TAB, SPC): __bas_ayint, then the range
+    .split "__bas_getbyt"
+.global __bas_getbyt
+__bas_getbyt:
+    jsr __bas_ayint
+    lda __bas_n+1
+    bne __bas_illegal2
+    rts
+
+; ---------------------------------------------------------------------------
+; Data
+; ---------------------------------------------------------------------------
+
+    .split "__bas_msgs"
+; the messages of the errors compiled code can raise: the number, the text
+__bas_msgs:
+    .byte 10
+    .text "next without for"
+    .byte 0, 12
+    .text "return without gosub"
+    .byte 0, 14
+    .text "illegal quantity"
+    .byte 0, 15
+    .text "overflow"
+    .byte 0, 16
+    .text "out of memory"
+    .byte 0, 20
+    .text "division by zero"
+    .byte 0, 23
+    .text "string too long"
+    .byte 0, 30
+    .text "break"
+    .byte 0, 0
+__bas_errtxt:
+    .text " error"
+    .byte 0
+__bas_intxt:
+    .text " in "
+    .byte 0
+; 88.0296919: EXP's largest argument
+__bas_explim:
+    .byte $87, $30, $0F, $33, $C7
+
+.segment "bss"
+.global __bas_n
+__bas_n: .res 2
+.global __bas_m
+__bas_m: .res 2
+.global __bas_sa
+__bas_sa: .res 2
+.global __bas_sb
+__bas_sb: .res 2
+.global __bas_sr
+__bas_sr: .res 2
+.global __bas_line
+__bas_line: .res 2
+__bas_fx: .res 5
+__bas_fy: .res 5

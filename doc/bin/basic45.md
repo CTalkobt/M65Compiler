@@ -15,6 +15,7 @@
 - **Block IF, select and procedures** — `if ... then` / `else` / `endif`, `select` / `case`, `proc name(params)` / `call`, local `.labels` ([Block IF and Procedures](#block-if-and-procedures))
 - **Assembly and binary data** — `asm` … `endasm`, `incbin`, `datainc` ([Assembly and Binary Data](#assembly-and-binary-data))
 - **Calling C** — `--link file.c`: C functions called with `SYS {name}` ([Calling C Functions](#calling-c-functions-link))
+- **Compiling** — `--compile`: the program as machine code, through cc45's IR and code generator; a subset of BASIC 65 so far ([Compiling](#compiling-compile))
 - **Listing, source map, decompiler** — `--list`, `--source-map`, `--decompile` ([Listing, Source Map and Decompiling](#listing-source-map-and-decompiling))
 - **Converting other dialects** — `--convert=basic7`, `basic35`, `simons`: a BASIC 7.0 (C128), BASIC 3.5 (C16 / Plus/4) or Simons' BASIC (C64) program as BASIC 65 source ([Converting BASIC 7.0 Programs](#converting-basic-70-programs-convertbasic7))
 - **Disk image, emulator, hardware** — `--disk`, `--emulator` (xemu), `--send` (a MEGA65), `--watch`
@@ -28,10 +29,11 @@ See [Known Problems](#known-problems) for the remaining limits.
 ```bash
 basic45 [options] <input.bas> [-o <output.prg>]
 basic45 --decompile <program.prg> [-o <output.bas>]
+basic45 --compile [-O<n>] [--asm <file.s45>] <input.bas|program.prg> [-o <output.prg>]
 basic45 --convert=basic7|basic35|simons [--ntsc] <program.prg|listing.txt> [-o <output.bas>]
 ```
 
-Without `-o` the output is the input name with its extension replaced by `.prg` (`.bas` when decompiling; `-o -` writes the source to standard output). A `.prg` input is decompiled. With no input file, the usage text is printed and the exit status is 1. Unrecognised options starting with `-` are ignored silently.
+Without `-o` the output is the input name with its extension replaced by `.prg` (`.bas` when decompiling; `-o -` writes the source to standard output; `-compiled.prg` for a `.prg` given to `--compile`). A `.prg` input is decompiled (with `--compile`: compiled). With no input file, the usage text is printed and the exit status is 1. Unrecognised options starting with `-` are ignored silently.
 
 ## Options
 
@@ -65,6 +67,9 @@ Without `-o` the output is the input name with its extension replaced by `.prg` 
 | `--link <file>` | Link a C (`.c`, compiled with `cc45 -c -O2`), assembly (`.s45`) or object (`.o45`) file after the program; repeatable ([Calling C Functions](#calling-c-functions-link)) |
 | `--lib <file>` | The library for `--link` (default: `c45.lib` next to the tools, else `ln45`'s `CC45_LIB` search) |
 | `--decompile` | Turn a tokenized BASIC `.prg` into basic45 source ([Listing, Source Map and Decompiling](#listing-source-map-and-decompiling)) |
+| `--compile` | Compile the program (the source, or a tokenized BASIC 65 `.prg`) to machine code: a `.prg` started with `RUN` ([Compiling](#compiling-compile)) |
+| `-O0` … `-O4` | `--compile`: cc45's optimization level (default `-O2`) |
+| `--asm <file>` | `--compile`: also write the generated ca45 assembly |
 | `--convert=<dialect>` | Another BASIC's `.prg` or text listing as BASIC 65 basic45 source, with warnings for what needs a hand: `basic7` (C128 BASIC 7.0), `basic35` (C16 / Plus/4 BASIC 3.5), `simons` (C64 Simons' BASIC and TSB), `tsbneo` (TSBneo: `AT(row, column)`) ([Converting BASIC 7.0 Programs](#converting-basic-70-programs-convertbasic7)) |
 | `--ntsc`, `--pal` | With `--convert`: the source machine's video timing, for `TEMPO` and BASIC 3.5's `SOUND` (default `--pal`) |
 | `--data-loader` | The input is machine code (a `.prg`, or a binary with `--load-at`): write a BASIC program that POKEs it from `DATA` lines and SYSes it, a type-in listing ([DATA Loaders](#data-loaders-data-loader)); with `--hex`, `--checksum`, `--per-line <n>`, `--start <line>`, `--increment <n>`, `--no-sys`, `--load-at <addr>` |
@@ -304,6 +309,71 @@ basic45 --link routines.c menu.bas -o menu.prg
 - The C files are compiled with `cc45 -c -O2` (the ZP convention, `c45.lib`).
 
 `examples/basic/c_routines` is a complete example; `test_basic45_link_xemu.bas` with `test_basic45_link_xemu.c` is run by BASIC 65 on xemu.
+
+## Compiling (`--compile`)
+
+`--compile` (#369) turns the program into machine code instead of tokens for the interpreter. The program is
+built as usual (labels, block IF, procs, the preprocessor), then the tokenized lines are compiled to cc45's
+IR (`src/main/BasicCompiler.cpp`), which cc45's IR passes (`-O<n>`) and code generator make into ca45
+assembly; ca45 and `ln45 -basic` with `c45.lib` link it. The result is a `.prg` at `$2001` with a `SYS` line,
+started with `RUN`. A tokenized BASIC 65 `.prg` can be compiled as it is (`basic45 --compile game.prg`).
+
+```bash
+basic45 --compile prog.bas -o prog.prg          # machine code
+basic45 --compile --asm prog.s45 prog.bas       # and the generated assembly
+```
+
+The same program gives the same output interpreted and compiled. The floats are BASIC's 40-bit floats,
+computed by the BASIC 65 ROM's routines (the library's float runtime), PRINT formats numbers with the ROM's
+FOUT, and run-time errors print BASIC's message (`?DIVISION BY ZERO ERROR IN 30`) and end the program (the exit
+status at `$FD`/`$FE` is the error number), after which BASIC's `READY.` follows.
+
+**What is compiled** (a first step; anything else is an error naming the statement, at its line):
+
+| | |
+|---|---|
+| Statements | `LET` and assignments, `PRINT` (`;`, `,`, `TAB(`, `SPC(`), `IF` … `THEN` / `GOTO` (a line number or statements), `ELSE`, `BEGIN` / `BEND`, `GOTO`, `GO TO`, `GOSUB`, `RETURN`, `ON` … `GOTO` / `GOSUB`, `FOR` … `TO` … `STEP` / `NEXT` (a float variable; `NEXT a, b`), `POKE`, `END`, `STOP`, `REM`, `DATA` (skipped) |
+| Values | floats, `%` integers (-32768..32767), strings (up to 255 characters); scalars only (no arrays yet) |
+| Operators | `+ - * / ^`, unary `-`, `= <> < > <= >=` (numbers and strings), `AND`, `OR`, `NOT` |
+| Functions | `ABS`, `INT`, `SGN`, `SQR`, `SIN`, `COS`, `TAN`, `ATN`, `LOG`, `EXP`, `PEEK`, `LEN`, `ASC`, `CHR$`, `STR$`, `LEFT$`, `RIGHT$`, `MID$`, π |
+
+**How**: the program is one function; each line and statement starts a block. `GOTO` is a branch; `GOSUB`
+pushes the address of the code after it on BASIC's stack and `RETURN` jumps back to it. `FOR` pushes its
+loop's number and `NEXT` looks it up as BASIC 65 does, so a `GOTO` out of a loop, a `NEXT` in an `IF`, a loop
+restarted with `GOTO` and a `RETURN` from inside a loop work as in the interpreter. `IF` jumps, when false, to
+the statement after the line's next `ELSE` (or to the next line), past the matching `BEND` first for
+`THEN BEGIN`, as the ROM's `IF` does. Integers known to be exact (`%` variables, whole numbers written
+without a point, and their `+ - *` while they fit 31 bits) are computed as integers; everything else is
+float arithmetic. Variables are told apart by their first two characters (and `$` / `%`), as in BASIC 65.
+The run-time support is `lib/stdlib_asm/basic_rt.s45` (PRINT, the errors, BASIC's checks on numbers) and
+`lib/stdlib/basic_str.c` (strings on the heap, the stack of `GOSUB` and `FOR`).
+
+**Differences from the interpreter**:
+
+- A float result is rounded to 32 bits after each operation; the interpreter keeps the accumulator's extra
+  rounding byte between the operations of an expression, so a result can differ in its last bit.
+- A number written with a point or an exponent is converted when compiling (correctly rounded); the
+  interpreter's own conversion can differ in the last bit.
+- A float result too large gives the largest float, not `?OVERFLOW ERROR` (except for `EXP` and `^`).
+- `PEEK` of `$C000`-`$CFFF` reads RAM; the interpreter reads the ROM there.
+- An error cannot be caught (`TRAP` is not compiled yet).
+
+**Speed and size**, measured on xemu (frames of 1/50 s for 3000 iterations; `bench.bas`-style loops):
+
+| Loop | Interpreted | Compiled |
+|---|---|---|
+| `s = s + i * 2` (floats) | 18 | 20 |
+| `n% = n% + 1 : c% = c% + (n% and 1)` (integers) | 41 | 11 |
+| string `LEFT$` / `CHR$` / `+` | 5 | 6 |
+
+Integer code is about four times as fast. Float arithmetic is not faster yet: each operation calls the ROM
+through `JSRFAR` (and once more to round the result), which costs as much as the interpreter's own work. The
+compiled program is about ten times the size of the tokenized one (`test_basic_compile_xemu.bas`: 2 KB →
+20 KB). The next steps (#369): integers for variables that only hold whole numbers, faster float routines,
+arrays, `INPUT` / `GET`, `DO` / `LOOP`, `TI`, `RND`.
+
+`test_basic_compile_xemu.bas` is run interpreted and compiled (`-O2`, `-O0`) on xemu with the same results;
+`test_basic45.sh` checks the output, the errors and a `.prg` input.
 
 ## Formatting
 
@@ -595,6 +665,7 @@ A label is recognised when `name:` is followed by a space or the end of the line
 
 - `--link` uses the ZP calling convention and `c45.lib`; for stack-convention C, declare the called functions `__fastcall__`.
 - `--send`'s default commands (`etherload -r`, `m65 -F -r`) are untested; use `--send-cmd` with the options your tools need.
+- `--compile` compiles a subset of BASIC 65 ([Compiling](#compiling-compile)), and not with `--link` or `asm` blocks yet.
 
 `test_basic45_xemu.bas` (as is, `--minify` and `--preserve-spaces`), `test_basic45_features_xemu.bas` (as is, decompiled and rebuilt, and formatted), `test_basic45_link_xemu.bas` (C, asm, incbin, datainc) and `test_basic45_numbered_xemu.bas` (a numbered program; `MOD`, `LOG10`, `WPEEK`, `POINTER`, `WPOKE`, `<<`, `>>`) are run by BASIC 65 on xemu; `src/test/test_basic45.sh` (`make test`) checks the tokens and messages.
 

@@ -4,6 +4,27 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### basic45 --compile: BASIC 65 programs to machine code, a first subset (#369)
+
+- `basic45 --compile` builds the program, compiles its tokenized lines to
+  cc45's IR (`src/main/BasicCompiler.cpp`), then cc45's IR passes (`-O<n>`)
+  and code generator, ca45 and `ln45 -basic` make a `.prg` started with RUN;
+  `--asm` keeps the assembly; a tokenized `.prg` compiles too.
+- The subset: assignments, PRINT, IF / THEN / ELSE / BEGIN / BEND, GOTO,
+  GOSUB / RETURN, ON, FOR / NEXT (BASIC's run-time stack: GOTO out of a loop,
+  RETURN inside one), POKE, END, STOP; floats, `%` integers, strings; the
+  arithmetic, comparison, logic and string operators; ABS INT SGN SQR SIN COS
+  TAN ATN LOG EXP PEEK LEN ASC CHR$ STR$ LEFT$ RIGHT$ MID$. The rest is an
+  error at its line.
+- The floats are the ROM's (the library's float runtime), PRINT and STR$
+  use FOUT, run-time errors print BASIC's messages: the output is the
+  interpreter's. Integer loops run about four times as fast; float
+  arithmetic not yet faster (the ROM through JSRFAR).
+- Run-time support: `lib/stdlib_asm/basic_rt.s45`, `lib/stdlib/basic_str.c`
+  (in `c45.lib`). `CodegenStage::setIRModule` takes a module built elsewhere.
+- Tests: `test_basic_compile_xemu.bas` (12 checks) interpreted and compiled
+  at `-O2` and `-O0`, a run-time error's exit status; `test_basic45.sh` 4.
+
 ### basic45 --convert: ON KEY, INKEY, BFLASH, SSHAPE / GSHAPE (#368)
 
 - Simons' BASIC: `ON KEY` / `DISABLE` / `RESUME` (a check at each line's

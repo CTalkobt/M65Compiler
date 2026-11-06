@@ -284,5 +284,29 @@ printf '\x01\x08\x10\x08\x0a\x00\x64\x01\x31\x2c\x30\x3a\x64\x22\x00\x00\x00' > 
 $B --convert=simons "$D/s.prg" -o "$D/s.bas" 2> "$D/s.err" && grep -q 'screen 320, 200, 4' "$D/s.bas" && grep -q 'DO has no BASIC 65 counterpart (a DO not after IF' "$D/s.err" &&
     pass "--convert=simons: a .prg read with Simons' tokens (\$64 xx; TSB's DO without IF ... THEN warned)" || fail "--convert=simons .prg: $(cat "$D/s.bas" "$D/s.err")"
 
+# --compile (#369): machine code (a SYS line, then the code); the assembly kept
+# with --asm; a statement outside the compiled subset an error at its line
+printf '10 a=1:print a;"x"\n20 goto 10\n' > "$D/c.bas"
+if $B --compile --asm "$D/c.s45" "$D/c.bas" -o "$D/c.prg" > "$D/c.log" 2>&1 &&
+   [ "$(xxd -p -l 2 "$D/c.prg")" = "0120" ] && grep -q 'jsr __bas_prn' "$D/c.s45" && grep -q 'jsr __bas_prs' "$D/c.s45" &&
+   [ "$(stat -c %s "$D/c.prg")" -gt 1000 ]; then
+    pass "--compile: a machine-code program (\$2001, SYS), --asm the generated assembly"
+else
+    fail "--compile: $(cat "$D/c.log")"
+fi
+printf '10 print 1\n20 input a\n' > "$D/cu.bas"
+if ! $B --compile "$D/cu.bas" -o "$D/cu.prg" > "$D/cu.log" 2>&1 && grep -q 'cu.bas:2:1: (line 20): error: INPUT is not supported by --compile yet' "$D/cu.log"; then
+    pass "--compile: a statement outside the subset (INPUT) is an error at its line"
+else
+    fail "--compile INPUT: $(cat "$D/cu.log")"
+fi
+printf '10 goto 30\n' > "$D/cg.bas"
+! $B --compile "$D/cg.bas" -o "$D/cg.prg" > "$D/cg.log" 2>&1 && grep -q 'line 30 does not exist' "$D/cg.log" &&
+    pass "--compile: GOTO to a missing line is an error" || fail "--compile GOTO 30: $(cat "$D/cg.log")"
+# a tokenized .prg compiles too
+$B "$D/c.bas" -o "$D/ct.prg" >/dev/null 2>&1
+$B --compile "$D/ct.prg" -o "$D/ct2.prg" > "$D/ct.log" 2>&1 && cmp -s "$D/ct2.prg" "$D/c.prg" &&
+    pass "--compile: a tokenized .prg in, the same machine code out" || fail "--compile .prg: $(cat "$D/ct.log")"
+
 echo "basic45 tests: $passed passed, $failed failed"
 [ $failed -eq 0 ]
