@@ -131,6 +131,12 @@ conv '10 PLAY "C"'
 grep -q '^  gosub l[0-9]* : tempo 8$' "$D/c7.bas" &&
     pass "--convert=basic7: BASIC 7.0's default tempo set first when the program plays and sets none" ||
     fail "--convert default tempo: $(cat "$D/c7.bas")"
+conv '10 GRAPHIC 1:SSHAPE A$,10,10,25,13:GSHAPE A$,100,100,4:SSHAPE A$,0,0,99,99:LOCATE 5,5:GSHAPE A$'
+grep -q 'gcopy 10, 10, 16, 4 : paste 100, 100 : gcopy 0, 0, 100, 100 : zx = 5 : zy = 5 : paste zx, zy' "$D/c7.bas" &&
+grep -q 'GSHAPE mode 4' "$D/c7.err" && grep -q 'SSHAPE of 100 x 100 pixels' "$D/c7.err" &&
+conv '10 SSHAPE A$,1,1,5,5:SSHAPE B$,1,1,5,5' && grep -q 'SSHAPE has no BASIC 65 counterpart (several shapes' "$D/c7.err" &&
+    pass "--convert=basic7: SSHAPE -> GCOPY, GSHAPE -> PASTE (one shape; a mode, a large area and several shapes warned)" ||
+    fail "--convert SSHAPE: $(cat "$D/c7.bas" "$D/c7.err")"
 conv '10 SLOW:A=PEN(1):B=RCLR(4):C=RGR(0)' '20 DRAW 1,0,0 TO 9,9:FETCH 1,2,3,4:PLAY A$' '30 IF A THEN 10'
 grep -q 'speed 1 : a = lpen(1) : b = (rcolor(3) + 1) : c = [a-z][a-z0-9]$' "$D/c7.bas" && grep -q '^l10:' "$D/c7.bas" &&
 grep -q 'then l10' "$D/c7.bas" && ! grep -q 'RGR' "$D/c7.err" &&
@@ -199,6 +205,21 @@ $B --convert=basic35 "$D/p4.prg" -o "$D/p4.bas" 2> "$D/p4.err" && grep -q 'a = r
 
 # --convert=simons: Simons' BASIC (C64)
 convs() { printf '%s\n' "$@" > "$D/cs.txt"; $B --convert=simons "$D/cs.txt" -o "$D/cs.bas" 2> "$D/cs.err"; }
+convs '10 ON KEY "AB",: GOTO 50' '20 A=INKEY:IF ST THEN 20' '50 DISABLE:PRINT "K":RESUME' '60 RESUME NEXT'
+grep -q '^  on sgn(\(..\)) gosub l[0-9]* : \(..\)\$ = "ab" : \1 = 1 : \(..\) = 1$' "$D/cs.bas" &&
+grep -q '^l50: on sgn(\(..\)) gosub l[0-9]* : \1 = 0 : print "k" : \1 = .. : return$' "$D/cs.bas" &&
+grep -q 'resume next$' "$D/cs.bas" && grep -q 'gosub l[0-9]* : a = .. : if st then' "$D/cs.bas" &&
+grep -q '= peek(54809) : if .. = 255 or .. = 0 then return' "$D/cs.bas" && grep -q 'poke 54809, 0 : on .. goto l[0-9]*' "$D/cs.bas" &&
+grep -q 'poke 54804, 0 : .. = 255 - peek(54803)' "$D/cs.bas" && grep -q 'ON KEY: the key is in .. (PETSCII), not in ST' "$D/cs.err" &&
+! grep -q 'INKEY\|DISABLE\|RESUME' "$D/cs.err" &&
+    pass "--convert=simons: ON KEY (the key queue checked at each line's start), DISABLE, RESUME (RESUME NEXT kept), INKEY (the keyboard matrix)" ||
+    fail "--convert=simons ON KEY / INKEY: $(cat "$D/cs.bas" "$D/cs.err")"
+convs '10 BFLASH 5,2,7:BFLASH 0:BFLASH S,1,18' '20 BFLASH OFF:BFLASH ON' '30 IF TI>5 THEN 10' '40 RCOMP PRINT'
+grep -q 'poke 5729, 5 : poke 5730, 2 : poke 5731, 7 : poke 5728, 1 : gosub \(l[0-9]*\) : gosub \(l[0-9]*\) : poke 5729, s : poke 5730, 1 : poke 5731, 2 : poke 5728, 1 : on -((s) <> 0) + 1 gosub \2, \1$' "$D/cs.bas" &&
+grep -q '^  gosub l[0-9]* : gosub l[0-9]*$' "$D/cs.bas" && grep -q 'then sys 5699$' "$D/cs.bas" && grep -q ': next : sys 5674 : return$' "$D/cs.bas" &&
+grep -q '= ((int(ti \* 60) > 5) <> 0) : if .. then l10' "$D/cs.bas" && ! grep -q 'BFLASH' "$D/cs.err" &&
+    pass "--convert=simons: BFLASH (an IRQ routine at \$1600 counting frames; 0 / OFF remove it, ON), RCOMP's saved condition converted (TI)" ||
+    fail "--convert=simons BFLASH: $(cat "$D/cs.bas" "$D/cs.err")"
 convs '10 EXEC SUB:CALL SUB' '20 REPEAT:A=A+1:UNTIL A>3:LOOP:B=B+1:EXIT IF B=5:C=1:END LOOP' '30 END' '40 PROC SUB' '50 TRACE 10:RETRACE:END PROC'
 grep -q '^  gosub proc_sub : goto proc_sub$' "$D/cs.bas" && grep -q '^proc_sub:' "$D/cs.bas" &&
 grep -q ': do : a = a + 1 : loop until a > 3 : do : b = b + 1 : if b = 5 then exit$' "$D/cs.bas" && grep -q '^  c = 1 : loop$' "$D/cs.bas" &&

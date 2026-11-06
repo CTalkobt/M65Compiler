@@ -393,7 +393,8 @@ differs — checked against BASIC 65's own source and the C128 System Guide, the
 | `RGR(n)` | the `GRAPHIC` mode | `RGRAPHIC(screen, parameter)`: a screen's settings | the mode each `GRAPHIC` sets, kept in a variable |
 | `SCALE n [, xmax, ymax]` | coordinates 0–`xmax` / 0–`ymax` (default 1023) across the bit map | the screen's pixels | the drawing statements' coordinates (and radii) times two factors `SCALE` sets (320 or, in multicolour, 160 / (xmax + 1); 200 / (ymax + 1); 1 after `SCALE 0`) |
 | `POKE 53265, v` (`$D011`) | bit 7 written: the raster compare's bit 8 (read, the raster line's; the C128's KERNAL runs on its own raster IRQ, the C64's on a CIA timer) | the KERNAL's IRQ is the raster IRQ at line 255: a compare of 256 or more (a `PEEK(53265)` written back while the raster is past line 255) is a line that never comes, and every IRQ stops — `PLAY`, `TI`'s clock, the keyboard | `POKE 53265, (v) and 127` (a number: its value and 127); the conversion's own `$D011` writes too |
-| No counterpart | `SSHAPE`/`GSHAPE`, `WIDTH` (BASIC 65's `DMODE` thickness is not implemented), `PUDEF`, `SPRDEF`, `QUIT` | | left as written, warned |
+| `SSHAPE a$, x1, y1 [, x2, y2]` / `GSHAPE a$ [, x, y] [, mode]` | an area saved in a string / drawn back (mode 0 as it is, 1 inverted, 2 OR, 3 AND, 4 XOR) | `GCOPY x, y, width, height` / `PASTE x, y`: one buffer, under 1024 pixels on a 16-colour screen (`?ILLEGAL QUANTITY`) | when the program keeps one shape (one string): `GCOPY` / `PASTE` (the pixel cursor for an omitted corner or place); a mode other than 0, an area known to be too large, several shapes warned |
+| No counterpart | `WIDTH` (BASIC 65's `DMODE` thickness is not implemented), `PUDEF`, `SPRDEF`, `QUIT` | | left as written, warned |
 | Other arguments | `BANK`, `WINDOW`, `RWINDOW(0/1)`, `MOVSPR n, distance;angle`, `PLAY` of a string variable | | warned |
 
 The conversion keeps a little state where BASIC 7.0 has some and BASIC 65 has not, in names the program does not use
@@ -406,7 +407,7 @@ addresses, the VDC 80-column screen's registers, the MMU).
 
 Tests: `src/test/test_basic45.sh` (the rules), `src/test-resources/test_convert7_xemu.txt` (a C128 listing converted
 and run by BASIC 65 on xemu: its music timed in frames, the variables, `TI`, the graphics statements, sprite and colour
-numbers, the 40 columns, `$D011` written past raster line 255 with the IRQs still running).
+numbers, the 40 columns, `$D011` written past raster line 255 with the IRQs still running, `SSHAPE`/`GSHAPE`).
 
 ### BASIC 3.5 (`--convert=basic35`)
 
@@ -482,7 +483,10 @@ statements and converted by its rules (above): a plot type is a colour source.
 | `SCRSV` / `SCRLD f, dev, 2, name$` | `OPEN` and a loop of `PRINT#` / `GET#`: TSB's file (a load address, then 1024 pairs: the colour, the screen code) |
 | `COLD`; `DISAPA`, `SECURE`, `OPTION`, `PAGE`, `DELAY` | `END` (warned: Simons' erases the program); dropped (LIST's settings) |
 | `FLASH colour [, speed]` / `OFF` | the VIC-III's blink attribute (colour RAM bit 4) set on the characters of that colour / cleared (warned: characters printed later do not flash, the speed is the MEGA65's) |
-| No counterpart (left as written, warned) | `BFLASH` (an interrupt's), `ON KEY`/`DISABLE`/`RESUME` (keys checked between statements), `INKEY` (the function key held), `CSET 2` (BASIC 65 closes the graphics screen), `SCRSV`/`SCRLD` of the bitmap, `OLD`, `DUMP`, `HRDCPY`, `COPY`, a `MUSIC` string that is not a literal |
+| `ON KEY "keys",: handler` / `DISABLE` / `RESUME` | a subroutine at each line's start (Simons' checks between statements): a key waiting in the queue (`$D619`, PETSCII) that the list holds is taken and the handler (the rest of the `ON KEY` line) run; keys not listed stay for the program's `GET`. `DISABLE` turns it off, `RESUME` returns and turns it on again (`RESUME NEXT` / `RESUME line`, TSB's after `ON ERROR`, are BASIC 65's). The key is in a variable, not `ST` (warned when the program reads `ST`) |
+| `INKEY` | a subroutine in front of the statement: the keyboard's matrix row 0 (`$D614`/`$D613`: F1, F3, F5, F7) and the shift and C= keys (`$D611`): 1-8, 9-16 with C=, 0 none |
+| `BFLASH n, c1, c2` / `0` (TSB: `OFF` / `ON`) | an IRQ routine at `$1600` (82 bytes; unused by BASIC 65's ROM, the DOS block buffer ends at `$15FF`) in front of the KERNAL's (`$0314`, changed by a `SYS` with interrupts off): the border between c1 and c2 every n frames (raster IRQs); `BFLASH 0` / `OFF` puts the KERNAL's back. It goes on after the program ends, as on the C64 |
+| No counterpart (left as written, warned) | `CSET 2` (BASIC 65 closes the graphics screen), `SCRSV`/`SCRLD` of the bitmap, `OLD`, `DUMP`, `HRDCPY`, `COPY`, a `MUSIC` string that is not a literal |
 
 **TSB and TSBneo.** TSB (Tuned Simons' BASIC) and TSBneo are supersets with forms of their own (checked against their
 sources). `--convert=simons` converts them; `--convert=tsbneo` also takes TSBneo's `AT(row, column)` (TSB's and Simons'
@@ -510,7 +514,8 @@ are `AT(column, row)`), its `COLOUR b` (the border; TSB's: the background) and i
 Tests: `src/test/test_basic45.sh`, `src/test-resources/test_simons_xemu.txt` (a Simons' listing run by BASIC 65 on
 xemu: procedures, loops, the functions, `ELSE` / `RCOMP`, `ON ERROR`, `CGOTO`, `PRINT AT` and `LIN`, the graphics by
 their pixels, `PAUSE` and `TI`, `COLOUR`, a sprite moved, the text-screen rectangles and scrolls, `DESIGN` of a character
-and of a sprite, `FLASH`, `DUP`, `LOCAL`/`GLOBAL`, `DETECT`/`CHECK`, `ROT`/`DRAW`, `CHAR`, `BCKGNDS`, `MUSIC` timed),
+and of a sprite, `FLASH`, `DUP`, `LOCAL`/`GLOBAL`, `DETECT`/`CHECK`, `ROT`/`DRAW`, `CHAR`, `BCKGNDS`, `MUSIC` timed, `INKEY` and
+`ON KEY` with keys held through `$D615`/`$D616`, `BFLASH` counted in frames),
 `src/test-resources/test_tsbneo_xemu.txt` (TSBneo's forms). TSB's example game (`REACTOR TSB`, from its `reactor_tsb.d64`,
 a TSBneo program) converts with `--convert=tsbneo` and builds; what is warned is what does not carry over (its machine
 code at `$7A00`, `D!PEEK` of the C64's zero page, `CSET 2`, `TEXT`'s spacing).

@@ -4,6 +4,23 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### basic45 --convert: ON KEY, INKEY, BFLASH, SSHAPE / GSHAPE (#368)
+
+- Simons' BASIC: `ON KEY` / `DISABLE` / `RESUME` (a check at each line's
+  start peeks the key queue, `$D619`: listed keys run the handler, others
+  stay for the program's `GET`; TSB's `RESUME NEXT` / `RESUME line` kept),
+  `INKEY` (the keyboard matrix and the shift / C= keys: the F-key held),
+  `BFLASH` (an 82-byte IRQ routine at `$1600` before the KERNAL's, counting
+  raster IRQs; `BFLASH 0` / `OFF` restores the vector; TSB's `ON`).
+- BASIC 7.0: `SSHAPE` / `GSHAPE` → `GCOPY` / `PASTE` when the program keeps
+  one shape (BASIC 65 has one buffer, under 1024 pixels at 16 colours); a
+  paste mode, an area known to be too large and several shapes warned.
+- Fixed: in a program using `RCOMP`, each `IF`'s condition was saved as
+  text, so BASIC 7.0's rules (`TI` in 1/60 s, …) did not reach it.
+- Tests: `test_simons_xemu.txt` 27 checks (keys held through
+  `$D615`/`$D616`, the border counted per frame), `test_convert7_xemu.txt`
+  15.
+
 ### basic45 --convert: fewer warnings, TSB and TSBneo (#368)
 
 - Warnings: a message once, with the lines it applies to.
