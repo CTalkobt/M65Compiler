@@ -217,6 +217,7 @@ PETSCII ranges (default upper/lower-case character set): digits `$30`–`$39`; l
 - `abs`/`labs` as in `stdlib.h`.
 
 **Floating point** (CBM 40-bit; `double` is the same type)
+- `+ - * /` and comparisons: `float_rom.s45`'s `__float_add` … `__float_cmp` (the ROM's routines), or with cc45 `-ffast-float` / `-Ospeed` (basic45 `--compile --speed`) `stdlib_asm/float_fast.s45`'s `__ffast_add` … `__ffast_cmp`: in RAM, about twice as fast, the results of the ROM with its rounding fixed (correctly rounded products and quotients; the hardware multiplier and divider), see cc45's `-ffast-float`.
 - ROM-backed (BASIC 65 routines through `float_rom.s45`, which switches to base page 0 for each call): `sinf`, `cosf`, `tanf`, `atanf`, `logf`, `expf`, `sqrtf`, `fabsf`.
 - Written in C: `powf`, `fmodf`, `ceilf`, `floorf`, `roundf` (ties away from zero), `truncf`, `atan2f`, `log10f`, `log2f`, `ldexpf`, `frexpf`, `modff`, `copysignf`, `fmaxf`, `fminf`, `fdimf`. `ldexpf` and `frexpf` change the exponent byte, so they are exact (`ldexpf` beyond the float range gives ±largest float or 0 with `errno = ERANGE`); `log2f` is exact for powers of two.
 - The standard names (`sin`, `cos`, `tan`, `atan`, `atan2`, `log`, `log10`, `log2`, `exp`, `pow`, `sqrt`, `fabs`, `fmod`, `ceil`, `floor`, `round`, `trunc`, `ldexp`, `frexp`, `modf`, `copysign`, `fmax`, `fmin`, `fdim`) are macros for the `f` versions; the library also defines them as functions (`math_double.c`) for code that declares them itself, together with `signbit`/`signbitf`.

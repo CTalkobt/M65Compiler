@@ -480,6 +480,7 @@ int main(int argc, char** argv) {
     }
 
     std::vector<std::string> requestedOpts;  // catalog optimizations named by -f flags
+    bool ospeedFastFloat = false;            // -Ospeed: -ffast-float unless chosen
     // Parse all arguments
     for (size_t i = 0; i < allArgs.size(); ++i) {
         std::string arg = allArgs[i];
@@ -521,6 +522,8 @@ int main(int argc, char** argv) {
                 std::cout << "  -fzp-plan=FILE     The blocks' variables as ln45 --zp-plan-out chose them program-wide" << std::endl;
                 std::cout << "  -fmul-call     Multiplies as calls of the library's __mul16/__mul32 (smaller," << std::endl;
                 std::cout << "                 slower; -Os = -O2 -fmul-call)" << std::endl;
+                std::cout << "  -ffast-float   Float + - * / and comparisons by RAM routines, not the ROM's" << std::endl;
+                std::cout << "                 (faster; -Ospeed = -O3 -ffast-float)" << std::endl;
                 std::cout << "  -finline-functions  Inline small functions" << std::endl;
                 std::cout << "  -fmax-inline-ir-size=N  Max IR instructions for an inlined function (default 11)" << std::endl;
                 std::cout << "  -fmax-unroll-bytes=N    Max estimated code bytes of an unrolled loop (default 128)" << std::endl;
@@ -605,6 +608,11 @@ int main(int argc, char** argv) {
         } else if (arg == "-fmul-call") {
             // multiplies as calls of __mul16 / __mul32 (smaller, slower)
             setenv("CC45_MUL_CALL", "1", 1);
+        } else if (arg == "-ffast-float") {
+            // + - * / and comparisons of floats by the RAM routines (float_fast.s45)
+            config.fastFloat = 1;
+        } else if (arg == "-fno-fast-float") {
+            config.fastFloat = 0;
         } else if (arg == "-fno-mul-call") {
             // (inline everywhere; without either, calls outside loops)
             setenv("CC45_MUL_CALL", "0", 1);
@@ -671,7 +679,9 @@ int main(int argc, char** argv) {
                 setenv("CC45_MUL_CALL", "1", 1);
                 config.optOverrides.emplace("LoopRotation", false);
             } else if (levelStr == "speed") {
+                // -Ospeed: -O3 and -ffast-float (unless -fno-fast-float)
                 config.optimizationLevel = 3;
+                ospeedFastFloat = true;
             } else {
                 config.optimizationLevel = 0;
             }
@@ -706,6 +716,8 @@ int main(int argc, char** argv) {
             config.inputFile = arg;
         }
     }
+
+    if (ospeedFastFloat && config.fastFloat < 0) config.fastFloat = 1;
 
     // --future: a requested optimization that is not implemented (any order of
     // --future and the -f flags); -fno-<always on> cannot take effect

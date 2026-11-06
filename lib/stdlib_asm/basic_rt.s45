@@ -29,6 +29,7 @@ cc45.icallinfo = 1
 .extern __float_ltof
 .extern __float_cmp
 .extern __float_div
+.extern __ffast_div
 .extern __float_mul
 .extern __float_sqr
 .extern __float_log
@@ -250,6 +251,17 @@ __bas_raise:
 ; ---------------------------------------------------------------------------
 ; Numbers
 ; ---------------------------------------------------------------------------
+
+; --speed: the same by the RAM routine (float_fast.s45)
+    .split "__bas_fdivx"
+.global __bas_fdivx
+__bas_fdivx:
+    lda __float_b
+    beq @zero
+    jmp __ffast_div
+@zero:
+    lda #20
+    jmp __bas_raise
 
 ; __float_a / __float_b, ?DIVISION BY ZERO when __float_b is 0
     .split "__bas_fdiv"

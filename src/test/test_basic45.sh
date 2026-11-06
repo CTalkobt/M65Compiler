@@ -309,6 +309,16 @@ if $B --compile -O2 --asm "$D/cn.s45" "$D/cn.bas" -o "$D/cn.prg" > "$D/cn.log" 2
 else
     fail "--compile narrowing: $(grep 'jsr __float' "$D/cn.s45" | tr '\n' ' ') $(cat "$D/cn.log")"
 fi
+# --speed: -O3 and the RAM float routines (__ffast_*); without it the ROM's
+printf '10 a=1.5:b=a*a/3+a:if a<b then print b\n' > "$D/cs.bas"
+if $B --compile --speed --asm "$D/cs.s45" "$D/cs.bas" -o "$D/cs.prg" > "$D/cs.log" 2>&1 &&
+   grep -q 'jsr __ffast_mul' "$D/cs.s45" && grep -q 'jsr __ffast_add' "$D/cs.s45" && grep -q 'jsr __ffast_cmp' "$D/cs.s45" &&
+   grep -q '__bas_fdivx' "$D/cs.s45" &&
+   $B --compile --asm "$D/cs2.s45" "$D/cs.bas" -o "$D/cs2.prg" > "$D/cs2.log" 2>&1 && ! grep -q '__ffast' "$D/cs2.s45"; then
+    pass "--compile --speed: the RAM float routines (without --speed the ROM's)"
+else
+    fail "--compile --speed: $(cat "$D/cs.log" "$D/cs2.log")"
+fi
 printf '10 goto 30\n' > "$D/cg.bas"
 ! $B --compile "$D/cg.bas" -o "$D/cg.prg" > "$D/cg.log" 2>&1 && grep -q 'line 30 does not exist' "$D/cg.log" &&
     pass "--compile: GOTO to a missing line is an error" || fail "--compile GOTO 30: $(cat "$D/cg.log")"

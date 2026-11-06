@@ -334,6 +334,15 @@ xemu_case "FAIL: test_stdio_xemu.c (compilation/linking failed)" "src/test-resou
 # Test 14: test_float_xemu.c (float arithmetic)
 echo "Testing test_float_xemu.c (float arithmetic)..."
 xemu_case "FAIL: test_float_xemu.c (compilation/linking failed)" "src/test-resources/test_float_xemu.c" "build/test/test_float_xemu.prg" -- "test_float" "build/test/test_float_xemu.prg" "C090" 10 "01 02 03 04 05 06 07 08 09 AA"
+xemu_case "FAIL: test_float_xemu.c -ffast-float (compilation/linking failed)" "src/test-resources/test_float_xemu.c" "build/test/test_float_fastf_xemu.prg" "-ffast-float" -- "test_float_fastf" "build/test/test_float_fastf_xemu.prg" "C090" 10 "01 02 03 04 05 06 07 08 09 AA"
+
+# Test: the RAM float routines (-ffast-float, float_fast.s45) bit for bit:
+# + - * / and comparisons, rounding, saturation; both conventions
+for ffmode in "zp|-ffast-float" "stack|-ffast-float -fno-zpcall"; do
+    IFS='|' read -r ffname ffflags <<< "$ffmode"
+    echo "Testing test_float_fast_xemu.c ($ffname)..."
+    xemu_case "FAIL: test_float_fast_xemu.c $ffname (compilation/linking failed)" "src/test-resources/test_float_fast_xemu.c" "build/test/test_float_fast_${ffname}_xemu.prg" "$ffflags" -- "test_float_fast_$ffname" "build/test/test_float_fast_${ffname}_xemu.prg" "C0C0" 7 "01 01 01 01 01 01 AA"
+done
 
 # Test: signed comparisons where the operands have different signs
 echo "Testing test_signed_compare_xemu.c (signed compare)..."
@@ -368,6 +377,7 @@ xemu_case "FAIL: test_sret_xemu.c (compilation/linking failed)" "src/test-resour
 # Test: float arguments/results, negative values, ROM math functions
 echo "Testing test_float_func_xemu.c (float functions)..."
 xemu_case "FAIL: test_float_func_xemu.c (compilation/linking failed)" "src/test-resources/test_float_func_xemu.c" "build/test/test_float_func_xemu.prg" -- "test_float_func" "build/test/test_float_func_xemu.prg" "C0C0" 16 "0F 01 01 01 06 07 04 00 0A 1B 03 20 3A 0F F9 AA"
+xemu_case "FAIL: test_float_func_xemu.c -ffast-float (compilation/linking failed)" "src/test-resources/test_float_func_xemu.c" "build/test/test_float_func_fastf_xemu.prg" "-ffast-float" -- "test_float_func_fastf" "build/test/test_float_func_fastf_xemu.prg" "C0C0" 16 "0F 01 01 01 06 07 04 00 0A 1B 03 20 3A 0F F9 AA"
 
 # Test: 16-bit CPU stack (default) and the 8-bit page-1 stack (-fno-stack16),
 # stack and ZP conventions: deep recursion with IRQs, alloca, setjmp, ROM calls
@@ -684,17 +694,19 @@ else
     failed=$((failed + 1))
 fi
 # basic45 --compile (#369): the program interpreted by BASIC 65 and compiled
-# (-O2, -O0) gives the same results: arithmetic, % variables, functions,
+# (-O2, -O0, --speed: the RAM float routines) gives the same results: arithmetic, % variables, functions,
 # strings, FOR / NEXT (out of a loop, RETURN in one), ON, IF / ELSE / BEGIN,
 # GOSUB, PRINT's layout on the screen, STR$ of numbers
 echo "Testing test_basic_compile_xemu.bas (basic45 --compile)..."
 BC_EXP="01 01 01 01 01 01 01 01 01 01 01 01 01 AA"
 if ./bin/basic45 src/test-resources/test_basic_compile_xemu.bas -o build/test/test_basic_compile_i.prg >/dev/null 2>&1 &&
    ./bin/basic45 --compile src/test-resources/test_basic_compile_xemu.bas -o build/test/test_basic_compile.prg >/dev/null 2>&1 &&
-   ./bin/basic45 --compile -O0 src/test-resources/test_basic_compile_xemu.bas -o build/test/test_basic_compile_O0.prg >/dev/null 2>&1; then
+   ./bin/basic45 --compile -O0 src/test-resources/test_basic_compile_xemu.bas -o build/test/test_basic_compile_O0.prg >/dev/null 2>&1 &&
+   ./bin/basic45 --compile --speed src/test-resources/test_basic_compile_xemu.bas -o build/test/test_basic_compile_speed.prg >/dev/null 2>&1; then
     run_xemu_test "test_basic_compile_interpreted" "build/test/test_basic_compile_i.prg" "C0C0" 14 "$BC_EXP"
     run_xemu_test "test_basic_compile" "build/test/test_basic_compile.prg" "C0C0" 14 "$BC_EXP"
     run_xemu_test "test_basic_compile_O0" "build/test/test_basic_compile_O0.prg" "C0C0" 14 "$BC_EXP"
+    run_xemu_test "test_basic_compile_speed" "build/test/test_basic_compile_speed.prg" "C0C0" 14 "$BC_EXP"
 else
     echo "FAIL: test_basic_compile_xemu.bas (basic45 or basic45 --compile failed)"
     failed=$((failed + 1))
@@ -966,7 +978,7 @@ xemu_case "FAIL: examples/c/forth stack/no-SAC (compilation/linking failed)" "ex
 
 # Test: <float.h> constants (exact bytes, epsilon, underflow), complex * and
 # / of two complex values, __real__/__imag__, operators on temporaries
-for flmode in "stack|-fno-zpcall" "zp|"; do
+for flmode in "stack|-fno-zpcall" "zp|" "fast|-ffast-float"; do
     IFS='|' read -r flname flflags <<< "$flmode"
     echo "Testing test_float_limits_xemu.c ($flname)..."
     xemu_case "FAIL: test_float_limits_xemu.c $flname (compilation/linking failed)" "src/test-resources/test_float_limits_xemu.c" "build/test/test_float_limits_${flname}_xemu.prg" "$flflags" -- "test_float_limits_$flname" "build/test/test_float_limits_${flname}_xemu.prg" "C0C0" 7 "01 01 01 01 01 01 AA"
@@ -2453,7 +2465,7 @@ done
 
 # Test: float <-> integer conversions, -0.0, floor/ceil/trunc, float ternary,
 # float global initializers, va_arg after a double parameter
-for fcmode in "zp|" "stack|-fno-zpcall"; do
+for fcmode in "zp|" "stack|-fno-zpcall" "fast|-ffast-float"; do
     IFS='|' read -r fcname fcflags <<< "$fcmode"
     echo "Testing test_float_conv_xemu.c ($fcname)..."
     xemu_case "FAIL: test_float_conv_xemu.c $fcname (compilation/linking failed)" "src/test-resources/test_float_conv_xemu.c" "build/test/test_float_conv_${fcname}_xemu.prg" "$fcflags" -- "test_float_conv_$fcname" "build/test/test_float_conv_${fcname}_xemu.prg" "C0C0" 9 "01 01 01 01 01 01 01 01 AA"
@@ -3249,7 +3261,7 @@ done
 
 # Test: float overflow saturation, float literals, function-pointer argument
 # conversion, byte-indexed access to a float's bytes
-for frmode in "zp|" "stack|-fno-zpcall"; do
+for frmode in "zp|" "stack|-fno-zpcall" "fast|-ffast-float"; do
     IFS='|' read -r frname frflags <<< "$frmode"
     echo "Testing test_float_range_xemu.c ($frname)..."
     xemu_case "FAIL: test_float_range_xemu.c $frname (compilation/linking failed)" "src/test-resources/test_float_range_xemu.c" "build/test/test_float_range_${frname}_xemu.prg" "$frflags" -- "test_float_range_$frname" "build/test/test_float_range_${frname}_xemu.prg" "C0C0" 9 "01 01 01 01 01 01 01 01 AA"

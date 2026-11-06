@@ -233,8 +233,9 @@ struct ForInfo {
 
 class Compiler {
 public:
-    Compiler(const std::vector<Line>& lines, const std::string& source, const NarrowMap& narrow, bool final)
-        : lines_(lines), source_(source), narrow_(narrow), final_(final) {}
+    Compiler(const std::vector<Line>& lines, const std::string& source, const NarrowMap& narrow, bool final,
+             bool speed)
+        : lines_(lines), source_(source), narrow_(narrow), final_(final), speed_(speed) {}
 
     std::shared_ptr<ir::Module> run();
     std::vector<std::pair<int, std::string>> errors;
@@ -246,6 +247,7 @@ private:
     std::string source_;
     const NarrowMap& narrow_;
     bool final_;
+    bool speed_;        // --speed: the RAM float routines
     std::shared_ptr<ir::Module> mod_;
     ir::Function* fn_ = nullptr;
     ir::Block* cur_ = nullptr;
@@ -796,7 +798,7 @@ private:
             auto fa = toF(x), fb = toF(y);
             store(ir::Type::F32, fa, global("__float_a"));
             store(ir::Type::F32, fb, global("__float_b"));
-            call("__bas_fdiv");
+            call(speed_ ? "__bas_fdivx" : "__bas_fdiv");
             r.op = load(ir::Type::F32, global("__float_a"));
             return r;
         }
@@ -1024,6 +1026,7 @@ void Compiler::prescan() {
 std::shared_ptr<ir::Module> Compiler::run() {
     mod_ = std::make_shared<ir::Module>();
     mod_->sourceFile = source_;
+    mod_->fastFloat = speed_;
     mod_->functions.push_back({});
     fn_ = &mod_->functions.back();
     fn_->name = "_main";
@@ -1514,7 +1517,7 @@ void Compiler::nextStmt() {
 
 }  // namespace
 
-BasicCompileResult compileBasicToIR(const std::vector<uint8_t>& prg, const std::string& sourceName) {
+BasicCompileResult compileBasicToIR(const std::vector<uint8_t>& prg, const std::string& sourceName, bool speed) {
     BasicCompileResult r;
     if (prg.size() < 4) { r.errors.push_back({0, "the program is empty"}); return r; }
     uint32_t load = prg[0] | (prg[1] << 8);
@@ -1548,7 +1551,7 @@ BasicCompileResult compileBasicToIR(const std::vector<uint8_t>& prg, const std::
     NarrowMap narrow;
     {
         // every float variable assumed a narrow 0 first
-        Compiler a(lines, sourceName, narrow, false);
+        Compiler a(lines, sourceName, narrow, false, speed);
         a.run();
         if (!a.errors.empty()) { r.errors = a.errors; return r; }
         for (const auto& [g, o] : a.obs) narrow[g] = 0;
@@ -1556,7 +1559,7 @@ BasicCompileResult compileBasicToIR(const std::vector<uint8_t>& prg, const std::
     std::map<std::string, int> grew;
     bool fixed = false;
     for (int round = 0; round < 200 && !fixed; round++) {
-        Compiler a(lines, sourceName, narrow, false);
+        Compiler a(lines, sourceName, narrow, false, speed);
         a.run();
         if (!a.errors.empty()) { r.errors = a.errors; return r; }
         fixed = true;
@@ -1574,7 +1577,7 @@ BasicCompileResult compileBasicToIR(const std::vector<uint8_t>& prg, const std::
     }
     // (no fixed point: all floats)
     if (!fixed) narrow.clear();
-    Compiler c(lines, sourceName, narrow, true);
+    Compiler c(lines, sourceName, narrow, true, speed);
     r.module = c.run();
     r.errors = c.errors;
     r.ok = r.errors.empty() && r.module;

@@ -461,7 +461,7 @@ Each catalog optimization has a level from which it is on
 | `-O2`, `-O3` (default `-O2`) | 2, 3 | IR passes and automatic inlining of small functions. Identical output |
 | `-O4` … `-O9` | 4–9 | Adds loop interchange and loop unrolling. Identical output for all of them (the catalog entries for higher levels are not implemented) |
 | `-Os`, `-Osize` | 2 | `-O2` with `-fmul-call` (multiplications as library calls) and `-fno-rotate-loops` (unless `-frotate-loops`) |
-| `-Ospeed` | 3 | Same as `-O2` |
+| `-Ospeed` | 3 | `-O3` and `-ffast-float` (float `+ - * /` and comparisons by the RAM routines of `float_fast.s45`, about twice as fast as the ROM's; `-fno-fast-float` keeps the ROM's) |
 | `-O` (no digit), any other `-O<text>` | 0 | **Same as `-O0`** (not `-O2`) |
 
 Only the first digit counts (`-O10` is `-O1`). The level is **not** passed on to

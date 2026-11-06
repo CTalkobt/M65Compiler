@@ -70,6 +70,7 @@ Without `-o` the output is the input name with its extension replaced by `.prg` 
 | `--compile` | Compile the program (the source, or a tokenized BASIC 65 `.prg`) to machine code: a `.prg` started with `RUN` ([Compiling](#compiling-compile)) |
 | `-O0` … `-O4` | `--compile`: cc45's optimization level (default `-O2`) |
 | `--asm <file>` | `--compile`: also write the generated ca45 assembly |
+| `--speed`, `-Ospeed` | `--compile`: `-O3` and float `+ - * /` and comparisons by the library's RAM routines (`float_fast.s45`) instead of the ROM's: faster, with the ROM's rounding fixes (see Compiling) |
 | `--convert=<dialect>` | Another BASIC's `.prg` or text listing as BASIC 65 basic45 source, with warnings for what needs a hand: `basic7` (C128 BASIC 7.0), `basic35` (C16 / Plus/4 BASIC 3.5), `simons` (C64 Simons' BASIC and TSB), `tsbneo` (TSBneo: `AT(row, column)`) ([Converting BASIC 7.0 Programs](#converting-basic-70-programs-convertbasic7)) |
 | `--ntsc`, `--pal` | With `--convert`: the source machine's video timing, for `TEMPO` and BASIC 3.5's `SOUND` (default `--pal`) |
 | `--data-loader` | The input is machine code (a `.prg`, or a binary with `--load-at`): write a BASIC program that POKEs it from `DATA` lines and SYSes it, a type-in listing ([DATA Loaders](#data-loaders-data-loader)); with `--hex`, `--checksum`, `--per-line <n>`, `--start <line>`, `--increment <n>`, `--no-sys`, `--load-at <addr>` |
@@ -365,23 +366,30 @@ The run-time support is `lib/stdlib_asm/basic_rt.s45` (PRINT, the errors, BASIC'
 - A float result too large gives the largest float, not `?OVERFLOW ERROR` (except for `EXP` and `^`).
 - `PEEK` of `$C000`-`$CFFF` reads RAM; the interpreter reads the ROM there.
 - An error cannot be caught (`TRAP` is not compiled yet).
+- With `--speed`, `+ - * /` and comparisons are the library's RAM routines (`lib/stdlib_asm/float_fast.s45`,
+  cc45's `-ffast-float`): their results are those of the BASIC 65 ROM with its float rounding fixed
+  (correctly rounded products and quotients). The ROM of release 920413 rounds some products, quotients and
+  sums differently in the last bit (`x * 1` is not always `x`), so the interpreter there can print a last
+  digit differently. The functions (`SIN`, `LOG`, `^`, …) are the ROM's in both.
 
 **Speed and size**, measured on xemu (frames of 1/50 s for 3000 iterations; `bench.bas`-style loops):
 
-| Loop | Interpreted | Compiled |
-|---|---|---|
-| `for i = 1 to 3000 : s = s + i * 2` (`s` a float, `i` narrowed) | 18 | 10 |
-| `n% = n% + 1 : c% = c% + (n% and 1)` (`i` narrowed) | 41 | 3 |
-| string `LEFT$` / `CHR$` / `+` (300 times) | 5 | 5 |
-| `gosub` / `x = x + 1` / `return` (300 times) | 2 | 1 |
+| Loop | Interpreted | Compiled | `--speed` |
+|---|---|---|---|
+| `for i = 1 to 3000 : s = s + i * 2` (`s` a float, `i` narrowed) | 18 | 10 | 8 |
+| `s = s * .999 + x / 3 - x * x` (floats only) | 35 | 28 | 24 |
+| `n% = n% + 1 : c% = c% + (n% and 1)` (`i` narrowed) | 41 | 3 | 3 |
+| string `LEFT$` / `CHR$` / `+` (300 times) | 5 | 5 | 5 |
+| `gosub` / `x = x + 1` / `return` (300 times) | 2 | 1 | 0 |
 
-Integer code is more than ten times as fast. Float arithmetic is not much faster: each operation calls the
-ROM through `JSRFAR` (and once more to round the result), which costs as much as the interpreter's own work. The
+Integer code is more than ten times as fast. Float arithmetic is not much faster: through the ROM each
+operation calls it with `JSRFAR` (and once more to round the result); the RAM routines of `--speed` take about
+half the time of that, but a float operation is still hundreds of cycles, as much as the interpreter's own. The
 compiled program is about ten times the size of the tokenized one (`test_basic_compile_xemu.bas`: 2 KB →
-20 KB). The next steps (#369): faster float routines,
+20 KB). The next steps (#369):
 arrays, `INPUT` / `GET`, `DO` / `LOOP`, `TI`, `RND`.
 
-`test_basic_compile_xemu.bas` is run interpreted and compiled (`-O2`, `-O0`) on xemu with the same results;
+`test_basic_compile_xemu.bas` is run interpreted and compiled (`-O2`, `-O0`, `--speed`) on xemu with the same results;
 `test_basic45.sh` checks the output, the errors and a `.prg` input.
 
 ## Formatting

@@ -22,8 +22,11 @@ struct BasicCompileResult {
     std::shared_ptr<ir::Module> module;
 };
 
-// prg: a tokenized BASIC 65 program (its load address first)
-BasicCompileResult compileBasicToIR(const std::vector<uint8_t>& prg, const std::string& sourceName);
+// prg: a tokenized BASIC 65 program (its load address first). speed
+// (--speed): + - * / and comparisons of floats by the RAM routines
+// (float_fast.s45), not the ROM's
+BasicCompileResult compileBasicToIR(const std::vector<uint8_t>& prg, const std::string& sourceName,
+                                    bool speed = false);
 
 // The module as ca45 assembly (relocatable: ca45 -c, then ln45 -basic with
 // c45.lib): cc45's IR passes at -O<optLevel>, then IRCodeGen. Throws on an
