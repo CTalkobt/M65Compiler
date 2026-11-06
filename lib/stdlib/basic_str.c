@@ -110,7 +110,8 @@ void _bas_str(void) {
 }
 
 /* BASIC's stack: a GOSUB's return address (256 and up), a FOR loop's number
- * (1..255); __bas_forvar[n]: loop n's variable (basic45 makes it) */
+ * (1..255), a DO loop's entry (its DO's address, then 0); __bas_forvar[n]:
+ * loop n's variable (basic45 makes it) */
 unsigned int _bas_stk[128];
 unsigned char _bas_sp;
 extern unsigned char _bas_forvar[];
@@ -123,7 +124,7 @@ void _bas_forpush(void) {
     unsigned char i = _bas_sp;
     while (i) {
         unsigned int e = _bas_stk[i - 1];
-        if (e >= 256) break;
+        if (e >= 256 || e == 0) break;    /* (a GOSUB's or a DO's: the search ends) */
         if (_bas_forvar[e] == v) { _bas_sp = i - 1; break; }
         i--;
     }
@@ -186,4 +187,27 @@ void _bas_aref(void) {
         off = off * dims[k] + _bas_sub[k];
     }
     _bas_sr = a + 1 + 2 * n + off * esize;
+}
+
+/* DO: its entry (the DO's address __bas_n, then 0) */
+void _bas_dopush(void) {
+    if (_bas_sp >= 127) raise(16);
+    _bas_stk[_bas_sp++] = (unsigned int)_bas_n;
+    _bas_stk[_bas_sp++] = 0;
+}
+
+/* LOOP / EXIT: the topmost DO entry popped, with the FOR and GOSUB entries
+ * above it (as BASIC 65's search); __bas_n := its DO's address.
+ * ?LOOP WITHOUT DO without one. */
+void _bas_dopop(void) {
+    unsigned char i = _bas_sp;
+    while (i >= 2) {
+        if (_bas_stk[i - 1] == 0) {
+            _bas_n = (int)_bas_stk[i - 2];
+            _bas_sp = i - 2;
+            return;
+        }
+        i--;
+    }
+    raise(33);
 }

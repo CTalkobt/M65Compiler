@@ -44,6 +44,7 @@ PLOT        = $FFF0
 BJT_LOG     = $7F2A
 BJT_INT     = $7F2D
 BJT_FPWRT   = $7F39
+BJT_RND     = $7F57
 
 ; ---------------------------------------------------------------------------
 ; Output
@@ -251,6 +252,39 @@ __bas_raise:
 ; ---------------------------------------------------------------------------
 ; Numbers
 ; ---------------------------------------------------------------------------
+
+; RND(__float_a) by the ROM's (its seed is the interpreter's). The jump
+; table's entry is rnd_arg, which takes the argument's sign (SIGN: $FF, 0, 1)
+; in A and its flags (and SIGN's carry): JSRFAR's A ($06) and status ($05: N, Z, C)
+    .split "__bas_rnd"
+.global __bas_rnd
+__bas_rnd:
+    jsr __bp_rom
+    lda #<__float_a
+    ldx #>__float_a
+    jsr __float_load_fac
+    lda $05
+    and #%01111100          ; N, Z, C clear (C: SIGN's, its rol of the sign bit)
+    ldx __float_a
+    beq @zero
+    ldx #1
+    bit __float_a+1
+    bpl @set
+    ldx #$FF
+    ora #%10000001          ; N, C
+    bra @set
+@zero:
+    ora #%00000010          ; Z
+@set:
+    sta $05
+    stx $06
+    lda #<BJT_RND
+    ldx #>BJT_RND
+    jsr __jsrfar_basic
+    lda #<__float_a
+    ldx #>__float_a
+    jsr __float_store_fac
+    jmp __bp_prog
 
 ; --speed: the same by the RAM routine (float_fast.s45)
     .split "__bas_fdivx"
@@ -563,6 +597,8 @@ __bas_msgs:
     .text "return without gosub"
     .byte 0, 14
     .text "illegal quantity"
+    .byte 0, 13
+    .text "out of data"
     .byte 0, 15
     .text "overflow"
     .byte 0, 16
@@ -573,10 +609,16 @@ __bas_msgs:
     .text "redimensioned array"
     .byte 0, 20
     .text "division by zero"
+    .byte 0, 22
+    .text "type mismatch"
     .byte 0, 23
     .text "string too long"
     .byte 0, 30
     .text "break"
+    .byte 0, 32
+    .text "loop not found"
+    .byte 0, 33
+    .text "loop without do"
     .byte 0, 0
 __bas_errtxt:
     .text " error"
