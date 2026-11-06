@@ -392,6 +392,7 @@ differs — checked against BASIC 65's own source and the C128 System Guide, the
 | `PLAY` | one string, voices switched by `V`; waits (in the statement) for a busy voice; `U` 0–15; `M` waits for the measure; octave and length shared (whole notes by default) | a string per voice (`PLAY v1$, v2$, v3$`; no `V`); returns at once, the next `PLAY` restarts the voices; `U` one digit (0–9, a table); `M` modulation; octave and length per voice (quarter notes) | a literal string split by voice, with rests where BASIC 7.0 would hold a voice back, the octave and length written out per voice, `U` mapped to the table (`U15` → `u9`), `M` dropped (the rests do its work); a wait (a subroutine: `RPLAY(v)` and the voice's counter at `$125E` + 2 × (v − 1)) before each `PLAY` |
 | `RGR(n)` | the `GRAPHIC` mode | `RGRAPHIC(screen, parameter)`: a screen's settings | the mode each `GRAPHIC` sets, kept in a variable |
 | `SCALE n [, xmax, ymax]` | coordinates 0–`xmax` / 0–`ymax` (default 1023) across the bit map | the screen's pixels | the drawing statements' coordinates (and radii) times two factors `SCALE` sets (320 or, in multicolour, 160 / (xmax + 1); 200 / (ymax + 1); 1 after `SCALE 0`) |
+| `POKE 53265, v` (`$D011`) | bit 7 written: the raster compare's bit 8 (read, the raster line's; the C128's KERNAL runs on its own raster IRQ, the C64's on a CIA timer) | the KERNAL's IRQ is the raster IRQ at line 255: a compare of 256 or more (a `PEEK(53265)` written back while the raster is past line 255) is a line that never comes, and every IRQ stops — `PLAY`, `TI`'s clock, the keyboard | `POKE 53265, (v) and 127` (a number: its value and 127); the conversion's own `$D011` writes too |
 | No counterpart | `SSHAPE`/`GSHAPE`, `WIDTH` (BASIC 65's `DMODE` thickness is not implemented), `PUDEF`, `SPRDEF`, `QUIT` | | left as written, warned |
 | Other arguments | `BANK`, `WINDOW`, `RWINDOW(0/1)`, `MOVSPR n, distance;angle`, `PLAY` of a string variable | | warned |
 
@@ -405,7 +406,7 @@ addresses, the VDC 80-column screen's registers, the MMU).
 
 Tests: `src/test/test_basic45.sh` (the rules), `src/test-resources/test_convert7_xemu.txt` (a C128 listing converted
 and run by BASIC 65 on xemu: its music timed in frames, the variables, `TI`, the graphics statements, sprite and colour
-numbers, the 40 columns).
+numbers, the 40 columns, `$D011` written past raster line 255 with the IRQs still running).
 
 ### BASIC 3.5 (`--convert=basic35`)
 
