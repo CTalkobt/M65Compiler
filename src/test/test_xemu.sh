@@ -336,6 +336,13 @@ echo "Testing test_float_xemu.c (float arithmetic)..."
 xemu_case "FAIL: test_float_xemu.c (compilation/linking failed)" "src/test-resources/test_float_xemu.c" "build/test/test_float_xemu.prg" -- "test_float" "build/test/test_float_xemu.prg" "C090" 10 "01 02 03 04 05 06 07 08 09 AA"
 xemu_case "FAIL: test_float_xemu.c -ffast-float (compilation/linking failed)" "src/test-resources/test_float_xemu.c" "build/test/test_float_fastf_xemu.prg" "-ffast-float" -- "test_float_fastf" "build/test/test_float_fastf_xemu.prg" "C090" 10 "01 02 03 04 05 06 07 08 09 AA"
 
+# Test: floating constants without digits before or after the point (.5, 1.)
+for fqmode in "zp|" "stack|-fno-zpcall"; do
+    IFS='|' read -r fqname fqflags <<< "$fqmode"
+    echo "Testing test_float_literal_xemu.c ($fqname)..."
+    xemu_case "FAIL: test_float_literal_xemu.c $fqname (compilation/linking failed)" "src/test-resources/test_float_literal_xemu.c" "build/test/test_float_literal_${fqname}_xemu.prg" "$fqflags" -- "test_float_literal_$fqname" "build/test/test_float_literal_${fqname}_xemu.prg" "C0C0" 5 "01 01 01 01 AA"
+done
+
 # Test: the RAM float routines (-ffast-float, float_fast.s45) bit for bit:
 # + - * / and comparisons, rounding, saturation; both conventions
 for ffmode in "zp|-ffast-float" "stack|-ffast-float -fno-zpcall"; do

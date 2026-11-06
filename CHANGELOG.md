@@ -4,6 +4,13 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### cc45: floating constants without digits before or after the point
+
+- `.5`, `.5e1`, `.125f` (no digits before the point) were a syntax error
+  ("Expected expression"), and `1.`, `2.f`, `1.e2` (none after it) one too;
+  both are floating constants now (C11 6.4.4.2). `case 4...5` and member
+  access are unchanged. Test `test_float_literal_xemu.c`.
+
 ### basic45 --compile: arrays (#369)
 
 - `DIM` (sizes at run time, up to 8 subscripts) and elements of float, `%`

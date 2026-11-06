@@ -134,7 +134,8 @@ Token Lexer::nextToken() {
         return lexIdentifierOrKeyword();
     }
 
-    if (std::isdigit(c)) {
+    // a number, or a floating constant without digits before its point (.5, .5e3)
+    if (std::isdigit(c) || (c == '.' && std::isdigit((unsigned char)peekNext()))) {
         return lexNumber();
     }
 
@@ -405,8 +406,9 @@ Token Lexer::lexNumber() {
         while (std::isalpha(peek())) get(); // consume DD/DF/DL suffix
         return {TokenType::FLOAT_LITERAL, value, startLine, startCol, sourceFile};
     }
-    // Float literal: 0.0, 1.5f, 1.5e10, 1.5e-3, 2e5, etc.
-    if (peek() == '.' && pos + 1 < source.length() && std::isdigit(source[pos + 1])) {
+    // Float literal: 0.0, 1.5f, 1.5e10, 1.5e-3, 2e5, .5 (no digits before the
+    // point), 1. / 1.f / 1.e5 (none after it; not the ... of a case range)
+    if (peek() == '.' && !(pos + 1 < source.length() && source[pos + 1] == '.')) {
         value += get(); // consume '.'
         while (std::isdigit(peek())) value += get();
         // Optional exponent: e/E followed by optional sign and digits
