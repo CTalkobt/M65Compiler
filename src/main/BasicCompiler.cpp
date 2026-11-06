@@ -10,7 +10,8 @@
 // IF jumps, when false, to the statement after the line's next ELSE (or the
 // next line); THEN BEGIN to the matching BEND first (the ROM's IF).
 //
-// Values: floats (F32), integers known exactly (I32, a bound on their size:
+// Values: floats (F32), integers known exactly (I16 or I32 as a bound on
+// their size allows:
 // narrowed float variables (see compileBasicToIR),
 // % variables, whole literals, their + - *), the 0/1 results of comparisons,
 // strings (a pointer to a length byte and the characters), arrays (a pointer
@@ -206,7 +207,7 @@ enum class VK { F, I, B, S };
 
 struct Val {
     VK k = VK::F;
-    ir::Operand op;          // F: F32, I: I32, B: I8 (0/1), S: PTR
+    ir::Operand op;          // F: F32, I: I16 (|value| <= 32767, or a 16-bit source) or I32, B: I8 (0/1), S: PTR
     bool isConst = false;    // F / I: a constant (cval)
     double cval = 0;
     int64_t bound = 0;       // I: |value| <= bound
@@ -272,6 +273,13 @@ private:
     std::set<std::string> externs_;
     std::set<int> errBlocks_;
     std::set<int> stepBlocks_;                   // the FOR loops whose step block a NEXT uses
+    // __bas_line (the line an error names): stored where a line is entered
+    // (its start; a FOR's body, a GOSUB's return, a DO: reached from other
+    // lines) only for a line that can raise an error
+    std::vector<std::vector<size_t>> lineEntries_;   // line -> its entry blocks
+    std::vector<bool> lineRaises_;
+    void entry() { if (li_ < lineEntries_.size()) lineEntries_[li_].push_back(fn_->blocks.size() - 1); }
+    void raises() { if (li_ < lineRaises_.size()) lineRaises_[li_] = true; }
     void stepBlock(const ForInfo& f);
 
     [[noreturn]] void fail(const std::string& m) { throw CompileError(m); }
@@ -340,17 +348,25 @@ private:
         return d;
     }
     void call(const std::string& f) {
+        // the run time's routines that never raise an error
+        static const std::set<std::string> safe = {
+            "__bas_prs", "__bas_prn", "__bas_prcr", "__bas_prcomma", "__bas_prspc", "__bas_prtab", "__bas_scmp",
+            "__bas_left", "__bas_right", "__bas_chr", "__bas_str", "__bas_iline", "__bas_iitem", "__bas_get",
+            "__bas_ti", "__bas_tis", "__bas_restore", "__bas_rnd", "__bas_int", "__float_sin", "__float_cos",
+            "__float_tan", "__float_atn", "__float_abs"};
+        if (!safe.count(f)) raises();
         externs_.insert(f);
         fn_->originalCallees.insert(f);
         ir::Inst in; in.op = ir::Op::CALL_VOID; in.resultType = ir::Type::VOID;
         in.src1 = ir::Operand::global(f); in.callConv = ir::CallConv::ZP; emit(in);
     }
     // the error n (its block, shared: the line is in __bas_line)
-    std::string errLabel(int n) { errBlocks_.insert(n); return "Err" + std::to_string(n); }
+    std::string errLabel(int n) { raises(); errBlocks_.insert(n); return "Err" + std::to_string(n); }
     // the error n where the statement runs (a constant out of range: the
     // interpreter's error only when the line is run)
-    void raiseNow(int n) { br(errLabel(n)); block(newLabel("dead")); }
+    void raiseNow(int n) { raises(); br(errLabel(n)); block(newLabel("dead")); }
     void raiseIf(ir::Operand cond, int n) {
+        raises();
         std::string ok = newLabel("ok");
         brCond(cond, errLabel(n), ok);
         block(ok);
@@ -428,15 +444,13 @@ private:
             // a narrowed variable: a whole number within its bound
             int64_t b = narrow_.at(g);
             ir::Type t = narrowType(b);
-            auto x = load(t, ir::Operand::global(g));
             v.k = VK::I;
-            v.op = t == ir::Type::I32 ? x : sext(x, t);
+            v.op = load(t, ir::Operand::global(g));
             v.bound = b;
         } else if (k == VK::F) v.op = load(ir::Type::F32, ir::Operand::global(g));
         else if (k == VK::S) v.op = load(ir::Type::PTR, ir::Operand::global(g));
         else {
-            auto x = load(ir::Type::I16, ir::Operand::global(g));
-            v.op = sext(x, ir::Type::I16);
+            v.op = load(ir::Type::I16, ir::Operand::global(g));
             v.bound = 32768;
         }
         return v;
@@ -465,8 +479,8 @@ private:
             return iconst(ir::Type::I16, (int64_t)f);
         }
         if (v.k == VK::I) {
-            checkRange(v.op, 0, 65535);
-            return trunc(v.op, ir::Type::I16);
+            checkRange(v, 0, 65535);
+            return v.op.type == ir::Type::I16 ? v.op : trunc(v.op, ir::Type::I16);
         }
         if (v.k == VK::B) {
             raiseIf(v.op, 14);              // (-1)
@@ -511,16 +525,27 @@ private:
         return subs;
     }
     // The address of the element name(...) (the '(' next): PTR. One
-    // subscript: the element reached here when the array exists with one
-    // dimension and the index is in it; else (and for more) __bas_aref, which
-    // makes the array (11 elements a dimension) or raises the error
+    // subscript: __bas_ael1 (with --speed: here) reaches the element when the
+    // array exists with one dimension and the index is in it; else (and for
+    // more) __bas_aref, which makes the array (11 elements a dimension) or
+    // raises the error
     ir::Operand elemAddr(const std::string& name, VK& kind) {
         std::string g = arrayGlobal(name, kind);
         auto subs = subscripts();
         int es = elemSize(kind);
         int m = es | (kind == VK::S ? 0x40 : 0);
         auto r = vreg(ir::Type::PTR);
-        if (subs.size() == 1) {
+        if (subs.size() == 1 && !speed_) {
+            // (the reach of the fast path below in __bas_ael1: the code smaller)
+            store(ir::Type::I16, subs[0], global("__bas_n"));
+            store(ir::Type::I16, iconst(ir::Type::I16, m), global("__bas_m"));
+            store(ir::Type::PTR, addrGlobal(g), global("__bas_sa"));
+            externs_.insert("__bas_ael1");
+            fn_->originalCallees.insert("__bas_ael1");
+            raises();
+            ir::Inst in; in.op = ir::Op::CALL; in.dest = r; in.resultType = ir::Type::PTR;
+            in.src1 = ir::Operand::global("__bas_ael1"); in.callConv = ir::CallConv::ZP; emit(in);
+        } else if (subs.size() == 1) {
             std::string slow = newLabel("aslow"), c1 = newLabel("achk"), c2 = newLabel("achk"),
                         fast = newLabel("afast"), done = newLabel("adone");
             auto p = load(ir::Type::PTR, global(g));
@@ -551,7 +576,7 @@ private:
         Val v; v.k = k;
         if (k == VK::F) v.op = load(ir::Type::F32, a);
         else if (k == VK::S) v.op = load(ir::Type::PTR, a);
-        else { v.op = sext(load(ir::Type::I16, a), ir::Type::I16); v.bound = 32768; }
+        else { v.op = load(ir::Type::I16, a); v.bound = 32768; }
         return v;
     }
     void dimStmt() {
@@ -567,9 +592,9 @@ private:
         } while (acceptCh(','));
     }
 
-    ir::Operand sext(ir::Operand x, ir::Type from) {
-        auto d = vreg(ir::Type::I32);
-        ir::Inst in; in.op = ir::Op::SEXT; in.dest = d; in.src1 = x; in.resultType = ir::Type::I32;
+    ir::Operand sext(ir::Operand x, ir::Type from, ir::Type to = ir::Type::I32) {
+        auto d = vreg(to);
+        ir::Inst in; in.op = ir::Op::SEXT; in.dest = d; in.src1 = x; in.resultType = to;
         in.src1.type = from;
         emit(in);
         return d;
@@ -601,8 +626,17 @@ private:
         if (v.k == VK::B) return limit >= 1;
         return v.k == VK::I && (v.isConst ? std::fabs(v.cval) : (double)v.bound) <= (double)limit;
     }
-    // v (I / B) as an I32
-    ir::Operand asI32(const Val& v) { return v.k == VK::B ? toI16(v).op : v.op; }
+    // An integer's type: 16 bits when its bound allows (a 16-bit result of
+    // + - * NEG ABS needs |value| <= 32767), else 32
+    static ir::Type intType(int64_t bound) { return bound <= 32767 ? ir::Type::I16 : ir::Type::I32; }
+    // v (I / B) as an integer of type t (I16 / I32): widened, or cut when it fits
+    ir::Operand asType(const Val& v, ir::Type t) {
+        Val x = v.k == VK::B ? toI16(v) : v;
+        if (x.isConst) return iconst(t, (int64_t)x.cval);
+        if (x.op.type == t) return x.op;
+        if (t == ir::Type::I32) return sext(x.op, x.op.type, t);
+        return trunc(x.op, t);
+    }
     void storeNarrow(const std::string& g, const Val& v) {
         int64_t b = narrow_.at(g);
         if (!fitsNarrow(v, b)) {
@@ -610,14 +644,13 @@ private:
             return;
         }
         ir::Type t = narrowType(b);
-        auto x = asI32(v);
-        store(t, t == ir::Type::I32 ? x : trunc(x, t), ir::Operand::global(g));
+        store(t, asType(v, t), ir::Operand::global(g));
     }
 
     // --- conversions ---
     Val constI(int64_t v) {
         Val r; r.k = VK::I; r.isConst = true; r.cval = (double)v; r.bound = v < 0 ? -v : v;
-        r.op = iconst(ir::Type::I32, v);
+        r.op = iconst(v >= -32768 && v <= 32767 ? ir::Type::I16 : ir::Type::I32, v);
         return r;
     }
     ir::Operand toF(const Val& v) {
@@ -639,12 +672,12 @@ private:
         return load(ir::Type::I16, global("__bas_n"));
     }
     // An integer -32768..32767 (AND, OR, NOT, a % variable): BASIC's AYINT
-    // (rounded down, ?ILLEGAL QUANTITY outside it). I32
+    // (rounded down, ?ILLEGAL QUANTITY outside it). I16
     Val toI16(const Val& v) {
         if (v.k == VK::S) fail("a number expected, not a string (?TYPE MISMATCH)");
         if (v.k == VK::B) {
             Val r; r.k = VK::I; r.bound = 1;
-            r.op = sext(un(ir::Op::NEG, ir::Type::I8, v.op), ir::Type::I8);
+            r.op = sext(un(ir::Op::NEG, ir::Type::I8, v.op), ir::Type::I8, ir::Type::I16);
             return r;
         }
         if (v.k == VK::I) {
@@ -652,8 +685,9 @@ private:
                 if (v.cval < -32768 || v.cval > 32767) { raiseNow(14); return constI(0); }
                 return v;
             }
-            if (v.bound > 32767) checkRange(v.op, -32768, 32767);
+            checkRange(v, -32768, 32767);
             Val r = v; r.bound = std::min<int64_t>(v.bound, 32768);
+            if (r.op.type != ir::Type::I16) r.op = trunc(v.op, ir::Type::I16);
             return r;
         }
         if (v.isConst) {
@@ -662,12 +696,18 @@ private:
             return constI((int64_t)f);
         }
         Val r; r.k = VK::I; r.bound = 32768;
-        r.op = sext(viaN(v, "__bas_ayint"), ir::Type::I16);
+        r.op = viaN(v, "__bas_ayint");
         return r;
     }
-    void checkRange(ir::Operand x, int64_t lo, int64_t hi) {
-        raiseIf(bin(ir::Op::CMP_LT, ir::Type::I8, x, ir::Operand::imm(lo, ir::Type::I32)), 14);
-        raiseIf(bin(ir::Op::CMP_GT, ir::Type::I8, x, ir::Operand::imm(hi, ir::Type::I32)), 14);
+    // ?ILLEGAL QUANTITY outside lo..hi: only the limits the value's bound
+    // (and its type) can pass are checked
+    void checkRange(const Val& v, int64_t lo, int64_t hi) {
+        ir::Type t = v.op.type;
+        int64_t tmin = t == ir::Type::I16 ? -32768 : INT32_MIN, tmax = t == ir::Type::I16 ? 32767 : INT32_MAX;
+        if (-v.bound < lo && lo > tmin)
+            raiseIf(bin(ir::Op::CMP_LT, ir::Type::I8, v.op, ir::Operand::imm(lo, t)), 14);
+        if (v.bound > hi && hi < tmax)
+            raiseIf(bin(ir::Op::CMP_GT, ir::Type::I8, v.op, ir::Operand::imm(hi, t)), 14);
     }
     // A byte 0..255 (POKE's value, CHR$, TAB, SPC, ON): I8
     ir::Operand toByte(const Val& v) {
@@ -678,7 +718,7 @@ private:
             return iconst(ir::Type::I8, (int64_t)f);
         }
         if (v.k == VK::I) {
-            checkRange(v.op, 0, 255);
+            checkRange(v, 0, 255);
             return trunc(v.op, ir::Type::I8);
         }
         if (v.k == VK::B) {
@@ -697,7 +737,7 @@ private:
             return iconst(ir::Type::PTR, (int64_t)f);
         }
         if (v.k == VK::I) {
-            checkRange(v.op, 0, 65535);
+            checkRange(v, 0, 65535);
             return trunc(v.op, ir::Type::PTR);
         }
         store(ir::Type::F32, toF(v), global("__float_a"));
@@ -708,7 +748,7 @@ private:
     ir::Operand truth(const Val& v) {
         if (v.k == VK::S) fail("a number expected, not a string (?TYPE MISMATCH)");
         if (v.k == VK::B) return v.op;
-        if (v.k == VK::I) return bin(ir::Op::CMP_NE, ir::Type::I8, v.op, ir::Operand::imm(0, ir::Type::I32));
+        if (v.k == VK::I) return bin(ir::Op::CMP_NE, ir::Type::I8, v.op, ir::Operand::imm(0, v.op.type));
         auto c = bin(ir::Op::FCMP, ir::Type::I8, v.op, fconst(0));
         return bin(ir::Op::CMP_NE, ir::Type::I8, c, ir::Operand::imm(0, ir::Type::I8));
     }
@@ -790,7 +830,7 @@ private:
         }
         Val x = toI16(a), y = toI16(b);
         Val r; r.k = VK::I; r.bound = 32768;
-        r.op = bin(op, ir::Type::I32, x.op, y.op);
+        r.op = bin(op, ir::Type::I16, asType(x, ir::Type::I16), asType(y, ir::Type::I16));
         return r;
     }
     Val notExpr() {
@@ -802,7 +842,7 @@ private:
             }
             Val x = toI16(a);
             Val r; r.k = VK::I; r.bound = 32768;
-            r.op = bin(ir::Op::XOR, ir::Type::I32, x.op, ir::Operand::imm(-1, ir::Type::I32));
+            r.op = bin(ir::Op::XOR, ir::Type::I16, asType(x, ir::Type::I16), ir::Operand::imm(-1, ir::Type::I16));
             return r;
         }
         return relExpr();
@@ -836,8 +876,10 @@ private:
             return r;
         }
         if (a.k != VK::F && b.k != VK::F) {
-            ir::Operand x = a.k == VK::B ? toI16(a).op : a.op;
-            ir::Operand y = b.k == VK::B ? toI16(b).op : b.op;
+            // (in the wider of the two types)
+            Val xa = a.k == VK::B ? toI16(a) : a, ya = b.k == VK::B ? toI16(b) : b;
+            ir::Type t = xa.op.type == ir::Type::I32 || ya.op.type == ir::Type::I32 ? ir::Type::I32 : ir::Type::I16;
+            ir::Operand x = asType(xa, t), y = asType(ya, t);
             static const ir::Op ops[] = {ir::Op::NOP, ir::Op::CMP_LT, ir::Op::CMP_EQ, ir::Op::CMP_LE,
                                          ir::Op::CMP_GT, ir::Op::CMP_NE, ir::Op::CMP_GE};
             r.op = bin(ops[rel], ir::Type::I8, x, y);
@@ -888,7 +930,8 @@ private:
             if (a.k == VK::B) a = toI16(a);
             if (a.k == VK::I) {
                 if (a.isConst) return constI(-(int64_t)a.cval);
-                Val r = a; r.op = un(ir::Op::NEG, ir::Type::I32, a.op);
+                ir::Type t = intType(a.bound);      // (-(-32768) needs 32 bits)
+                Val r = a; r.op = un(ir::Op::NEG, t, asType(a, t));
                 return r;
             }
             Val r; r.k = VK::F;
@@ -928,7 +971,8 @@ private:
                     return constI(op == ir::Op::ADD ? u + v : op == ir::Op::SUB ? u - v : u * v);
                 }
                 Val r; r.k = VK::I; r.bound = bound;
-                r.op = bin(op, ir::Type::I32, x.op, y.op);
+                ir::Type t = intType(bound);
+                r.op = bin(op, t, asType(x, t), asType(y, t));
                 return r;
             }
         }
@@ -992,16 +1036,18 @@ private:
         case T_ABS: {
             Val a = parenExpr();
             if (a.k == VK::I && !a.isConst) {
-                // |x| without the float runtime
-                auto neg = bin(ir::Op::CMP_LT, ir::Type::I8, a.op, ir::Operand::imm(0, ir::Type::I32));
-                auto r = vreg(ir::Type::I32);
+                // |x| without the float runtime (|-32768| needs 32 bits)
+                ir::Type t = intType(a.bound);
+                auto x = asType(a, t);
+                auto neg = bin(ir::Op::CMP_LT, ir::Type::I8, x, ir::Operand::imm(0, t));
+                auto r = vreg(t);
                 std::string n = newLabel("absn"), d = newLabel("absd"), p = newLabel("absp");
                 brCond(neg, n, p);
                 block(n);
-                { ir::Inst in; in.op = ir::Op::NEG; in.dest = r; in.src1 = a.op; in.resultType = ir::Type::I32; emit(in); }
+                { ir::Inst in; in.op = ir::Op::NEG; in.dest = r; in.src1 = x; in.resultType = t; emit(in); }
                 br(d);
                 block(p);
-                { ir::Inst in; in.op = ir::Op::COPY; in.dest = r; in.src1 = a.op; in.resultType = ir::Type::I32; emit(in); }
+                { ir::Inst in; in.op = ir::Op::COPY; in.dest = r; in.src1 = x; in.resultType = t; emit(in); }
                 block(d);
                 Val v = a; v.op = r;
                 return v;
@@ -1026,20 +1072,20 @@ private:
             if (a.k == VK::S) fail("a number expected, not a string (?TYPE MISMATCH)");
             if (a.k == VK::F) c = bin(ir::Op::FCMP, ir::Type::I8, a.op, fconst(0));
             else {
-                // -1, 0, 1: (x > 0) - (x < 0)
-                Val x = toI16(a);
-                auto gt = bin(ir::Op::CMP_GT, ir::Type::I8, x.op, ir::Operand::imm(0, ir::Type::I32));
-                auto lt = bin(ir::Op::CMP_LT, ir::Type::I8, x.op, ir::Operand::imm(0, ir::Type::I32));
+                // -1, 0, 1: (x > 0) - (x < 0), in the value's own type
+                Val x = a.k == VK::B ? toI16(a) : a;
+                auto gt = bin(ir::Op::CMP_GT, ir::Type::I8, x.op, ir::Operand::imm(0, x.op.type));
+                auto lt = bin(ir::Op::CMP_LT, ir::Type::I8, x.op, ir::Operand::imm(0, x.op.type));
                 c = bin(ir::Op::SUB, ir::Type::I8, gt, lt);
             }
-            Val r; r.k = VK::I; r.bound = 1; r.op = sext(c, ir::Type::I8);
+            Val r; r.k = VK::I; r.bound = 1; r.op = sext(c, ir::Type::I8, ir::Type::I16);
             return r;
         }
         case T_PEEK: {
             Val a = parenExpr();
             auto addr = toAddr(a);
             auto b = load(ir::Type::I8, addr);
-            Val r; r.k = VK::I; r.bound = 255; r.op = zext(b, ir::Type::I8, ir::Type::I32);
+            Val r; r.k = VK::I; r.bound = 255; r.op = zext(b, ir::Type::I8, ir::Type::I16);
             return r;
         }
         case T_LEN: case T_ASC: {
@@ -1057,7 +1103,7 @@ private:
             }
             auto b = load(ir::Type::I8, p);
             freeVal(a);
-            Val r; r.k = VK::I; r.bound = 255; r.op = zext(b, ir::Type::I8, ir::Type::I32);
+            Val r; r.k = VK::I; r.bound = 255; r.op = zext(b, ir::Type::I8, ir::Type::I16);
             return r;
         }
         case T_CHR: {
@@ -1117,6 +1163,8 @@ private:
     void getStmt();
     void printStmt();
     void ifStmt();
+    bool shortCircuits(size_t a, size_t b) const;
+    void condJump(const std::string& t, const std::string& f);
     void forStmt();
     void nextStmt();
     void gosubTo(size_t target);
@@ -1207,6 +1255,8 @@ std::shared_ptr<ir::Module> Compiler::run() {
     fn_->originalIsLeaf = false;
     prescan();
     if (!errors.empty()) return nullptr;
+    lineEntries_.assign(lines_.size(), {});
+    lineRaises_.assign(lines_.size(), false);
 
     block("entry");
     li_ = 0;
@@ -1217,7 +1267,7 @@ std::shared_ptr<ir::Module> Compiler::run() {
     block("start");
     for (li_ = 0; li_ < lines_.size(); li_++) {
         block(lineLabel(li_));
-        store(ir::Type::I16, iconst(ir::Type::I16, lines_[li_].num), global("__bas_line"));
+        entry();
         for (si_ = 0; si_ < lines_[li_].segs.size(); si_++) {
             block(stmtLabel(li_, si_));
             toks_ = &lines_[li_].segs[si_].toks;
@@ -1251,13 +1301,13 @@ void Compiler::stepBlock(const ForInfo& f) {
     if (narrow_.count(f.var)) {
         // a narrowed variable: integer addition and comparison (the
         // bound allows for the step: no overflow)
+        // (in the variable's type: its bound allows for the step)
         ir::Type t = narrowType(narrow_.at(f.var));
-        auto ld = [&](ir::Operand a) { auto x = load(t, a); return t == ir::Type::I32 ? x : sext(x, t); };
-        auto v = ld(ir::Operand::global(f.var));
-        ir::Operand step = f.stepConst ? iconst(ir::Type::I32, (int64_t)f.step) : ld(global("__bas_fs" + id));
-        auto v2 = bin(ir::Op::ADD, ir::Type::I32, v, step);
-        store(t, t == ir::Type::I32 ? v2 : trunc(v2, t), ir::Operand::global(f.var));
-        auto lim = ld(global("__bas_fl" + id));
+        auto v = load(t, ir::Operand::global(f.var));
+        ir::Operand step = f.stepConst ? ir::Operand::imm((int64_t)f.step, t) : load(t, global("__bas_fs" + id));
+        auto v2 = bin(ir::Op::ADD, t, v, step);
+        store(t, v2, ir::Operand::global(f.var));
+        auto lim = load(t, global("__bas_fl" + id));
         auto gt = bin(ir::Op::CMP_GT, ir::Type::I8, v2, lim);
         auto lt = bin(ir::Op::CMP_LT, ir::Type::I8, v2, lim);
         c = bin(ir::Op::SUB, ir::Type::I8, gt, lt);
@@ -1279,12 +1329,25 @@ void Compiler::stepBlock(const ForInfo& f) {
     brCond(fin, pop, "F" + id);
     block(pop);
     auto sp = load(ir::Type::I8, global("__bas_sp"));
-    store(ir::Type::I8, bin(ir::Op::SUB, ir::Type::I8, sp, ir::Operand::imm(1, ir::Type::I8)), global("__bas_sp"));
+    store(ir::Type::I8, bin(ir::Op::SUB, ir::Type::I8, sp, ir::Operand::imm(2, ir::Type::I8)), global("__bas_sp"));
     auto r = load(ir::Type::PTR, global("__bas_nret"));
     ir::Inst in; in.op = ir::Op::BR_INDIRECT; in.src1 = r; emit(in);
 }
 
 void Compiler::finish() {
+    // __bas_line at the entries of the lines that can raise an error
+    for (size_t li = 0; li < lines_.size(); li++) {
+        if (!lineRaises_[li]) continue;
+        for (size_t bi : lineEntries_[li]) {
+            auto& insts = fn_->blocks[bi].insts;
+            ir::Inst c; c.op = ir::Op::CONST; c.dest = vreg(ir::Type::I16);
+            c.src1 = ir::Operand::imm(lines_[li].num, ir::Type::I16); c.resultType = ir::Type::I16;
+            c.loc.file = source_; c.loc.line = lines_[li].num;
+            ir::Inst st; st.op = ir::Op::STORE; st.src1 = c.dest; st.src2 = global("__bas_line");
+            st.resultType = ir::Type::I16; st.loc = c.loc;
+            insts.insert(insts.begin(), {c, st});
+        }
+    }
     for (int id : stepBlocks_) stepBlock(fors_[id - 1]);
     // the errors' blocks
     for (int n : errBlocks_) {
@@ -1457,7 +1520,7 @@ void Compiler::assignLV(const LV& lv, const Val& v) {
         else store(ir::Type::F32, toF(v), ir::Operand::global(lv.g));
     } else {
         Val x = toI16(v);
-        store(ir::Type::I16, trunc(x.op, ir::Type::I16), lv.elem ? lv.addr : ir::Operand::global(lv.g));
+        store(ir::Type::I16, asType(x, ir::Type::I16), lv.elem ? lv.addr : ir::Operand::global(lv.g));
     }
 }
 
@@ -1547,6 +1610,7 @@ void Compiler::doStmt() {
     size_t at = p_;          // (after the DO token)
     br(again);
     block(again);
+    entry();            // (LOOP comes back here from its line)
     {
         auto r = vreg(ir::Type::I16);
         ir::Inst in; in.op = ir::Op::ADDR_LABEL; in.dest = r; in.src1 = ir::Operand::label(again); emit(in);
@@ -1639,7 +1703,7 @@ void Compiler::getStmt() {
         if (lv.k != VK::S) {
             // BASIC 65: the key's code (0 for none)
             v.k = VK::I; v.bound = 255;
-            v.op = zext(trunc(load(ir::Type::I16, global("__bas_n")), ir::Type::I8), ir::Type::I8, ir::Type::I32);
+            v.op = load(ir::Type::I16, global("__bas_n"));
         }
         assignLV(lv, v);
     } while (acceptCh(','));
@@ -1708,29 +1772,97 @@ std::string Compiler::falseTarget(bool begin) {
     return elseFrom(li_, si_ + 1);
 }
 
+// A condition AND / OR may jump through: its operands (at the top level,
+// split by AND / OR) each a comparison (so 0 or -1: AND / OR of them is the
+// logical one), and nothing in it can raise an error or call anything with
+// an effect (variables, numbers, + - *, comparisons, NOT, parentheses; no
+// string + ) - so leaving the rest of it unevaluated changes nothing
+bool Compiler::shortCircuits(size_t a, size_t b) const {
+    const auto& t = *toks_;
+    int depth = 0;
+    bool logic = false, rel = false, strs = false, plus = false;
+    for (size_t i = a; i < b; i++) {
+        const Tok& k = t[i];
+        if (k.k == TK::Name) {
+            if (i + 1 < b && t[i + 1].k == TK::Ch && t[i + 1].ch == '(') return false;    // (an element)
+            if (k.text.back() == '$') strs = true;
+        } else if (k.k == TK::Str) strs = true;
+        else if (k.k == TK::Ch) {
+            if (k.ch == '(') depth++;
+            else if (k.ch == ')') depth--;
+            else return false;
+        } else if (k.k == TK::Kw) {
+            switch (k.kw) {
+            case T_AND: case T_OR:
+                if (depth == 0) {
+                    if (!rel) return false;
+                    logic = true;
+                    rel = false;
+                }
+                break;
+            case T_LT: case T_EQ: case T_GT:
+                if (depth == 0) rel = true;
+                break;
+            case T_PLUS: plus = true; break;
+            case T_MINUS: case T_MUL: case T_NOT: break;
+            default: return false;
+            }
+        } else if (k.k != TK::Num) return false;
+    }
+    return logic && rel && depth == 0 && !(strs && plus);
+}
+
+// The condition (shortCircuits): to t when true, to f when false
+void Compiler::condJump(const std::string& t, const std::string& f) {
+    for (;;) {
+        // an AND term: each comparison false -> the next OR term (or f)
+        std::string nextOr = newLabel("cor");
+        for (;;) {
+            Val v = notExpr();
+            if (acceptKw(T_AND)) {
+                std::string next = newLabel("cand");
+                brCond(truth(v), next, nextOr);
+                block(next);
+                continue;
+            }
+            brCond(truth(v), t, nextOr);
+            break;
+        }
+        block(nextOr);
+        if (!acceptKw(T_OR)) { br(f); return; }
+    }
+}
+
 void Compiler::ifStmt() {
-    Val c = expr();
-    auto cond = truth(c);
-    std::string then = newLabel("then");
-    if (acceptKw(T_GOTO)) {
-        size_t target = lineTarget();
-        brCond(cond, lineLabel(target), falseTarget(false));
-        block(then);
-        return;
-    }
-    expectKw(T_THEN);
+    // the targets first: after THEN / GOTO
+    size_t start = p_, q = p_;
+    const auto& tk = *toks_;
+    while (q < tk.size() && !(tk[q].k == TK::Kw && (tk[q].kw == T_THEN || tk[q].kw == T_GOTO))) q++;
+    if (q >= tk.size()) { expr(); expectKw(T_THEN); }    // (the error)
+    std::string then = newLabel("then"), tTarget, fTarget;
+    bool stmts = false, begin = false;
+    p_ = q + 1;
     auto t = peek();
-    if (t && t->k == TK::Num) {
-        size_t target = lineTarget();
-        brCond(cond, lineLabel(target), falseTarget(false));
-        block(then);
-        return;
+    if (tk[q].kw == T_GOTO || (t && t->k == TK::Num)) {
+        tTarget = lineLabel(lineTarget());
+        fTarget = falseTarget(false);
+    } else {
+        begin = isKw(T_BEGIN);
+        tTarget = then;
+        fTarget = falseTarget(begin);
+        stmts = true;
     }
-    bool begin = isKw(T_BEGIN);
-    brCond(cond, then, falseTarget(begin));
+    size_t after = p_;
+    p_ = start;
+    if (shortCircuits(start, q)) condJump(tTarget, fTarget);
+    else brCond(truth(expr()), tTarget, fTarget);
+    if (p_ != q) { p_ = q; fail("THEN or GOTO expected" + near()); }
+    p_ = after;
     block(then);
-    if (begin) p_++;
-    statement();
+    if (stmts) {
+        if (begin) p_++;
+        statement();
+    }
 }
 
 void Compiler::gosubTo(size_t target) {
@@ -1747,6 +1879,7 @@ void Compiler::gosubTo(size_t target) {
     store(ir::Type::I8, bin(ir::Op::ADD, ir::Type::I8, sp, ir::Operand::imm(1, ir::Type::I8)), global("__bas_sp"));
     br(lineLabel(target));
     block(ret);
+    entry();            // (RETURN comes back here from its line)
 }
 
 void Compiler::returnStmt() {
@@ -1762,14 +1895,12 @@ void Compiler::returnStmt() {
     { ir::Inst in; in.op = ir::Op::ADDR_ELEM; in.dest = a; in.src1 = global("__bas_stk"); in.src2 = sp1;
       in.args.push_back(ir::Operand::imm(2, ir::Type::I16)); in.resultType = ir::Type::PTR; emit(in); }
     auto e = load(ir::Type::I16, a);
-    // a DO entry (its address, then 0): both dropped; a FOR's (1..255) dropped
-    std::string rdo = newLabel("rdo"), rchk = newLabel("rchk");
-    brCond(bin(ir::Op::CMP_EQ, ir::Type::I8, e, ir::Operand::imm(0, ir::Type::I16)), rdo, rchk);
+    // a DO's entry (its address, then 0) or a FOR's (its step code, then 1..255): both words dropped
+    std::string rdo = newLabel("rdo");
+    brCond(bin(ir::Op::CMP_LTU, ir::Type::I8, e, ir::Operand::imm(256, ir::Type::I16)), rdo, go);
     block(rdo);
     store(ir::Type::I8, bin(ir::Op::SUB, ir::Type::I8, sp1, ir::Operand::imm(1, ir::Type::I8)), global("__bas_sp"));
     br(loop);
-    block(rchk);
-    brCond(bin(ir::Op::CMP_LTU, ir::Type::I8, e, ir::Operand::imm(256, ir::Type::I16)), loop, go);
     block(go);
     auto pe = load(ir::Type::PTR, a);
     { ir::Inst in; in.op = ir::Op::BR_INDIRECT; in.src1 = pe; emit(in); }
@@ -1830,8 +1961,7 @@ void Compiler::forStmt() {
         // the limit and step in the variable's type (within its bound)
         ir::Type t = narrowType(narrow_.at(g));
         if (fitsNarrow(lim, narrow_.at(g))) {
-            auto x = asI32(lim);
-            store(t, t == ir::Type::I32 ? x : trunc(x, t), global("__bas_fl" + id));
+            store(t, asType(lim, t), global("__bas_fl" + id));
         } else if (final_) fail("internal error: a narrowed FOR limit out of range");
     } else {
         store(ir::Type::F32, toF(lim), global("__bas_fl" + id));
@@ -1851,11 +1981,11 @@ void Compiler::forStmt() {
             if (nar) {
                 ir::Type t = narrowType(narrow_.at(g));
                 if (fitsNarrow(s, narrow_.at(g))) {
-                    auto x = asI32(s);
-                    store(t, t == ir::Type::I32 ? x : trunc(x, t), global("__bas_fs" + id));
+                    auto x = asType(s, t);
+                    store(t, x, global("__bas_fs" + id));
                     // its sign: -1 ($FF), 0, 1 as FCMP's
-                    auto gt = bin(ir::Op::CMP_GT, ir::Type::I8, x, ir::Operand::imm(0, ir::Type::I32));
-                    auto lt = bin(ir::Op::CMP_LT, ir::Type::I8, x, ir::Operand::imm(0, ir::Type::I32));
+                    auto gt = bin(ir::Op::CMP_GT, ir::Type::I8, x, ir::Operand::imm(0, t));
+                    auto lt = bin(ir::Op::CMP_LT, ir::Type::I8, x, ir::Operand::imm(0, t));
                     store(ir::Type::I8, bin(ir::Op::SUB, ir::Type::I8, gt, lt), global("__bas_fg" + id));
                 } else if (final_) fail("internal error: a narrowed FOR step out of range");
             } else {
@@ -1866,51 +1996,39 @@ void Compiler::forStmt() {
         }
     }
     store(ir::Type::I16, iconst(ir::Type::I16, f.id), global("__bas_n"));
+    {
+        // (the entry holds the loop's step code: NEXT goes there)
+        auto r = vreg(ir::Type::I16);
+        ir::Inst in; in.op = ir::Op::ADDR_LABEL; in.dest = r; in.src1 = ir::Operand::label("N" + std::to_string(f.id)); emit(in);
+        store(ir::Type::I16, r, global("__bas_m"));
+        stepBlocks_.insert(f.id);
+    }
     call("__bas_forpush");
     block("F" + std::to_string(f.id));
+    entry();            // (NEXT comes back here from its line)
 }
 
 void Compiler::nextStmt() {
-    // the FOR loops the NEXT can be of (its variable's, or any)
+    // __bas_next finds the loop (of the variable, or any) on BASIC's stack and
+    // gives its step code's address; that goes on at its FOR's body or, done,
+    // pops it and comes back here (__bas_nret)
     auto one = [&](const std::string* var) {
-        std::vector<const ForInfo*> cands;
-        for (const auto& f : fors_)
-            if (!var || f.var == *var) cands.push_back(&f);
-        if (cands.empty()) { raiseNow(10); return; }    // (no FOR of it: ?NEXT WITHOUT FOR when run)
-        std::string loop = newLabel("nloop"), done = newLabel("ndone");
+        int vi = 0;
+        if (var) {
+            auto it = forVarIndex_.find(*var);
+            if (it == forVarIndex_.end()) { raiseNow(10); return; }    // (no FOR of it: ?NEXT WITHOUT FOR when run)
+            vi = it->second;
+        } else if (fors_.empty()) { raiseNow(10); return; }
+        std::string done = newLabel("ndone");
         {
             auto r = vreg(ir::Type::I16);
             ir::Inst in; in.op = ir::Op::ADDR_LABEL; in.dest = r; in.src1 = ir::Operand::label(done); emit(in);
             store(ir::Type::I16, r, global("__bas_nret"));
         }
-        br(loop);
-        block(loop);
-        auto sp = load(ir::Type::I8, global("__bas_sp"));
-        raiseIf(bin(ir::Op::CMP_EQ, ir::Type::I8, sp, ir::Operand::imm(0, ir::Type::I8)), 10);
-        auto sp1 = bin(ir::Op::SUB, ir::Type::I8, sp, ir::Operand::imm(1, ir::Type::I8));
-        auto a = vreg(ir::Type::PTR);
-        { ir::Inst in; in.op = ir::Op::ADDR_ELEM; in.dest = a; in.src1 = global("__bas_stk"); in.src2 = sp1;
-          in.args.push_back(ir::Operand::imm(2, ir::Type::I16)); in.resultType = ir::Type::PTR; emit(in); }
-        auto e = load(ir::Type::I16, a);
-        std::vector<std::string> cases;
-        for (const auto* f : cands) {
-            std::string c = newLabel("ncase"), nx = newLabel("nnext");
-            cases.push_back(c);
-            brCond(bin(ir::Op::CMP_EQ, ir::Type::I8, e, ir::Operand::imm(f->id, ir::Type::I16)), c, nx);
-            block(nx);
-        }
-        // another entry: a GOSUB's or a DO's (0) ?NEXT WITHOUT FOR, else an inner loop: dropped
-        raiseIf(bin(ir::Op::CMP_GEU, ir::Type::I8, bin(ir::Op::SUB, ir::Type::I16, e, ir::Operand::imm(1, ir::Type::I16)),
-                    ir::Operand::imm(255, ir::Type::I16)), 10);
-        store(ir::Type::I8, sp1, global("__bas_sp"));
-        br(loop);
-        // a match: the loop's step block (shared by its NEXTs), which goes
-        // on at F<id> or, done, pops it and goes on here (__bas_nret)
-        for (size_t i = 0; i < cands.size(); i++) {
-            block(cases[i]);
-            br("N" + std::to_string(cands[i]->id));
-            stepBlocks_.insert(cands[i]->id);
-        }
+        store(ir::Type::I16, iconst(ir::Type::I16, vi), global("__bas_n"));
+        call("__bas_next");
+        auto a = load(ir::Type::PTR, global("__bas_n"));
+        ir::Inst in; in.op = ir::Op::BR_INDIRECT; in.src1 = a; emit(in);
         block(done);
     };
     if (atEnd() || isKw(T_ELSE)) { one(nullptr); return; }
