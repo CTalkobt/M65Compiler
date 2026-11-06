@@ -4,6 +4,18 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### basic45 --compile: integer narrowing (#369)
+
+- A float variable that only ever holds whole numbers below 2^31 is compiled
+  as an integer (16 or 32 bits), with its FOR loop's limit and step: every
+  value assigned (FOR's start and limit too) must be a whole number within a
+  bound, proved by compiling until the bounds hold; one whose bound keeps
+  growing (`n = n + 1`) or that gets a fraction stays a float. The results
+  are the interpreter's (its floats are exact there). `bench.bas`-style
+  loops: integer 41 → 3 frames, `s = s + i * 2` 18 → 10.
+- `/` and `^` of two integer operands: the first was overwritten by the
+  second's conversion (ITOF works in `__float_a`).
+
 ### ca45: an @label after a plain label is a relocated address
 
 - In a relocatable object, an `@label` scoped by a plain label (not a `proc`)

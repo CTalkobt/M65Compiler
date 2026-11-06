@@ -11,6 +11,7 @@
 // next line); THEN BEGIN to the matching BEND first (the ROM's IF).
 //
 // Values: floats (F32), integers known exactly (I32, a bound on their size:
+// narrowed float variables (see compileBasicToIR),
 // % variables, whole literals, their + - *), the 0/1 results of comparisons,
 // strings (a pointer to a length byte and the characters). The arithmetic of
 // floats is the library's float runtime (the BASIC 65 ROM's routines, as the
@@ -212,6 +213,16 @@ struct Val {
 constexpr int STACK_ENTRIES = 128;   // __bas_stk (basic_rt.c)
 constexpr int MAX_SLOTS = 8;         // string temporaries in a statement
 
+// Integer narrowing: what a compile saw of a float variable's values
+struct VarObs {
+    bool bad = false;        // a value not known to be a whole number in range
+    int64_t assign = 0;      // the largest bound of a value assigned (FOR's start and limit too)
+    int64_t step = 0;        // the largest |STEP| of its FOR loops
+};
+// A narrowed variable's bound (|value| <= bound, below 2^31) and its storage
+using NarrowMap = std::map<std::string, int64_t>;
+inline ir::Type narrowType(int64_t bound) { return bound <= 32767 ? ir::Type::I16 : ir::Type::I32; }
+
 struct ForInfo {
     int id;
     std::string var;         // the variable's global
@@ -222,14 +233,19 @@ struct ForInfo {
 
 class Compiler {
 public:
-    Compiler(const std::vector<Line>& lines, const std::string& source) : lines_(lines), source_(source) {}
+    Compiler(const std::vector<Line>& lines, const std::string& source, const NarrowMap& narrow, bool final)
+        : lines_(lines), source_(source), narrow_(narrow), final_(final) {}
 
     std::shared_ptr<ir::Module> run();
     std::vector<std::pair<int, std::string>> errors;
+    // the float variables' values seen (an analysis compile)
+    std::map<std::string, VarObs> obs;
 
 private:
     const std::vector<Line>& lines_;
     std::string source_;
+    const NarrowMap& narrow_;
+    bool final_;
     std::shared_ptr<ir::Module> mod_;
     ir::Function* fn_ = nullptr;
     ir::Block* cur_ = nullptr;
@@ -379,7 +395,12 @@ private:
         ir::Type t;
         if (suffix == '$') { kind = VK::S; g = "__bv_" + key + "_s"; t = ir::Type::PTR; }
         else if (suffix == '%') { kind = VK::I; g = "__bv_" + key + "_i"; t = ir::Type::I16; }
-        else { kind = VK::F; g = "__bv_" + key; t = ir::Type::F32; }
+        else {
+            kind = VK::F; g = "__bv_" + key;
+            auto n = narrow_.find(g);
+            t = n != narrow_.end() ? narrowType(n->second) : ir::Type::F32;
+            obs[g];
+        }
         vars_[g] = t;
         return g;
     }
@@ -388,7 +409,15 @@ private:
         std::string g = varGlobal(name, k);
         Val v;
         v.k = k;
-        if (k == VK::F) v.op = load(ir::Type::F32, ir::Operand::global(g));
+        if (k == VK::F && narrow_.count(g)) {
+            // a narrowed variable: a whole number within its bound
+            int64_t b = narrow_.at(g);
+            ir::Type t = narrowType(b);
+            auto x = load(t, ir::Operand::global(g));
+            v.k = VK::I;
+            v.op = t == ir::Type::I32 ? x : sext(x, t);
+            v.bound = b;
+        } else if (k == VK::F) v.op = load(ir::Type::F32, ir::Operand::global(g));
         else if (k == VK::S) v.op = load(ir::Type::PTR, ir::Operand::global(g));
         else {
             auto x = load(ir::Type::I16, ir::Operand::global(g));
@@ -415,6 +444,33 @@ private:
         auto d = vreg(to);
         ir::Inst in; in.op = ir::Op::TRUNC; in.dest = d; in.src1 = x; in.resultType = to; emit(in);
         return d;
+    }
+
+    // --- narrowing ---
+    // A value for the float variable g: recorded; its integer (I32) when g is
+    // narrowed (an operand of nothing when the value does not fit: only in
+    // an analysis compile, which is not used)
+    void observe(const std::string& g, const Val& v, int64_t VarObs::*field) {
+        auto& o = obs[g];
+        if (v.k == VK::I) o.*field = std::max(o.*field, v.isConst ? (int64_t)std::fabs(v.cval) : v.bound);
+        else if (v.k == VK::B) o.*field = std::max<int64_t>(o.*field, 1);
+        else o.bad = true;
+    }
+    bool fitsNarrow(const Val& v, int64_t limit) {
+        if (v.k == VK::B) return limit >= 1;
+        return v.k == VK::I && (v.isConst ? std::fabs(v.cval) : (double)v.bound) <= (double)limit;
+    }
+    // v (I / B) as an I32
+    ir::Operand asI32(const Val& v) { return v.k == VK::B ? toI16(v).op : v.op; }
+    void storeNarrow(const std::string& g, const Val& v) {
+        int64_t b = narrow_.at(g);
+        if (!fitsNarrow(v, b)) {
+            if (final_) fail("internal error: the narrowed variable " + g + " gets a value out of its range");
+            return;
+        }
+        ir::Type t = narrowType(b);
+        auto x = asI32(v);
+        store(t, t == ir::Type::I32 ? x : trunc(x, t), ir::Operand::global(g));
     }
 
     // --- conversions ---
@@ -708,8 +764,10 @@ private:
             Val b;
             if (isKw(T_MINUS) || isKw(T_PLUS)) b = unaryExpr();
             else b = primary();
-            store(ir::Type::F32, toF(a), global("__float_a"));
-            store(ir::Type::F32, toF(b), global("__float_b"));
+            // (both converted first: ITOF works in __float_a)
+            auto fa = toF(a), fb = toF(b);
+            store(ir::Type::F32, fa, global("__float_a"));
+            store(ir::Type::F32, fb, global("__float_b"));
             call("__bas_pow");
             a = Val{};
             a.k = VK::F;
@@ -735,8 +793,9 @@ private:
         }
         Val r; r.k = VK::F;
         if (op == ir::Op::DIV) {
-            store(ir::Type::F32, toF(x), global("__float_a"));
-            store(ir::Type::F32, toF(y), global("__float_b"));
+            auto fa = toF(x), fb = toF(y);
+            store(ir::Type::F32, fa, global("__float_a"));
+            store(ir::Type::F32, fb, global("__float_b"));
             call("__bas_fdiv");
             r.op = load(ir::Type::F32, global("__float_a"));
             return r;
@@ -1042,12 +1101,14 @@ void Compiler::finish() {
     }
     // the FOR loops: limits, steps (when not constant), the variables' numbers
     for (const auto& f : fors_) {
+        auto n = narrow_.find(f.var);
+        ir::Type ft = n != narrow_.end() ? narrowType(n->second) : ir::Type::F32;
         ir::Module::GlobalVar l;
-        l.name = "__bas_fl" + std::to_string(f.id); l.type = ir::Type::F32; l.size = 5;
+        l.name = "__bas_fl" + std::to_string(f.id); l.type = ft; l.size = ir::typeSize(ft);
         mod_->globals.push_back(l);
         if (!f.stepConst) {
             ir::Module::GlobalVar s;
-            s.name = "__bas_fs" + std::to_string(f.id); s.type = ir::Type::F32; s.size = 5;
+            s.name = "__bas_fs" + std::to_string(f.id); s.type = ft; s.size = ir::typeSize(ft);
             mod_->globals.push_back(s);
             ir::Module::GlobalVar g;
             g.name = "__bas_fg" + std::to_string(f.id); g.type = ir::Type::I8; g.size = 1;
@@ -1144,7 +1205,9 @@ void Compiler::assignment(const std::string& name) {
         call("__bas_sset");
         freeVal(v);
     } else if (k == VK::F) {
-        store(ir::Type::F32, toF(v), ir::Operand::global(g));
+        observe(g, v, &VarObs::assign);
+        if (narrow_.count(g)) storeNarrow(g, v);
+        else store(ir::Type::F32, toF(v), ir::Operand::global(g));
     } else {
         Val x = toI16(v);
         store(ir::Type::I16, trunc(x.op, ir::Type::I16), ir::Operand::global(g));
@@ -1316,17 +1379,52 @@ void Compiler::forStmt() {
     expectKw(T_EQ);
     VK k;
     std::string g = varGlobal(name, k);
+    std::string id = std::to_string(f.id);
+    bool nar = narrow_.count(g) > 0;
     Val init = expr();
-    store(ir::Type::F32, toF(init), ir::Operand::global(g));
+    observe(g, init, &VarObs::assign);
+    if (nar) storeNarrow(g, init);
+    else store(ir::Type::F32, toF(init), ir::Operand::global(g));
     expectKw(T_TO);
     Val lim = expr();
-    store(ir::Type::F32, toF(lim), global("__bas_fl" + std::to_string(f.id)));
+    observe(g, lim, &VarObs::assign);
+    if (nar) {
+        // the limit and step in the variable's type (within its bound)
+        ir::Type t = narrowType(narrow_.at(g));
+        if (fitsNarrow(lim, narrow_.at(g))) {
+            auto x = asI32(lim);
+            store(t, t == ir::Type::I32 ? x : trunc(x, t), global("__bas_fl" + id));
+        } else if (final_) fail("internal error: a narrowed FOR limit out of range");
+    } else {
+        store(ir::Type::F32, toF(lim), global("__bas_fl" + id));
+    }
+    {
+        // the step's size (1 without STEP)
+        auto& o = obs[g];
+        if (f.stepConst) {
+            if (f.step != std::floor(f.step) || std::fabs(f.step) > 1e9) o.bad = true;
+            else o.step = std::max(o.step, (int64_t)std::fabs(f.step));
+        }
+    }
     if (acceptKw(T_STEP)) {
         Val s = expr();
         if (!f.stepConst) {
-            auto sf = toF(s);
-            store(ir::Type::F32, sf, global("__bas_fs" + std::to_string(f.id)));
-            store(ir::Type::I8, bin(ir::Op::FCMP, ir::Type::I8, sf, fconst(0)), global("__bas_fg" + std::to_string(f.id)));
+            observe(g, s, &VarObs::step);
+            if (nar) {
+                ir::Type t = narrowType(narrow_.at(g));
+                if (fitsNarrow(s, narrow_.at(g))) {
+                    auto x = asI32(s);
+                    store(t, t == ir::Type::I32 ? x : trunc(x, t), global("__bas_fs" + id));
+                    // its sign: -1 ($FF), 0, 1 as FCMP's
+                    auto gt = bin(ir::Op::CMP_GT, ir::Type::I8, x, ir::Operand::imm(0, ir::Type::I32));
+                    auto lt = bin(ir::Op::CMP_LT, ir::Type::I8, x, ir::Operand::imm(0, ir::Type::I32));
+                    store(ir::Type::I8, bin(ir::Op::SUB, ir::Type::I8, gt, lt), global("__bas_fg" + id));
+                } else if (final_) fail("internal error: a narrowed FOR step out of range");
+            } else {
+                auto sf = toF(s);
+                store(ir::Type::F32, sf, global("__bas_fs" + id));
+                store(ir::Type::I8, bin(ir::Op::FCMP, ir::Type::I8, sf, fconst(0)), global("__bas_fg" + id));
+            }
         }
     }
     store(ir::Type::I16, iconst(ir::Type::I16, f.id), global("__bas_n"));
@@ -1366,11 +1464,27 @@ void Compiler::nextStmt() {
             const ForInfo& f = *cands[i];
             block(cases[i]);
             std::string id = std::to_string(f.id);
-            auto v = load(ir::Type::F32, ir::Operand::global(f.var));
-            ir::Operand step = f.stepConst ? fconst(f.step) : load(ir::Type::F32, global("__bas_fs" + id));
-            auto v2 = bin(ir::Op::FADD, ir::Type::F32, v, step);
-            store(ir::Type::F32, v2, ir::Operand::global(f.var));
-            auto c = bin(ir::Op::FCMP, ir::Type::I8, v2, load(ir::Type::F32, global("__bas_fl" + id)));
+            ir::Operand c;
+            if (narrow_.count(f.var)) {
+                // a narrowed variable: integer addition and comparison (the
+                // bound allows for the step: no overflow)
+                ir::Type t = narrowType(narrow_.at(f.var));
+                auto ld = [&](ir::Operand a) { auto x = load(t, a); return t == ir::Type::I32 ? x : sext(x, t); };
+                auto v = ld(ir::Operand::global(f.var));
+                ir::Operand step = f.stepConst ? iconst(ir::Type::I32, (int64_t)f.step) : ld(global("__bas_fs" + id));
+                auto v2 = bin(ir::Op::ADD, ir::Type::I32, v, step);
+                store(t, t == ir::Type::I32 ? v2 : trunc(v2, t), ir::Operand::global(f.var));
+                auto lim = ld(global("__bas_fl" + id));
+                auto gt = bin(ir::Op::CMP_GT, ir::Type::I8, v2, lim);
+                auto lt = bin(ir::Op::CMP_LT, ir::Type::I8, v2, lim);
+                c = bin(ir::Op::SUB, ir::Type::I8, gt, lt);
+            } else {
+                auto v = load(ir::Type::F32, ir::Operand::global(f.var));
+                ir::Operand step = f.stepConst ? fconst(f.step) : load(ir::Type::F32, global("__bas_fs" + id));
+                auto v2 = bin(ir::Op::FADD, ir::Type::F32, v, step);
+                store(ir::Type::F32, v2, ir::Operand::global(f.var));
+                c = bin(ir::Op::FCMP, ir::Type::I8, v2, load(ir::Type::F32, global("__bas_fl" + id)));
+            }
             ir::Operand fin;
             if (f.stepConst) {
                 int sg = f.step > 0 ? 1 : f.step < 0 ? 0xFF : 0;
@@ -1424,7 +1538,43 @@ BasicCompileResult compileBasicToIR(const std::vector<uint8_t>& prg, const std::
         (void)load;
     }
     if (!r.errors.empty()) return r;
-    Compiler c(lines, sourceName);
+    // Integer narrowing: a float variable that only ever holds whole numbers
+    // below 2^31 is an integer (exact as the interpreter's floats are there,
+    // so the same results). Compiled with bounds assumed until they hold:
+    // every value assigned (FOR's start and limit too) within the bound; a FOR
+    // variable's NEXT adds its step, which takes it at most a step past the
+    // values it had, once for each loop of it on BASIC's stack (128 entries).
+    // A bound that keeps growing (N = N + 1) is not one: the variable stays a float.
+    NarrowMap narrow;
+    {
+        // every float variable assumed a narrow 0 first
+        Compiler a(lines, sourceName, narrow, false);
+        a.run();
+        if (!a.errors.empty()) { r.errors = a.errors; return r; }
+        for (const auto& [g, o] : a.obs) narrow[g] = 0;
+    }
+    std::map<std::string, int> grew;
+    bool fixed = false;
+    for (int round = 0; round < 200 && !fixed; round++) {
+        Compiler a(lines, sourceName, narrow, false);
+        a.run();
+        if (!a.errors.empty()) { r.errors = a.errors; return r; }
+        fixed = true;
+        for (auto it = narrow.begin(); it != narrow.end();) {
+            const VarObs& o = a.obs[it->first];
+            int64_t b = o.assign + 128 * o.step;
+            if (o.bad || o.assign >= (1LL << 31) || b >= (1LL << 31) || (b > it->second && ++grew[it->first] > 8)) {
+                it = narrow.erase(it);
+                fixed = false;
+                continue;
+            }
+            if (b > it->second) { it->second = b; fixed = false; }
+            ++it;
+        }
+    }
+    // (no fixed point: all floats)
+    if (!fixed) narrow.clear();
+    Compiler c(lines, sourceName, narrow, true);
     r.module = c.run();
     r.errors = c.errors;
     r.ok = r.errors.empty() && r.module;

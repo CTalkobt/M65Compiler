@@ -344,7 +344,15 @@ restarted with `GOTO` and a `RETURN` from inside a loop work as in the interpret
 the statement after the line's next `ELSE` (or to the next line), past the matching `BEND` first for
 `THEN BEGIN`, as the ROM's `IF` does. Integers known to be exact (`%` variables, whole numbers written
 without a point, and their `+ - *` while they fit 31 bits) are computed as integers; everything else is
-float arithmetic. Variables are told apart by their first two characters (and `$` / `%`), as in BASIC 65.
+float arithmetic. **Integer narrowing**: a float variable that only ever holds whole numbers below 2^31 is
+an integer (16 bits, or 32 when its values need them), and so are its `FOR` loop's limit and step. The
+compiler proves it from the program: every value assigned to the variable (a `FOR`'s start and limit too)
+must be a whole number within a bound (an integer expression of other such variables, `%` variables, whole
+literals, `PEEK`, `LEN`, `ASC`, comparisons, `AND` / `OR` / `NOT`), and its `NEXT` adds the step to values
+in that bound (a step past them at most, once for each loop of the variable on BASIC's stack). The bounds are
+found by compiling until they hold; a variable whose bound keeps growing (`n = n + 1`, `s = s + i`) or that
+is given a fraction (`/`, `SQR`, a number with a point) stays a float. BASIC's floats are exact for such
+values, so the results are the interpreter's. Variables are told apart by their first two characters (and `$` / `%`), as in BASIC 65.
 The run-time support is `lib/stdlib_asm/basic_rt.s45` (PRINT, the errors, BASIC's checks on numbers) and
 `lib/stdlib/basic_str.c` (strings on the heap, the stack of `GOSUB` and `FOR`).
 
@@ -362,14 +370,15 @@ The run-time support is `lib/stdlib_asm/basic_rt.s45` (PRINT, the errors, BASIC'
 
 | Loop | Interpreted | Compiled |
 |---|---|---|
-| `s = s + i * 2` (floats) | 18 | 20 |
-| `n% = n% + 1 : c% = c% + (n% and 1)` (integers) | 41 | 11 |
-| string `LEFT$` / `CHR$` / `+` | 5 | 6 |
+| `for i = 1 to 3000 : s = s + i * 2` (`s` a float, `i` narrowed) | 18 | 10 |
+| `n% = n% + 1 : c% = c% + (n% and 1)` (`i` narrowed) | 41 | 3 |
+| string `LEFT$` / `CHR$` / `+` (300 times) | 5 | 5 |
+| `gosub` / `x = x + 1` / `return` (300 times) | 2 | 1 |
 
-Integer code is about four times as fast. Float arithmetic is not faster yet: each operation calls the ROM
-through `JSRFAR` (and once more to round the result), which costs as much as the interpreter's own work. The
+Integer code is more than ten times as fast. Float arithmetic is not much faster: each operation calls the
+ROM through `JSRFAR` (and once more to round the result), which costs as much as the interpreter's own work. The
 compiled program is about ten times the size of the tokenized one (`test_basic_compile_xemu.bas`: 2 KB →
-20 KB). The next steps (#369): integers for variables that only hold whole numbers, faster float routines,
+20 KB). The next steps (#369): faster float routines,
 arrays, `INPUT` / `GET`, `DO` / `LOOP`, `TI`, `RND`.
 
 `test_basic_compile_xemu.bas` is run interpreted and compiled (`-O2`, `-O0`) on xemu with the same results;
