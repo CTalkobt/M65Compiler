@@ -698,15 +698,15 @@ fi
 # strings, FOR / NEXT (out of a loop, RETURN in one), ON, IF / ELSE / BEGIN,
 # GOSUB, PRINT's layout on the screen, STR$ of numbers
 echo "Testing test_basic_compile_xemu.bas (basic45 --compile)..."
-BC_EXP="01 01 01 01 01 01 01 01 01 01 01 01 01 AA"
+BC_EXP="01 01 01 01 01 01 01 01 01 01 01 01 01 01 AA"
 if ./bin/basic45 src/test-resources/test_basic_compile_xemu.bas -o build/test/test_basic_compile_i.prg >/dev/null 2>&1 &&
    ./bin/basic45 --compile src/test-resources/test_basic_compile_xemu.bas -o build/test/test_basic_compile.prg >/dev/null 2>&1 &&
    ./bin/basic45 --compile -O0 src/test-resources/test_basic_compile_xemu.bas -o build/test/test_basic_compile_O0.prg >/dev/null 2>&1 &&
    ./bin/basic45 --compile --speed src/test-resources/test_basic_compile_xemu.bas -o build/test/test_basic_compile_speed.prg >/dev/null 2>&1; then
-    run_xemu_test "test_basic_compile_interpreted" "build/test/test_basic_compile_i.prg" "C0C0" 14 "$BC_EXP"
-    run_xemu_test "test_basic_compile" "build/test/test_basic_compile.prg" "C0C0" 14 "$BC_EXP"
-    run_xemu_test "test_basic_compile_O0" "build/test/test_basic_compile_O0.prg" "C0C0" 14 "$BC_EXP"
-    run_xemu_test "test_basic_compile_speed" "build/test/test_basic_compile_speed.prg" "C0C0" 14 "$BC_EXP"
+    run_xemu_test "test_basic_compile_interpreted" "build/test/test_basic_compile_i.prg" "C0C0" 15 "$BC_EXP"
+    run_xemu_test "test_basic_compile" "build/test/test_basic_compile.prg" "C0C0" 15 "$BC_EXP"
+    run_xemu_test "test_basic_compile_O0" "build/test/test_basic_compile_O0.prg" "C0C0" 15 "$BC_EXP"
+    run_xemu_test "test_basic_compile_speed" "build/test/test_basic_compile_speed.prg" "C0C0" 15 "$BC_EXP"
 else
     echo "FAIL: test_basic_compile_xemu.bas (basic45 or basic45 --compile failed)"
     failed=$((failed + 1))
@@ -717,6 +717,14 @@ if ./bin/basic45 --compile build/test/test_basic_compile_err.bas -o build/test/t
     run_xemu_test "test_basic_compile_err" "build/test/test_basic_compile_err.prg" "FD" 2 "14 00"
 else
     echo "FAIL: test_basic_compile_err (basic45 --compile failed)"
+    failed=$((failed + 1))
+fi
+# an array subscript past its DIM: ?BAD SUBSCRIPT (18)
+printf '10 dim a(5):a(5)=1:print a(6):poke 49344,1\n' > build/test/test_basic_compile_bs.bas
+if ./bin/basic45 --compile build/test/test_basic_compile_bs.bas -o build/test/test_basic_compile_bs.prg >/dev/null 2>&1; then
+    run_xemu_test "test_basic_compile_bs" "build/test/test_basic_compile_bs.prg" "FD" 2 "12 00"
+else
+    echo "FAIL: test_basic_compile_bs (basic45 --compile failed)"
     failed=$((failed + 1))
 fi
 # basic45 --convert=tsbneo: TSBneo's own forms (IF ... THEN DO / ELSE / DONE, D!PEEK / D!POKE, CLS,

@@ -4,7 +4,8 @@
 4 rem [4] strings; [5] for step, nested next j,i; [6] goto out of a loop, the loop again
 5 rem [7] on goto, on gosub; [8] if else, nested if, begin/bend; [9] gosub, return drops for
 6 rem [10] print: numbers, comma, tab, spc on the screen; [11] str$ of numbers
-7 rem [12] narrowed variables (whole numbers: integers when compiled) as floats; [13] $aa
+7 rem [12] narrowed variables (whole numbers: integers when compiled) as floats
+8 rem [13] arrays: dim, float / % / $ elements, two subscripts, an array without dim; [14] $aa
 10 a=7:b=2:if a/b=3.5 and a*b=14 and a^b=49 and a-b=5 and -a=-7 and a+b*2=11 then poke 49344,1
 20 a%=-3:b%=a%*5+1:c%=1.5:d%=-1.5
 25 if b%=-14 and c%=1 and d%=-2 and int(-2.5)=-3 and a%/2=-1.5 and b%+a%=-17 then poke 49345,1
@@ -42,7 +43,11 @@
 146 h=-3:for m=h to h*-1 step h*-1:next:w=i/2:if n=2 and i=40001 and j=-2 and k=1600080001 and s=2 then 148
 147 goto 150
 148 if m=6 and str$(i)=" 40001" and w=20000.5 and str$(-j/4)=" 0.5" and 7/(h+5)=3.5 then poke 49356,1
-150 poke 49357,170:end
+150 dim a(10),b%(2,3),c$(4):for i=0 to 10:a(i)=i/2:next:for i=0 to 2:for j=0 to 3:b%(i,j)=i*4+j:next j,i
+151 for i=0 to 4:c$(i)=chr$(65+i):c$(i)=c$(i)+c$(i):next:x(3)=4:if a(10)=5 and a(3)=1.5 and b%(2,3)=11 then 153
+152 goto 160
+153 if b%(1,0)=4 and c$(4)=chr$(69)+chr$(69) and len(c$(0)+c$(1))=4 and x(3)=4 and x(10)=0 and q$(1)="" then poke 49357,1
+160 poke 49358,170:end
 500 d=d+1:return
 510 d=d+20:return
 520 d=d+300:return
