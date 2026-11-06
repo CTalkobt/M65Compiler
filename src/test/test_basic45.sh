@@ -300,6 +300,15 @@ if ! $B --compile "$D/cu.bas" -o "$D/cu.prg" > "$D/cu.log" 2>&1 && grep -q 'cu.b
 else
     fail "--compile INPUT: $(cat "$D/cu.log")"
 fi
+# integer narrowing: whole-number variables (FOR's, K) without the float
+# runtime; one that grows without a bound (N = N + 1) stays a float
+printf '10 for i=1 to 10:k=i*2+5:next\n20 k=5:n=0:for j=1 to 3:n=n+1:next\n' > "$D/cn.bas"
+if $B --compile -O2 --asm "$D/cn.s45" "$D/cn.bas" -o "$D/cn.prg" > "$D/cn.log" 2>&1 &&
+   [ "$(grep -c 'jsr __float_add' "$D/cn.s45")" = 1 ]; then
+    pass "--compile: whole-number variables narrowed to integers"
+else
+    fail "--compile narrowing: $(grep 'jsr __float' "$D/cn.s45" | tr '\n' ' ') $(cat "$D/cn.log")"
+fi
 printf '10 goto 30\n' > "$D/cg.bas"
 ! $B --compile "$D/cg.bas" -o "$D/cg.prg" > "$D/cg.log" 2>&1 && grep -q 'line 30 does not exist' "$D/cg.log" &&
     pass "--compile: GOTO to a missing line is an error" || fail "--compile GOTO 30: $(cat "$D/cg.log")"

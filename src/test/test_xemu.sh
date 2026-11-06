@@ -688,13 +688,13 @@ fi
 # strings, FOR / NEXT (out of a loop, RETURN in one), ON, IF / ELSE / BEGIN,
 # GOSUB, PRINT's layout on the screen, STR$ of numbers
 echo "Testing test_basic_compile_xemu.bas (basic45 --compile)..."
-BC_EXP="01 01 01 01 01 01 01 01 01 01 01 01 AA"
+BC_EXP="01 01 01 01 01 01 01 01 01 01 01 01 01 AA"
 if ./bin/basic45 src/test-resources/test_basic_compile_xemu.bas -o build/test/test_basic_compile_i.prg >/dev/null 2>&1 &&
    ./bin/basic45 --compile src/test-resources/test_basic_compile_xemu.bas -o build/test/test_basic_compile.prg >/dev/null 2>&1 &&
    ./bin/basic45 --compile -O0 src/test-resources/test_basic_compile_xemu.bas -o build/test/test_basic_compile_O0.prg >/dev/null 2>&1; then
-    run_xemu_test "test_basic_compile_interpreted" "build/test/test_basic_compile_i.prg" "C0C0" 13 "$BC_EXP"
-    run_xemu_test "test_basic_compile" "build/test/test_basic_compile.prg" "C0C0" 13 "$BC_EXP"
-    run_xemu_test "test_basic_compile_O0" "build/test/test_basic_compile_O0.prg" "C0C0" 13 "$BC_EXP"
+    run_xemu_test "test_basic_compile_interpreted" "build/test/test_basic_compile_i.prg" "C0C0" 14 "$BC_EXP"
+    run_xemu_test "test_basic_compile" "build/test/test_basic_compile.prg" "C0C0" 14 "$BC_EXP"
+    run_xemu_test "test_basic_compile_O0" "build/test/test_basic_compile_O0.prg" "C0C0" 14 "$BC_EXP"
 else
     echo "FAIL: test_basic_compile_xemu.bas (basic45 or basic45 --compile failed)"
     failed=$((failed + 1))

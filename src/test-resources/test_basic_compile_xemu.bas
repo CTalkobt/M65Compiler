@@ -3,7 +3,8 @@
 3 rem [0] float arithmetic; [1] % variables; [2] functions; [3] and or not, comparisons
 4 rem [4] strings; [5] for step, nested next j,i; [6] goto out of a loop, the loop again
 5 rem [7] on goto, on gosub; [8] if else, nested if, begin/bend; [9] gosub, return drops for
-6 rem [10] print: numbers, comma, tab, spc on the screen; [11] str$ of numbers; [12] $aa
+6 rem [10] print: numbers, comma, tab, spc on the screen; [11] str$ of numbers
+7 rem [12] narrowed variables (whole numbers: integers when compiled) as floats; [13] $aa
 10 a=7:b=2:if a/b=3.5 and a*b=14 and a^b=49 and a-b=5 and -a=-7 and a+b*2=11 then poke 49344,1
 20 a%=-3:b%=a%*5+1:c%=1.5:d%=-1.5
 25 if b%=-14 and c%=1 and d%=-2 and int(-2.5)=-3 and a%/2=-1.5 and b%+a%=-17 then poke 49345,1
@@ -37,7 +38,11 @@
 136 goto 140
 137 if peek(s+160)=24 and peek(s+165)=25 and peek(s+168)=26 then poke 49354,1
 140 if str$(1e10)=" 1e10" and str$(123456789)=" 123456789" and str$(1/3)=" 0.33333333" and str$(-.001)="-0.001" then poke 49355,1
-150 poke 49356,170:end
+145 n=0:for i=1 to 40000 step 20000:n=n+1:next:j=7:for j=10 to 1 step -4:next:k=i*i:s=0:s=s+1:s=s+1
+146 h=-3:for m=h to h*-1 step h*-1:next:w=i/2:if n=2 and i=40001 and j=-2 and k=1600080001 and s=2 then 148
+147 goto 150
+148 if m=6 and str$(i)=" 40001" and w=20000.5 and str$(-j/4)=" 0.5" and 7/(h+5)=3.5 then poke 49356,1
+150 poke 49357,170:end
 500 d=d+1:return
 510 d=d+20:return
 520 d=d+300:return
