@@ -701,7 +701,7 @@ else
     failed=$((failed + 1))
 fi
 # basic45 --compile (#369): the program interpreted by BASIC 65 and compiled
-# (-O2, -O0, --speed: the RAM float routines) gives the same results: arithmetic, % variables, functions,
+# (-O2, -O0, --speed: the RAM float routines) gives the same results:: arithmetic, % variables, functions,
 # strings, FOR / NEXT (out of a loop, RETURN in one), ON, IF / ELSE / BEGIN,
 # GOSUB, PRINT's layout on the screen, STR$ of numbers
 echo "Testing test_basic_compile_xemu.bas (basic45 --compile)..."
@@ -724,6 +724,21 @@ if ./bin/basic45 --compile build/test/test_basic_compile_err.bas -o build/test/t
     run_xemu_test "test_basic_compile_err" "build/test/test_basic_compile_err.prg" "FD" 2 "14 00"
 else
     echo "FAIL: test_basic_compile_err (basic45 --compile failed)"
+    failed=$((failed + 1))
+fi
+# test_basic_compile2_xemu.bas: INPUT / GET (keys put in the keyboard buffer),
+# DO / LOOP / EXIT, RND / TI / TI$, READ / DATA / RESTORE; the same four ways
+BC2_EXP="01 01 01 01 AA"
+if ./bin/basic45 src/test-resources/test_basic_compile2_xemu.bas -o build/test/test_basic_compile2_i.prg >/dev/null 2>&1 &&
+   ./bin/basic45 --compile src/test-resources/test_basic_compile2_xemu.bas -o build/test/test_basic_compile2.prg >/dev/null 2>&1 &&
+   ./bin/basic45 --compile -O0 src/test-resources/test_basic_compile2_xemu.bas -o build/test/test_basic_compile2_O0.prg >/dev/null 2>&1 &&
+   ./bin/basic45 --compile --speed src/test-resources/test_basic_compile2_xemu.bas -o build/test/test_basic_compile2_speed.prg >/dev/null 2>&1; then
+    run_xemu_test "test_basic_compile2_interpreted" "build/test/test_basic_compile2_i.prg" "C0C0" 5 "$BC2_EXP"
+    run_xemu_test "test_basic_compile2" "build/test/test_basic_compile2.prg" "C0C0" 5 "$BC2_EXP"
+    run_xemu_test "test_basic_compile2_O0" "build/test/test_basic_compile2_O0.prg" "C0C0" 5 "$BC2_EXP"
+    run_xemu_test "test_basic_compile2_speed" "build/test/test_basic_compile2_speed.prg" "C0C0" 5 "$BC2_EXP"
+else
+    echo "FAIL: test_basic_compile2_xemu.bas (basic45 or basic45 --compile failed)"
     failed=$((failed + 1))
 fi
 # an array subscript past its DIM: ?BAD SUBSCRIPT (18)

@@ -5,7 +5,8 @@
 5 rem [7] on goto, on gosub; [8] if else, nested if, begin/bend; [9] gosub, return drops for
 6 rem [10] print: numbers, comma, tab, spc on the screen; [11] str$ of numbers
 7 rem [12] narrowed variables (whole numbers: integers when compiled) as floats
-8 rem [13] arrays: dim, float / % / $ elements, two subscripts, an array without dim; [14] $aa
+8 rem [13] arrays: dim, float / % / $ elements, two subscripts, an array without dim
+9 rem [14] $aa (input, do / loop, rnd, ti, read: test_basic_compile2_xemu.bas)
 10 a=7:b=2:if a/b=3.5 and a*b=14 and a^b=49 and a-b=5 and -a=-7 and a+b*2=11 then poke 49344,1
 20 a%=-3:b%=a%*5+1:c%=1.5:d%=-1.5
 25 if b%=-14 and c%=1 and d%=-2 and int(-2.5)=-3 and a%/2=-1.5 and b%+a%=-17 then poke 49345,1

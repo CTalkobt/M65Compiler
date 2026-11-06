@@ -40,15 +40,15 @@ namespace {
 
 // Single-byte tokens the compiler names (BASIC 65's table, as BasicTokenizer)
 enum : int {
-    T_END = 0x80, T_FOR = 0x81, T_NEXT = 0x82, T_DATA = 0x83, T_DIM = 0x86, T_LET = 0x88, T_GOTO = 0x89,
+    T_END = 0x80, T_FOR = 0x81, T_NEXT = 0x82, T_INPUTN = 0x84, T_INPUT = 0x85, T_DATA = 0x83, T_DIM = 0x86, T_READ = 0x87, T_RESTORE = 0x8C, T_LET = 0x88, T_GOTO = 0x89,
     T_IF = 0x8B, T_GOSUB = 0x8D, T_RETURN = 0x8E, T_REM = 0x8F, T_STOP = 0x90, T_ON = 0x91,
-    T_POKE = 0x97, T_PRINT = 0x99, T_TAB = 0xA3, T_TO = 0xA4, T_SPC = 0xA6, T_THEN = 0xA7,
+    T_POKE = 0x97, T_PRINT = 0x99, T_TAB = 0xA3, T_TO = 0xA4, T_GET = 0xA1, T_SPC = 0xA6, T_THEN = 0xA7,
     T_NOT = 0xA8, T_STEP = 0xA9, T_PLUS = 0xAA, T_MINUS = 0xAB, T_MUL = 0xAC, T_DIV = 0xAD,
     T_POW = 0xAE, T_AND = 0xAF, T_OR = 0xB0, T_GT = 0xB1, T_EQ = 0xB2, T_LT = 0xB3,
-    T_SGN = 0xB4, T_INT = 0xB5, T_ABS = 0xB6, T_SQR = 0xBA, T_LOG = 0xBC, T_EXP = 0xBD,
+    T_RND = 0xBB, T_SGN = 0xB4, T_INT = 0xB5, T_ABS = 0xB6, T_SQR = 0xBA, T_LOG = 0xBC, T_EXP = 0xBD,
     T_COS = 0xBE, T_SIN = 0xBF, T_TAN = 0xC0, T_ATN = 0xC1, T_PEEK = 0xC2, T_LEN = 0xC3,
     T_STR = 0xC4, T_ASC = 0xC6, T_CHR = 0xC7, T_LEFT = 0xC8, T_RIGHT = 0xC9,
-    T_MID = 0xCA, T_GO = 0xCB, T_ELSE = 0xD5, T_PI = 0xFF,
+    T_MID = 0xCA, T_GO = 0xCB, T_KEY = 0xF9, T_ELSE = 0xD5, T_DO = 0xEB, T_LOOP = 0xEC, T_EXIT = 0xED, T_UNTIL = 0xFC, T_WHILE = 0xFD, T_PI = 0xFF,
     T_BEGIN = 0xFE18, T_BEND = 0xFE19,
 };
 
@@ -178,9 +178,11 @@ std::vector<Seg> lexLine(const std::vector<uint8_t>& b, std::string& err) {
             i++;
             if (c == T_REM) return segs;
             if (c == T_DATA) {
-                // its items are not statements: up to the colon
+                // its items are not statements: up to the colon (the text kept for READ)
                 bool q = false;
-                while (i < b.size() && (q || b[i] != ':')) { if (b[i] == '"') q = !q; i++; }
+                std::string raw;
+                while (i < b.size() && (q || b[i] != ':')) { if (b[i] == '"') q = !q; raw += (char)b[i]; i++; }
+                segs.back().toks.back().text = raw;
             }
             continue;
         }
@@ -411,6 +413,13 @@ private:
         return g;
     }
     Val loadVar(const std::string& name) {
+        // TI: the seconds counter; TI$: the clock, "hh:mm:ss"
+        if (name == "TI") {
+            call("__bas_ti");
+            Val v; v.k = VK::F; v.op = load(ir::Type::F32, global("__float_a"));
+            return v;
+        }
+        if (name == "TI$") return strCall("__bas_tis", nullptr, nullptr);
         VK k;
         std::string g = varGlobal(name, k);
         Val v;
@@ -979,6 +988,7 @@ private:
         case T_COS: return floatFn("__float_cos");
         case T_TAN: return floatFn("__float_tan");
         case T_ATN: return floatFn("__float_atn");
+        case T_RND: return floatFn("__bas_rnd");
         case T_ABS: {
             Val a = parenExpr();
             if (a.k == VK::I && !a.isConst) {
@@ -1086,6 +1096,25 @@ private:
     // --- statements ---
     void statement();
     void assignment(const std::string& name);
+    // a place a value is stored: a scalar (its global) or an element (its address)
+    struct LV { VK k = VK::F; bool elem = false; std::string g; ir::Operand addr; };
+    LV parseLV(const std::string& name);
+    void assignLV(const LV& lv, const Val& v);
+    LV listVar(const char* stmt);
+    void inputStmt();
+    void doStmt();
+    void readStmt();
+    void restoreStmt();
+    // DATA: the statements' text in program order ([length][text] each,
+    // $FF at the end: __bas_data) and the offset of each line's first one
+    std::vector<uint8_t> dataImage_;
+    std::vector<size_t> dataAt_;         // line index -> offset of the first DATA at or after it
+    void loopStmt();
+    void exitStmt();
+    // after the LOOP that ends the DO loop around token k of statement (li, si)
+    // (the ROM's skip_to_loop: a scan of the text, nested DO ... LOOPs passed)
+    std::string loopTarget(size_t li, size_t si, size_t k);
+    void getStmt();
     void printStmt();
     void ifStmt();
     void forStmt();
@@ -1117,6 +1146,19 @@ private:
 
 void Compiler::prescan() {
     for (size_t li = 0; li < lines_.size(); li++) lineIndex_[lines_[li].num] = li;
+    // the DATA statements (a statement's first token)
+    dataAt_.assign(lines_.size() + 1, 0);
+    for (size_t li = 0; li < lines_.size(); li++) {
+        dataAt_[li] = dataImage_.size();
+        for (const auto& sg : lines_[li].segs)
+            if (!sg.toks.empty() && sg.toks[0].k == TK::Kw && sg.toks[0].kw == T_DATA) {
+                const std::string& t = sg.toks[0].text;
+                dataImage_.push_back((uint8_t)std::min<size_t>(t.size(), 254));
+                for (size_t k = 0; k < t.size() && k < 254; k++) dataImage_.push_back((uint8_t)t[k]);
+            }
+    }
+    dataAt_[lines_.size()] = dataImage_.size();
+    dataImage_.push_back(0xFF);
     // the FOR statements: their numbers, their variables' numbers
     for (size_t li = 0; li < lines_.size(); li++)
         for (size_t si = 0; si < lines_[li].segs.size(); si++) {
@@ -1275,6 +1317,12 @@ void Compiler::finish() {
         gv.name = "__bas_nret"; gv.type = ir::Type::I16; gv.size = 2;
         mod_->globals.push_back(gv);
     }
+    {
+        ir::Module::GlobalVar gv;
+        gv.name = "__bas_data"; gv.type = ir::Type::I8; gv.size = (int)dataImage_.size(); gv.isConst = true;
+        gv.hasInitValue = true; gv.hasImage = true; gv.initBytes = dataImage_;
+        mod_->globals.push_back(gv);
+    }
     for (const auto& g : arrays_) {
         ir::Module::GlobalVar gv;
         gv.name = g; gv.type = ir::Type::PTR; gv.size = 2;
@@ -1329,8 +1377,16 @@ void Compiler::statement() {
         return;
     }
     case T_REM: p_ = toks_->size(); return;
-    case T_DATA: return;
+    case T_DATA: p_ = toks_->size(); return;
+    case T_READ: readStmt(); return;
+    case T_RESTORE: restoreStmt(); return;
     case T_DIM: dimStmt(); return;
+    case T_INPUT: inputStmt(); return;
+    case T_INPUTN: fail("INPUT# is not supported by --compile yet");
+    case T_GET: getStmt(); return;
+    case T_DO: doStmt(); return;
+    case T_LOOP: loopStmt(); return;
+    case T_EXIT: exitStmt(); return;
     case T_PRINT: printStmt(); return;
     case T_IF: ifStmt(); return;
     case T_GOTO: br(lineLabel(lineTarget())); block(newLabel("dead")); return;
@@ -1376,48 +1432,217 @@ void Compiler::statement() {
     }
 }
 
-void Compiler::assignment(const std::string& name) {
+Compiler::LV Compiler::parseLV(const std::string& name) {
+    LV lv;
     if (isCh('(')) {
-        // an element: its address first (the subscripts, the array made), as BASIC's LET
-        VK k;
-        auto a = elemAddr(name, k);
-        expectKw(T_EQ);
-        Val v = expr();
-        if (k == VK::S) {
-            needS(v);
-            store(ir::Type::PTR, v.op, global("__bas_sa"));
-            store(ir::Type::PTR, a, global("__bas_sr"));
-            call("__bas_sset");
-            freeVal(v);
-        } else if (k == VK::F) {
-            store(ir::Type::F32, toF(v), a);
-        } else {
-            Val x = toI16(v);
-            store(ir::Type::I16, trunc(x.op, ir::Type::I16), a);
-        }
-        return;
+        lv.elem = true;
+        lv.addr = elemAddr(name, lv.k);
+    } else {
+        lv.g = varGlobal(name, lv.k);
     }
-    expectKw(T_EQ);
-    VK k;
-    std::string g = varGlobal(name, k);
-    Val v = expr();
-    if (k == VK::S) {
+    return lv;
+}
+
+void Compiler::assignLV(const LV& lv, const Val& v) {
+    if (lv.k == VK::S) {
         needS(v);
         store(ir::Type::PTR, v.op, global("__bas_sa"));
-        auto a = vreg(ir::Type::PTR);
-        ir::Inst in; in.op = ir::Op::ADDR_GLOBAL; in.dest = a; in.src1 = ir::Operand::global(g);
-        in.resultType = ir::Type::PTR; emit(in);
-        store(ir::Type::PTR, a, global("__bas_sr"));
+        store(ir::Type::PTR, lv.elem ? lv.addr : addrGlobal(lv.g), global("__bas_sr"));
         call("__bas_sset");
         freeVal(v);
-    } else if (k == VK::F) {
-        observe(g, v, &VarObs::assign);
-        if (narrow_.count(g)) storeNarrow(g, v);
-        else store(ir::Type::F32, toF(v), ir::Operand::global(g));
+    } else if (lv.k == VK::F) {
+        if (lv.elem) { store(ir::Type::F32, toF(v), lv.addr); return; }
+        observe(lv.g, v, &VarObs::assign);
+        if (narrow_.count(lv.g)) storeNarrow(lv.g, v);
+        else store(ir::Type::F32, toF(v), ir::Operand::global(lv.g));
     } else {
         Val x = toI16(v);
-        store(ir::Type::I16, trunc(x.op, ir::Type::I16), ir::Operand::global(g));
+        store(ir::Type::I16, trunc(x.op, ir::Type::I16), lv.elem ? lv.addr : ir::Operand::global(lv.g));
     }
+}
+
+void Compiler::assignment(const std::string& name) {
+    // (an element's address first: the subscripts, the array made, as BASIC's LET)
+    LV lv = parseLV(name);
+    expectKw(T_EQ);
+    assignLV(lv, expr());
+}
+
+// The next variable of an INPUT / GET list
+Compiler::LV Compiler::listVar(const char* stmt) {
+    auto t = peek();
+    if (!t || t->k != TK::Name) fail(std::string("a variable expected after ") + stmt);
+    p_++;
+    return parseLV(t->text);
+}
+
+void Compiler::inputStmt() {
+    if (isCh('#')) fail("INPUT# is not supported by --compile yet");
+    // (?REDO FROM START: the INPUT again, its prompt too)
+    std::string again = newLabel("input"), end = newLabel("inend");
+    br(again);
+    block(again);
+    bool qmark = true;
+    auto t = peek();
+    if (t && t->k == TK::Str) {
+        p_++;
+        Val pr = strLit(t->text);
+        store(ir::Type::PTR, pr.op, global("__bas_sa"));
+        call("__bas_prs");
+        if (acceptCh(',')) qmark = false;   // (BASIC 65: no "? " after a prompt and a comma)
+        else expectCh(';');
+    }
+    store(ir::Type::I16, iconst(ir::Type::I16, qmark ? 1 : 0), global("__bas_n"));
+    call("__bas_iline");
+    std::string items = newLabel("initem");
+    brCond(bin(ir::Op::CMP_NE, ir::Type::I8, trunc(load(ir::Type::I16, global("__bas_n")), ir::Type::I8),
+               ir::Operand::imm(0, ir::Type::I8)), end, items);
+    block(items);
+    do {
+        LV lv = listVar("INPUT");
+        Val v;
+        if (lv.k == VK::S) {
+            v.k = VK::S;
+            v.slot = newSlot();
+            v.op = slotAddr(v.slot);
+            store(ir::Type::PTR, v.op, global("__bas_sr"));
+        }
+        store(ir::Type::I16, iconst(ir::Type::I16, lv.k == VK::S ? 1 : 0), global("__bas_m"));
+        call("__bas_iitem");
+        std::string ok = newLabel("inok");
+        brCond(bin(ir::Op::CMP_NE, ir::Type::I8, trunc(load(ir::Type::I16, global("__bas_n")), ir::Type::I8),
+                   ir::Operand::imm(0, ir::Type::I8)), again, ok);
+        block(ok);
+        if (lv.k != VK::S) { v.k = VK::F; v.op = load(ir::Type::F32, global("__float_a")); }
+        assignLV(lv, v);
+    } while (acceptCh(','));
+    br(end);
+    block(end);
+}
+
+std::string Compiler::loopTarget(size_t li, size_t si, size_t k) {
+    int depth = 0;
+    size_t l = li, s = si, i = k;
+    while (l < lines_.size()) {
+        const auto& segs = lines_[l].segs;
+        while (s < segs.size()) {
+            const auto& t = segs[s].toks;
+            for (; i < t.size(); i++) {
+                if (t[i].k != TK::Kw) continue;
+                if (t[i].kw == T_DO) depth++;
+                else if (t[i].kw == T_LOOP && depth-- == 0) return nextStmtLabel(l, s);
+            }
+            s++;
+            i = 0;
+        }
+        l++;
+        s = 0;
+    }
+    return errLabel(32);     // ?LOOP NOT FOUND
+}
+
+void Compiler::doStmt() {
+    // the entry: this DO's address (LOOP comes back to it), then 0
+    std::string again = newLabel("do");
+    size_t at = p_;          // (after the DO token)
+    br(again);
+    block(again);
+    {
+        auto r = vreg(ir::Type::I16);
+        ir::Inst in; in.op = ir::Op::ADDR_LABEL; in.dest = r; in.src1 = ir::Operand::label(again); emit(in);
+        store(ir::Type::I16, r, global("__bas_n"));
+    }
+    call("__bas_dopush");
+    bool w = acceptKw(T_WHILE), u = !w && acceptKw(T_UNTIL);
+    if (!w && !u) return;
+    auto c = truth(expr());
+    // WHILE false / UNTIL true: the entry popped, on after the loop's LOOP
+    std::string out = newLabel("doout"), body = newLabel("dobody");
+    brCond(c, w ? body : out, w ? out : body);
+    block(out);
+    call("__bas_dopop");
+    br(loopTarget(li_, si_, at));
+    block(body);
+}
+
+void Compiler::loopStmt() {
+    // WHILE false / UNTIL true: the DO entry popped and on; else (and without a
+    // condition) popped and back to its DO
+    std::string back = newLabel("loopbk"), out = newLabel("loopout");
+    bool w = acceptKw(T_WHILE), u = !w && acceptKw(T_UNTIL);
+    if (w || u) {
+        auto c = truth(expr());
+        brCond(c, w ? back : out, w ? out : back);
+        block(out);
+        call("__bas_dopop");
+        std::string on = newLabel("loopon");
+        br(on);
+        block(back);
+        call("__bas_dopop");
+        auto a = load(ir::Type::PTR, global("__bas_n"));
+        ir::Inst in; in.op = ir::Op::BR_INDIRECT; in.src1 = a; emit(in);
+        block(on);
+        return;
+    }
+    call("__bas_dopop");
+    auto a = load(ir::Type::PTR, global("__bas_n"));
+    ir::Inst in; in.op = ir::Op::BR_INDIRECT; in.src1 = a; emit(in);
+    block(newLabel("dead"));
+}
+
+void Compiler::exitStmt() {
+    if (!atEnd() && !isKw(T_ELSE)) fail("EXIT takes nothing after it (?SYNTAX ERROR)");
+    call("__bas_dopop");
+    br(loopTarget(li_, si_, p_));
+    block(newLabel("dead"));
+}
+
+void Compiler::readStmt() {
+    do {
+        LV lv = listVar("READ");
+        Val v;
+        if (lv.k == VK::S) {
+            v.k = VK::S;
+            v.slot = newSlot();
+            v.op = slotAddr(v.slot);
+            store(ir::Type::PTR, v.op, global("__bas_sr"));
+        }
+        store(ir::Type::I16, iconst(ir::Type::I16, lv.k == VK::S ? 1 : 0), global("__bas_m"));
+        call("__bas_read");
+        if (lv.k != VK::S) { v.k = VK::F; v.op = load(ir::Type::F32, global("__float_a")); }
+        assignLV(lv, v);
+    } while (acceptCh(','));
+}
+
+void Compiler::restoreStmt() {
+    size_t off = 0;
+    auto t = peek();
+    if (t && t->k == TK::Num) off = dataAt_[lineTarget()];
+    store(ir::Type::I16, iconst(ir::Type::I16, (int64_t)off), global("__bas_n"));
+    call("__bas_restore");
+}
+
+void Compiler::getStmt() {
+    if (isCh('#')) fail("GET# is not supported by --compile yet");
+    bool wait = acceptKw(T_KEY);
+    do {
+        LV lv = listVar(wait ? "GETKEY" : "GET");
+        Val v;
+        if (lv.k == VK::S) {
+            v.k = VK::S;
+            v.slot = newSlot();
+            v.op = slotAddr(v.slot);
+            store(ir::Type::PTR, v.op, global("__bas_sr"));
+        }
+        store(ir::Type::I16, iconst(ir::Type::I16, (wait ? 1 : 0) | (lv.k == VK::S ? 2 : 0)), global("__bas_m"));
+        call("__bas_get");
+        if (lv.k != VK::S) {
+            // BASIC 65: the key's code (0 for none)
+            v.k = VK::I; v.bound = 255;
+            v.op = zext(trunc(load(ir::Type::I16, global("__bas_n")), ir::Type::I8), ir::Type::I8, ir::Type::I32);
+        }
+        assignLV(lv, v);
+    } while (acceptCh(','));
 }
 
 void Compiler::printStmt() {
@@ -1525,7 +1750,7 @@ void Compiler::gosubTo(size_t target) {
 }
 
 void Compiler::returnStmt() {
-    // FOR entries above the GOSUB's are dropped
+    // FOR and DO entries above the GOSUB's are dropped
     std::string loop = newLabel("rloop"), go = newLabel("rgo");
     br(loop);
     block(loop);
@@ -1537,6 +1762,13 @@ void Compiler::returnStmt() {
     { ir::Inst in; in.op = ir::Op::ADDR_ELEM; in.dest = a; in.src1 = global("__bas_stk"); in.src2 = sp1;
       in.args.push_back(ir::Operand::imm(2, ir::Type::I16)); in.resultType = ir::Type::PTR; emit(in); }
     auto e = load(ir::Type::I16, a);
+    // a DO entry (its address, then 0): both dropped; a FOR's (1..255) dropped
+    std::string rdo = newLabel("rdo"), rchk = newLabel("rchk");
+    brCond(bin(ir::Op::CMP_EQ, ir::Type::I8, e, ir::Operand::imm(0, ir::Type::I16)), rdo, rchk);
+    block(rdo);
+    store(ir::Type::I8, bin(ir::Op::SUB, ir::Type::I8, sp1, ir::Operand::imm(1, ir::Type::I8)), global("__bas_sp"));
+    br(loop);
+    block(rchk);
     brCond(bin(ir::Op::CMP_LTU, ir::Type::I8, e, ir::Operand::imm(256, ir::Type::I16)), loop, go);
     block(go);
     auto pe = load(ir::Type::PTR, a);
@@ -1644,7 +1876,7 @@ void Compiler::nextStmt() {
         std::vector<const ForInfo*> cands;
         for (const auto& f : fors_)
             if (!var || f.var == *var) cands.push_back(&f);
-        if (cands.empty()) fail("NEXT " + (var ? *var : std::string()) + " has no FOR (?NEXT WITHOUT FOR)");
+        if (cands.empty()) { raiseNow(10); return; }    // (no FOR of it: ?NEXT WITHOUT FOR when run)
         std::string loop = newLabel("nloop"), done = newLabel("ndone");
         {
             auto r = vreg(ir::Type::I16);
@@ -1667,8 +1899,9 @@ void Compiler::nextStmt() {
             brCond(bin(ir::Op::CMP_EQ, ir::Type::I8, e, ir::Operand::imm(f->id, ir::Type::I16)), c, nx);
             block(nx);
         }
-        // another entry: a GOSUB's (?NEXT WITHOUT FOR), else an inner loop: dropped
-        raiseIf(bin(ir::Op::CMP_GEU, ir::Type::I8, e, ir::Operand::imm(256, ir::Type::I16)), 10);
+        // another entry: a GOSUB's or a DO's (0) ?NEXT WITHOUT FOR, else an inner loop: dropped
+        raiseIf(bin(ir::Op::CMP_GEU, ir::Type::I8, bin(ir::Op::SUB, ir::Type::I16, e, ir::Operand::imm(1, ir::Type::I16)),
+                    ir::Operand::imm(255, ir::Type::I16)), 10);
         store(ir::Type::I8, sp1, global("__bas_sp"));
         br(loop);
         // a match: the loop's step block (shared by its NEXTs), which goes

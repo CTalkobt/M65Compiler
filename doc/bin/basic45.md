@@ -333,10 +333,10 @@ status at `$FD`/`$FE` is the error number), after which BASIC's `READY.` follows
 
 | | |
 |---|---|
-| Statements | `LET` and assignments, `PRINT` (`;`, `,`, `TAB(`, `SPC(`), `IF` … `THEN` / `GOTO` (a line number or statements), `ELSE`, `BEGIN` / `BEND`, `GOTO`, `GO TO`, `GOSUB`, `RETURN`, `ON` … `GOTO` / `GOSUB`, `FOR` … `TO` … `STEP` / `NEXT` (a float variable; `NEXT a, b`), `POKE`, `DIM`, `END`, `STOP`, `REM`, `DATA` (skipped) |
+| Statements | `LET` and assignments, `PRINT` (`;`, `,`, `TAB(`, `SPC(`), `IF` … `THEN` / `GOTO` (a line number or statements), `ELSE`, `BEGIN` / `BEND`, `GOTO`, `GO TO`, `GOSUB`, `RETURN`, `ON` … `GOTO` / `GOSUB`, `FOR` … `TO` … `STEP` / `NEXT` (a float variable; `NEXT a, b`), `POKE`, `DIM`, `INPUT` (a prompt with `;` or `,`), `GET`, `GETKEY`, `DO` … `LOOP` (`WHILE` / `UNTIL` on either), `EXIT`, `READ`, `DATA`, `RESTORE` (a line number or none), `END`, `STOP`, `REM` |
 | Values | floats, `%` integers (-32768..32767), strings (up to 255 characters); arrays of each (`DIM a(n, m)`, up to 8 subscripts; sizes at run time) |
 | Operators | `+ - * / ^`, unary `-`, `= <> < > <= >=` (numbers and strings), `AND`, `OR`, `NOT` |
-| Functions | `ABS`, `INT`, `SGN`, `SQR`, `SIN`, `COS`, `TAN`, `ATN`, `LOG`, `EXP`, `PEEK`, `LEN`, `ASC`, `CHR$`, `STR$`, `LEFT$`, `RIGHT$`, `MID$`, π |
+| Functions | `ABS`, `INT`, `SGN`, `SQR`, `SIN`, `COS`, `TAN`, `ATN`, `LOG`, `EXP`, `PEEK`, `LEN`, `ASC`, `CHR$`, `STR$`, `LEFT$`, `RIGHT$`, `MID$`, `RND`, π; the variables `TI` and `TI$` |
 
 **How**: the program is one function; each line and statement starts a block. `GOTO` is a branch; `GOSUB`
 pushes the address of the code after it on BASIC's stack and `RETURN` jumps back to it. `FOR` pushes its
@@ -354,6 +354,18 @@ in that bound (a step past them at most, once for each loop of the variable on B
 found by compiling until they hold; a variable whose bound keeps growing (`n = n + 1`, `s = s + i`) or that
 is given a fraction (`/`, `SQR`, a number with a point) stays a float. BASIC's floats are exact for such
 values, so the results are the interpreter's. Variables are told apart by their first two characters (and `$` / `%`), as in BASIC 65.
+**Input**: `INPUT` reads a line with the KERNAL's screen editor (`"? "` first, `"?? "` when more items are
+needed, nothing after a prompt and a comma), its items as BASIC 65's: leading spaces skipped, a string in quotes
+or up to the next `,` / `:`, a number followed only by spaces and `,`; else `?REDO FROM START` and the `INPUT`
+again; an empty line leaves the variables as they were, input left over is ignored. `GET` / `GETKEY` take a key
+(KERNAL GETIN; `GETKEY` waits): a string variable gets the character (`""` for none), a numeric one its code (0
+for none), as BASIC 65's. `DO` / `LOOP` / `EXIT` use BASIC's stack as the interpreter does (a `DO`'s entry, `LOOP`
+going back to the `DO` on top); `EXIT` and a false `DO WHILE` go on after the matching `LOOP` (found in the text,
+nested ones passed; none: `?LOOP NOT FOUND`). `READ` takes the items of the `DATA` statements in program order
+(the same rules as `INPUT`'s: `?OUT OF DATA`, `?TYPE MISMATCH`), `RESTORE n` from the first `DATA` at or after
+line `n`. `RND` is the ROM's (the interpreter's seed and sequence), `TI` CIA 2's timers as BASIC 65 reads them,
+`TI$` the clock (`"hh:mm:ss"`). The run time of these is `lib/stdlib/basic_in.c`.
+
 **Arrays** are blocks on the heap (`malloc`): the number of dimensions, each one's size, the elements (floats
 5 bytes, integers 2, strings a pointer). As in BASIC 65, a subscript is 0..65535 (`?ILLEGAL QUANTITY` outside
 it), one past the `DIM` or a wrong number of subscripts is `?BAD SUBSCRIPT`, a second `DIM` of an array
@@ -374,6 +386,8 @@ The run-time support is `lib/stdlib_asm/basic_rt.s45` (PRINT, the errors, BASIC'
 - A float result too large gives the largest float, not `?OVERFLOW ERROR` (except for `EXP` and `^`).
 - `PEEK` of `$C000`-`$CFFF` reads RAM; the interpreter reads the ROM there.
 - An error cannot be caught (`TRAP` is not compiled yet).
+- A number typed at `INPUT` or read from `DATA` is converted by the library's `strtof` (correctly rounded); the
+  interpreter's own conversion can differ in the last bit, as for numbers in the program.
 - Arrays and strings share the program's heap, from the end of the program to the stack's share below `$B000`
   (some 15–30 KB, as large as the program is not); the interpreter keeps them in bank 1 (about 60 KB). A `DIM` that does not fit is
   `?OUT OF MEMORY`.
@@ -399,9 +413,9 @@ Integer code is more than ten times as fast. Float arithmetic is not much faster
 operation calls it with `JSRFAR` (and once more to round the result); the RAM routines of `--speed` take about
 half the time of that, but a float operation is still hundreds of cycles, as much as the interpreter's own. The
 compiled program is about ten times the size of the tokenized one (`test_basic_compile_xemu.bas`: 2.6 KB →
-26 KB). The next steps (#369): `INPUT` / `GET`, `DO` / `LOOP`, `TI`, `RND`, `READ` / `DATA`.
+26 KB). The next steps (#369): `FOR` loops as counted loops where the program allows it, smaller code.
 
-`test_basic_compile_xemu.bas` is run interpreted and compiled (`-O2`, `-O0`, `--speed`) on xemu with the same results;
+`test_basic_compile_xemu.bas` and `test_basic_compile2_xemu.bas` (input, loops, RND, DATA) are run interpreted and compiled (`-O2`, `-O0`, `--speed`) on xemu with the same results;
 `test_basic45.sh` checks the output, the errors and a `.prg` input.
 
 ## Formatting

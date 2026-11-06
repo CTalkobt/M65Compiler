@@ -4,6 +4,24 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### basic45 --compile: INPUT, GET, DO / LOOP, TI, RND, READ / DATA (#369)
+
+- `INPUT` (a prompt with `;` or `,`, several variables, elements too) and
+  `GET` / `GETKEY`, as BASIC 65's: the KERNAL's line input, `"?? "` for more
+  items, `?REDO FROM START`, quoted and unquoted strings, `GET` of a number
+  giving the key's code (`lib/stdlib/basic_in.c`).
+- `DO` / `LOOP` with `WHILE` / `UNTIL` on either and `EXIT`, on BASIC's
+  stack as the interpreter's (`?LOOP WITHOUT DO`, `?LOOP NOT FOUND`); RETURN,
+  NEXT and FOR know a DO's entry.
+- `RND` by the ROM (the interpreter's sequence: `rnd_arg` called with
+  SIGN's A and flags), `TI` (CIA 2's timers), `TI$` (the RTC).
+- `READ`, `DATA` (the statements' text kept), `RESTORE` [line]:
+  `?OUT OF DATA`, `?TYPE MISMATCH`.
+- A `NEXT` without any `FOR` of its variable is `?NEXT WITHOUT FOR` when run
+  (it was a compile error).
+- Test `test_basic_compile2_xemu.bas` (interpreted, -O2, -O0, --speed): the
+  first test program no longer leaves room on the heap for more checks.
+
 ### cc45: floating constants without digits before or after the point
 
 - `.5`, `.5e1`, `.125f` (no digits before the point) were a syntax error
