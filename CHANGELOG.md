@@ -4,6 +4,28 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### basic45 --convert: fewer warnings, TSB and TSBneo (#368)
+
+- Warnings: a message once, with the lines it applies to.
+- BASIC 7.0: `RGR(` (the mode each `GRAPHIC` keeps in a variable) and
+  `SCALE` (the drawing statements' coordinates times its factors).
+- Simons' BASIC: `MUSIC`/`PLAY` (its notation as BASIC 65 `PLAY` strings,
+  one per voice, the tempo as `TEMPO` and a unit), `DUP`, `OUT`,
+  `DETECT`/`CHECK` (`BUMP`), `LOCAL`/`GLOBAL`, `FETCH`, `ROT`/`DRAW`,
+  `CHAR`, `BCKGNDS`, `SCRSV`/`SCRLD` of the text screen, `COLD`; LIST's
+  settings dropped; a statement keyword inside an expression left as
+  written.
+- TSB's own forms (checked against its sources), and `--convert=tsbneo`
+  for TSBneo's `AT(row, column)`: `IF … THEN DO` / `ELSE` / `DONE` →
+  `BEGIN` / `BEND`, `D!PEEK`/`D!POKE` → `WPEEK`/`WPOKE`, `CLS`,
+  `NRM(`, `$$n`, `MEM CLR`, `SOUND`/`WAVE` statements, `INSERT`'s box,
+  `MULTI ON`/`OFF`, `MOB ON`/`OFF`, `COLOUR`'s forms, `AT(` before
+  `CENTRE`/`USE`/`FETCH`, `USE` with several fields, `SCRLD DEF`
+  (`BLOAD`), `KEY GET`, procedure names holding keywords; TSB's
+  `$64 $B1`–`$B3` tokens read. Listings may use `{shift-x}` / `{cbm-x}`.
+- Tests: `test_simons_xemu.txt` grows to 24 checks,
+  `test_convert7_xemu.txt` 13, a new `test_tsbneo_xemu.txt` (15).
+
 ### basic45 --convert=basic7: BASIC 7.0 (C128) programs as BASIC 65 (#368)
 
 - A BASIC 7.0 `.prg` (read with BASIC 7.0's token tables) or text listing

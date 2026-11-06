@@ -126,11 +126,11 @@ grep -q '^  gosub l[0-9]* : tempo 8$' "$D/c7.bas" &&
     pass "--convert=basic7: BASIC 7.0's default tempo set first when the program plays and sets none" ||
     fail "--convert default tempo: $(cat "$D/c7.bas")"
 conv '10 SLOW:A=PEN(1):B=RCLR(4):C=RGR(0)' '20 DRAW 1,0,0 TO 9,9:FETCH 1,2,3,4:PLAY A$' '30 IF A THEN 10'
-grep -q 'speed 1 : a = lpen(1) : b = (rcolor(3) + 1) : c = rgr(0)' "$D/c7.bas" && grep -q '^l10:' "$D/c7.bas" &&
-grep -q 'then l10' "$D/c7.bas" && grep -q 'line 10: RGR has no BASIC 65 counterpart' "$D/c7.err" &&
+grep -q 'speed 1 : a = lpen(1) : b = (rcolor(3) + 1) : c = [a-z][a-z0-9]$' "$D/c7.bas" && grep -q '^l10:' "$D/c7.bas" &&
+grep -q 'then l10' "$D/c7.bas" && ! grep -q 'RGR' "$D/c7.err" &&
 grep -q 'line 20: FETCH -> EDMA' "$D/c7.err" && grep -q 'edma 0, 1, 134414340, 2' "$D/c7.bas" &&
 grep -q 'line 20: PLAY of a string that is not a literal' "$D/c7.err" &&
-    pass "--convert=basic7: SLOW -> SPEED 1, PEN( -> LPEN(, RCLR( renumbered (1-16), labels; RGR, DRAW, FETCH and PLAY A\$ warned" ||
+    pass "--convert=basic7: SLOW -> SPEED 1, PEN( -> LPEN(, RCLR( renumbered (1-16), RGR( (the GRAPHIC mode kept), labels; FETCH and PLAY A\$ warned" ||
     fail "--convert renames: $(cat "$D/c7.bas" "$D/c7.err")"
 $B "$D/c7.bas" -o "$D/c7.prg" > /dev/null 2>&1 || true
 conv '10 BASEX=1:BASEY=2:DT$="A":DTX$="B":SUM1=3' '20 T=TI:PRINT TI$:TI$="000000"'
@@ -208,7 +208,7 @@ convs '10 ON ERROR:GOTO 50' '20 IF A THEN PRINT 1:ELSE:PRINT 2' '30 RCOMP PRINT 
 grep -q '^l10: trap l50$' "$D/cs.bas" && grep -q '\([a-z][a-z0-9]\) = ((a) <> 0) : if \1 then print 1 : else print 2' "$D/cs.bas" &&
 grep -q 'if [a-z][a-z0-9] then print 3 : else print 4 : [a-z][a-z0-9] = x : goto l[0-9]*' "$D/cs.bas" &&
 grep -q 'if [a-z][a-z0-9] = 30 then l30' "$D/cs.bas" && grep -q 'trap l[0-9]*$' "$D/cs.bas" && grep -q 'print er; el : end' "$D/cs.bas" &&
-grep -q 'trap : cursor 5, 3 : print "hi"; : cursor 0, 1 : print "x" : print spc(int((40 - len("c")) / 2)); "c"; : print "p" : [a-z][a-z0-9] = ti : do : get' "$D/cs.bas" &&
+grep -q 'trap : cursor 5, 3 : print "hi"; : cursor 0, 1 : print "x" : print spc(int((40 - pos(0) - len("c")) / 2) \* -(int((40 - pos(0) - len("c")) / 2) > 0)); "c"; : print "p" : [a-z][a-z0-9] = ti : do : get' "$D/cs.bas" &&
     pass "--convert=simons: ON ERROR -> TRAP (a GOTO, or its line as a handler), ELSE, RCOMP (the IF's result kept), CGOTO (a table of lines), ERRN/ERRLN, PRINT AT -> CURSOR, CENTRE, PAUSE" ||
     fail "--convert=simons errors / text: $(cat "$D/cs.bas" "$D/cs.err")"
 convs '10 HIRES 1,0:PLOT 1,2,1:LINE 0,0,9,9,2:REC 1,1,5,5,1:BLOCK 0,0,4,4,1:CIRCLE 50,50,20,10,1:ARC 50,50,0,90,10,20,20,1' '20 MULTI 2,5,7:PLOT 10,10,3:TEXT 16,8,"A",1,2,8:A=TEST(1,1):NRM:MOB SET 1,13,2,0,0:MMOB 1,24,50,100,60,1,0:WAVE 1,00100001'
@@ -229,10 +229,33 @@ grep -q 'poke 1536 + 64 \* [a-z][a-z0-9] + [a-z][a-z0-9], dec(mid\$(' "$D/cs.bas
 grep -q '= 1 : [a-z][a-z0-9] = 2 : [a-z][a-z0-9] = 3 : [a-z][a-z0-9] = 4 : [a-z][a-z0-9] = 65 : gosub l[0-9]*' "$D/cs.bas" &&
     pass "--convert=simons: DESIGN of a character -> CHAR DEF (bytes from its @ rows), of a sprite -> data MOB SET copies to \$0600; FCHR and the scrolls by subroutines" ||
     fail "--convert=simons DESIGN / rectangles: $(cat "$D/cs.bas" "$D/cs.err")"
+convs '10 FETCH "{home}",5,A$:FETCH "0123",2,N' '20 SCRSV 2,8,2,"S,S,W":SCRLD 2,8,2,"S":OUT' '30 DISAPA:PAGE 5:OPTION 10:DELAY 3:PRINT 1'
+grep -q '= "{home}" : [a-z][a-z0-9] = 5 : gosub l[0-9]* : a\$ = [a-z][a-z0-9]\$' "$D/cs.bas" && grep -q ': n = val([a-z][a-z0-9]\$)' "$D/cs.bas" &&
+grep -q 'getkey [a-z][a-z0-9]\$' "$D/cs.bas" &&
+grep -q 'open 2, 8, 2, "s,s,w" : print# 2, chr\$(0); chr\$(4); : for [a-z][a-z0-9] = 0 to 1023 : print# 2, chr\$(peek(55296 + ' "$D/cs.bas" &&
+grep -q 'get# 2, [a-z][a-z0-9]\$, [a-z][a-z0-9]\$ : poke 55296 + ' "$D/cs.bas" && grep -q 'print err\$(er)' "$D/cs.bas" &&
+grep -q '^  print 1$' "$D/cs.bas" && ! grep -q 'FETCH\|SCRSV\|SCRLD\|OUT\|DISAPA\|PAGE' "$D/cs.err" &&
+    pass "--convert=simons: FETCH (a GET loop), SCRSV/SCRLD (the screen and colours by PRINT# / GET#), OUT, LIST's settings dropped" ||
+    fail "--convert=simons FETCH / SCRSV: $(cat "$D/cs.bas" "$D/cs.err")"
+$B "$D/cs.bas" -o "$D/cs.prg" > "$D/csb.log" 2>&1 && pass "--convert=simons: FETCH / SCRSV result builds" ||
+    fail "--convert=simons FETCH / SCRSV result does not build: $(cat "$D/csb.log")"
+# --convert=tsbneo: TSB's statement forms
+printf '%s\n' '10 SOUND 3,$3427:SOUND 4,$1E00:WAVE 3,$41,$0400:HIRES 0,0:MULTI OFF:PLOT 10,10,1' '20 KEY GET X$:VOL OFF:COLD' \
+    '30 SCRLD DEF $7A,6,0,3:SCRLD 1,8,3,"MC":SCRLD RESTORE:SCRSV 2,8,2,"S,S,W"' '40 MEMCLR SOUND,25:MEM:CHECK:D!10-20' > "$D/ts.txt"
+$B --convert=tsbneo "$D/ts.txt" -o "$D/ts.bas" 2> "$D/ts.err"
+grep -q 'poke 54272 + 7 \* ((3) - 1), (\$3427) and 255 : poke 54272 + 7 \* ((3) - 1) + 1, int((\$3427) / 256)' "$D/ts.bas" &&
+grep -q 'poke 54293, (\$1e00) and 7' "$D/ts.bas" && grep -q '+ 4, \$41 : poke 54272 + 7 \* ((3) - 1) + 2, (\$0400) and 255' "$D/ts.bas" &&
+grep -q 'line 20, 10 : ' "$D/ts.bas" && grep -q 'getkey x\$ : vol 0 : end' "$D/ts.bas" &&
+grep -q 'bload "mc", p((\$7a) \* 256), u8 : open 2, 8, 2' "$D/ts.bas" &&
+grep -q 'for [a-z][a-z0-9] = 0 to (25) - 1 : poke 54272 + [a-z][a-z0-9], 0 : next$' "$D/ts.bas" && grep -q 'D! (TSB: deletes program lines): dropped' "$D/ts.err" &&
+    pass "--convert=tsbneo: SOUND / WAVE (TSB's) to the SID's registers, MULTI OFF, KEY GET, VOL OFF, COLD, SCRLD DEF (BLOAD), MEM CLR; MEM, CHECK, D! dropped" ||
+    fail "--convert=tsbneo statements: $(cat "$D/ts.bas" "$D/ts.err")"
+$B "$D/ts.bas" -o "$D/ts.prg" > "$D/tsb.log" 2>&1 && pass "--convert=tsbneo: the result builds" ||
+    fail "--convert=tsbneo result does not build: $(cat "$D/tsb.log")"
 # a .prg: $64 $01 is HIRES; $64 $22 (TSB's DO) warned
 printf '\x01\x08\x10\x08\x0a\x00\x64\x01\x31\x2c\x30\x3a\x64\x22\x00\x00\x00' > "$D/s.prg"
-$B --convert=simons "$D/s.prg" -o "$D/s.bas" 2> "$D/s.err" && grep -q 'screen 320, 200, 4' "$D/s.bas" && grep -q 'DO is a TSB' "$D/s.err" &&
-    pass "--convert=simons: a .prg read with Simons' tokens (\$64 xx; TSB's own warned)" || fail "--convert=simons .prg: $(cat "$D/s.bas" "$D/s.err")"
+$B --convert=simons "$D/s.prg" -o "$D/s.bas" 2> "$D/s.err" && grep -q 'screen 320, 200, 4' "$D/s.bas" && grep -q 'DO has no BASIC 65 counterpart (a DO not after IF' "$D/s.err" &&
+    pass "--convert=simons: a .prg read with Simons' tokens (\$64 xx; TSB's DO without IF ... THEN warned)" || fail "--convert=simons .prg: $(cat "$D/s.bas" "$D/s.err")"
 
 echo "basic45 tests: $passed passed, $failed failed"
 [ $failed -eq 0 ]
