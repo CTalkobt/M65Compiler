@@ -576,8 +576,10 @@ void IRCodeGen::planF32Aliases(const ir::Function& fn) {
                 f32Skip_.insert(&in);
                 continue;
             }
+            // (not __float_a / __float_b: the float operation writes them with its
+            // operands, a value read from one in place would be overwritten first)
             if (in.op == ir::Op::LOAD && in.resultType == ir::Type::F32 && in.src1.kind == ir::OperandKind::GLOBAL &&
-                in.args.empty() && uses[v] == 1) {
+                in.args.empty() && uses[v] == 1 && in.src1.name != "__float_a" && in.src1.name != "__float_b") {
                 // its one use later in the block, with only loads and constants between
                 for (size_t j = k + 1; j < is.size(); j++) {
                     const ir::Inst& u = is[j];
