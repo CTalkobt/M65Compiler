@@ -25,6 +25,7 @@ print pot(1)|99ce02283129
 print wpeek(1)|99ce10283129
 print rsprsys(1)|99ce17283129
 wpoke 1,2|fe1d20312c32
+fwrite#2,1,1:fread#2,1,1|fe1e20322c312c313afe1c20322c312c31
 vsync 100|fe5420313030
 mkdir "x"|fe51225822
 a = 1 << 3|41b231fe5233

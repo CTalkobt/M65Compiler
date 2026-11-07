@@ -23,6 +23,8 @@
  *   _bas_ti: TI into __float_a: CIA 2's timers A and B (one 32-bit count,
  *     started if they do not run) in seconds, as BASIC 65's Get_TI_CIA.
  *   _bas_tis: TI$ ("hh:mm:ss", the RTC) into __bas_sr's buffer.
+ * __bas_m 5 (LINE INPUT): the rest of the line as it is. _bas_lin: LINE
+ * INPUT#'s line (the ROM's linputn) into __bas_sr's buffer.
  * INPUT# / GET# (__bas_chan, a channel CHKIN made the input): no prompts, no
  * echoed carriage return, a line as BASIC's InputBuffer, bad data ?FILE DATA
  * instead of ?REDO FROM START, a bad status (ST AND $87) ends the INPUT#;
@@ -99,8 +101,32 @@ static void skipsp(void) {
     while (line[pos] == ' ') pos++;
 }
 
+/* LINE INPUT# (the ROM's linputn): a line (InputBuffer) into __bas_sr's buffer */
+void _bas_lin(void) {
+    unsigned char k, n;
+    unsigned char *r = _bas_sr;
+    readline();
+    for (n = 0; line[n]; n++) {}
+    r[0] = n;
+    for (k = 0; k < n; k++) r[k + 1] = line[k];
+}
+
 void _bas_iitem(void) {
     unsigned char c, start, n;
+    if (_bas_m & 4) {
+        /* LINE INPUT: the rest of the line as it is (leading spaces, commas,
+         * colons; count_to_eol), another line when it is used up */
+        unsigned char *r = _bas_sr;
+        if (!line[pos]) {
+            if (!_bas_chan) out("?? ");
+            readline();
+        }
+        n = 0;
+        while (line[pos]) r[++n] = line[pos++];
+        r[0] = n;
+        _bas_n = 0;
+        return;
+    }
     skipsp();
     if (line[pos] == 0 || line[pos] == ':') {
         if (!_bas_chan) out("?? ");

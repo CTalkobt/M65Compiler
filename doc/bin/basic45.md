@@ -334,7 +334,7 @@ status at `$FD`/`$FE` is the error number), after which BASIC's `READY.` follows
 
 | | |
 |---|---|
-| Statements | `LET` and assignments, `PRINT` (`;`, `,`, `TAB(`, `SPC(`), `IF` … `THEN` / `GOTO` (a line number or statements), `ELSE`, `BEGIN` / `BEND`, `GOTO`, `GO TO`, `GOSUB`, `RETURN`, `ON` … `GOTO` / `GOSUB`, `FOR` … `TO` … `STEP` / `NEXT` (a float variable; `NEXT a, b`), `POKE`, `DIM`, `INPUT` (a prompt with `;` or `,`), `GET`, `GETKEY`, `DO` … `LOOP` (`WHILE` / `UNTIL` on either), `EXIT`, `READ`, `DATA`, `RESTORE` (a line number or none), `DEF FN`, `WPOKE`, `WAIT`, `SLEEP`, `SCNCLR` (the text screen), `BANK`, `TRAP` (a line number or none), `RESUME` (none, `NEXT` or a line), `OPEN`, `CLOSE`, `PRINT#`, `INPUT#`, `GET#`, `CMD`, `DOPEN`, `APPEND`, `DCLOSE`, `DLOAD`, `LOAD` (chaining), `HEADER`, `SCRATCH` / `ERASE` / `DELETE "name"`, `RENAME`, `COPY` (on one unit), `CONCAT`, `COLLECT`, `DCLEAR`, `BACKUP`, `RECORD#`, `END`, `STOP`, `REM`; `POKE` / `WPOKE` with a list of values |
+| Statements | `LET` and assignments, `PRINT` (`;`, `,`, `TAB(`, `SPC(`), `IF` … `THEN` / `GOTO` (a line number or statements), `ELSE`, `BEGIN` / `BEND`, `GOTO`, `GO TO`, `GOSUB`, `RETURN`, `ON` … `GOTO` / `GOSUB`, `FOR` … `TO` … `STEP` / `NEXT` (a float variable; `NEXT a, b`), `POKE`, `DIM`, `INPUT` (a prompt with `;` or `,`), `GET`, `GETKEY`, `DO` … `LOOP` (`WHILE` / `UNTIL` on either), `EXIT`, `READ`, `DATA`, `RESTORE` (a line number or none), `DEF FN`, `WPOKE`, `WAIT`, `SLEEP`, `SCNCLR` (the text screen), `BANK`, `TRAP` (a line number or none), `RESUME` (none, `NEXT` or a line), `OPEN`, `CLOSE`, `PRINT#`, `INPUT#`, `GET#`, `CMD`, `DOPEN`, `APPEND`, `DCLOSE`, `DLOAD`, `LOAD` (chaining), `HEADER`, `SCRATCH` / `ERASE` / `DELETE "name"`, `RENAME`, `COPY` (on one unit), `CONCAT`, `COLLECT`, `DCLEAR`, `BACKUP`, `RECORD#`, `BLOAD`, `BSAVE`, `BVERIFY`, `DIR` / `CATALOG`, `FREAD#`, `FWRITE#`, `LINE INPUT`, `LINE INPUT#`, `END`, `STOP`, `REM`; `POKE` / `WPOKE` with a list of values |
 | Values | floats, `%` integers (-32768..32767), strings (up to 255 characters); arrays of each (`DIM a(n, m)`, up to 8 subscripts; sizes at run time) |
 | Operators | `+ - * / ^`, unary `-`, `= <> < > <= >=` (numbers and strings), `AND`, `OR`, `XOR`, `NOT` (-32768..65535, as BASIC 65's), `<<`, `>>` |
 | Functions | `ABS`, `INT`, `SGN`, `SQR`, `SIN`, `COS`, `TAN`, `ATN`, `LOG`, `EXP`, `PEEK`, `LEN`, `ASC`, `CHR$`, `STR$`, `LEFT$`, `RIGHT$`, `MID$`, `RND`, `FN`, `POS`, `VAL`, `DEC`, `HEX$`, `STRBIN$`, `INSTR` (a pound sign's pattern too), `MOD`, `WPEEK`, `RPT$`, `ERR$`, π; the variables `TI`, `TI$`, `ER`, `EL`, `ST`, `DS` and `DS$` |
@@ -396,8 +396,19 @@ files, `HEADER` and `COLLECT` all files first, `DCLEAR` and `BACKUP` the unit's.
 drives' units (CBDOS, bank 1 `$0113`) is a copy between drives 0 and 1; between other units (IEC drives, which
 the ROM copies file by file) it is `?ILLEGAL DEVICE NUMBER` here. `DS` / `DS$` read the drive's error
 channel when no message is kept (the KERNAL's device if a drive, else the last DOS statement's unit) and keep it
-until a `DOPEN` or an `OPEN` of a drive, as BASIC 65's `Read_DS` / `Clear_DS`. Not compiled yet: `BLOAD`,
-`BSAVE`, `BVERIFY`, `DIR` / `DIRECTORY` / `CATALOG`, `FREAD#`, `FWRITE#`, `LINPUT#`.
+until a `DOPEN` or an `OPEN` of a drive, as BASIC 65's `Read_DS` / `Clear_DS`. **Binary files, listing**: `BSAVE name, P start TO P end [, B bank] [, D] [, U]` (the end not saved; a
+16-bit address in bank `B`, default `BANK`'s, else a 28-bit one) writes the file as the KERNAL's SAVE does
+(the start's low 16 bits, then the bytes; on secondary address 1); `BLOAD name [, P address] [, B bank] [, D]
+[, U] [, R]` and `BVERIFY` load or compare through the KERNAL's LOAD with the ROM's bank setting
+(`setbank_from_dos_args`; no `P`: the file's address); `?LOAD ERROR` for a bad status, `BVERIFY`'s
+`VERIFY ERROR AT $0FCA` (no carriage return, as the ROM's). `DIR` / `CATALOG [name] [, D] [, U] [, R] [, W]
+[, P]` list the directory as the ROM's `directory` / `ldir` (the blocks right-aligned in 4; `W`: 20 characters
+in columns of 21 rows; `P`: a page, `[MORE]` and a key; `R`: recoverable files; STOP ends it); through `CMD`
+each line goes to the channel (the installed ROM sends only the first there when the channel is a file on the
+same drive). `FREAD# lf, address, size` / `FWRITE#` move `size` bytes (0: 65536) between the file and the
+28-bit address (`BANK` not used). `LINE INPUT# lf, a$ [, ...]` reads a line into each (up to 160 characters,
+as `InputBuffer`), `LINE INPUT ["prompt";] a$ [, ...]` the rest of the typed line as it is (commas, colons,
+leading spaces). Not compiled: `DIRECTORY` (basic45 does not tokenize it), `DIR` of the SD card (unit 12).
 `DSAVE`, `SAVE`, `VERIFY` and `DVERIFY` are errors: they save or compare the BASIC program's text, which a compiled
 program does not have.
 
