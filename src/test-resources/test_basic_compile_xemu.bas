@@ -7,7 +7,9 @@
 7 rem [12] narrowed variables (whole numbers: integers when compiled) as floats
 8 rem [13] arrays: dim, float / % / $ elements, two subscripts, an array without dim
 9 rem [14] $aa (input, do / loop, rnd, ti, read: test_basic_compile2_xemu.bas)
-10 a=7:b=2:if a/b=3.5 and a*b=14 and a^b=49 and a-b=5 and -a=-7 and a+b*2=11 then poke 49344,1
+10 a=7:b=2:y=16:if a/b=3.5 and a*b=14 and a^b=49 and a-b=5 and -a=-7 and a+b*2=11 and 2*sqr(y)=8 then 12
+11 goto 20
+12 if 3+int(a/b)=6 and 10-abs(-a)=3 then poke 49344,1
 20 a%=-3:b%=a%*5+1:c%=1.5:d%=-1.5
 25 if b%=-14 and c%=1 and d%=-2 and int(-2.5)=-3 and a%/2=-1.5 and b%+a%=-17 then poke 49345,1
 30 if sqr(16)=4 and abs(-4)=4 and sgn(-2)=-1 and sgn(0)=0 and sgn(3)=1 and int(2.5)=2 then 35
