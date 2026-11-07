@@ -4,6 +4,15 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### basic45 --compile: PEEK / POKE of far memory, BANK (#369)
+
+- PEEK, POKE, WPEEK, WPOKE and WAIT take BASIC 65's addresses: above 65535
+  a 28-bit address, below it in the bank BANK chose (128 the CPU's map).
+  POKE's value is 0..65535 (its low byte stored; `POKE a, 300` was
+  ?ILLEGAL QUANTITY), several values fill the bytes after the address.
+  `BANK`. Addresses known to be below 65536 in a program without BANK stay
+  direct accesses; others go through `__bas_peek` / `__bas_poke`.
+
 ### basic45 --compile: more functions and statements (#369)
 
 - `XOR`, `<<`, `>>`; `MOD`, `POS`, `VAL`, `DEC`, `HEX$`, `STRBIN$`, `INSTR`
