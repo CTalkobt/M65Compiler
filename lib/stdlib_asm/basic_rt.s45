@@ -110,6 +110,16 @@ __bas_prcr:
     lda #13
     jmp __bas_out
 
+; POS(x): the cursor's column into __bas_n
+    .split "__bas_pos"
+.global __bas_pos
+__bas_pos:
+    jsr __bas_column
+    sta __bas_n
+    lda #0
+    sta __bas_n+1
+    rts
+
 ; The cursor's column in A (KERNAL PLOT)
     .split "__bas_column"
 __bas_column:
@@ -611,6 +621,8 @@ __bas_msgs:
     .text "division by zero"
     .byte 0, 22
     .text "type mismatch"
+    .byte 0, 27
+    .text "undefined function"
     .byte 0, 23
     .text "string too long"
     .byte 0, 30

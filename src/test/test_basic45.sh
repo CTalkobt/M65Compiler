@@ -294,11 +294,11 @@ if $B --compile --asm "$D/c.s45" "$D/c.bas" -o "$D/c.prg" > "$D/c.log" 2>&1 &&
 else
     fail "--compile: $(cat "$D/c.log")"
 fi
-printf '10 print 1\n20 sleep 1\n' > "$D/cu.bas"
-if ! $B --compile "$D/cu.bas" -o "$D/cu.prg" > "$D/cu.log" 2>&1 && grep -q 'cu.bas:2:1: (line 20): error: SLEEP is not supported by --compile yet' "$D/cu.log"; then
-    pass "--compile: a statement outside the subset (SLEEP) is an error at its line"
+printf '10 print 1\n20 open 1,8\n' > "$D/cu.bas"
+if ! $B --compile "$D/cu.bas" -o "$D/cu.prg" > "$D/cu.log" 2>&1 && grep -q 'cu.bas:2:1: (line 20): error: OPEN is not supported by --compile yet' "$D/cu.log"; then
+    pass "--compile: a statement outside the subset (OPEN) is an error at its line"
 else
-    fail "--compile SLEEP: $(cat "$D/cu.log")"
+    fail "--compile OPEN: $(cat "$D/cu.log")"
 fi
 # integer narrowing: whole-number variables (FOR's, K) without the float
 # runtime; one that grows without a bound (N = N + 1) stays a float

@@ -4,6 +4,15 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### basic45 --compile: more functions and statements (#369)
+
+- `XOR`, `<<`, `>>`; `MOD`, `POS`, `VAL`, `DEC`, `HEX$`, `STRBIN$`, `INSTR`
+  (with its pound-sign patterns), `WPEEK`, `RPT$`; `DEF FN` / `FN` (the
+  expression compiled where it is used); `WPOKE`, `WAIT`, `SLEEP`, `SCNCLR`
+  (`lib/stdlib/basic_fn.c`), each checked against the interpreter.
+- `AND`, `OR`, `NOT` take -32768..65535 as BASIC 65's (`40000 AND 1` was
+  ?ILLEGAL QUANTITY), the result 16 bits, signed.
+
 ### Fixed: a float function's result as the second operand (basic45 --compile)
 
 - `2 * SQR(Y)`, `3 + INT(X)` and the like computed `2 * 2`, `3 + 3`: the
