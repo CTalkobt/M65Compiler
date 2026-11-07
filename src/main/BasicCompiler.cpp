@@ -52,7 +52,7 @@ enum : int {
     T_STR = 0xC4, T_ASC = 0xC6, T_CHR = 0xC7, T_LEFT = 0xC8, T_RIGHT = 0xC9,
     T_MID = 0xCA, T_GO = 0xCB, T_KEY = 0xF9, T_ELSE = 0xD5, T_DEF = 0x96, T_FN = 0xA5, T_POS = 0xB9, T_VAL = 0xC5, T_DEC = 0xD1, T_HEX = 0xD2,
     T_INSTR = 0xD4, T_SCNCLR = 0xE8, T_XOR = 0xE9, T_WAIT = 0x92, T_SLEEP = 0xFE0B, T_WPOKE = 0xFE1D,
-    T_MOD = 0xCE0B, T_WPEEK = 0xCE10, T_STRBIN = 0xCE12, T_RPT = 0xCE14, T_ASL = 0xFE52, T_ASR = 0xFE53, T_DO = 0xEB, T_LOOP = 0xEC, T_EXIT = 0xED, T_UNTIL = 0xFC, T_WHILE = 0xFD, T_PI = 0xFF,
+    T_MOD = 0xCE0B, T_WPEEK = 0xCE10, T_STRBIN = 0xCE12, T_RPT = 0xCE14, T_BANK = 0xFE02, T_ASL = 0xFE52, T_ASR = 0xFE53, T_DO = 0xEB, T_LOOP = 0xEC, T_EXIT = 0xED, T_UNTIL = 0xFC, T_WHILE = 0xFD, T_PI = 0xFF,
     T_BEGIN = 0xFE18, T_BEND = 0xFE19,
 };
 
@@ -786,6 +786,59 @@ private:
         call("__bas_getadr");
         return load(ir::Type::PTR, global("__bas_n"));
     }
+    // PEEK / POKE / WPEEK / WPOKE's address: 0..2^32-1 (BASIC 65's getadr:
+    // above 65535 a 28-bit address, below it the bank BANK chose, 128 the
+    // CPU's map). Near (the CPU's map): the address known to be below 65536
+    // and no BANK in the program; else the 32-bit address in __bas_fa for
+    // __bas_peek / __bas_poke
+    struct MemAddr { bool nearMem = true; ir::Operand p; };
+    MemAddr memAddr(const Val& v) {
+        MemAddr m;
+        if (v.k == VK::S) fail("a number expected, not a string (?TYPE MISMATCH)");
+        bool fits = (v.isConst && v.cval >= 0 && v.cval < 65536) || (v.k == VK::I && !v.isConst && v.bound <= 65535) ||
+                    v.k == VK::B;
+        if (fits && !farMem_) { m.p = toAddr(v); return m; }
+        m.nearMem = false;
+        if (v.isConst) {
+            double f = std::floor(v.cval);
+            if (f < 0 || f >= 4294967296.0) { raiseNow(14); f = 0; }
+            store(ir::Type::I32, iconst(ir::Type::I32, (int64_t)(uint32_t)(uint64_t)f), global("__bas_fa"));
+        } else if (v.k == VK::I || v.k == VK::B) {
+            Val x = v.k == VK::B ? toI16(v) : v;
+            checkRange(x, 0, INT32_MAX);
+            store(ir::Type::I32, asType(x, ir::Type::I32), global("__bas_fa"));
+        } else {
+            store(ir::Type::F32, toF(v), global("__float_a"));
+            call("__bas_getadr32");
+        }
+        return m;
+    }
+    // the next byte / word of a far access: __bas_fa + k
+    void nextFar(int k) {
+        store(ir::Type::I32, bin(ir::Op::ADD, ir::Type::I32, load(ir::Type::I32, global("__bas_fa")),
+                                 ir::Operand::imm(k, ir::Type::I32)), global("__bas_fa"));
+    }
+    ir::Operand peekAt(const MemAddr& m, int width) {
+        if (m.nearMem) return load(width == 1 ? ir::Type::I8 : ir::Type::I16, m.p);
+        store(ir::Type::I16, iconst(ir::Type::I16, width), global("__bas_m"));
+        call("__bas_peek");
+        auto n = load(ir::Type::I16, global("__bas_n"));
+        return width == 1 ? trunc(n, ir::Type::I8) : n;
+    }
+    void pokeAt(const MemAddr& m, int k, int width, ir::Operand value16) {
+        if (m.nearMem) {
+            ir::Operand a = k ? addrElem(m.p, ir::Operand::imm(k, ir::Type::I16), 1) : m.p;
+            if (width == 1) store(ir::Type::I8, trunc(value16, ir::Type::I8), a);
+            else store(ir::Type::I16, value16, a);
+            return;
+        }
+        if (k) nextFar(width);
+        store(ir::Type::I16, value16, global("__bas_n"));
+        store(ir::Type::I16, iconst(ir::Type::I16, width), global("__bas_m"));
+        call("__bas_poke");
+    }
+    bool farMem_ = false;    // a BANK in the program
+
     // A condition's truth: I8, nonzero when true
     ir::Operand truth(const Val& v) {
         if (v.k == VK::S) fail("a number expected, not a string (?TYPE MISMATCH)");
@@ -1155,7 +1208,7 @@ private:
         }
         case T_WPEEK: {
             Val a = parenExpr();
-            auto w = load(ir::Type::I16, toAddr(a));
+            auto w = peekAt(memAddr(a), 2);
             Val r; r.k = VK::I; r.bound = 65535; r.op = zext(w, ir::Type::I16, ir::Type::I32);
             return r;
         }
@@ -1219,8 +1272,7 @@ private:
         }
         case T_PEEK: {
             Val a = parenExpr();
-            auto addr = toAddr(a);
-            auto b = load(ir::Type::I8, addr);
+            auto b = peekAt(memAddr(a), 1);
             Val r; r.k = VK::I; r.bound = 255; r.op = zext(b, ir::Type::I8, ir::Type::I16);
             return r;
         }
@@ -1339,6 +1391,10 @@ private:
 
 void Compiler::prescan() {
     for (size_t li = 0; li < lines_.size(); li++) lineIndex_[lines_[li].num] = li;
+    for (const auto& l : lines_)
+        for (const auto& sg : l.segs)
+            for (const auto& t : sg.toks)
+                if (t.k == TK::Kw && t.kw == T_BANK) farMem_ = true;
     // the DATA statements (a statement's first token)
     dataAt_.assign(lines_.size() + 1, 0);
     for (size_t li = 0; li < lines_.size(); li++) {
@@ -1788,12 +1844,11 @@ void Compiler::statement() {
     case T_WPOKE: {
         // WPOKE address, word [, word ...]: low byte first
         Val a = expr();
-        auto addr = toAddr(a);
+        MemAddr m = memAddr(a);
         int k = 0;
         while (acceptCh(',')) {
             Val v = expr();
-            auto w = toAddr(v);
-            store(ir::Type::I16, w, k ? addrElem(addr, ir::Operand::imm(k, ir::Type::I16), 2) : addr);
+            pokeAt(m, 2 * k, 2, toAddr(v));
             k++;
         }
         if (!k) fail("WPOKE needs a value (?SYNTAX ERROR)");
@@ -1802,7 +1857,7 @@ void Compiler::statement() {
     case T_WAIT: {
         // until (PEEK(address) XOR x) AND mask is not 0
         Val a = expr();
-        auto addr = toAddr(a);
+        MemAddr m = memAddr(a);
         expectCh(',');
         auto mask = toByte(expr());
         ir::Operand x = iconst(ir::Type::I8, 0);
@@ -1810,7 +1865,7 @@ void Compiler::statement() {
         std::string loop = newLabel("wait"), done = newLabel("waited");
         br(loop);
         block(loop);
-        auto b = load(ir::Type::I8, addr);
+        auto b = peekAt(m, 1);
         auto t = bin(ir::Op::AND, ir::Type::I8, bin(ir::Op::XOR, ir::Type::I8, b, x), mask);
         brCond(bin(ir::Op::CMP_NE, ir::Type::I8, t, ir::Operand::imm(0, ir::Type::I8)), done, loop);
         block(done);
@@ -1832,12 +1887,24 @@ void Compiler::statement() {
     case T_END: br("Lend"); block(newLabel("dead")); return;
     case T_STOP: br(errLabel(30)); block(newLabel("dead")); return;
     case T_POKE: {
+        // POKE address, value [, value ...]: each value 0..65535, its low
+        // byte stored (BASIC 65's comwrd)
         Val a = expr();
-        expectCh(',');
-        auto addr = toAddr(a);
+        MemAddr m = memAddr(a);
+        int k = 0;
+        while (acceptCh(',')) {
+            Val v = expr();
+            pokeAt(m, k, 1, toAddr(v));
+            k++;
+        }
+        if (!k) fail("POKE needs a value (?SYNTAX ERROR)");
+        return;
+    }
+    case T_BANK: {
+        // (kept as bank XOR 128: BSS's 0 is BANK 128)
         Val v = expr();
-        auto b = toByte(v);
-        store(ir::Type::I8, b, addr);
+        store(ir::Type::I8, bin(ir::Op::XOR, ir::Type::I8, toByte(v), ir::Operand::imm(0x80, ir::Type::I8)),
+              global("__bas_bankx"));
         return;
     }
     case T_ELSE: {

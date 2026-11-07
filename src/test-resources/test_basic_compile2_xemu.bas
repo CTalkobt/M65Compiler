@@ -3,7 +3,7 @@
 3 rem [0] input, get, the keys put in the keyboard buffer (688, its count 208); [1] do / loop / exit
 4 rem [2] rnd (a seeded sequence), ti, ti$; [3] read / data / restore; [4] counted for loops
 5 rem [5] and / or / not to 65535, xor, << >>, mod; [6] hex$ dec strbin$ val instr; [7] fn, wpoke / wpeek, wait,
-6 rem pos, sleep; [8] $aa
+6 rem pos, sleep; [8] poke's values (low bytes, a list), far peek / poke / wpoke, bank; [9] $aa
 160 poke 688,52:poke 689,44:poke 690,72:poke 691,13:poke 692,88:poke 208,5:input "";n,h$:get k$:get z:get e$
 161 poke 688,65:poke 689,13:poke 690,57:poke 691,13:poke 208,4:input m:if n=4 and h$="h" and k$="x" and z=0 then 163
 162 goto 170
@@ -37,4 +37,7 @@
 231 t=ti:sleep .2:u=ti:if fn a(3)=7 and fn b(4)=13 and x=100 and fn a(x)=201 then 233
 232 goto 240
 233 if wpeek(4030)=1234 and peek(4031)=4 and u-t>=.15 and p=2 then poke 49351,1
-240 poke 49352,170:end
+240 poke 4030,300:a=peek(4030):poke 4030,1,2,3:b=peek(4031):poke 262144,77:wpoke 262146,4660:c=wpeek(262146)
+241 bank 4:d=peek(0):poke 1,99:bank 0:e=peek(4032):bank 128:f=peek(262145):x=262144:poke x+5,9
+242 if a=44 and b=2 and c=4660 and d=77 and e=3 and f=99 and peek(x+5)=9 and peek(dec("40000"))=77 then poke 49352,1
+250 poke 49353,170:end

@@ -110,6 +110,98 @@ __bas_prcr:
     lda #13
     jmp __bas_out
 
+; PEEK / WPEEK (__bas_m: 1, 2 bytes) of the address in __bas_fa (32 bits)
+; into __bas_n; POKE / WPOKE __bas_n there. As BASIC 65's: above 65535 a
+; 28-bit address; below it the bank BANK set (__bas_bankx: the bank XOR
+; 128), 128 the CPU's map ((zp),y), another bank its 64 KB ([zp],z)
+    .split "__bas_peek"
+.global __bas_peek
+.global __bas_poke
+__bas_peek:
+    jsr __bas_where
+    bcs @far
+    ldy #0
+    lda ($F6),y
+    sta __bas_n
+    lda __bas_m
+    lsr a
+    bcs @n1
+    iny
+    lda ($F6),y
+    sta __bas_n+1
+    rts
+@far:
+    ldz #0
+    lda [$F6],z
+    sta __bas_n
+    lda __bas_m
+    lsr a
+    bcs @n1
+    inz
+    lda [$F6],z
+    sta __bas_n+1
+    ldz #0
+    rts
+@n1:
+    lda #0
+    sta __bas_n+1
+    ldz #0
+    rts
+__bas_poke:
+    jsr __bas_where
+    bcs @farw
+    ldy #0
+    lda __bas_n
+    sta ($F6),y
+    lda __bas_m
+    lsr a
+    bcs @done
+    iny
+    lda __bas_n+1
+    sta ($F6),y
+@done:
+    rts
+@farw:
+    ldz #0
+    lda __bas_n
+    sta [$F6],z
+    lda __bas_m
+    lsr a
+    bcs @fdone
+    inz
+    lda __bas_n+1
+    sta [$F6],z
+@fdone:
+    ldz #0
+    rts
+; $F6-$F9: the address; C: a 28-bit one ([$F6],z), else 16 bits (($F6),y)
+__bas_where:
+    lda __bas_fa
+    sta $F6
+    lda __bas_fa+1
+    sta $F7
+    lda __bas_fa+2
+    ora __bas_fa+3
+    bne @w32
+    lda __bas_bankx
+    beq @w16                ; BANK 128: the CPU's map
+    eor #$80
+    sta $F8                 ; the bank's 64 KB
+    lda #0
+    sta $F9
+    sec
+    rts
+@w32:
+    lda __bas_fa+2
+    sta $F8
+    lda __bas_fa+3
+    sta $F9
+    sec
+    rts
+@w16:
+    clc
+    rts
+
 ; POS(x): the cursor's column into __bas_n
     .split "__bas_pos"
 .global __bas_pos
@@ -576,6 +668,48 @@ __bas_getadr:
     bne @shift
 @done:
     rts
+; __float_a rounded down as a 32-bit address (PEEK / POKE: BASIC 65's getadr,
+; 0..2^32-1) into __bas_fa; ?ILLEGAL QUANTITY outside
+    .split "__bas_getadr32"
+.global __bas_getadr32
+__bas_getadr32:
+    lda __float_a
+    beq @zero
+    lda __float_a+1
+    bmi __bas_illegal2
+    jsr __bas_int
+    lda __float_a
+    beq @zero
+    cmp #$A1
+    bcs __bas_illegal2      ; >= 2^32
+    lda __float_a+4
+    sta __bas_fa
+    lda __float_a+3
+    sta __bas_fa+1
+    lda __float_a+2
+    sta __bas_fa+2
+    lda __float_a+1
+    ora #$80
+    sta __bas_fa+3
+    lda #$A0
+    sec
+    sbc __float_a
+    tax
+    beq @done
+@shift:
+    lsrq __bas_fa
+    dex
+    bne @shift
+@done:
+    rts
+@zero:
+    lda #0
+    sta __bas_fa
+    sta __bas_fa+1
+    sta __bas_fa+2
+    sta __bas_fa+3
+    rts
+
     .split "__bas_n0"
 __bas_n0:
     sta __bas_n
@@ -656,4 +790,8 @@ __bas_sr: .res 2
 .global __bas_line
 __bas_line: .res 2
 __bas_fx: .res 5
+.global __bas_fa
+__bas_fa: .res 4
+.global __bas_bankx
+__bas_bankx: .res 1
 __bas_fy: .res 5
