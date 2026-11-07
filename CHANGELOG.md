@@ -13,6 +13,13 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 - `AND`, `OR`, `NOT` take -32768..65535 as BASIC 65's (`40000 AND 1` was
   ?ILLEGAL QUANTITY), the result 16 bits, signed.
 
+### Fixed: a float function's result as the second operand (basic45 --compile)
+
+- `2 * SQR(Y)`, `3 + INT(X)` and the like computed `2 * 2`, `3 + 3`: the
+  in-place float reads (#441) read the function's result from `__float_a`,
+  which the operation fills with its first operand first. `__float_a` and
+  `__float_b` are not read in place now (C code never reads them).
+
 ### basic45 --compile: counted FOR loops (#369)
 
 - A FOR loop nothing can leave or enter (no GOTO, GOSUB, ON, RETURN,
