@@ -28,6 +28,17 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 - `DSAVE`, `SAVE`, `VERIFY`, `DVERIFY`: an error naming why (no BASIC text).
 - Test `test_basic_compile6_xemu.bas` / `6b` (interpreted, -O2, -O0, --speed).
 
+### Fixed: a switch's last case falling out of it inside a loop (cc45)
+
+- The branch from a switch's last case (one without `break`) to the
+  switch's end had its label in the wrong operand, so the code generator
+  dropped it. While the end's block was there the code fell into it; branch
+  folding removes such a block (only a branch to the loop's next iteration),
+  and the case then fell into the loop's exit instead (`while (n--) switch
+  (c) { case 1: ...; break; default: buf[k++] = c; }` returned after the
+  first character copied by the default). -O1 and up.
+- Test `test_switch_fallout_xemu.c` (both conventions).
+
 ### basic45 --compile: DOPEN, APPEND, DCLOSE, DS, DS$ (#369)
 
 - `DOPEN#`, `APPEND#`, `DCLOSE` with the ROM's parameters (`D`, `U`, `W`,
