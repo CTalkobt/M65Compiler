@@ -1049,6 +1049,14 @@ for fimode in "stack|-fno-zpcall" "zp|"; do
     fi
 done
 
+# Test: a switch's last case running off its end inside a loop (the branch to
+# the switch's end was dropped once branch folding removed its block)
+for swmode in "stack|-fno-zpcall" "zp|"; do
+    IFS='|' read -r swname swflags <<< "$swmode"
+    echo "Testing test_switch_fallout_xemu.c ($swname)..."
+    xemu_case "FAIL: test_switch_fallout_xemu.c $swname (compilation/linking failed)" "src/test-resources/test_switch_fallout_xemu.c" "build/test/test_switch_fallout_${swname}_xemu.prg" "$swflags" -- "test_switch_fallout_$swname" "build/test/test_switch_fallout_${swname}_xemu.prg" "C0C0" 5 "01 01 01 01 AA"
+done
+
 # Test: a[i + c] / a[i - c] folded into a shifted base address (int and
 # char elements, a char index, an index changed before the access)
 for eomode in "stack|-fno-zpcall" "zp|"; do
