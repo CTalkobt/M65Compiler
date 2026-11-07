@@ -25,6 +25,7 @@
 #include "CodegenStage.hpp"
 #include "BasicTokenizer.hpp"
 
+#include <algorithm>
 #include <cmath>
 #include <cstring>
 #include <functional>
