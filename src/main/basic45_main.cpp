@@ -83,6 +83,7 @@ struct Options {
     std::string asmFile;                  // --asm: --compile's assembly, kept
     int optLevel = 2;                     // -O<n> for --compile
     bool speed = false;                   // --speed / -Ospeed: -O3, the RAM float routines
+    std::string importMap;                // --import-map: REM PRAGMA IMPORT's map file
 };
 
 class SymbolTable {
@@ -217,6 +218,7 @@ static void printUsage(const char* progName) {
     std::cout << "  --compile           Compile the program to machine code (a .prg run with RUN); the" << std::endl;
     std::cout << "                      input can also be a tokenized BASIC 65 .prg. -O0 .. -O4 (default -O2)" << std::endl;
     std::cout << "  --asm <file>        --compile: also write the generated ca45 assembly" << std::endl;
+    std::cout << "  --import-map FILE   --compile: REM PRAGMA IMPORT's map file (an exporting program's <name>.map)" << std::endl;
     std::cout << "  --speed, -Ospeed    --compile: -O3 and float + - * / and comparisons by RAM routines" << std::endl;
     std::cout << "                      (faster than the ROM's; its rounding fixes, see the docs)" << std::endl;
     std::cout << "  --convert=<dialect> Another BASIC's program (a .prg, or a text listing) as BASIC 65 basic45" << std::endl;
@@ -319,6 +321,8 @@ static Options parseArgs(int argc, char* argv[]) {
             opts.asmFile = argv[++i];
         } else if (arg.size() == 3 && arg[0] == '-' && arg[1] == 'O' && arg[2] >= '0' && arg[2] <= '4') {
             opts.optLevel = arg[2] - '0';
+        } else if (arg == "--import-map" && i + 1 < argc) {
+            opts.importMap = argv[++i];
         } else if (arg == "--speed" || arg == "-Ospeed") {
             opts.speed = true;
             opts.optLevel = 3;
@@ -518,7 +522,10 @@ static void printTokens() {
 static bool compileToMachineCode(const Options& opts, const char* argv0, std::vector<uint8_t>& binary,
                                  const std::function<std::string(int)>& where) {
     std::string name = fs::path(opts.inputFile).filename().string();
-    auto ir = compileBasicToIR(binary, name, opts.speed);
+    BasicChainOptions chain;
+    chain.importMap = opts.importMap;
+    chain.sourceDir = fs::path(opts.inputFile).parent_path().string();
+    auto ir = compileBasicToIR(binary, name, opts.speed, &chain);
     if (!ir.ok) {
         for (const auto& [line, msg] : ir.errors)
             std::cerr << where(line) << ": error: " << msg << std::endl;
@@ -531,6 +538,13 @@ static bool compileToMachineCode(const Options& opts, const char* argv0, std::ve
     } catch (const std::exception& e) {
         std::cerr << "basic45: --compile: the code generator failed: " << e.what() << std::endl;
         return false;
+    }
+    // REM PRAGMA EXPORT: <output>.map, for the programs it loads to import
+    if (!ir.exportMap.empty()) {
+        fs::path mp = fs::path(opts.outputFile).replace_extension(".map");
+        std::ofstream m(mp);
+        if (!m) { std::cerr << "Error: Could not write " << mp.string() << std::endl; return false; }
+        m << ir.exportMap;
     }
     if (!opts.asmFile.empty()) {
         std::ofstream a(opts.asmFile);

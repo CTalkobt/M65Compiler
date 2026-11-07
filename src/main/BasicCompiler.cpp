@@ -32,6 +32,8 @@
 #include <map>
 #include <optional>
 #include <set>
+#include <cstdio>
+#include <fstream>
 #include <sstream>
 #include <stdexcept>
 
@@ -55,7 +57,7 @@ enum : int {
     T_INSTR = 0xD4, T_SCNCLR = 0xE8, T_XOR = 0xE9, T_WAIT = 0x92, T_SLEEP = 0xFE0B, T_WPOKE = 0xFE1D,
     T_MOD = 0xCE0B, T_WPEEK = 0xCE10, T_STRBIN = 0xCE12, T_RPT = 0xCE14, T_BANK = 0xFE02, T_ERRS = 0xD3, T_RESUME = 0xD6, T_TRAP = 0xD7, T_ASL = 0xFE52, T_ASR = 0xFE53, T_DO = 0xEB, T_LOOP = 0xEC, T_EXIT = 0xED, T_UNTIL = 0xFC, T_WHILE = 0xFD, T_PI = 0xFF,
     T_BEGIN = 0xFE18, T_BEND = 0xFE19, T_PRINTN = 0x98, T_CMD = 0x9D, T_OPEN = 0x9F, T_CLOSE = 0xA0,
-    T_DOPEN = 0xFE0D, T_APPEND = 0xFE0E, T_DCLOSE = 0xFE0F,
+    T_DOPEN = 0xFE0D, T_APPEND = 0xFE0E, T_DCLOSE = 0xFE0F, T_DLOAD = 0xF0, T_LOAD = 0x93,
 };
 
 enum class TK { Kw, Num, Str, Name, Ch };
@@ -182,7 +184,11 @@ std::vector<Seg> lexLine(const std::vector<uint8_t>& b, std::string& err) {
             t.kw = c;
             add(t);
             i++;
-            if (c == T_REM) return segs;
+            if (c == T_REM) {
+                // (the text kept: REM PRAGMA EXPORT / IMPORT)
+                segs.back().toks.back().text.assign(b.begin() + (long)i, b.end());
+                return segs;
+            }
             if (c == T_DATA) {
                 // its items are not statements: up to the colon (the text kept for READ)
                 bool q = false;
@@ -246,8 +252,10 @@ struct ForInfo {
 class Compiler {
 public:
     Compiler(const std::vector<Line>& lines, const std::string& source, const NarrowMap& narrow, bool final,
-             bool speed)
-        : lines_(lines), source_(source), narrow_(narrow), final_(final), speed_(speed) {}
+             bool speed, const BasicChainOptions* chain = nullptr)
+        : lines_(lines), source_(source), narrow_(narrow), final_(final), speed_(speed), chainOpt_(chain) {}
+    // REM PRAGMA EXPORT: the map file's text (none: no export)
+    std::string exportMap;
 
     std::shared_ptr<ir::Module> run();
     std::vector<std::pair<int, std::string>> errors;
@@ -255,6 +263,21 @@ public:
     std::map<std::string, VarObs> obs;
 
 private:
+    const BasicChainOptions* chainOpt_;
+    // Chaining (DLOAD / LOAD, #369): REM PRAGMA EXPORT's variables (BASIC
+    // names: two characters and $ / %), written to the chain block at a
+    // DLOAD; REM PRAGMA IMPORT's (their index in the exporter's map), read
+    // from it at the start
+    struct XVar { std::string name; VK k; };
+    std::vector<XVar> exports_;
+    bool hasExport_ = false;
+    uint32_t exportId_ = 0;
+    std::vector<std::pair<int, XVar>> imports_;
+    uint32_t importId_ = 0;
+    void pragmas();
+    void exportVars();
+    void importVars();
+    void chainStmt(int kw);
     const std::vector<Line>& lines_;
     std::string source_;
     const NarrowMap& narrow_;
@@ -1674,6 +1697,7 @@ std::shared_ptr<ir::Module> Compiler::run() {
     fn_->conv = ir::CallConv::ZP;
     fn_->originalIsLeaf = false;
     prescan();
+    pragmas();
     if (!errors.empty()) return nullptr;
     lineEntries_.assign(lines_.size(), {});
     lineRaises_.assign(lines_.size(), false);
@@ -1685,6 +1709,7 @@ std::shared_ptr<ir::Module> Compiler::run() {
     std::string init = "init";
     br(init);
     block("start");
+    if (!imports_.empty()) importVars();
     for (li_ = 0; li_ < lines_.size(); li_++) {
         block(lineLabel(li_));
         entry();
@@ -1916,6 +1941,11 @@ void Compiler::statement() {
     }
     case T_OPEN: openStmt(); return;
     case T_DOPEN: case T_APPEND: case T_DCLOSE: dosStmt(kw); return;
+    case T_DLOAD: case T_LOAD: chainStmt(kw); return;
+    case 0xEF: case 0x94: case 0x95: case 0xFE14:
+        // DSAVE / SAVE / VERIFY / DVERIFY: the BASIC program's text, which a
+        // compiled program does not have
+        fail(tokenName(kw) + " saves or compares the BASIC program's text, which a compiled program does not have");
     case T_CLOSE: {
         Val v = expr();
         store(ir::Type::I16, zext(toByte(v), ir::Type::I8, ir::Type::I16), global("__bas_n"));
@@ -2189,6 +2219,253 @@ void Compiler::dosStmt(int kw) {
     if (haveName) store(ir::Type::PTR, name.op, global("__bas_sa"));
     store(ir::Type::I8, ir::Operand::imm(flags, ir::Type::I8), global("__bas_dflg"));
     call(kw == T_DOPEN ? "__bas_dopen" : kw == T_APPEND ? "__bas_append" : "__bas_dclose");
+    if (haveName) freeVal(name);
+}
+
+// --- chaining (DLOAD / LOAD) ---
+
+// A variable's BASIC name as the interpreter tells them apart: its first two
+// characters and $ / % (the kind by the suffix)
+static std::string chainKey(const std::string& n, VK& k) {
+    char suf = n.back();
+    std::string b = n;
+    if (suf == '$' || suf == '%') b.pop_back();
+    k = suf == '$' ? VK::S : suf == '%' ? VK::I : VK::F;
+    return b.substr(0, 2) + (k == VK::S ? "$" : k == VK::I ? "%" : "");
+}
+
+static const char* chainType(VK k) { return k == VK::S ? "string" : k == VK::I ? "int" : "float"; }
+
+// REM PRAGMA EXPORT [name, ...] / REM PRAGMA IMPORT ["map"] [name, ...]
+void Compiler::pragmas() {
+    std::vector<std::string> names;       // (EXPORT without names: every scalar variable)
+    std::set<std::string> seenNames;
+    for (const auto& l : lines_)
+        for (const auto& sg : l.segs)
+            for (size_t k = 0; k < sg.toks.size(); k++) {
+                const Tok& t = sg.toks[k];
+                if (t.k != TK::Name) continue;
+                if (k > 0 && sg.toks[k - 1].k == TK::Kw && sg.toks[k - 1].kw == T_FN) continue;
+                if (k + 1 < sg.toks.size() && sg.toks[k + 1].k == TK::Ch && sg.toks[k + 1].ch == '(') continue;
+                VK vk;
+                std::string key = chainKey(t.text, vk);
+                std::string base = key.substr(0, 2);
+                if (base == "TI" || base == "ST" || base == "DS" || base == "ER" || base == "EL") continue;
+                if (seenNames.insert(key).second) names.push_back(key);
+            }
+    for (const auto& l : lines_)
+        for (const auto& sg : l.segs) {
+            if (sg.toks.empty() || sg.toks[0].k != TK::Kw || sg.toks[0].kw != T_REM) continue;
+            // the REM's text, its letters as capitals (PETSCII, shifted or not)
+            std::string t;
+            for (unsigned char c : sg.toks[0].text) t += (char)(c >= 0xC1 && c <= 0xDA ? c - 0x80 : c);
+            size_t i = 0;
+            auto sp = [&] { while (i < t.size() && t[i] == ' ') i++; };
+            auto word = [&] {
+                sp();
+                std::string w;
+                while (i < t.size() && ((t[i] >= 'A' && t[i] <= 'Z') || (t[i] >= '0' && t[i] <= '9'))) w += t[i++];
+                if (!w.empty() && i < t.size() && (t[i] == '$' || t[i] == '%')) w += t[i++];
+                return w;
+            };
+            if (word() != "PRAGMA") continue;
+            std::string what = word();
+            auto bad = [&](const std::string& m) { errors.push_back({l.num, "REM PRAGMA " + what + ": " + m}); };
+            if (what != "EXPORT" && what != "IMPORT") { bad("EXPORT or IMPORT expected"); continue; }
+            std::string file;
+            sp();
+            if (what == "IMPORT" && i < t.size() && t[i] == '"') {
+                size_t e = t.find('"', i + 1);
+                if (e == std::string::npos) { bad("the map file's name has no closing quote"); continue; }
+                for (size_t j = i + 1; j < e; j++) file += (char)(t[j] >= 'A' && t[j] <= 'Z' ? t[j] + 32 : t[j]);
+                i = e + 1;
+                sp();
+                if (i < t.size() && t[i] == ',') i++;
+            }
+            std::vector<std::string> list;
+            for (;;) {
+                std::string w = word();
+                if (w.empty()) break;
+                VK vk;
+                list.push_back(chainKey(w, vk));
+                sp();
+                if (i < t.size() && t[i] == ',') { i++; continue; }
+                break;
+            }
+            sp();
+            if (i < t.size()) { bad("a variable name expected"); continue; }
+            if (what == "EXPORT") {
+                if (hasExport_) { bad("only one REM PRAGMA EXPORT"); continue; }
+                hasExport_ = true;
+                for (const auto& n : list.empty() ? names : list) {
+                    VK vk;
+                    chainKey(n, vk);
+                    exports_.push_back({n, vk});
+                }
+                continue;
+            }
+            // IMPORT: the exporter's map (its variables in order, and its id)
+            // (a name in the pragma: beside the source; --import-map's: as given)
+            bool fromPragma = !file.empty();
+            if (file.empty() && chainOpt_) file = chainOpt_->importMap;
+            if (file.empty()) { bad("the exporting program's map file is not given (\"name.map\" or --import-map)"); continue; }
+            std::string path = file;
+            if (fromPragma && chainOpt_ && !chainOpt_->sourceDir.empty() && file[0] != '/')
+                path = chainOpt_->sourceDir + "/" + file;
+            std::ifstream in(path);
+            if (!in) { bad("cannot read the map file " + path); continue; }
+            std::map<std::string, std::pair<int, VK>> map;
+            std::vector<std::string> order;
+            std::string ln;
+            uint32_t id = 0;
+            while (std::getline(in, ln)) {
+                std::istringstream ls(ln);
+                std::string a, b, c;
+                if (!(ls >> a) || a[0] == ';') continue;
+                if (a == "id") { ls >> b; id = (uint32_t)std::stoul(b, nullptr, 16); continue; }
+                if (!(ls >> b >> c)) continue;
+                VK vk = c == "string" ? VK::S : c == "int" ? VK::I : VK::F;
+                map[b] = {std::stoi(a), vk};
+                order.push_back(b);
+            }
+            if (importId_ && id != importId_) { bad("all imports must come from one map file"); continue; }
+            importId_ = id;
+            for (const auto& n : list.empty() ? order : list) {
+                auto it = map.find(n);
+                if (it == map.end()) { bad(n + " is not in " + file); continue; }
+                VK vk;
+                chainKey(n, vk);
+                if (vk != it->second.second) { bad(n + " is a " + chainType(it->second.second) + " in " + file); continue; }
+                imports_.push_back({it->second.first, {n, vk}});
+            }
+        }
+    if (hasExport_) {
+        std::string body;
+        for (size_t k = 0; k < exports_.size(); k++)
+            body += std::to_string(k) + " " + exports_[k].name + " " + chainType(exports_[k].k) + "\n";
+        // its id: FNV-1a of the source's name and the list
+        uint32_t h = 2166136261u;
+        for (unsigned char c : source_ + "\n" + body) { h ^= c; h *= 16777619u; }
+        exportId_ = h;
+        char idb[16];
+        snprintf(idb, sizeof idb, "%08X", h);
+        exportMap = "; basic45 --compile: the variables " + source_ +
+                    " passes to the program it loads (REM PRAGMA EXPORT; #369)\n"
+                    "; a program reads them with REM PRAGMA IMPORT \"<this file>\" [name, ...]\n"
+                    "id " + std::string(idb) + "\n" + body;
+    }
+}
+
+// The exported variables to the chain block (before DLOAD / LOAD's load)
+void Compiler::exportVars() {
+    store(ir::Type::I16, iconst(ir::Type::I16, (int64_t)(exportId_ & 0xFFFF)), global("__bas_n"));
+    store(ir::Type::I16, iconst(ir::Type::I16, (int64_t)(exportId_ >> 16)), global("__bas_m"));
+    call("__bas_xbegin");
+    for (const auto& x : exports_) {
+        Val v = loadVar(x.name);
+        if (x.k == VK::S) {
+            store(ir::Type::PTR, v.op, global("__bas_sa"));
+            store(ir::Type::I16, iconst(ir::Type::I16, 2), global("__bas_m"));
+        } else if (x.k == VK::I) {
+            store(ir::Type::I16, asType(toI16(v), ir::Type::I16), global("__bas_n"));
+            store(ir::Type::I16, iconst(ir::Type::I16, 1), global("__bas_m"));
+        } else {
+            store(ir::Type::F32, toF(v), global("__float_a"));
+            store(ir::Type::I16, iconst(ir::Type::I16, 0), global("__bas_m"));
+        }
+        call("__bas_xput");
+    }
+}
+
+// The imported variables from the chain block, when it holds the
+// exporter's (its id): at the start
+void Compiler::importVars() {
+    static const std::vector<Tok> none;
+    toks_ = &none;
+    p_ = 0;
+    store(ir::Type::I16, iconst(ir::Type::I16, (int64_t)(importId_ & 0xFFFF)), global("__bas_n"));
+    store(ir::Type::I16, iconst(ir::Type::I16, (int64_t)(importId_ >> 16)), global("__bas_m"));
+    call("__bas_xopen");
+    std::string get = newLabel("import"), done = newLabel("imported");
+    brCond(bin(ir::Op::CMP_NE, ir::Type::I8, trunc(load(ir::Type::I16, global("__bas_n")), ir::Type::I8),
+               ir::Operand::imm(0, ir::Type::I8)), get, done);
+    block(get);
+    for (const auto& [idx, x] : imports_) {
+        LV lv;
+        lv.g = varGlobal(x.name, lv.k);
+        Val v;
+        if (x.k == VK::S) {
+            v.k = VK::S;
+            v.slot = newSlot();
+            v.op = slotAddr(v.slot);
+            store(ir::Type::PTR, v.op, global("__bas_sr"));
+        }
+        store(ir::Type::I16, iconst(ir::Type::I16, idx), global("__bas_n"));
+        store(ir::Type::I16, iconst(ir::Type::I16, x.k == VK::S ? 2 : x.k == VK::I ? 1 : 0), global("__bas_m"));
+        call("__bas_xget");
+        if (x.k == VK::F) { v.k = VK::F; v.op = load(ir::Type::F32, global("__float_a")); }
+        else if (x.k == VK::I) { v.k = VK::I; v.bound = 32768; v.op = load(ir::Type::I16, global("__bas_n")); }
+        assignLV(lv, v);
+        slots_ = 0;
+    }
+    call("__bas_xdone");
+    br(done);
+    block(done);
+}
+
+// DLOAD name [, D drive] [, U unit] [ON U unit]; LOAD [name [, device [, secondary]]]:
+// in a running program the next program loaded (at $2001, or with LOAD's
+// secondary address its own) and run from its first line, as the ROM's
+// (b65.src: dload, plsv, load_it / cld70); REM PRAGMA EXPORT's variables
+// written to the chain block first
+void Compiler::chainStmt(int kw) {
+    const char* what = kw == T_DLOAD ? "DLOAD" : "LOAD";
+    int flags = kw == T_LOAD ? 32 : 0;
+    Val name;
+    bool haveName = false;
+    if (kw == T_LOAD) {
+        if (!atEnd() && !isKw(T_ELSE)) {
+            name = expr();
+            if (name.k != VK::S) fail("LOAD's file name must be a string (?TYPE MISMATCH)");
+            haveName = true;
+            if (acceptCh(',')) {
+                store(ir::Type::I8, toByte(expr()), global("__bas_dunit"));
+                flags |= 64;
+                if (acceptCh(',')) {
+                    store(ir::Type::I8, toByte(expr()), global("__bas_osa"));
+                    flags |= 128;
+                }
+            }
+        }
+    } else {
+        bool first = true;
+        while (!atEnd() && !isKw(T_ELSE)) {
+            if (!first && !isKw(T_ON)) expectCh(',');
+            first = false;
+            auto t = peek();
+            if (t && (t->k == TK::Str || isCh('('))) {
+                if (haveName) fail("DLOAD: a parameter given twice (?SYNTAX ERROR)");
+                name = expr();
+                if (name.k != VK::S) fail("DLOAD's file name must be a string (?TYPE MISMATCH)");
+                haveName = true;
+                continue;
+            }
+            bool on = acceptKw(T_ON);
+            t = peek();
+            if (!t || t->k != TK::Name) fail(std::string("DLOAD: this parameter is not supported by --compile") + near() + " (?SYNTAX ERROR)");
+            char c = t->text[0];
+            if (c == 'U' && !(flags & 4)) { flags |= 4; store(ir::Type::I8, toByte(optValue()), global("__bas_dunit")); continue; }
+            if (c == 'D' && !on && !(flags & 8)) { flags |= 8; store(ir::Type::I8, toByte(optValue()), global("__bas_ddrv")); continue; }
+            fail(std::string("DLOAD: this parameter is not supported by --compile") + near() + " (?SYNTAX ERROR)");
+        }
+        if (!haveName) fail("DLOAD needs a file name (?SYNTAX ERROR)");
+    }
+    (void)what;
+    store(ir::Type::PTR, haveName ? name.op : ir::Operand::imm(0, ir::Type::PTR), global("__bas_sa"));
+    store(ir::Type::I8, ir::Operand::imm(flags, ir::Type::I8), global("__bas_dflg"));
+    call("__bas_chainprep");      // (the name and device checked, built)
+    if (hasExport_) exportVars();
+    call("__bas_chain");
     if (haveName) freeVal(name);
 }
 
@@ -2751,7 +3028,8 @@ void Compiler::nextStmt() {
 
 }  // namespace
 
-BasicCompileResult compileBasicToIR(const std::vector<uint8_t>& prg, const std::string& sourceName, bool speed) {
+BasicCompileResult compileBasicToIR(const std::vector<uint8_t>& prg, const std::string& sourceName, bool speed,
+                                    const BasicChainOptions* chain) {
     BasicCompileResult r;
     if (prg.size() < 4) { r.errors.push_back({0, "the program is empty"}); return r; }
     uint32_t load = prg[0] | (prg[1] << 8);
@@ -2785,7 +3063,7 @@ BasicCompileResult compileBasicToIR(const std::vector<uint8_t>& prg, const std::
     NarrowMap narrow;
     {
         // every float variable assumed a narrow 0 first
-        Compiler a(lines, sourceName, narrow, false, speed);
+        Compiler a(lines, sourceName, narrow, false, speed, chain);
         a.run();
         if (!a.errors.empty()) { r.errors = a.errors; return r; }
         for (const auto& [g, o] : a.obs) narrow[g] = 0;
@@ -2793,7 +3071,7 @@ BasicCompileResult compileBasicToIR(const std::vector<uint8_t>& prg, const std::
     std::map<std::string, int> grew;
     bool fixed = false;
     for (int round = 0; round < 200 && !fixed; round++) {
-        Compiler a(lines, sourceName, narrow, false, speed);
+        Compiler a(lines, sourceName, narrow, false, speed, chain);
         a.run();
         if (!a.errors.empty()) { r.errors = a.errors; return r; }
         fixed = true;
@@ -2811,9 +3089,10 @@ BasicCompileResult compileBasicToIR(const std::vector<uint8_t>& prg, const std::
     }
     // (no fixed point: all floats)
     if (!fixed) narrow.clear();
-    Compiler c(lines, sourceName, narrow, true, speed);
+    Compiler c(lines, sourceName, narrow, true, speed, chain);
     r.module = c.run();
     r.errors = c.errors;
+    r.exportMap = c.exportMap;
     r.ok = r.errors.empty() && r.module;
     return r;
 }

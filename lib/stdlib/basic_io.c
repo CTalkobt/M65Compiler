@@ -22,17 +22,32 @@
  *     drive's error channel read (lf 0, sa 15) when DS$ is not kept, from
  *     the KERNAL's device ($BA) if a drive, else the last DOS statement's
  *     unit. OPEN of a drive, DOPEN forget it.
+ *   _bas_chainprep: DLOAD (__bas_dflg bit 5 clear: the name at __bas_sa,
+ *     D / U as DOPEN's; "$..." as it is, else "0:name") or LOAD (bit 5:
+ *     the name as it is, the device __bas_dunit (bit 6, else the default
+ *     drive; 1 or 4-30), the secondary address __bas_osa (bit 7)) checked
+ *     and set up for basic_rt.s45's __bas_chain: the name at $0280 (BASIC's
+ *     input buffer; up to 31 characters), __bas_clen, __bas_cdev, __bas_csa.
+ *   _bas_xbegin / _bas_xput / _bas_xopen / _bas_xget / _bas_xdone: the
+ *     chain block (REM PRAGMA EXPORT / IMPORT): at $87F0000 (attic RAM),
+ *     "B45V", the exporter's id (__bas_n, __bas_m), then each variable in
+ *     the map's order: a type (0 float: 5 bytes, 1 int: 2, 2 string: a
+ *     length and the characters). _bas_xopen: __bas_n := 1 when the block
+ *     holds the id's; _bas_xget: variable __bas_n of type __bas_m into
+ *     __float_a / __bas_n / __bas_sr's buffer; _bas_xdone forgets the block.
  * The channels (PRINT#, CMD, INPUT#, GET#) are basic_rt.s45's __bas_chkout,
  * __bas_chkin and __bas_clrch.
  */
 #include <cbm.h>
 
 extern unsigned char *_bas_sa, *_bas_sr;
-extern int _bas_n;
+extern int _bas_n, _bas_m;
+extern unsigned char _float_a[5];
 extern void _bas_error(void);
 
 unsigned char _bas_olf, _bas_odev, _bas_osa, _bas_ocnt;
 unsigned char _bas_dlf, _bas_ddrv, _bas_dunit, _bas_drcl, _bas_dflg;
+unsigned char _bas_clen, _bas_cdev, _bas_csa;
 
 #define DEFDRV (*(volatile unsigned char *)0x1106)      /* the default drive */
 #define KFA (*(volatile unsigned char __far *)0xBAUL)    /* the KERNAL's device (fa) */
@@ -181,4 +196,89 @@ void _bas_close(void) {
 
 void _bas_st(void) {
     _bas_n = (unsigned char)cbm_readst();
+}
+
+void _bas_chainprep(void) {
+    unsigned char *nm = _bas_sa, len = 0, n = 0, k;
+    unsigned char *out = (unsigned char *)0x0280;
+    if (nm) { len = nm[0]; nm++; }
+    if (_bas_dflg & 32) {
+        /* LOAD (plsv) */
+        unsigned char d = _bas_dflg & 64 ? _bas_dunit : DEFDRV;
+        if (d != 1 && d < 4) kerr(9);
+        _bas_cdev = d;
+        _bas_csa = _bas_dflg & 128 ? _bas_osa : 0;
+        for (k = 0; k < len && n < 31; k++) out[n++] = nm[k];
+    } else {
+        /* DLOAD (dosprs, dload) */
+        if ((_bas_dflg & 8) && _bas_ddrv > 9) kerr(14);
+        _bas_cdev = unit();
+        _bas_csa = 0;
+        if (!len) kerr(8);
+        if (nm[0] == '@') kerr(11);
+        if (nm[0] != '$') {
+            out[n++] = '0' + (_bas_dflg & 8 ? _bas_ddrv : 0);
+            out[n++] = ':';
+        }
+        for (k = 0; k < len && n < 31; k++) out[n++] = nm[k];
+    }
+    _bas_clen = n;
+}
+
+#define XBLOCK 0x87F0000UL
+static unsigned char __far *xp;
+
+void _bas_xbegin(void) {
+    xp = (unsigned char __far *)XBLOCK;
+    xp[0] = 0x42; xp[1] = 0x34; xp[2] = 0x35; xp[3] = 0x56;     /* "B45V" (PETSCII) */
+    xp[4] = (unsigned char)_bas_n; xp[5] = (unsigned char)(_bas_n >> 8);
+    xp[6] = (unsigned char)_bas_m; xp[7] = (unsigned char)(_bas_m >> 8);
+    xp += 8;
+}
+
+void _bas_xput(void) {
+    unsigned char k;
+    *xp++ = (unsigned char)_bas_m;
+    if (_bas_m == 0) {
+        for (k = 0; k < 5; k++) *xp++ = _float_a[k];
+    } else if (_bas_m == 1) {
+        *xp++ = (unsigned char)_bas_n;
+        *xp++ = (unsigned char)(_bas_n >> 8);
+    } else {
+        unsigned char *t = _bas_sa;
+        for (k = 0; k <= t[0]; k++) *xp++ = t[k];
+    }
+}
+
+void _bas_xopen(void) {
+    unsigned char __far *b = (unsigned char __far *)XBLOCK;
+    _bas_n = b[0] == 0x42 && b[1] == 0x34 && b[2] == 0x35 && b[3] == 0x56 &&
+             b[4] == (unsigned char)_bas_n && b[5] == (unsigned char)(_bas_n >> 8) &&
+             b[6] == (unsigned char)_bas_m && b[7] == (unsigned char)(_bas_m >> 8);
+}
+
+void _bas_xget(void) {
+    unsigned char __far *b = (unsigned char __far *)XBLOCK + 8;
+    unsigned char k, t;
+    int i = _bas_n;
+    /* (past the variables before it) */
+    while (i--) {
+        t = *b++;
+        b += t == 0 ? 5 : t == 1 ? 2 : (unsigned)*b + 1;
+    }
+    t = *b++;
+    if (t != (unsigned char)_bas_m) t = 255;    /* (another type: the variable's 0 / "") */
+    if (_bas_m == 0) {
+        for (k = 0; k < 5; k++) _float_a[k] = t == 0 ? b[k] : 0;
+    } else if (_bas_m == 1) {
+        _bas_n = t == 1 ? b[0] | (b[1] << 8) : 0;
+    } else {
+        unsigned char *r = _bas_sr;
+        r[0] = t == 2 ? b[0] : 0;
+        for (k = 1; k <= r[0]; k++) r[k] = b[k];
+    }
+}
+
+void _bas_xdone(void) {
+    ((unsigned char __far *)XBLOCK)[0] = 0;
 }
