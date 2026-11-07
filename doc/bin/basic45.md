@@ -333,10 +333,10 @@ status at `$FD`/`$FE` is the error number), after which BASIC's `READY.` follows
 
 | | |
 |---|---|
-| Statements | `LET` and assignments, `PRINT` (`;`, `,`, `TAB(`, `SPC(`), `IF` … `THEN` / `GOTO` (a line number or statements), `ELSE`, `BEGIN` / `BEND`, `GOTO`, `GO TO`, `GOSUB`, `RETURN`, `ON` … `GOTO` / `GOSUB`, `FOR` … `TO` … `STEP` / `NEXT` (a float variable; `NEXT a, b`), `POKE`, `DIM`, `INPUT` (a prompt with `;` or `,`), `GET`, `GETKEY`, `DO` … `LOOP` (`WHILE` / `UNTIL` on either), `EXIT`, `READ`, `DATA`, `RESTORE` (a line number or none), `DEF FN`, `WPOKE`, `WAIT`, `SLEEP`, `SCNCLR` (the text screen), `BANK`, `TRAP` (a line number or none), `RESUME` (none, `NEXT` or a line), `END`, `STOP`, `REM`; `POKE` / `WPOKE` with a list of values |
+| Statements | `LET` and assignments, `PRINT` (`;`, `,`, `TAB(`, `SPC(`), `IF` … `THEN` / `GOTO` (a line number or statements), `ELSE`, `BEGIN` / `BEND`, `GOTO`, `GO TO`, `GOSUB`, `RETURN`, `ON` … `GOTO` / `GOSUB`, `FOR` … `TO` … `STEP` / `NEXT` (a float variable; `NEXT a, b`), `POKE`, `DIM`, `INPUT` (a prompt with `;` or `,`), `GET`, `GETKEY`, `DO` … `LOOP` (`WHILE` / `UNTIL` on either), `EXIT`, `READ`, `DATA`, `RESTORE` (a line number or none), `DEF FN`, `WPOKE`, `WAIT`, `SLEEP`, `SCNCLR` (the text screen), `BANK`, `TRAP` (a line number or none), `RESUME` (none, `NEXT` or a line), `OPEN`, `CLOSE`, `PRINT#`, `INPUT#`, `GET#`, `CMD`, `END`, `STOP`, `REM`; `POKE` / `WPOKE` with a list of values |
 | Values | floats, `%` integers (-32768..32767), strings (up to 255 characters); arrays of each (`DIM a(n, m)`, up to 8 subscripts; sizes at run time) |
 | Operators | `+ - * / ^`, unary `-`, `= <> < > <= >=` (numbers and strings), `AND`, `OR`, `XOR`, `NOT` (-32768..65535, as BASIC 65's), `<<`, `>>` |
-| Functions | `ABS`, `INT`, `SGN`, `SQR`, `SIN`, `COS`, `TAN`, `ATN`, `LOG`, `EXP`, `PEEK`, `LEN`, `ASC`, `CHR$`, `STR$`, `LEFT$`, `RIGHT$`, `MID$`, `RND`, `FN`, `POS`, `VAL`, `DEC`, `HEX$`, `STRBIN$`, `INSTR` (a pound sign's pattern too), `MOD`, `WPEEK`, `RPT$`, `ERR$`, π; the variables `TI`, `TI$`, `ER` and `EL` |
+| Functions | `ABS`, `INT`, `SGN`, `SQR`, `SIN`, `COS`, `TAN`, `ATN`, `LOG`, `EXP`, `PEEK`, `LEN`, `ASC`, `CHR$`, `STR$`, `LEFT$`, `RIGHT$`, `MID$`, `RND`, `FN`, `POS`, `VAL`, `DEC`, `HEX$`, `STRBIN$`, `INSTR` (a pound sign's pattern too), `MOD`, `WPEEK`, `RPT$`, `ERR$`, π; the variables `TI`, `TI$`, `ER`, `EL` and `ST` |
 
 **How**: the program is one function; each line and statement starts a block. `GOTO` is a branch; `GOSUB`
 pushes the address of the code after it on BASIC's stack and `RETURN` jumps back to it. `FOR` pushes its
@@ -359,12 +359,25 @@ needed, nothing after a prompt and a comma), its items as BASIC 65's: leading sp
 or up to the next `,` / `:`, a number followed only by spaces and `,`; else `?REDO FROM START` and the `INPUT`
 again; an empty line leaves the variables as they were, input left over is ignored. `GET` / `GETKEY` take a key
 (KERNAL GETIN; `GETKEY` waits): a string variable gets the character (`""` for none), a numeric one its code (0
-for none), as BASIC 65's. `DO` / `LOOP` / `EXIT` use BASIC's stack as the interpreter does (a `DO`'s entry, `LOOP`
+for none; a signed byte, -128..127, as BASIC 65's `float`), as BASIC 65's. `DO` / `LOOP` / `EXIT` use BASIC's stack as the interpreter does (a `DO`'s entry, `LOOP`
 going back to the `DO` on top); `EXIT` and a false `DO WHILE` go on after the matching `LOOP` (found in the text,
 nested ones passed; none: `?LOOP NOT FOUND`). `READ` takes the items of the `DATA` statements in program order
 (the same rules as `INPUT`'s: `?OUT OF DATA`, `?TYPE MISMATCH`), `RESTORE n` from the first `DATA` at or after
 line `n`. `RND` is the ROM's (the interpreter's seed and sequence), `TI` CIA 2's timers as BASIC 65 reads them,
 `TI$` the clock (`"hh:mm:ss"`). The run time of these is `lib/stdlib/basic_in.c`.
+
+**Files**: `OPEN lf [, device [, secondary [, name]]]` (no device: the default drive, secondary 0; a device
+without one: 0 below device 4, else none, as the ROM's `paoc`), `CLOSE lf`, and the channels through the KERNAL's
+CHKOUT / CHKIN / CLRCH (on the page-1 stack the disk code needs, `__rom_call`): `PRINT# lf, ...` prints to the
+file and goes back to the screen, `CMD lf, ...` stays on the file (until a `PRINT#` or an error); a number's
+cursor right is a space there, a carriage return to a file 128-255 a line feed after it. `INPUT# lf, ...` reads
+as `INPUT` without prompts or echo (a line as BASIC's InputBuffer: up to 160 characters; bad data
+`?FILE DATA`; a bad status, `ST AND 135`, ends it), `GET# lf, ...` never waits (a 0 byte is `CHR$(0)`). `ST` is the
+KERNAL's I/O status, signed (`-62` after reading a missing file). A KERNAL error is BASIC's of that number
+(`?FILE NOT OPEN`, `?DEVICE NOT PRESENT`, …); an error releases the channel. Routines: `basic_rt.s45`'s
+`__bas_chkout` / `__bas_chkin` / `__bas_clrch` (reached from `__bas_out` and `__bas_error` through vectors, so a
+program without files links none of it), `lib/stdlib/basic_io.c` (`OPEN`, `CLOSE`, `ST`). `DOPEN`, `DCLOSE`,
+`APPEND`, `DS` / `DS$` are not compiled yet.
 
 **TRAP**: with a trap set, an error (not `STOP`'s BREAK) sets `ER` and `EL`, turns the trap off and goes on at
 the trap's line with the CPU stack as at the start (BASIC's stack of `GOSUB`, `FOR` and `DO` as it was, as the ROM

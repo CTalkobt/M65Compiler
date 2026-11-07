@@ -12,13 +12,15 @@
 ; An error prints BASIC's message ("?DIVISION BY ZERO ERROR IN 30") and ends
 ; the program: its exit status is the error number.
 
-; no calls through pointers here (ln45's call graph)
+; no calls through pointers here (ln45's call graph) but __bas_out's and
+; __bas_error's to the channel routines (asm, no SAC storage)
 .weak cc45.icallinfo
 cc45.icallinfo = 1
 
     .cpu 45gs02
 
 .extern __bp_rom
+.extern __rom_calli
 .extern __bp_prog
 .extern __exit
 .extern __float_a
@@ -54,6 +56,10 @@ BJT_RND     = $7F57
     .split "__bas_out"
 .global __bas_out
 __bas_out:
+    pha
+    lda __bas_chan
+    bne @file
+    pla
     phx
     phy
     phz
@@ -64,6 +70,20 @@ __bas_out:
     ply
     plx
     rts
+@file:
+    pla
+    jmp (__bas_outv)        ; (PRINT# / CMD: __bas_fout, linked with them)
+
+; BASIC's outspc: a cursor right, a space to a file
+.global __bas_outspc
+__bas_outspc:
+    lda __bas_chan
+    bne @sp
+    lda #29
+    bra __bas_out
+@sp:
+    lda #' '
+    bra __bas_out
 
 ; PRINT of a string: __bas_sa (through $F6/$F7, library temps of the
 ; program's base page)
@@ -82,6 +102,14 @@ __bas_prs:
     iny
     lda ($F6),y
     jsr __bas_out
+    lda ($F6),y
+    cmp #13
+    bne @next
+    bit __bas_chan          ; (a carriage return to a channel 128-255: and a line feed)
+    bpl @next
+    lda #10
+    jsr __bas_out
+@next:
     dex
     bne @loop
 @done:
@@ -100,15 +128,21 @@ __bas_prn:
     inx
     bra @loop
 @done:
-    lda #29
-    jmp __bas_out
+    jmp __bas_outspc
 
-; The end of a PRINT without ; or , (a carriage return)
+; The end of a PRINT without ; or , (a carriage return; to a channel 128-255
+; a line feed after it, as BASIC's crfin)
     .split "__bas_prcr"
 .global __bas_prcr
 __bas_prcr:
     lda #13
+    jsr __bas_out
+    bit __bas_chan
+    bpl @done
+    lda #10
     jmp __bas_out
+@done:
+    rts
 
 ; PEEK / WPEEK (__bas_m: 1, 2 bytes) of the address in __bas_fa (32 bits)
 ; into __bas_n; POKE / WPOKE __bas_n there. As BASIC 65's: above 65535 a
@@ -261,12 +295,84 @@ __bas_rights:
     cpx #0
     beq __bas_rights_done
 @loop:
-    lda #29
-    jsr __bas_out
+    jsr __bas_outspc
     dex
     bne @loop
 __bas_rights_done:
     rts
+
+; ---------------------------------------------------------------------------
+; Channels (PRINT#, CMD, INPUT#, GET#): the KERNAL's CHKOUT / CHKIN / CLRCH /
+; BSOUT through __rom_call (the page-1 stack the disk code needs). The
+; channel (BASIC's channl) in __bas_chan; __bas_out and __bas_error reach
+; these through __bas_outv / __bas_relv, so programs without files link
+; none of it.
+; ---------------------------------------------------------------------------
+
+    .split "__bas_chkout"
+.global __bas_chkout
+.global __bas_chkin
+.global __bas_clrch
+.global __bas_kerr
+; CHKOUT / CHKIN of the logical file __bas_n
+__bas_chkout:
+    jsr __bas_setch
+    jsr __rom_calli
+    .word $FFC9
+    bcs __bas_kerr
+    rts
+__bas_chkin:
+    jsr __bas_setch
+    jsr __rom_calli
+    .word $FFC6
+    bcs __bas_kerr
+    rts
+__bas_setch:
+    lda #<__bas_fout
+    sta __bas_outv
+    lda #>__bas_fout
+    sta __bas_outv+1
+    lda #<__bas_clrch
+    sta __bas_relv
+    lda #>__bas_clrch
+    sta __bas_relv+1
+    ldx __bas_n
+    stx __bas_chan
+    rts
+; CLRCH: the screen and keyboard again (channel 0)
+__bas_clrch:
+    jsr __rom_calli
+    .word $FFCC
+    lda #0
+    sta __bas_chan
+    rts
+; A character (A) to the channel; X, Y, Z kept
+__bas_fout:
+    phx
+    phy
+    phz
+    jsr __rom_calli
+    .word $FFD2
+    plz
+    ply
+    plx
+    bcs __bas_kerr
+    rts
+; A KERNAL error (A, carry set): its error (0: BREAK), as BASIC's erexit
+__bas_kerr:
+    cmp #0
+    bne @n
+    lda #30
+@n:
+    sta __bas_n
+    lda #0
+    sta __bas_n+1
+    jmp __bas_error
+
+; (a JSR through __bas_relv)
+    .split "__bas_jrel"
+__bas_jrel:
+    jmp (__bas_relv)
 
 ; ---------------------------------------------------------------------------
 ; Errors
@@ -277,6 +383,12 @@ __bas_rights_done:
     .split "__bas_error"
 .global __bas_error
 __bas_error:
+    ; a channel in use (PRINT#, CMD, INPUT#, GET#): released, as BASIC's
+    ; release_channels
+    lda __bas_chan
+    beq @nochan
+    jsr __bas_jrel
+@nochan:
     ; TRAP set: the error noted (ER, EL, the statement for RESUME), the trap
     ; off until RESUME, the CPU stack as at the start, on at the TRAP's line
     lda __bas_trapon
@@ -1033,4 +1145,10 @@ __bas_rpc: .res 2
 __bas_rnext: .res 2
 .global __bas_bankx
 __bas_bankx: .res 1
+; the channel PRINT# / CMD / INPUT# / GET# use (0: the screen, keyboard);
+; the routines for it
+.global __bas_chan
+__bas_chan: .res 1
+__bas_outv: .res 2
+__bas_relv: .res 2
 __bas_fy: .res 5
