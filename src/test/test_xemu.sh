@@ -727,16 +727,17 @@ else
     failed=$((failed + 1))
 fi
 # test_basic_compile2_xemu.bas: INPUT / GET (keys put in the keyboard buffer),
-# DO / LOOP / EXIT, RND / TI / TI$, READ / DATA / RESTORE, counted FOR loops; the same four ways
-BC2_EXP="01 01 01 01 01 AA"
+# DO / LOOP / EXIT, RND / TI / TI$, READ / DATA / RESTORE, counted FOR loops, AND / OR / XOR / shifts / MOD,
+# HEX$ / DEC / STRBIN$ / VAL / INSTR, DEF FN, WPOKE / WPEEK / WAIT / POS / SLEEP; the same four ways
+BC2_EXP="01 01 01 01 01 01 01 01 AA"
 if ./bin/basic45 src/test-resources/test_basic_compile2_xemu.bas -o build/test/test_basic_compile2_i.prg >/dev/null 2>&1 &&
    ./bin/basic45 --compile src/test-resources/test_basic_compile2_xemu.bas -o build/test/test_basic_compile2.prg >/dev/null 2>&1 &&
    ./bin/basic45 --compile -O0 src/test-resources/test_basic_compile2_xemu.bas -o build/test/test_basic_compile2_O0.prg >/dev/null 2>&1 &&
    ./bin/basic45 --compile --speed src/test-resources/test_basic_compile2_xemu.bas -o build/test/test_basic_compile2_speed.prg >/dev/null 2>&1; then
-    run_xemu_test "test_basic_compile2_interpreted" "build/test/test_basic_compile2_i.prg" "C0C0" 6 "$BC2_EXP"
-    run_xemu_test "test_basic_compile2" "build/test/test_basic_compile2.prg" "C0C0" 6 "$BC2_EXP"
-    run_xemu_test "test_basic_compile2_O0" "build/test/test_basic_compile2_O0.prg" "C0C0" 6 "$BC2_EXP"
-    run_xemu_test "test_basic_compile2_speed" "build/test/test_basic_compile2_speed.prg" "C0C0" 6 "$BC2_EXP"
+    run_xemu_test "test_basic_compile2_interpreted" "build/test/test_basic_compile2_i.prg" "C0C0" 9 "$BC2_EXP"
+    run_xemu_test "test_basic_compile2" "build/test/test_basic_compile2.prg" "C0C0" 9 "$BC2_EXP"
+    run_xemu_test "test_basic_compile2_O0" "build/test/test_basic_compile2_O0.prg" "C0C0" 9 "$BC2_EXP"
+    run_xemu_test "test_basic_compile2_speed" "build/test/test_basic_compile2_speed.prg" "C0C0" 9 "$BC2_EXP"
 else
     echo "FAIL: test_basic_compile2_xemu.bas (basic45 or basic45 --compile failed)"
     failed=$((failed + 1))

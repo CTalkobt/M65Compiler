@@ -29,6 +29,7 @@
 #include <cstring>
 #include <functional>
 #include <map>
+#include <optional>
 #include <set>
 #include <sstream>
 #include <stdexcept>
@@ -49,7 +50,9 @@ enum : int {
     T_RND = 0xBB, T_SGN = 0xB4, T_INT = 0xB5, T_ABS = 0xB6, T_SQR = 0xBA, T_LOG = 0xBC, T_EXP = 0xBD,
     T_COS = 0xBE, T_SIN = 0xBF, T_TAN = 0xC0, T_ATN = 0xC1, T_PEEK = 0xC2, T_LEN = 0xC3,
     T_STR = 0xC4, T_ASC = 0xC6, T_CHR = 0xC7, T_LEFT = 0xC8, T_RIGHT = 0xC9,
-    T_MID = 0xCA, T_GO = 0xCB, T_KEY = 0xF9, T_ELSE = 0xD5, T_DO = 0xEB, T_LOOP = 0xEC, T_EXIT = 0xED, T_UNTIL = 0xFC, T_WHILE = 0xFD, T_PI = 0xFF,
+    T_MID = 0xCA, T_GO = 0xCB, T_KEY = 0xF9, T_ELSE = 0xD5, T_DEF = 0x96, T_FN = 0xA5, T_POS = 0xB9, T_VAL = 0xC5, T_DEC = 0xD1, T_HEX = 0xD2,
+    T_INSTR = 0xD4, T_SCNCLR = 0xE8, T_XOR = 0xE9, T_WAIT = 0x92, T_SLEEP = 0xFE0B, T_WPOKE = 0xFE1D,
+    T_MOD = 0xCE0B, T_WPEEK = 0xCE10, T_STRBIN = 0xCE12, T_RPT = 0xCE14, T_ASL = 0xFE52, T_ASR = 0xFE53, T_DO = 0xEB, T_LOOP = 0xEC, T_EXIT = 0xED, T_UNTIL = 0xFC, T_WHILE = 0xFD, T_PI = 0xFF,
     T_BEGIN = 0xFE18, T_BEND = 0xFE19,
 };
 
@@ -437,6 +440,11 @@ private:
         return g;
     }
     Val loadVar(const std::string& name) {
+        // (a DEF FN's parameter while its expression is compiled)
+        if (!fnBind_.empty() && name.back() != '$' && name.back() != '%') {
+            auto b = fnBind_.find("__bv_" + name.substr(0, 2));
+            if (b != fnBind_.end()) return b->second;
+        }
         // TI: the seconds counter; TI$: the clock, "hh:mm:ss"
         if (name == "TI") {
             call("__bas_ti");
@@ -707,6 +715,32 @@ private:
         r.op = viaN(v, "__bas_ayint");
         return r;
     }
+    // AND, OR, NOT, XOR's integer: BASIC 65's ayintw (-32768..65535, rounded
+    // down, ?ILLEGAL QUANTITY outside), its 16 bits: I16
+    Val toI16w(const Val& v) {
+        if (v.k == VK::S) fail("a number expected, not a string (?TYPE MISMATCH)");
+        if (v.k == VK::B) return toI16(v);
+        if (v.k == VK::I) {
+            if (v.isConst) {
+                if (v.cval < -32768 || v.cval > 65535) { raiseNow(14); return constI(0); }
+                int64_t c = (int64_t)v.cval;
+                return constI(c > 32767 ? c - 65536 : c);
+            }
+            checkRange(v, -32768, 65535);
+            Val r = v; r.bound = 32768; r.isConst = false;
+            if (r.op.type != ir::Type::I16) r.op = trunc(v.op, ir::Type::I16);
+            return r;
+        }
+        if (v.isConst) {
+            double f = std::floor(v.cval);
+            if (f < -32768 || f > 65535) { raiseNow(14); return constI(0); }
+            int64_t c = (int64_t)f;
+            return constI(c > 32767 ? c - 65536 : c);
+        }
+        Val r; r.k = VK::I; r.bound = 32768;
+        r.op = viaN(v, "__bas_ayintw");
+        return r;
+    }
     // ?ILLEGAL QUANTITY outside lo..hi: only the limits the value's bound
     // (and its type) can pass are checked
     void checkRange(const Val& v, int64_t lo, int64_t hi) {
@@ -817,11 +851,12 @@ private:
     Val expr() { return orExpr(); }
     Val orExpr() {
         Val a = andExpr();
-        while (acceptKw(T_OR)) {
-            Val b = andExpr();
-            a = logic(ir::Op::OR, a, b);
+        for (;;) {
+            // (XOR: OR's precedence)
+            if (acceptKw(T_OR)) a = logic(ir::Op::OR, a, andExpr());
+            else if (acceptKw(T_XOR)) a = logic(ir::Op::XOR, a, andExpr());
+            else return a;
         }
-        return a;
     }
     Val andExpr() {
         Val a = notExpr();
@@ -836,9 +871,10 @@ private:
             Val r; r.k = VK::B; r.op = bin(op, ir::Type::I8, a.op, b.op);
             return r;
         }
-        Val x = toI16(a), y = toI16(b);
+        // (BASIC 65's ayintw: -32768..65535, the result 16 bits, signed)
+        Val x = toI16w(a), y = toI16w(b);
         Val r; r.k = VK::I; r.bound = 32768;
-        r.op = bin(op, ir::Type::I16, asType(x, ir::Type::I16), asType(y, ir::Type::I16));
+        r.op = bin(op, ir::Type::I16, x.op, y.op);
         return r;
     }
     Val notExpr() {
@@ -848,15 +884,37 @@ private:
                 Val r; r.k = VK::B; r.op = bin(ir::Op::XOR, ir::Type::I8, a.op, ir::Operand::imm(1, ir::Type::I8));
                 return r;
             }
-            Val x = toI16(a);
+            Val x = toI16w(a);
             Val r; r.k = VK::I; r.bound = 32768;
-            r.op = bin(ir::Op::XOR, ir::Type::I16, asType(x, ir::Type::I16), ir::Operand::imm(-1, ir::Type::I16));
+            r.op = bin(ir::Op::XOR, ir::Type::I16, x.op, ir::Operand::imm(-1, ir::Type::I16));
             return r;
         }
         return relExpr();
     }
-    Val relExpr() {
+    // << and >> (the tokens $FE52, $FE53): between the comparisons and + -;
+    // both operands BASIC's AYINT (-32768..32767), the count 0..15; the
+    // result 16 bits, signed (>> keeps the sign)
+    Val shiftExpr() {
         Val a = addExpr();
+        while (isKw(T_ASL) || isKw(T_ASR)) {
+            bool left = isKw(T_ASL);
+            p_++;
+            Val b = addExpr();
+            Val n = toI16(b);
+            if (n.isConst) {
+                if (n.cval < 0 || n.cval > 15) { raiseNow(14); n = constI(0); }
+            } else {
+                raiseIf(bin(ir::Op::CMP_LTU, ir::Type::I8, ir::Operand::imm(15, ir::Type::I16), n.op), 14);
+            }
+            Val x = toI16(a);
+            Val r; r.k = VK::I; r.bound = 32768;
+            r.op = bin(left ? ir::Op::SHL : ir::Op::ASR, ir::Type::I16, asType(x, ir::Type::I16), asType(n, ir::Type::I16));
+            a = r;
+        }
+        return a;
+    }
+    Val relExpr() {
+        Val a = shiftExpr();
         for (;;) {
             int rel = 0;    // bits: 1 <, 2 =, 4 >
             while (true) {
@@ -866,7 +924,7 @@ private:
                 else break;
             }
             if (!rel) return a;
-            Val b = addExpr();
+            Val b = shiftExpr();
             a = compare(rel, a, b);
         }
     }
@@ -1041,6 +1099,76 @@ private:
         case T_TAN: return floatFn("__float_tan");
         case T_ATN: return floatFn("__float_atn");
         case T_RND: return floatFn("__bas_rnd");
+        case T_POS: {
+            parenExpr();     // (a dummy argument)
+            call("__bas_pos");
+            Val r; r.k = VK::I; r.bound = 255; r.op = load(ir::Type::I16, global("__bas_n"));
+            return r;
+        }
+        case T_VAL: case T_DEC: {
+            Val a = needS(parenExpr());
+            store(ir::Type::PTR, a.op, global("__bas_sa"));
+            freeVal(a);
+            call(kw == T_VAL ? "__bas_val" : "__bas_dec");
+            Val r; r.k = VK::F; r.op = load(ir::Type::F32, global("__float_a"));
+            return r;
+        }
+        case T_HEX: case T_STRBIN: {
+            Val a = parenExpr();
+            store(ir::Type::F32, toF(a), global("__float_a"));
+            store(ir::Type::I16, iconst(ir::Type::I16, kw == T_STRBIN ? 1 : 0), global("__bas_m"));
+            return strCall("__bas_hex", nullptr, nullptr);
+        }
+        case T_INSTR: {
+            expectCh('(');
+            Val h = needS(expr());
+            expectCh(',');
+            Val n = needS(expr());
+            ir::Operand at;
+            if (acceptCh(',')) {
+                Val v = expr();
+                at = toByte(v);
+                // (0 the one position not allowed)
+                raiseIf(bin(ir::Op::CMP_EQ, ir::Type::I8, at, ir::Operand::imm(0, ir::Type::I8)), 14);
+            } else at = iconst(ir::Type::I8, 1);
+            expectCh(')');
+            store(ir::Type::I16, zext(at, ir::Type::I8, ir::Type::I16), global("__bas_n"));
+            store(ir::Type::PTR, h.op, global("__bas_sa"));
+            store(ir::Type::PTR, n.op, global("__bas_sb"));
+            freeVal(n); freeVal(h);
+            call("__bas_instr");
+            Val r; r.k = VK::I; r.bound = 255; r.op = load(ir::Type::I16, global("__bas_n"));
+            return r;
+        }
+        case T_MOD: {
+            // number - range * INT(number / range), as the ROM computes it
+            expectCh('(');
+            Val a = expr();
+            expectCh(',');
+            Val b = expr();
+            expectCh(')');
+            Val q = arith(ir::Op::DIV, a, b);
+            store(ir::Type::F32, toF(q), global("__float_a"));
+            call("__bas_int");
+            Val qi; qi.k = VK::F; qi.op = load(ir::Type::F32, global("__float_a"));
+            return arith(ir::Op::SUB, a, arith(ir::Op::MUL, b, qi));
+        }
+        case T_WPEEK: {
+            Val a = parenExpr();
+            auto w = load(ir::Type::I16, toAddr(a));
+            Val r; r.k = VK::I; r.bound = 65535; r.op = zext(w, ir::Type::I16, ir::Type::I32);
+            return r;
+        }
+        case T_RPT: {
+            expectCh('(');
+            Val a = needS(expr());
+            expectCh(',');
+            Val n = expr();
+            expectCh(')');
+            store(ir::Type::I16, zext(toByte(n), ir::Type::I8, ir::Type::I16), global("__bas_n"));
+            return strCall("__bas_rpt", &a, nullptr);
+        }
+        case T_FN: return fnCall();
         case T_ABS: {
             Val a = parenExpr();
             if (a.k == VK::I && !a.isConst) {
@@ -1157,6 +1285,15 @@ private:
     LV listVar(const char* stmt);
     void inputStmt();
     void doStmt();
+    // DEF FN name(x) = expr: each FN name(...) is the expression compiled where
+    // it is used, x bound to the argument; a flag set when the DEF runs
+    // (FN before it: ?UNDEFINED FUNCTION, as BASIC 65's)
+    struct DefFn { int id; size_t li, si, body; std::string param; bool twice = false; };
+    std::map<std::string, DefFn> defFns_;
+    std::map<std::string, Val> fnBind_;     // a parameter's global -> the argument
+    int fnDepth_ = 0;
+    void defStmt();
+    Val fnCall();
     void readStmt();
     void restoreStmt();
     // DATA: the statements' text in program order ([length][text] each,
@@ -1253,6 +1390,69 @@ void Compiler::prescan() {
             }
         }
     countedLoops();
+    // DEF FN name(x) = expr
+    for (size_t li = 0; li < lines_.size(); li++)
+        for (size_t si = 0; si < lines_[li].segs.size(); si++) {
+            const auto& t = lines_[li].segs[si].toks;
+            if (t.size() < 8 || t[0].k != TK::Kw || t[0].kw != T_DEF || t[1].k != TK::Kw || t[1].kw != T_FN ||
+                t[2].k != TK::Name || !(t[3].k == TK::Ch && t[3].ch == '(') || t[4].k != TK::Name ||
+                !(t[5].k == TK::Ch && t[5].ch == ')') || t[6].k != TK::Kw || t[6].kw != T_EQ)
+                continue;
+            std::string key = t[2].text.substr(0, 2);
+            auto it = defFns_.find(key);
+            if (it != defFns_.end()) { it->second.twice = true; continue; }
+            DefFn d;
+            d.id = (int)defFns_.size();
+            d.li = li; d.si = si; d.body = 7;
+            d.param = "__bv_" + t[4].text.substr(0, 2);
+            defFns_[key] = d;
+        }
+}
+
+void Compiler::defStmt() {
+    auto t = toks_;
+    if (t->size() < 8 || (*t)[1].k != TK::Kw || (*t)[1].kw != T_FN || (*t)[2].k != TK::Name)
+        fail("DEF FN name(variable) = expression expected (?SYNTAX ERROR)");
+    std::string key = (*t)[2].text.substr(0, 2);
+    if ((*t)[2].text.back() == '$' || (*t)[4].text.back() == '$' || (*t)[4].text.back() == '%')
+        fail("DEF FN of a string or with an integer parameter is not supported by --compile yet");
+    const DefFn& d = defFns_.at(key);
+    if (d.twice) fail("FN " + (*t)[2].text + " is defined more than once: not supported by --compile");
+    store(ir::Type::I8, iconst(ir::Type::I8, 1), global("__bas_fn" + std::to_string(d.id)));
+    p_ = t->size();
+}
+
+Val Compiler::fnCall() {
+    auto t = peek();
+    if (!t || t->k != TK::Name) fail("a function name expected after FN");
+    p_++;
+    std::string key = t->text.substr(0, 2);
+    expectCh('(');
+    Val arg = expr();
+    expectCh(')');
+    auto it = defFns_.find(key);
+    if (it == defFns_.end()) { raiseNow(27); return constI(0); }
+    const DefFn& d = it->second;
+    if (d.twice) fail("FN " + t->text + " is defined more than once: not supported by --compile");
+    if (arg.k == VK::S) fail("FN needs a number (?TYPE MISMATCH)");
+    if (++fnDepth_ > 16) fail("FN " + t->text + " calls itself");
+    // (DEF not run yet: ?UNDEFINED FUNCTION)
+    raiseIf(bin(ir::Op::CMP_EQ, ir::Type::I8, load(ir::Type::I8, global("__bas_fn" + std::to_string(d.id))),
+                ir::Operand::imm(0, ir::Type::I8)), 27);
+    // the expression, its parameter the argument
+    auto savedToks = toks_;
+    size_t savedP = p_;
+    auto savedBind = fnBind_.find(d.param) != fnBind_.end() ? std::optional<Val>(fnBind_[d.param]) : std::nullopt;
+    fnBind_[d.param] = arg;
+    toks_ = &lines_[d.li].segs[d.si].toks;
+    p_ = d.body;
+    Val r = expr();
+    if (!atEnd()) fail("unexpected" + near() + " in DEF FN's expression (?SYNTAX ERROR)");
+    toks_ = savedToks;
+    p_ = savedP;
+    if (savedBind) fnBind_[d.param] = *savedBind; else fnBind_.erase(d.param);
+    fnDepth_--;
+    return r;
 }
 
 // A FOR loop compiled as a counted loop (its NEXT an inline step, no entry
@@ -1504,6 +1704,11 @@ void Compiler::finish() {
         gv.hasInitValue = true; gv.hasImage = true; gv.initBytes = dataImage_;
         mod_->globals.push_back(gv);
     }
+    for (const auto& [k, d] : defFns_) {
+        ir::Module::GlobalVar gv;
+        gv.name = "__bas_fn" + std::to_string(d.id); gv.type = ir::Type::I8; gv.size = 1;
+        mod_->globals.push_back(gv);
+    }
     for (const auto& g : arrays_) {
         ir::Module::GlobalVar gv;
         gv.name = g; gv.type = ir::Type::PTR; gv.size = 2;
@@ -1566,6 +1771,51 @@ void Compiler::statement() {
     case T_INPUTN: fail("INPUT# is not supported by --compile yet");
     case T_GET: getStmt(); return;
     case T_DO: doStmt(); return;
+    case T_DEF: defStmt(); return;
+    case T_SCNCLR: {
+        if (!atEnd() && !isKw(T_ELSE)) fail("SCNCLR of a graphics screen is not supported by --compile yet");
+        Val c = strLit(std::string(1, (char)147));
+        store(ir::Type::PTR, c.op, global("__bas_sa"));
+        call("__bas_prs");
+        return;
+    }
+    case T_SLEEP: {
+        Val v = expr();
+        store(ir::Type::F32, toF(v), global("__float_a"));
+        call("__bas_sleep");
+        return;
+    }
+    case T_WPOKE: {
+        // WPOKE address, word [, word ...]: low byte first
+        Val a = expr();
+        auto addr = toAddr(a);
+        int k = 0;
+        while (acceptCh(',')) {
+            Val v = expr();
+            auto w = toAddr(v);
+            store(ir::Type::I16, w, k ? addrElem(addr, ir::Operand::imm(k, ir::Type::I16), 2) : addr);
+            k++;
+        }
+        if (!k) fail("WPOKE needs a value (?SYNTAX ERROR)");
+        return;
+    }
+    case T_WAIT: {
+        // until (PEEK(address) XOR x) AND mask is not 0
+        Val a = expr();
+        auto addr = toAddr(a);
+        expectCh(',');
+        auto mask = toByte(expr());
+        ir::Operand x = iconst(ir::Type::I8, 0);
+        if (acceptCh(',')) x = toByte(expr());
+        std::string loop = newLabel("wait"), done = newLabel("waited");
+        br(loop);
+        block(loop);
+        auto b = load(ir::Type::I8, addr);
+        auto t = bin(ir::Op::AND, ir::Type::I8, bin(ir::Op::XOR, ir::Type::I8, b, x), mask);
+        brCond(bin(ir::Op::CMP_NE, ir::Type::I8, t, ir::Operand::imm(0, ir::Type::I8)), done, loop);
+        block(done);
+        return;
+    }
     case T_LOOP: loopStmt(); return;
     case T_EXIT: exitStmt(); return;
     case T_PRINT: printStmt(); return;
