@@ -4,6 +4,16 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### basic45 --compile: TRAP / RESUME, ER, EL, ERR$ (#369)
+
+- TRAP line / TRAP; RESUME, RESUME NEXT, RESUME line (?CAN'T RESUME without
+  an error); ER (-1: none), EL (65535: none), ERR$ (the ROM's 44 messages,
+  "OK" for another number). An error with a trap set goes on at its line with
+  the CPU stack as at the start (`__bas_error`: `__bas_trapv`), BASIC's stack
+  as it was; STOP's BREAK is not trapped, as BASIC 65's.
+- The error messages are all of BASIC 65's (`__bas_msgs`).
+- Test `test_basic_compile3_xemu.bas` (interpreted, -O2, -O0, --speed).
+
 ### basic45 --compile: PEEK / POKE of far memory, BANK (#369)
 
 - PEEK, POKE, WPEEK, WPOKE and WAIT take BASIC 65's addresses: above 65535
