@@ -446,13 +446,15 @@ void BasicEmitter::checkVariables(const std::vector<std::vector<BasicToken>>& li
             bool listAssign = kw == "INPUT" || kw == "INPUT#" || kw == "READ" || kw == "GET" || kw == "RREG" ||
                               (kw == "LINE" && s + 1 < end && t[s + 1].type == BasicToken::KEYWORD &&
                                (t[s + 1].value == "INPUT" || t[s + 1].value == "INPUT#"));   // LINE INPUT[#]
+            bool sprsav = kw == "SPRSAV";   // SPRSAV source, a$: a$ assigned
             int depth = 0;
             bool expectTarget = listAssign;   // the next name at depth 0 is assigned
             for (size_t k = s; k < end; k++) {
                 const auto& tok = t[k];
                 if (tok.type == BasicToken::OPERATOR && tok.value == "(") depth++;
                 if (tok.type == BasicToken::OPERATOR && tok.value == ")") depth--;
-                if (tok.type == BasicToken::OPERATOR && tok.value == "," && depth == 0 && listAssign) expectTarget = true;
+                if (tok.type == BasicToken::OPERATOR && tok.value == "," && depth == 0 && (listAssign || sprsav))
+                    expectTarget = true;
                 if (tok.type != BasicToken::IDENTIFIER) continue;
                 if (!std::isalpha((unsigned char)tok.value[0])) continue;
                 if (isDiskParameter(t, s, k)) continue;   // DOPEN ..., L20, U8
@@ -473,7 +475,7 @@ void BasicEmitter::checkVariables(const std::vector<std::vector<BasicToken>>& li
                 if (kw == "DIM" && depth == 0) { u.dimmed = true; continue; }
                 if (kw == "FOR" && k == s + 1) { u.assigned = true; u.exempt = true; continue; }
                 if (kw == "DEF") { u.exempt = true; continue; }   // DEF FN parameter
-                if (listAssign && depth == 0 && expectTarget) {
+                if ((listAssign || sprsav) && depth == 0 && expectTarget) {
                     u.assigned = true; u.exempt = true; expectTarget = false; continue;
                 }
                 if (first && !isArray) {

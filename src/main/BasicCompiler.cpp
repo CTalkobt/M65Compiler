@@ -61,6 +61,8 @@ enum : int {
     T_HEADER = 0xF1, T_SCRATCH = 0xF2, T_COLLECT = 0xF3, T_COPY = 0xF4, T_RENAME = 0xF5, T_BACKUP = 0xF6,
     T_DELETE = 0xF7, T_RECORD = 0xFE12, T_FREAD = 0xFE1C, T_FWRITE = 0xFE1E, T_LINE = 0xE5,
     T_BSAVE = 0xFE10, T_BLOAD = 0xFE11, T_BVERIFY = 0xFE28, T_DIR = 0xEE, T_CATALOG = 0xFE0C, T_CONCAT = 0xFE13, T_DCLEAR = 0xFE15, T_ERASE = 0xFE2A,
+    T_MOVSPR = 0xFE06, T_SPRITE = 0xFE07, T_SPRCOLOR = 0xFE08, T_SPRSAV = 0xFE16, T_COLLISION = 0xFE17,
+    T_BUMP = 0xCE03, T_RSPPOS = 0xCE05, T_RSPRITE = 0xCE06, T_RSPCOLOR = 0xCE07, T_CLR = 0x9C, T_SAVE = 0x94,
 };
 
 enum class TK { Kw, Num, Str, Name, Ch };
@@ -392,7 +394,8 @@ private:
             "__bas_prs", "__bas_prn", "__bas_prcr", "__bas_prcomma", "__bas_prspc", "__bas_prtab", "__bas_scmp",
             "__bas_left", "__bas_right", "__bas_chr", "__bas_str", "__bas_iline", "__bas_iitem", "__bas_get", "__bas_st", "__bas_clrch",
             "__bas_ti", "__bas_tis", "__bas_restore", "__bas_rnd", "__bas_int", "__float_sin", "__float_cos",
-            "__float_tan", "__float_atn", "__float_abs"};
+            "__float_tan", "__float_atn", "__float_abs", "__bas_mvget", "__bas_mvput", "__bas_mvarg",
+            "__bas_sprcol", "__bas_sprclr", "__bas_sprgs", "__bas_sprcp", "__bas_sprirq"};
         // (with CMD, PRINT's output can go to a file: an error)
         if (!safe.count(f) || (cmdUsed_ && f.compare(0, 8, "__bas_pr") == 0)) raises();
         externs_.insert(f);
@@ -893,6 +896,8 @@ private:
     bool farMem_ = false;    // a BANK in the program
     bool usesTrap_ = false, resumeStmt_ = false, erVars_ = false;
     bool cmdUsed_ = false;   // a CMD in the program
+    bool sprIrq_ = false;    // MOVSPR, BUMP or COLLISION: the sprites' interrupt hook
+    bool collision_ = false; // COLLISION: its traps looked for at each statement
     std::set<size_t> trapTargets_;     // the lines TRAPs go to
 
     // A condition's truth: I8, nonzero when true
@@ -1278,6 +1283,7 @@ private:
             return strCall("__bas_rpt", &a, nullptr);
         }
         case T_FN: return fnCall();
+        case T_RSPRITE: case T_RSPPOS: case T_RSPCOLOR: case T_BUMP: return sprFn(kw);
         case T_ERRS: {
             Val n = toI16(parenExpr());
             store(ir::Type::I16, asType(n, ir::Type::I16), global("__bas_n"));
@@ -1405,6 +1411,17 @@ private:
     int dosArgs(const char* what, int errflags, std::vector<Val>& names, int auxAllowed = 0);
     int lastAux_ = 0;
     void recordStmt();
+    bool stmtEnd() const { return atEnd() || isKw(T_ELSE); }
+    bool optByt(Val& v);
+    void sprNum(const Val& v);
+    void spriteStmt();
+    void sprcolorStmt();
+    void movsprStmt();
+    void coordArg(int which);
+    void sprsavStmt();
+    void collisionStmt();
+    void pushRet(const std::string& ret);
+    Val sprFn(int kw);
     Val optValue();
     void doStmt();
     // DEF FN name(x) = expr: each FN name(...) is the expression compiled where
@@ -1473,6 +1490,8 @@ void Compiler::prescan() {
                 if (t.k != TK::Kw) continue;
                 if (t.kw == T_TRAP) usesTrap_ = true;
                 if (t.kw == T_CMD) cmdUsed_ = true;
+                if (t.kw == T_MOVSPR || t.kw == T_BUMP || t.kw == T_COLLISION) sprIrq_ = true;
+                if (t.kw == T_COLLISION) collision_ = true;
                 if (t.kw == T_RESUME && !(k + 1 < sg.toks.size() && sg.toks[k + 1].k == TK::Num)) resumeStmt_ = true;
             }
     // the DATA statements (a statement's first token)
@@ -1723,6 +1742,19 @@ std::shared_ptr<ir::Module> Compiler::run() {
         entry();
         for (si_ = 0; si_ < lines_[li_].segs.size(); si_++) {
             block(stmtLabel(li_, si_));
+            if (collision_) {
+                // a COLLISION trap's flag (set by the interrupt): its GOSUB first, as BASIC's ngone
+                std::string go = newLabel("ctrip"), body = newLabel("cbody");
+                brCond(bin(ir::Op::CMP_NE, ir::Type::I8, load(ir::Type::I8, global("__bas_tripa")),
+                           ir::Operand::imm(0, ir::Type::I8)), go, body);
+                block(go);
+                auto r = vreg(ir::Type::I16);
+                ir::Inst in; in.op = ir::Op::ADDR_LABEL; in.dest = r; in.src1 = ir::Operand::label(body); emit(in);
+                store(ir::Type::I16, r, global("__bas_tret"));
+                br("Ctrap");
+                block(body);
+                entry();
+            }
             if (resumeStmt_) {
                 // (RESUME: this statement and the next one, should it raise an error)
                 for (auto [lbl, g] : {std::pair<std::string, const char*>{stmtLabel(li_, si_), "__bas_spc"},
@@ -1825,6 +1857,46 @@ void Compiler::finish() {
         }
         br("Lend");
     }
+    // the COLLISION traps (from a statement, its address in __bas_tret): none
+    // while one runs; light pen, sprite/background, sprite/sprite, each a
+    // GOSUB to its line, as BASIC's ngone
+    if (collision_) {
+        li_ = lines_.size();
+        block("Ctrap");
+        auto back = [&](const char* g) {
+            auto a = load(ir::Type::PTR, global(g));
+            ir::Inst in; in.op = ir::Op::BR_INDIRECT; in.src1 = a; emit(in);
+        };
+        std::string run = newLabel("trun"), busy = newLabel("tbusy");
+        auto iv = load(ir::Type::I8, global("__bas_intv"));
+        brCond(bin(ir::Op::CMP_GEU, ir::Type::I8, iv, ir::Operand::imm(0x80, ir::Type::I8)), busy, run);
+        block(busy);
+        back("__bas_tret");
+        block(run);
+        store(ir::Type::I8, iconst(ir::Type::I8, 0), global("__bas_tripa"));
+        store(ir::Type::I16, load(ir::Type::I16, global("__bas_tret")), global("__bas_tret0"));
+        for (int x = 2; x >= 0; x--) {
+            std::string tg = "__bas_trip" + std::to_string(x), sv = newLabel("tsvc"), nx = newLabel("tnext"),
+                        rt = newLabel("tret");
+            brCond(bin(ir::Op::CMP_NE, ir::Type::I8, load(ir::Type::I8, global(tg)), ir::Operand::imm(0, ir::Type::I8)),
+                   sv, nx);
+            block(sv);
+            store(ir::Type::I8, iconst(ir::Type::I8, 0), global(tg));
+            store(ir::Type::I8, bin(ir::Op::OR, ir::Type::I8, load(ir::Type::I8, global("__bas_intv")),
+                                    ir::Operand::imm(0x80, ir::Type::I8)), global("__bas_intv"));
+            pushRet(rt);
+            back(("__bas_cadr" + std::to_string(x)).c_str());
+            block(rt);
+            entry();
+            store(ir::Type::I8, bin(ir::Op::AND, ir::Type::I8, load(ir::Type::I8, global("__bas_intv")),
+                                    ir::Operand::imm(0x7F, ir::Type::I8)), global("__bas_intv"));
+            br(nx);
+            block(nx);
+        }
+        back("__bas_tret0");
+        block(newLabel("dead"));
+        br("Lend");
+    }
     // the errors' blocks
     for (int n : errBlocks_) {
         block("Err" + std::to_string(n));
@@ -1836,6 +1908,7 @@ void Compiler::finish() {
     // init: the string variables empty; then the program
     block("init");
     store(ir::Type::I8, iconst(ir::Type::I8, 0), global("__bas_sp"));
+    if (sprIrq_) call("__bas_sprirq");
     if (usesTrap_ || erVars_) {
         store(ir::Type::I16, iconst(ir::Type::I16, -1), global("__bas_er"));
         store(ir::Type::I16, iconst(ir::Type::I16, -1), global("__bas_el"));
@@ -1952,6 +2025,11 @@ void Compiler::statement() {
     case T_RENAME: case T_CONCAT: case T_COLLECT: case T_DCLEAR: case T_BACKUP: case T_COPY:
     case T_BLOAD: case T_BVERIFY: case T_BSAVE: case T_DIR: case T_CATALOG: dosStmt(kw); return;
     case T_RECORD: recordStmt(); return;
+    case T_SPRITE: spriteStmt(); return;
+    case T_SPRCOLOR: sprcolorStmt(); return;
+    case T_MOVSPR: movsprStmt(); return;
+    case T_SPRSAV: sprsavStmt(); return;
+    case T_COLLISION: collisionStmt(); return;
     case T_FREAD: case T_FWRITE: freadStmt(kw == T_FWRITE); return;
     case T_LINE:
         // LINE INPUT# / LINE INPUT (the ROM's linputn / linput); LINE itself draws
@@ -2396,6 +2474,179 @@ void Compiler::recordStmt() {
     if (acceptCh(',')) b = toByte(expr());
     store(ir::Type::I8, b, global("__bas_drcl"));
     call("__bas_record");
+}
+
+// --- sprites (basic_spr.c, basic_spr.s45) ---
+
+// BASIC's optbyt: none at the end or before another comma, else ", value"
+bool Compiler::optByt(Val& v) {
+    if (stmtEnd()) return false;
+    expectCh(',');
+    if (isCh(',')) return false;
+    v = expr();
+    return true;
+}
+
+// A sprite number (0-7, else ?ILLEGAL QUANTITY) into __bas_sprn
+void Compiler::sprNum(const Val& v) {
+    store(ir::Type::I16, zext(toByte(v), ir::Type::I8, ir::Type::I16), global("__bas_n"));
+    call("__bas_sprnum");
+}
+
+// SPRITE CLR / SPRITE n [, on] [, colour] [, behind] [, x expanded]
+// [, y expanded] [, multicolour]: each value given set as it is read
+void Compiler::spriteStmt() {
+    if (acceptKw(T_CLR)) { call("__bas_sprclr"); return; }
+    if (isKw(T_SAVE) || isKw(T_LOAD))
+        fail("SPRITE SAVE / SPRITE LOAD are not supported by --compile yet");
+    sprNum(expr());
+    static const int regs[6] = {21, -1, 27, 29, 23, 28};
+    for (int k = 0; k < 6; k++) {
+        Val v;
+        if (!optByt(v)) continue;
+        store(ir::Type::I16, zext(toByte(v), ir::Type::I8, ir::Type::I16), global("__bas_n"));
+        if (regs[k] < 0) { call("__bas_sprcol"); continue; }
+        store(ir::Type::I16, iconst(ir::Type::I16, regs[k]), global("__bas_m"));
+        call("__bas_sprbit");
+    }
+}
+
+// SPRCOLOR [multicolour 1] [, multicolour 2] (0-15)
+void Compiler::sprcolorStmt() {
+    if (!isCh(',')) {
+        store(ir::Type::I16, zext(toByte(expr()), ir::Type::I8, ir::Type::I16), global("__bas_n"));
+        store(ir::Type::I16, iconst(ir::Type::I16, 0), global("__bas_m"));
+        call("__bas_sprmc");
+    }
+    Val v;
+    if (optByt(v)) {
+        store(ir::Type::I16, zext(toByte(v), ir::Type::I8, ir::Type::I16), global("__bas_n"));
+        store(ir::Type::I16, iconst(ir::Type::I16, 1), global("__bas_m"));
+        call("__bas_sprmc");
+    }
+}
+
+// A MOVSPR coordinate (BASIC's get_arcor): none at the end of the
+// statement; + / - before it: relative
+void Compiler::coordArg(int which) {
+    if (stmtEnd()) return;
+    int mode = 0;
+    if (acceptKw(T_PLUS)) mode = 0x10;
+    else if (acceptKw(T_MINUS)) mode = 0x20;
+    Val v = expr();
+    store(ir::Type::F32, toF(v), global("__float_a"));
+    call("__bas_getsad");
+    store(ir::Type::I16, iconst(ir::Type::I16, which | mode), global("__bas_m"));
+    call("__bas_mvarg");
+}
+
+// MOVSPR n, x, y [TO x, y, speed] / MOVSPR n, angle # speed
+void Compiler::movsprStmt() {
+    sprNum(expr());
+    call("__bas_mvget");
+    expectCh(',');
+    coordArg(0);
+    if (acceptCh('#')) {
+        store(ir::Type::F32, toF(expr()), global("__float_a"));
+        call("__bas_mvang");
+        return;
+    }
+    expectCh(',');
+    coordArg(1);
+    call("__bas_mvput");
+    if (!acceptKw(T_TO)) return;
+    coordArg(2);
+    expectCh(',');
+    coordArg(3);
+    expectCh(',');
+    store(ir::Type::F32, toF(expr()), global("__float_a"));
+    call("__bas_mvto");
+}
+
+// SPRSAV source, target: a sprite (0-7) or a string of 64 characters to a
+// sprite or a string variable
+void Compiler::sprsavStmt() {
+    Val src = expr();
+    ir::Operand srcN;
+    if (src.k == VK::S) {
+        store(ir::Type::PTR, src.op, global("__bas_sa"));
+        call("__bas_spr64");
+    } else {
+        sprNum(src);
+        srcN = load(ir::Type::I8, global("__bas_sprn"));
+    }
+    expectCh(',');
+    auto t = peek();
+    if (t && t->k == TK::Name && t->text.back() == '$') {
+        p_++;
+        LV lv = parseLV(t->text);
+        if (src.k == VK::S) { assignLV(lv, src); return; }
+        store(ir::Type::I8, srcN, global("__bas_sprn"));
+        Val r;
+        r.k = VK::S;
+        r.slot = newSlot();
+        r.op = slotAddr(r.slot);
+        store(ir::Type::PTR, r.op, global("__bas_sr"));
+        call("__bas_sprgs");
+        assignLV(lv, r);
+        return;
+    }
+    Val dst = expr();
+    if (dst.k == VK::S) fail("SPRSAV's target is a sprite number or a string variable (?SYNTAX ERROR)");
+    sprNum(dst);
+    if (src.k == VK::S) {
+        store(ir::Type::PTR, src.op, global("__bas_sa"));
+        call("__bas_sprps");
+        freeVal(src);
+        return;
+    }
+    store(ir::Type::I16, zext(srcN, ir::Type::I8, ir::Type::I16), global("__bas_m"));
+    call("__bas_sprcp");
+}
+
+// COLLISION type [, line]: the trap on (a GOSUB to the line when it is
+// seen, at the next statement) or off
+void Compiler::collisionStmt() {
+    store(ir::Type::I16, zext(toByte(expr()), ir::Type::I8, ir::Type::I16), global("__bas_n"));
+    Val none;
+    if (!stmtEnd()) {
+        expectCh(',');
+        auto t = peek();
+        if (!t || t->k != TK::Num) fail("COLLISION with a computed line is not supported by --compile");
+        size_t target = lineTarget();
+        auto r = vreg(ir::Type::I16);
+        ir::Inst in; in.op = ir::Op::ADDR_LABEL; in.dest = r; in.src1 = ir::Operand::label(lineLabel(target)); emit(in);
+        store(ir::Type::I16, r, global("__bas_cline"));
+    } else store(ir::Type::I16, iconst(ir::Type::I16, 0), global("__bas_cline"));
+    call("__bas_collide");
+}
+
+// RSPRITE(n, a), RSPPOS(n, a), RSPCOLOR(a), BUMP(a)
+Val Compiler::sprFn(int kw) {
+    expectCh('(');
+    if (kw == T_RSPCOLOR || kw == T_BUMP) {
+        store(ir::Type::I16, zext(toByte(expr()), ir::Type::I8, ir::Type::I16), global("__bas_n"));
+        expectCh(')');
+        call(kw == T_BUMP ? "__bas_bump" : "__bas_rspc");
+        Val r; r.k = VK::I; r.bound = kw == T_BUMP ? 255 : 15; r.op = load(ir::Type::I16, global("__bas_n"));
+        return r;
+    }
+    sprNum(expr());
+    expectCh(',');
+    Val a = expr();
+    expectCh(')');
+    bool intPos = kw == T_RSPPOS && a.isConst && (a.cval == 0 || a.cval == 1);
+    store(ir::Type::I16, zext(toByte(a), ir::Type::I8, ir::Type::I16), global("__bas_n"));
+    if (kw == T_RSPRITE) {
+        call("__bas_rspr");
+        Val r; r.k = VK::I; r.bound = 15; r.op = load(ir::Type::I16, global("__bas_n"));
+        return r;
+    }
+    store(ir::Type::I16, iconst(ir::Type::I16, intPos ? 1 : 0), global("__bas_m"));
+    call("__bas_rsppos");
+    if (intPos) { Val r; r.k = VK::I; r.bound = 1023; r.op = load(ir::Type::I16, global("__bas_n")); return r; }
+    Val r; r.k = VK::F; r.op = load(ir::Type::F32, global("__float_a"));
+    return r;
 }
 
 // --- chaining (DLOAD / LOAD) ---
@@ -2995,10 +3246,17 @@ void Compiler::ifStmt() {
 }
 
 void Compiler::gosubTo(size_t target) {
-    // push the return block's address
+    std::string ret = newLabel("ret");
+    pushRet(ret);
+    br(lineLabel(target));
+    block(ret);
+    entry();            // (RETURN comes back here from its line)
+}
+
+// A GOSUB's entry: the return block's address (?OUT OF MEMORY when full)
+void Compiler::pushRet(const std::string& ret) {
     auto sp = load(ir::Type::I8, global("__bas_sp"));
     raiseIf(bin(ir::Op::CMP_GEU, ir::Type::I8, sp, ir::Operand::imm(STACK_ENTRIES, ir::Type::I8)), 16);
-    std::string ret = newLabel("ret");
     auto a = vreg(ir::Type::PTR);
     { ir::Inst in; in.op = ir::Op::ADDR_ELEM; in.dest = a; in.src1 = global("__bas_stk"); in.src2 = sp;
       in.args.push_back(ir::Operand::imm(2, ir::Type::I16)); in.resultType = ir::Type::PTR; emit(in); }
@@ -3006,9 +3264,6 @@ void Compiler::gosubTo(size_t target) {
     { ir::Inst in; in.op = ir::Op::ADDR_LABEL; in.dest = r; in.src1 = ir::Operand::label(ret); emit(in); }
     store(ir::Type::I16, r, a);
     store(ir::Type::I8, bin(ir::Op::ADD, ir::Type::I8, sp, ir::Operand::imm(1, ir::Type::I8)), global("__bas_sp"));
-    br(lineLabel(target));
-    block(ret);
-    entry();            // (RETURN comes back here from its line)
 }
 
 void Compiler::returnStmt() {

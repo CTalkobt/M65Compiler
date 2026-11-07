@@ -101,6 +101,11 @@ void LabelBasedSourceParser::forEachLabelRef(const std::vector<BasicToken>& toks
                    toks[j].value == "TO") {
             list = true;
             j++;
+        } else if (kw == "COLLISION") {
+            // COLLISION type, line: the line after the type
+            if (!(j + 1 < toks.size() && toks[j + 1].type == BasicToken::OPERATOR && toks[j + 1].value == ","))
+                continue;
+            j += 2;
         } else if (kw != "THEN" && kw != "ELSE" && kw != "RESTORE" && kw != "TRAP" &&
                    kw != "RESUME" && kw != "RUN") {
             continue;
@@ -138,6 +143,10 @@ void LabelBasedSourceParser::forEachLineNumberRef(const std::vector<BasicToken>&
         } else if (kw == "GO" && j < toks.size() && toks[j].type == BasicToken::KEYWORD && toks[j].value == "TO") {
             list = true;
             j++;
+        } else if (kw == "COLLISION") {
+            if (!(j + 1 < toks.size() && toks[j + 1].type == BasicToken::OPERATOR && toks[j + 1].value == ","))
+                continue;
+            j += 2;
         } else if (kw != "THEN" && kw != "ELSE" && kw != "RESTORE" && kw != "TRAP" && kw != "RESUME" && kw != "RUN") {
             continue;
         }

@@ -334,10 +334,10 @@ status at `$FD`/`$FE` is the error number), after which BASIC's `READY.` follows
 
 | | |
 |---|---|
-| Statements | `LET` and assignments, `PRINT` (`;`, `,`, `TAB(`, `SPC(`), `IF` … `THEN` / `GOTO` (a line number or statements), `ELSE`, `BEGIN` / `BEND`, `GOTO`, `GO TO`, `GOSUB`, `RETURN`, `ON` … `GOTO` / `GOSUB`, `FOR` … `TO` … `STEP` / `NEXT` (a float variable; `NEXT a, b`), `POKE`, `DIM`, `INPUT` (a prompt with `;` or `,`), `GET`, `GETKEY`, `DO` … `LOOP` (`WHILE` / `UNTIL` on either), `EXIT`, `READ`, `DATA`, `RESTORE` (a line number or none), `DEF FN`, `WPOKE`, `WAIT`, `SLEEP`, `SCNCLR` (the text screen), `BANK`, `TRAP` (a line number or none), `RESUME` (none, `NEXT` or a line), `OPEN`, `CLOSE`, `PRINT#`, `INPUT#`, `GET#`, `CMD`, `DOPEN`, `APPEND`, `DCLOSE`, `DLOAD`, `LOAD` (chaining), `HEADER`, `SCRATCH` / `ERASE` / `DELETE "name"`, `RENAME`, `COPY` (on one unit), `CONCAT`, `COLLECT`, `DCLEAR`, `BACKUP`, `RECORD#`, `BLOAD`, `BSAVE`, `BVERIFY`, `DIR` / `CATALOG`, `FREAD#`, `FWRITE#`, `LINE INPUT`, `LINE INPUT#`, `END`, `STOP`, `REM`; `POKE` / `WPOKE` with a list of values |
+| Statements | `LET` and assignments, `PRINT` (`;`, `,`, `TAB(`, `SPC(`), `IF` … `THEN` / `GOTO` (a line number or statements), `ELSE`, `BEGIN` / `BEND`, `GOTO`, `GO TO`, `GOSUB`, `RETURN`, `ON` … `GOTO` / `GOSUB`, `FOR` … `TO` … `STEP` / `NEXT` (a float variable; `NEXT a, b`), `POKE`, `DIM`, `INPUT` (a prompt with `;` or `,`), `GET`, `GETKEY`, `DO` … `LOOP` (`WHILE` / `UNTIL` on either), `EXIT`, `READ`, `DATA`, `RESTORE` (a line number or none), `DEF FN`, `WPOKE`, `WAIT`, `SLEEP`, `SCNCLR` (the text screen), `BANK`, `TRAP` (a line number or none), `RESUME` (none, `NEXT` or a line), `OPEN`, `CLOSE`, `PRINT#`, `INPUT#`, `GET#`, `CMD`, `DOPEN`, `APPEND`, `DCLOSE`, `DLOAD`, `LOAD` (chaining), `HEADER`, `SCRATCH` / `ERASE` / `DELETE "name"`, `RENAME`, `COPY` (on one unit), `CONCAT`, `COLLECT`, `DCLEAR`, `BACKUP`, `RECORD#`, `BLOAD`, `BSAVE`, `BVERIFY`, `DIR` / `CATALOG`, `FREAD#`, `FWRITE#`, `LINE INPUT`, `LINE INPUT#`, `SPRITE` (and `SPRITE CLR`), `SPRCOLOR`, `MOVSPR`, `SPRSAV`, `COLLISION`, `END`, `STOP`, `REM`; `POKE` / `WPOKE` with a list of values |
 | Values | floats, `%` integers (-32768..32767), strings (up to 255 characters); arrays of each (`DIM a(n, m)`, up to 8 subscripts; sizes at run time) |
 | Operators | `+ - * / ^`, unary `-`, `= <> < > <= >=` (numbers and strings), `AND`, `OR`, `XOR`, `NOT` (-32768..65535, as BASIC 65's), `<<`, `>>` |
-| Functions | `ABS`, `INT`, `SGN`, `SQR`, `SIN`, `COS`, `TAN`, `ATN`, `LOG`, `EXP`, `PEEK`, `LEN`, `ASC`, `CHR$`, `STR$`, `LEFT$`, `RIGHT$`, `MID$`, `RND`, `FN`, `POS`, `VAL`, `DEC`, `HEX$`, `STRBIN$`, `INSTR` (a pound sign's pattern too), `MOD`, `WPEEK`, `RPT$`, `ERR$`, π; the variables `TI`, `TI$`, `ER`, `EL`, `ST`, `DS` and `DS$` |
+| Functions | `ABS`, `INT`, `SGN`, `SQR`, `SIN`, `COS`, `TAN`, `ATN`, `LOG`, `EXP`, `PEEK`, `LEN`, `ASC`, `CHR$`, `STR$`, `LEFT$`, `RIGHT$`, `MID$`, `RND`, `FN`, `POS`, `VAL`, `DEC`, `HEX$`, `STRBIN$`, `INSTR` (a pound sign's pattern too), `MOD`, `WPEEK`, `RPT$`, `ERR$`, `RSPRITE`, `RSPCOLOR`, `RSPPOS`, `BUMP`, π; the variables `TI`, `TI$`, `ER`, `EL`, `ST`, `DS` and `DS$` |
 
 **How**: the program is one function; each line and statement starts a block. `GOTO` is a branch; `GOSUB`
 pushes the address of the code after it on BASIC's stack and `RETURN` jumps back to it. `FOR` pushes its
@@ -439,6 +439,25 @@ otherwise keeps its variables empty. In the interpreter the pragmas are `REM`s, 
 the variables they name. Run time: `basic_rt.s45`'s `__bas_chain`, `basic_io.c`'s `_bas_chainprep` and
 `_bas_x*`. Test: `test_basic_compile6_xemu.bas` / `test_basic_compile6b_xemu.bas`.
 
+**Sprites**: `SPRITE n [, on] [, colour] [, behind] [, x expanded] [, y expanded] [, multicolour]` (each value set as it
+is read, an empty one skipped; a flag other than 0 / 1 is `?ILLEGAL QUANTITY` after those before it), `SPRITE CLR`
+(all off, unexpanded, in front, hires, stopped, the data pointers at `$0600`), `SPRCOLOR [mc1] [, mc2]`, `MOVSPR n, x, y`
+(`+` / `-` before a coordinate: relative; a negative number's 16 bits), `MOVSPR n, x, y TO x, y, speed` (`+` / `-`
+after `TO`: from the last target, as the ROM's `xdest` / `ydest`) and `MOVSPR n, angle # speed`, `SPRSAV` (a sprite
+0-7 or a string of 64 characters to a sprite or a string variable), `RSPRITE(n, 0-5)`, `RSPCOLOR(1 / 2)`,
+`RSPPOS(n, 0-2)` and `BUMP(1 / 2)` write and read the VIC-IV's registers directly, as BASIC 65's (`sprite`,
+`movspr`, `metric`, `angle_mode`, … of V920413; `lib/stdlib/basic_sprite.c`), with the ROM's arithmetic and
+checks (the moves' speeds from its `metric` and `flpint`; `?DIVISION BY ZERO` for a speed 0 `TO` a target).
+Moving sprites and collisions belong to BASIC's interrupt, which is off while a `SYS` runs, so a program with
+`MOVSPR`, `BUMP` or `COLLISION` puts a hook in the KERNAL's IRQ vector (`lib/stdlib_asm/basic_spr.s45`): each frame
+it moves the sprites a frame (`movspr_irq`'s steps and stop at the target) and keeps the VIC's collisions for `BUMP`
+and `COLLISION`. The vector leads to a stub at `$0500` (BASIC's run-time stack, which a compiled program does not
+use): while the program calls a ROM routine BASIC's ROM is where the program is, and the stub only counts the
+frame, moved at the next one. The program's end (and a `DLOAD`) puts the vector back. `COLLISION type, line` (a line
+number) is a `GOSUB` to the line at the next statement after a collision of that type (none while one runs; light
+pen, sprite/background, sprite/sprite, as BASIC's `ngone`); `COLLISION type` turns it off. Not compiled:
+`SPRITE SAVE` / `SPRITE LOAD`. Test: `test_basic_compile9_xemu.bas`.
+
 **TRAP**: with a trap set, an error (not `STOP`'s BREAK) sets `ER` and `EL`, turns the trap off and goes on at
 the trap's line with the CPU stack as at the start (BASIC's stack of `GOSUB`, `FOR` and `DO` as it was, as the ROM
 does); `RESUME` turns it on again and goes back to the statement (`RESUME`), to the one after it (`RESUME NEXT`)
@@ -484,6 +503,8 @@ The run-time support is `lib/stdlib_asm/basic_rt.s45` (PRINT, the errors, BASIC'
   interpreter's own conversion can differ in the last bit.
 - A float result too large gives the largest float, not `?OVERFLOW ERROR` (except for `EXP` and `^`).
 - `PEEK` of `$C000`-`$CFFF` reads RAM; the interpreter reads the ROM there.
+- Sprites still moving when the program ends stop there (the interpreter's interrupt goes on moving them); a
+  `COLLISION` trap turned off forgets a collision not yet taken.
 - A number typed at `INPUT` or read from `DATA` is converted by the library's `strtof` (correctly rounded); the
   interpreter's own conversion can differ in the last bit, as for numbers in the program.
 - Arrays and strings share the program's heap, from the end of the program to the stack's share below `$B000`
