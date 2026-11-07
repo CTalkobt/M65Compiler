@@ -334,7 +334,7 @@ status at `$FD`/`$FE` is the error number), after which BASIC's `READY.` follows
 
 | | |
 |---|---|
-| Statements | `LET` and assignments, `PRINT` (`;`, `,`, `TAB(`, `SPC(`), `IF` … `THEN` / `GOTO` (a line number or statements), `ELSE`, `BEGIN` / `BEND`, `GOTO`, `GO TO`, `GOSUB`, `RETURN`, `ON` … `GOTO` / `GOSUB`, `FOR` … `TO` … `STEP` / `NEXT` (a float variable; `NEXT a, b`), `POKE`, `DIM`, `INPUT` (a prompt with `;` or `,`), `GET`, `GETKEY`, `DO` … `LOOP` (`WHILE` / `UNTIL` on either), `EXIT`, `READ`, `DATA`, `RESTORE` (a line number or none), `DEF FN`, `WPOKE`, `WAIT`, `SLEEP`, `SCNCLR` (the text screen), `BANK`, `TRAP` (a line number or none), `RESUME` (none, `NEXT` or a line), `OPEN`, `CLOSE`, `PRINT#`, `INPUT#`, `GET#`, `CMD`, `DOPEN`, `APPEND`, `DCLOSE`, `DLOAD`, `LOAD` (chaining), `END`, `STOP`, `REM`; `POKE` / `WPOKE` with a list of values |
+| Statements | `LET` and assignments, `PRINT` (`;`, `,`, `TAB(`, `SPC(`), `IF` … `THEN` / `GOTO` (a line number or statements), `ELSE`, `BEGIN` / `BEND`, `GOTO`, `GO TO`, `GOSUB`, `RETURN`, `ON` … `GOTO` / `GOSUB`, `FOR` … `TO` … `STEP` / `NEXT` (a float variable; `NEXT a, b`), `POKE`, `DIM`, `INPUT` (a prompt with `;` or `,`), `GET`, `GETKEY`, `DO` … `LOOP` (`WHILE` / `UNTIL` on either), `EXIT`, `READ`, `DATA`, `RESTORE` (a line number or none), `DEF FN`, `WPOKE`, `WAIT`, `SLEEP`, `SCNCLR` (the text screen), `BANK`, `TRAP` (a line number or none), `RESUME` (none, `NEXT` or a line), `OPEN`, `CLOSE`, `PRINT#`, `INPUT#`, `GET#`, `CMD`, `DOPEN`, `APPEND`, `DCLOSE`, `DLOAD`, `LOAD` (chaining), `HEADER`, `SCRATCH` / `ERASE` / `DELETE "name"`, `RENAME`, `COPY` (on one unit), `CONCAT`, `COLLECT`, `DCLEAR`, `BACKUP`, `RECORD#`, `END`, `STOP`, `REM`; `POKE` / `WPOKE` with a list of values |
 | Values | floats, `%` integers (-32768..32767), strings (up to 255 characters); arrays of each (`DIM a(n, m)`, up to 8 subscripts; sizes at run time) |
 | Operators | `+ - * / ^`, unary `-`, `= <> < > <= >=` (numbers and strings), `AND`, `OR`, `XOR`, `NOT` (-32768..65535, as BASIC 65's), `<<`, `>>` |
 | Functions | `ABS`, `INT`, `SGN`, `SQR`, `SIN`, `COS`, `TAN`, `ATN`, `LOG`, `EXP`, `PEEK`, `LEN`, `ASC`, `CHR$`, `STR$`, `LEFT$`, `RIGHT$`, `MID$`, `RND`, `FN`, `POS`, `VAL`, `DEC`, `HEX$`, `STRBIN$`, `INSTR` (a pound sign's pattern too), `MOD`, `WPEEK`, `RPT$`, `ERR$`, π; the variables `TI`, `TI$`, `ER`, `EL`, `ST`, `DS` and `DS$` |
@@ -380,14 +380,24 @@ KERNAL's I/O status, signed (`-62` after reading a missing file). A KERNAL error
 program without files links none of it), `lib/stdlib/basic_io.c` (`OPEN`, `CLOSE`, `ST`).
 
 **DOS statements**: `DOPEN# lf, name [, D drive] [, U unit] [, W] [, L length] [ON U unit]`, `APPEND# lf, name [, D]
-[, U]` and `DCLOSE [# lf] [, U unit]` take their parameters as the ROM's `dosprs` (any order, each once; `U8`,
-`D0`, `L80`, `U(x)`: the letter, then a value; a name in quotes or `(expression)`, `"@name"` to replace) and send
-its command strings (`"@0:name,W,S"`, `",L,"` and the length, `"0:name,A"`), on a free secondary address `$62`-`$6E`
-(`?TOO MANY FILES`); its checks too (`?ILLEGAL QUANTITY` for `#0`, a drive over 9, `L0`; `?ILLEGAL DEVICE NUMBER`,
-`?MISSING FILE NAME`). `DCLOSE` without `#` closes all the unit's files. `DS` / `DS$` read the drive's error
+[, U]`, `DCLOSE [# lf] [, U unit]`, `HEADER name [, I id] [, D] [, U]`, `SCRATCH name [, D] [, U] [, R]` (also `ERASE`,
+`DELETE "name"`), `RENAME old TO new`, `COPY [name] [, D] [, U] TO [name] [, D] [, U]`, `CONCAT a TO b`, `COLLECT [D]
+[, U]`, `DCLEAR [D] [, U]`, `BACKUP D a TO D b` / `U a TO U b` and `RECORD# lf, record [, byte]` take their parameters
+as the ROM's `dosprs` (`lib/stdlib/basic_io.c`'s `dosprs` checks them, a statement's own syntax errors are
+compile errors: any order, each once; `U8`, `D0`, `L80`, `U(x)`, `I42`, `I(x$)`: the letter, then a value; a
+name in quotes or `(expression)`, `"@name"` to replace; `TO` and the second file's name, `D`, `U`; `ON U unit` is
+checked but, as the ROM's, not used) and send its command strings (`sendp`'s `tabld`: `"@0:name,W,S"`, `",L,"` and
+the length, `"0:name,A"`, `"R0:new=0:old"`, `"S0:name"`, `"F-R0:name"`, `"N0:name,id"`, `"C0:b=0:a"`, `"V0"`,
+`"I0"`, `"D1=0"`, `"P"` and the record; an empty name takes the character before it away), a file on a free
+secondary address `$62`-`$6E` (`?TOO MANY FILES`), the others on the command channel; its checks too
+(`?ILLEGAL QUANTITY` for `#0`, a drive over 9, `L0`, an id not 2 characters; `?ILLEGAL DEVICE NUMBER`,
+`?MISSING FILE NAME`, `?SYNTAX` for a `"@"` where it is not allowed). `DCLOSE` without `#` closes all the unit's
+files, `HEADER` and `COLLECT` all files first, `DCLEAR` and `BACKUP` the unit's. `COPY` between the internal
+drives' units (CBDOS, bank 1 `$0113`) is a copy between drives 0 and 1; between other units (IEC drives, which
+the ROM copies file by file) it is `?ILLEGAL DEVICE NUMBER` here. `DS` / `DS$` read the drive's error
 channel when no message is kept (the KERNAL's device if a drive, else the last DOS statement's unit) and keep it
 until a `DOPEN` or an `OPEN` of a drive, as BASIC 65's `Read_DS` / `Clear_DS`. Not compiled yet: `BLOAD`,
-`BSAVE`, `DIR`, `CATALOG`, `SCRATCH`, `RENAME`, `COPY`, `HEADER`, `DCLEAR`, `RECORD`, `FREAD#`, `FWRITE#`, `LINPUT#`.
+`BSAVE`, `BVERIFY`, `DIR` / `DIRECTORY` / `CATALOG`, `FREAD#`, `FWRITE#`, `LINPUT#`.
 `DSAVE`, `SAVE`, `VERIFY` and `DVERIFY` are errors: they save or compare the BASIC program's text, which a compiled
 program does not have.
 

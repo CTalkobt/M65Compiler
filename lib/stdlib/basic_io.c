@@ -10,20 +10,19 @@
  *   _bas_st: ST (the KERNAL's I/O status, READST) into __bas_n.
  * As BASIC 65's DOS statements (b65.src: dopen, append, dclose, dosprs,
  * sendp's tabld, Read_DS, Get_DS):
- *   _bas_dopen / _bas_append: DOPEN# / APPEND# __bas_dlf, the name at
- *     __bas_sa ("@" first: replace; not for APPEND), drive __bas_ddrv, unit
- *     __bas_dunit and record length __bas_drcl as __bas_dflg gives them (bit
- *     0 W, 1 L, 2 U, 3 D). The command string as the ROM's ("@0:name",
- *     ",W,S" / ",L," and the length; "0:name,A"), a free secondary address
- *     $62-$6E (?TOO MANY FILES), the file opened. DOPEN forgets DS$.
- *   _bas_dclose: DCLOSE# __bas_dlf (bit 4 of __bas_dflg: given), else all
- *     files of the unit (CLOSE_ALL).
+ *   _bas_dos: the DOS statement __bas_m (1 DOPEN, 2 APPEND, 3 DCLOSE, 5
+ *     HEADER, 6 SCRATCH / ERASE / DELETE "name", 7 RENAME, 8 CONCAT, 9
+ *     COLLECT, 10 DCLEAR, 11 BACKUP, 12 COPY on one unit) with the
+ *     parameters basic45 parsed (dosprs below): the ROM's command string on
+ *     the command channel (trans), or DOPEN / APPEND's file opened on a free
+ *     secondary address $62-$6E (?TOO MANY FILES). DOPEN forgets DS$.
+ *   _bas_record: RECORD# lf, record, byte (P on the file's unit).
  *   _bas_ds / _bas_dss: DS into __bas_n, DS$ into __bas_sr's buffer: the
  *     drive's error channel read (lf 0, sa 15) when DS$ is not kept, from
  *     the KERNAL's device ($BA) if a drive, else the last DOS statement's
  *     unit. OPEN of a drive, DOPEN forget it.
- *   _bas_chainprep: DLOAD (__bas_dflg bit 5 clear: the name at __bas_sa,
- *     D / U as DOPEN's; "$..." as it is, else "0:name") or LOAD (bit 5:
+ *   _bas_chainprep: DLOAD (__bas_dflg bit 5 clear: dosprs's name, D, U;
+ *     "$..." as it is, else "0:name") or LOAD (bit 5:
  *     the name as it is, the device __bas_dunit (bit 6, else the default
  *     drive; 1 or 4-30), the secondary address __bas_osa (bit 7)) checked
  *     and set up for basic_rt.s45's __bas_chain: the name at $0280 (BASIC's
@@ -46,14 +45,15 @@ extern unsigned char _float_a[5];
 extern void _bas_error(void);
 
 unsigned char _bas_olf, _bas_odev, _bas_osa, _bas_ocnt;
-unsigned char _bas_dlf, _bas_ddrv, _bas_dunit, _bas_drcl, _bas_dflg;
+unsigned char _bas_dlf, _bas_dunit, _bas_drcl, _bas_dflg;
 unsigned char _bas_clen, _bas_cdev, _bas_csa;
 
 #define DEFDRV (*(volatile unsigned char *)0x1106)      /* the default drive */
 #define KFA (*(volatile unsigned char __far *)0xBAUL)    /* the KERNAL's device (fa) */
 
 static unsigned char ds[40];     /* DS$: a length, up to 39 characters (0: none read) */
-static unsigned char dosfa;      /* the last DOS statement's unit (0: none yet) */
+static unsigned char dosfa;      /* the DOS statement's unit */
+static unsigned char unitfa;     /* the last DOS statement's unit, for DS (0: none yet) */
 static unsigned char cmd[64];
 
 static void kerr(unsigned char e) {
@@ -61,84 +61,245 @@ static void kerr(unsigned char e) {
     _bas_error();
 }
 
-/* the DOS statement's unit (dosprs: the default drive, U given: checked as
- * the ROM's unit) */
-static unsigned char unit(void) {
-    unsigned char u = DEFDRV;
-    if (_bas_dflg & 4) {
-        u = _bas_dunit;
-        if (u > 30) kerr(9);
-        if (u == 1) u = DEFDRV;
-        else if (u < 4) kerr(9);
-    }
-    return dosfa = u;
+/* The DOS statements (b65.src: dosprs, sendp's tabld, trans): the
+ * parameters basic45 parsed (_bas_dpar: the ROM's parsts, _bas_dflx: bit 0
+ * U, 1 U after TO, 2 ON U, 3 L, 5 I( ), 6 R, 7 I; their values) checked as
+ * the ROM checks them, into dosfa / dosun (the units), ds1 / ds2 (the
+ * drives), dosla, the names */
+unsigned char _bas_dpar, _bas_dflx, _bas_derr, _bas_dd1, _bas_dd2, _bas_du1, _bas_du2, _bas_donu;
+unsigned char _bas_did0, _bas_did1;
+unsigned char *_bas_sid;
+extern unsigned char *_bas_sb;
+
+static unsigned char dosun, ds1, ds2, dosla, dossa, dossa_t, did[2], *fn1, fn1l, *fn2, fn2l, par;
+static unsigned int recno;
+
+/* a unit (the ROM's unit: 1 is the default drive, 4-30) */
+static unsigned char chkunit(unsigned char u) {
+    if (u > 30) kerr(9);
+    if (u == 1) return DEFDRV;
+    if (u < 4) kerr(9);
+    return u;
 }
 
-static void dosopen(unsigned char append) {
-    unsigned char *nm = _bas_sa, len, n = 0, k, sa, e, u;
-    if (!_bas_dlf) kerr(14);
-    if ((_bas_dflg & 8) && _bas_ddrv > 9) kerr(14);
-    if ((_bas_dflg & 2) && (_bas_drcl == 0 || _bas_drcl == 255)) kerr(14);
-    u = unit();
-    len = nm[0];
-    nm++;
-    if (!len) kerr(8);
-    if (nm[0] == '@') {          /* (replace) */
-        if (append) kerr(11);
-        cmd[n++] = '@';
-        nm++;
-        if (!--len) kerr(8);
+/* a file name (newnam): not empty, "@" first: replace */
+static unsigned char *newnam(unsigned char *s, unsigned char *len) {
+    unsigned char n = s[0];
+    s++;
+    if (!n) kerr(8);
+    if (s[0] == '@') {
+        if (par & 0x80) kerr(11);
+        par |= 0x80;
+        s++;
+        if (!--n) kerr(8);
     }
-    cmd[n++] = '0' + (_bas_dflg & 8 ? _bas_ddrv : 0);
-    cmd[n++] = ':';
-    for (k = 0; k < len && n < sizeof cmd - 4; k++) cmd[n++] = nm[k];
-    if (append) {
-        cmd[n++] = ',';
-        cmd[n++] = 0x41;      /* A (PETSCII: cc45's 'A' is the shifted letter) */
-    } else if (_bas_dflg & 3) {
-        cmd[n++] = ',';
-        if (_bas_dflg & 2) {
-            cmd[n++] = 0x4C;      /* L */
-            cmd[n++] = ',';
-            cmd[n++] = _bas_drcl == 1 ? 0 : _bas_drcl;
-        } else {
-            cmd[n++] = 0x57;      /* W */
-            cmd[n++] = ',';
-            cmd[n++] = 0x53;      /* S */
+    *len = n;
+    return s;
+}
+
+static void dosprs(unsigned char copy) {
+    par = _bas_dpar;
+    dosfa = dosun = DEFDRV;
+    ds1 = ds2 = 0;
+    dosla = 0;
+    dossa = 0x6F;
+    did[0] = did[1] = 0;
+    fn1l = fn2l = 0;
+    if (par & 4) {
+        if (!_bas_dlf) kerr(14);
+        dosla = _bas_dlf;
+    }
+    if (_bas_dflx & 1) dosfa = dosun = chkunit(_bas_du1);
+    if (_bas_dflx & 4) chkunit(_bas_donu);
+    if (par & 0x10) {
+        if (_bas_dd1 > 9) kerr(14);
+        ds1 = ds2 = _bas_dd1;
+    }
+    if ((_bas_dflx & 8) && (_bas_drcl == 0 || _bas_drcl == 255)) kerr(14);
+    if (_bas_dflx & 0x20) {
+        if (_bas_sid[0] != 2) kerr(14);
+        did[0] = _bas_sid[1];
+        did[1] = _bas_sid[2];
+    } else if (_bas_dflx & 0x80) {
+        did[0] = _bas_did0;
+        did[1] = _bas_did1;
+    }
+    if (par & 1) fn1 = newnam(_bas_sa, &fn1l);
+    if (par & 0x20) {
+        if (_bas_dd2 > 9) kerr(14);
+        ds2 = _bas_dd2;
+    }
+    if (_bas_dflx & 2) {
+        unsigned char u = chkunit(_bas_du2);
+        dosun = u;
+        if (!(_bas_dflx & 5) && !copy) dosfa = u;
+    }
+    if (par & 2) fn2 = newnam(_bas_sb, &fn2l);
+    if (par & _bas_derr & 0x80) kerr(11);
+    unitfa = dosfa;
+}
+
+/* the ROM's command strings (tabld; escapes: $C2 the record's secondary
+ * address, $D0 the id, $D1 / $D2 drive 1 / 2, $E0 S or the record length,
+ * $E1 W or L, $E2 the record number, $F0 "@", $F1 / $F2 name 1 / 2; an empty
+ * name takes the character before it away). (PETSCII codes: cc45's 'W' is
+ * the shifted letter.) */
+static const unsigned char t_fopn[] = {0xF0, 0xD1, ':', 0xF1, ',', 0xE1, ',', 0xE0};
+static const unsigned char t_dopn[] = {0xF1};
+static const unsigned char t_fapn[] = {0xD1, ':', 0xF1, ',', 0x41};
+static const unsigned char t_finit[] = {0x49, 0xD1};
+static const unsigned char t_fcoll[] = {0x56, 0xD1};
+static const unsigned char t_fconc[] = {0x43, 0xD2, ':', 0xF2, '=', 0xD2, ':', 0xF2, ',', 0xD1, ':', 0xF1};
+static const unsigned char t_fhed[] = {0x4E, 0xD1, ':', 0xF1, ',', 0xD0};
+static const unsigned char t_fbak[] = {0x44, 0xD2, '=', 0xD1};
+static const unsigned char t_fcopy[] = {0x43, 0xD2, ':', 0xF2, '=', 0xD1, ':', 0xF1};
+static const unsigned char t_fren[] = {0x52, 0xD1, ':', 0xF2, '=', 0xD1, ':', 0xF1};
+static const unsigned char t_fscr[] = {0x53, 0xD1, ':', 0xF0, 0xF1};
+static const unsigned char t_frscr[] = {0x46, '-', 0x52, 0xD1, ':', 0xF0, 0xF1};
+static const unsigned char t_frec[] = {0x50, 0xC2, 0xE2, 0xE0};
+
+static unsigned char sendp(const unsigned char *t, unsigned char count) {
+    unsigned char n = 0, k, c, rcl = _bas_drcl;
+    while (count--) {
+        c = *t++;
+        switch (c) {
+        case 0xC2: cmd[n++] = dossa_t; break;
+        case 0xD0: cmd[n++] = did[0]; cmd[n++] = did[1]; break;
+        case 0xD1: cmd[n++] = '0' + ds1; break;
+        case 0xD2: cmd[n++] = '0' + ds2; break;
+        case 0xE0: cmd[n++] = rcl == 1 ? 0 : rcl; break;
+        case 0xE1:
+            if (rcl) cmd[n++] = 0x4C;           /* L */
+            else { rcl = 0x53; cmd[n++] = 0x57; }  /* W (then S) */
+            break;
+        case 0xE2: cmd[n++] = (unsigned char)recno; cmd[n++] = (unsigned char)(recno >> 8); break;
+        case 0xF0: if (par & 0x80) cmd[n++] = '@'; break;
+        case 0xF1:
+            if (!fn1l) { n--; break; }
+            for (k = 0; k < fn1l && n < sizeof cmd; k++) cmd[n++] = fn1[k];
+            break;
+        case 0xF2:
+            if (!fn2l) { n--; break; }
+            for (k = 0; k < fn2l && n < sizeof cmd; k++) cmd[n++] = fn2[k];
+            break;
+        default: cmd[n++] = c;
         }
     }
-    /* a free secondary address (the KERNAL's LKUPSA: carry clear when used) */
-    for (sa = 0x62; ; sa++) {
-        if (sa == 0x6F) kerr(1);
-        if (__jsr(0xFF62, .Y = sa).Carry) break;
-    }
+    return n;
+}
+
+/* a command string to the drive (trans): OPEN on the command channel, a
+ * special CLOSE */
+static void trans(const unsigned char *t, unsigned char count) {
+    unsigned char n = sendp(t, count);
     cbm_setnam((char *)cmd, n);
-    cbm_setlfs(_bas_dlf, u, sa);
+    cbm_setlfs(dosla, dosfa, dossa);
     cbm_clrchn();
     cbm_setbnk(0, 0);
-    if (__jsr(0xFFC0, .A -> e).Carry) kerr(e);
+    cbm_open();
+    __jsr(0xFFC3, .A = dosla, .Carry = 1);
 }
 
-void _bas_dopen(void) {
-    ds[0] = 0;
-    dosopen(0);
+static void clall(void) { __jsr(0xFFE7); }
+static void closeall(void) { __jsr(0xFF50, .A = dosfa); }
+
+/* the internal drives' units (CBDOS: bank 1, $0113 / $0114) */
+#define CBDOS0 (*(volatile unsigned char __far *)0x10113UL)
+#define CBDOS1 (*(volatile unsigned char __far *)0x10114UL)
+
+void _bas_dos(void) {
+    unsigned char e, sa, n;
+    switch ((unsigned char)_bas_m) {
+    case 1:     /* DOPEN */
+    case 2:     /* APPEND */
+        if (_bas_m == 1) ds[0] = 0;
+        dosprs(0);
+        for (sa = 0x62; ; sa++) {               /* find_sa */
+            if (sa == 0x6F) kerr(1);
+            if (__jsr(0xFF62, .Y = sa).Carry) break;
+        }
+        if (_bas_m == 1) n = sendp(t_fopn, par & 0x40 ? 8 : 4);
+        else n = sendp(t_fapn, 5);
+        cbm_setnam((char *)cmd, n);
+        cbm_setlfs(dosla, dosfa, sa);
+        cbm_clrchn();
+        cbm_setbnk(0, 0);
+        if (__jsr(0xFFC0, .A -> e).Carry) kerr(e);
+        break;
+    case 3:     /* DCLOSE */
+        dosprs(0);
+        if (par & 4) {
+            if (__jsr(0xFFC3, .A = dosla, .Carry = 0, .A -> e).Carry) kerr(e);
+        } else closeall();
+        break;
+    case 5:     /* HEADER */
+        dosprs(0);
+        clall();
+        trans(t_fhed, did[0] ? 6 : 4);
+        break;
+    case 6:     /* SCRATCH (ERASE, DELETE "name"): R recovers */
+        dosprs(0);
+        if (_bas_dflx & 0x40) trans(t_frscr, 7);
+        else trans(t_fscr, 5);
+        break;
+    case 7: dosprs(0); trans(t_fren, 8); break;          /* RENAME */
+    case 8: dosprs(0); trans(t_fconc, 12); break;        /* CONCAT */
+    case 9:     /* COLLECT */
+        dosprs(0);
+        clall();
+        trans(t_fcoll, par & 0x10 ? 2 : 1);
+        break;
+    case 10:    /* DCLEAR */
+        dosprs(0);
+        trans(t_finit, 2);
+        closeall();
+        break;
+    case 11:    /* BACKUP: D TO D, or U TO U (the units as drives 0 / 1) */
+        dosprs(0);
+        if ((par & 0x30) != 0x30) {
+            ds1 = dosfa - 8;
+            if (dosun == dosfa) kerr(11);
+            ds2 = dosun - 8;
+        }
+        closeall();
+        trans(t_fbak, 4);
+        break;
+    case 12: {  /* COPY: on one unit by its DOS (the internal drives' units as drives 0 / 1) */
+        unsigned char c0 = CBDOS0, c1 = CBDOS1, iec = 0;
+        static const unsigned char star[] = {1, '*'};
+        dosprs(1);
+        if (dosfa != c0) { if (dosfa == c1) ds1++; else iec = 1; }
+        if (!iec) {
+            if (dosun != c0) { if (dosun == c1) ds2++; else iec = 1; }
+            if (!iec) { par |= 0x30; dosun = dosfa; }
+        }
+        if ((par & 0xC7) && (par & 3) != 3) { fn2 = (unsigned char *)star + 1; fn2l = 1; par |= 2; }
+        if (dosfa != dosun) kerr(9);             /* (a copy between IEC units: not compiled) */
+        trans(t_fcopy, 8);
+        break;
+    }
+    }
 }
 
-void _bas_append(void) {
-    dosopen(1);
-}
-
-void _bas_dclose(void) {
-    unsigned char u = unit(), e;
-    if (_bas_dflg & 16) {
-        if (__jsr(0xFFC3, .A = _bas_dlf, .Carry = 0, .A -> e).Carry) kerr(e);
-    } else __jsr(0xFF50, .A = u);
+/* RECORD# __bas_dlf, __bas_n [, __bas_drcl]: the file's position (P on the
+ * command channel of its unit) */
+void _bas_record(void) {
+    unsigned char fa, sa;
+    if (!_bas_dlf || !_bas_drcl || _bas_drcl == 255) kerr(14);
+    if (__jsr(0xFF5F, .A = _bas_dlf, .X -> fa, .Y -> sa).Carry) kerr(3);
+    par = 0;
+    dossa_t = sa;
+    dosfa = unitfa = fa;
+    dosla = 0;
+    dossa = 0x6F;
+    recno = (unsigned)_bas_n;
+    trans(t_frec, 4);
 }
 
 /* DS$ read from the drive's error channel (Read_DS) */
 static void dsread(void) {
     unsigned char u = KFA, c, n = 0, e;
-    if (u < 8) u = dosfa ? dosfa : DEFDRV;
+    if (u < 8) u = unitfa ? unitfa : DEFDRV;
     cbm_setlfs(0, u, 0x6F);
     cbm_setnam(0, 0);
     cbm_open();
@@ -210,17 +371,13 @@ void _bas_chainprep(void) {
         _bas_csa = _bas_dflg & 128 ? _bas_osa : 0;
         for (k = 0; k < len && n < 31; k++) out[n++] = nm[k];
     } else {
-        /* DLOAD (dosprs, dload) */
-        if ((_bas_dflg & 8) && _bas_ddrv > 9) kerr(14);
-        _bas_cdev = unit();
+        /* DLOAD (dosprs, dload_boot: "$" a directory, else fopn's "0:name") */
+        unsigned char m;
+        dosprs(0);
+        _bas_cdev = dosfa;
         _bas_csa = 0;
-        if (!len) kerr(8);
-        if (nm[0] == '@') kerr(11);
-        if (nm[0] != '$') {
-            out[n++] = '0' + (_bas_dflg & 8 ? _bas_ddrv : 0);
-            out[n++] = ':';
-        }
-        for (k = 0; k < len && n < 31; k++) out[n++] = nm[k];
+        m = fn1[0] == '$' ? sendp(t_dopn, 1) : sendp(t_fopn, 4);
+        for (k = 0; k < m && n < 31; k++) out[n++] = cmd[k];
     }
     _bas_clen = n;
 }

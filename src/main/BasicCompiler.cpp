@@ -58,6 +58,8 @@ enum : int {
     T_MOD = 0xCE0B, T_WPEEK = 0xCE10, T_STRBIN = 0xCE12, T_RPT = 0xCE14, T_BANK = 0xFE02, T_ERRS = 0xD3, T_RESUME = 0xD6, T_TRAP = 0xD7, T_ASL = 0xFE52, T_ASR = 0xFE53, T_DO = 0xEB, T_LOOP = 0xEC, T_EXIT = 0xED, T_UNTIL = 0xFC, T_WHILE = 0xFD, T_PI = 0xFF,
     T_BEGIN = 0xFE18, T_BEND = 0xFE19, T_PRINTN = 0x98, T_CMD = 0x9D, T_OPEN = 0x9F, T_CLOSE = 0xA0,
     T_DOPEN = 0xFE0D, T_APPEND = 0xFE0E, T_DCLOSE = 0xFE0F, T_DLOAD = 0xF0, T_LOAD = 0x93,
+    T_HEADER = 0xF1, T_SCRATCH = 0xF2, T_COLLECT = 0xF3, T_COPY = 0xF4, T_RENAME = 0xF5, T_BACKUP = 0xF6,
+    T_DELETE = 0xF7, T_RECORD = 0xFE12, T_CONCAT = 0xFE13, T_DCLEAR = 0xFE15, T_ERASE = 0xFE2A,
 };
 
 enum class TK { Kw, Num, Str, Name, Ch };
@@ -1397,6 +1399,8 @@ private:
     void chanArg(const char* routine);
     void openStmt();
     void dosStmt(int kw);
+    int dosArgs(const char* what, int errflags, std::vector<Val>& names);
+    void recordStmt();
     Val optValue();
     void doStmt();
     // DEF FN name(x) = expr: each FN name(...) is the expression compiled where
@@ -1940,7 +1944,9 @@ void Compiler::statement() {
         return;
     }
     case T_OPEN: openStmt(); return;
-    case T_DOPEN: case T_APPEND: case T_DCLOSE: dosStmt(kw); return;
+    case T_DOPEN: case T_APPEND: case T_DCLOSE: case T_HEADER: case T_SCRATCH: case T_ERASE: case T_DELETE:
+    case T_RENAME: case T_CONCAT: case T_COLLECT: case T_DCLEAR: case T_BACKUP: case T_COPY: dosStmt(kw); return;
+    case T_RECORD: recordStmt(); return;
     case T_DLOAD: case T_LOAD: chainStmt(kw); return;
     case 0xEF: case 0x94: case 0x95: case 0xFE14:
         // DSAVE / SAVE / VERIFY / DVERIFY: the BASIC program's text, which a
@@ -2165,61 +2171,129 @@ Val Compiler::optValue() {
     return v;
 }
 
-void Compiler::dosStmt(int kw) {
-    // DOPEN# lf, name [, D drive] [, U unit] [, W] [, L len] [ON U unit];
-    // APPEND# lf, name [, D] [, U]; DCLOSE [# lf] [, U unit]: as the ROM's
-    // dosprs (each once, in any order; ON U without a comma too)
-    const char* what = kw == T_DOPEN ? "DOPEN" : kw == T_APPEND ? "APPEND" : "DCLOSE";
-    int flags = 0;
-    bool haveName = false, first = true;
-    Val name;
-    auto once = [&](int bit) {
-        if (flags & bit) fail(std::string(what) + ": a parameter given twice (?SYNTAX ERROR)");
-        flags |= bit;
-    };
+// The DOS statements' parameters, as the ROM's dosprs (b65.src): file 1's
+// (a name in quotes or "(" expression ")", # lf, U unit, D drive, W, L len,
+// R, I id, ON U unit), then TO and file 2's (a name, D drive, U unit, ON U).
+// U8 / D0 / L80 / UDV / U(X): the letter, then a value. The values to the
+// run time's variables (basic_io.c: _bas_dosprs checks them as the ROM does);
+// the parameters given (the ROM's parsts) returned. errflags: parameters
+// that are a syntax error (the ROM's error flags; "@" in a name checked at
+// run time)
+int Compiler::dosArgs(const char* what, int errflags, std::vector<Val>& names) {
+    int par = 0, flx = 0;
+    auto syn = [&](const std::string& m) { fail(std::string(what) + ": " + m + " (?SYNTAX ERROR)"); };
+    auto once = [&](int bit) { if (par & bit) syn("a parameter given twice"); par |= bit; };
     auto byteTo = [&](const char* g, Val v) { store(ir::Type::I8, toByte(v), global(g)); };
-    while (!atEnd() && !isKw(T_ELSE)) {
-        if (!first && !isKw(T_ON)) expectCh(',');
-        first = false;
+    auto nameTo = [&](int bit, const char* g) {
+        once(bit);
+        Val v = expr();
+        if (v.k != VK::S) fail(std::string(what) + "'s file name must be a string (?TYPE MISMATCH)");
+        store(ir::Type::PTR, v.op, global(g));
+        names.push_back(v);
+    };
+    // ON U unit: the unit checked, not used (as the ROM's on1 / on2)
+    auto onU = [&] {
         auto t = peek();
-        if (!t) fail(std::string(what) + ": a parameter expected (?SYNTAX ERROR)");
-        if (acceptCh('#')) {
-            once(16);
-            byteTo("__bas_dlf", expr());
-            continue;
+        if (!t || t->k != TK::Name || t->text[0] != 'U') syn("ON takes U");
+        byteTo("__bas_donu", optValue());
+        flx |= 4;
+        par |= 8;
+    };
+    bool two = false;
+    if (!atEnd() && !isKw(T_ELSE)) {
+        for (;;) {
+            auto t = peek();
+            if (!t) syn("a parameter expected");
+            if (!two) {
+                if (t->k == TK::Str || isCh('(')) nameTo(1, "__bas_sa");
+                else if (acceptCh('#')) { once(4); byteTo("__bas_dlf", expr()); }
+                else if (acceptKw(T_ON)) onU();
+                else if (t->k == TK::Name && t->text[0] == 'U') { byteTo("__bas_du1", optValue()); flx |= 1; par |= 8; }
+                else if (t->k == TK::Name && t->text[0] == 'D') { once(0x10); byteTo("__bas_dd1", optValue()); }
+                else if (t->k == TK::Name && t->text == "W") { once(0x40); p_++; store(ir::Type::I8, ir::Operand::imm(0, ir::Type::I8), global("__bas_drcl")); }
+                else if (t->k == TK::Name && t->text[0] == 'L') {
+                    once(0x40);
+                    if (t->text == "L" && (p_ + 1 >= toks_->size() || (*toks_)[p_ + 1].k == TK::Kw)) {
+                        p_++;
+                        store(ir::Type::I8, ir::Operand::imm(1, ir::Type::I8), global("__bas_drcl"));
+                    } else byteTo("__bas_drcl", optValue());
+                    flx |= 8;          // (L: the length checked)
+                }
+                else if (t->k == TK::Name && t->text == "R") { if (flx & 0x40) syn("R given twice"); flx |= 0x40; p_++; }
+                else if (t->k == TK::Name && t->text[0] == 'I') {
+                    if (flx & 0x80) syn("I given twice");
+                    flx |= 0x80;
+                    if (t->text == "I" && p_ + 1 < toks_->size() && (*toks_)[p_ + 1].k == TK::Ch && (*toks_)[p_ + 1].ch == '(') {
+                        p_++;
+                        Val v = expr();
+                        if (v.k != VK::S) fail(std::string(what) + ": I( ) takes a string (?TYPE MISMATCH)");
+                        store(ir::Type::PTR, v.op, global("__bas_sid"));
+                        names.push_back(v);
+                        flx |= 0x20;
+                    } else if (t->text.size() == 3) {
+                        p_++;
+                        store(ir::Type::I8, ir::Operand::imm((uint8_t)t->text[1], ir::Type::I8), global("__bas_did0"));
+                        store(ir::Type::I8, ir::Operand::imm((uint8_t)t->text[2], ir::Type::I8), global("__bas_did1"));
+                    } else syn("I takes two characters or a string in ( )");
+                } else syn("this parameter is not supported by --compile" + near());
+            } else {
+                if (t->k == TK::Str || isCh('(')) nameTo(2, "__bas_sb");
+                else if (acceptKw(T_ON)) onU();
+                else if (t->k == TK::Name && t->text[0] == 'U') { byteTo("__bas_du2", optValue()); flx |= 2; par |= 8; }
+                else if (t->k == TK::Name && t->text[0] == 'D') { once(0x20); byteTo("__bas_dd2", optValue()); }
+                else syn("this parameter after TO is not supported by --compile" + near());
+            }
+            if (atEnd() || isKw(T_ELSE)) break;
+            if (acceptCh(',')) continue;
+            if (isKw(T_ON) || (two && peek()->k == TK::Name && peek()->text[0] == 'U')) continue;
+            if (!two && acceptKw(T_TO)) { two = true; continue; }
+            syn("unexpected" + near());
         }
-        if (kw != T_DCLOSE && (t->k == TK::Str || isCh('('))) {
-            if (haveName) fail(std::string(what) + ": a parameter given twice (?SYNTAX ERROR)");
-            haveName = true;
-            name = expr();
-            if (name.k != VK::S) fail(std::string(what) + "'s file name must be a string (?TYPE MISMATCH)");
-            continue;
-        }
-        bool on = acceptKw(T_ON);
-        t = peek();
-        if (!t || t->k != TK::Name) fail(std::string(what) + ": this parameter is not supported by --compile" + near() + " (?SYNTAX ERROR)");
-        char c = t->text[0];
-        if (c == 'U') { once(4); byteTo("__bas_dunit", optValue()); continue; }
-        if (on) fail(std::string(what) + ": ON takes U (?SYNTAX ERROR)");
-        if (c == 'D' && kw != T_DCLOSE) { once(8); byteTo("__bas_ddrv", optValue()); continue; }
-        if (kw == T_DOPEN && t->text == "W") { once(1 | 2); p_++; flags &= ~2; continue; }
-        if (kw == T_DOPEN && c == 'L') {
-            once(1 | 2);
-            flags &= ~1;
-            if (t->text == "L" && (p_ + 1 >= toks_->size())) {
-                p_++;
-                store(ir::Type::I8, ir::Operand::imm(1, ir::Type::I8), global("__bas_drcl"));
-            } else byteTo("__bas_drcl", optValue());
-            continue;
-        }
-        fail(std::string(what) + ": this parameter is not supported by --compile" + near() + " (?SYNTAX ERROR)");
     }
-    if (kw != T_DCLOSE && (!(flags & 16) || !haveName))
-        fail(std::string(what) + " needs # and a file name (?SYNTAX ERROR)");
-    if (haveName) store(ir::Type::PTR, name.op, global("__bas_sa"));
-    store(ir::Type::I8, ir::Operand::imm(flags, ir::Type::I8), global("__bas_dflg"));
-    call(kw == T_DOPEN ? "__bas_dopen" : kw == T_APPEND ? "__bas_append" : "__bas_dclose");
-    if (haveName) freeVal(name);
+    if (par & errflags & 0x7F) syn("a parameter it does not take");
+    store(ir::Type::I8, ir::Operand::imm(par, ir::Type::I8), global("__bas_dpar"));
+    store(ir::Type::I8, ir::Operand::imm(flx, ir::Type::I8), global("__bas_dflx"));
+    store(ir::Type::I8, ir::Operand::imm(errflags, ir::Type::I8), global("__bas_derr"));
+    return par;
+}
+
+void Compiler::dosStmt(int kw) {
+    // the ROM's error flags, required parameters (chk*) and run-time command
+    struct D { int kw; const char* name; int err; int need; int cmd; };
+    static const D table[] = {
+        {T_DOPEN, "DOPEN", 0x22, 5, 1},  {T_APPEND, "APPEND", 0xE2, 5, 2}, {T_DCLOSE, "DCLOSE", 0xF3, 0, 3},
+        {T_HEADER, "HEADER", 0xE6, 1, 5}, {T_SCRATCH, "SCRATCH", 0x66, 1, 6}, {T_ERASE, "ERASE", 0x66, 1, 6},
+        {T_DELETE, "DELETE", 0x66, 1, 6}, {T_RENAME, "RENAME", 0xE4, 3, 7}, {T_CONCAT, "CONCAT", 0xC4, 3, 8},
+        {T_COLLECT, "COLLECT", 0xE7, 0, 9}, {T_DCLEAR, "DCLEAR", 0, 0, 10}, {T_BACKUP, "BACKUP", 0xC7, 0, 11},
+        {T_COPY, "COPY", 0, 0, 12},
+    };
+    const D* d = nullptr;
+    for (const auto& e : table) if (e.kw == kw) d = &e;
+    if (kw == T_DELETE && !(peek() && (peek()->k == TK::Str || isCh('('))))
+        fail("DELETE of program lines works only in direct mode (?ILLEGAL DIRECT ERROR)");
+    std::vector<Val> names;
+    int par = dosArgs(d->name, d->err, names);
+    if ((par & d->need) != d->need) fail(std::string(d->name) + ": a required parameter is missing (?SYNTAX ERROR)");
+    if (kw == T_BACKUP && (par & 0x30) != 0x30 && !(par & 8))
+        fail("BACKUP takes D source TO D target, or U source TO U target (?SYNTAX ERROR)");
+    if (kw == T_COPY && (par & 0xC7) && ((par & 0xC4) || !(par & 1)))
+        fail("COPY: a parameter it does not take, or no source file (?SYNTAX ERROR)");
+    store(ir::Type::I16, iconst(ir::Type::I16, d->cmd), global("__bas_m"));
+    call("__bas_dos");
+    for (auto it = names.rbegin(); it != names.rend(); ++it) freeVal(*it);
+}
+
+void Compiler::recordStmt() {
+    // RECORD# lf, record [, byte]
+    expectCh('#');
+    store(ir::Type::I8, toByte(expr()), global("__bas_dlf"));
+    expectCh(',');
+    Val r = expr();
+    store(ir::Type::I16, toAddr(r), global("__bas_n"));
+    ir::Operand b = ir::Operand::imm(1, ir::Type::I8);
+    if (acceptCh(',')) b = toByte(expr());
+    store(ir::Type::I8, b, global("__bas_drcl"));
+    call("__bas_record");
 }
 
 // --- chaining (DLOAD / LOAD) ---
@@ -2438,30 +2512,15 @@ void Compiler::chainStmt(int kw) {
             }
         }
     } else {
-        bool first = true;
-        while (!atEnd() && !isKw(T_ELSE)) {
-            if (!first && !isKw(T_ON)) expectCh(',');
-            first = false;
-            auto t = peek();
-            if (t && (t->k == TK::Str || isCh('('))) {
-                if (haveName) fail("DLOAD: a parameter given twice (?SYNTAX ERROR)");
-                name = expr();
-                if (name.k != VK::S) fail("DLOAD's file name must be a string (?TYPE MISMATCH)");
-                haveName = true;
-                continue;
-            }
-            bool on = acceptKw(T_ON);
-            t = peek();
-            if (!t || t->k != TK::Name) fail(std::string("DLOAD: this parameter is not supported by --compile") + near() + " (?SYNTAX ERROR)");
-            char c = t->text[0];
-            if (c == 'U' && !(flags & 4)) { flags |= 4; store(ir::Type::I8, toByte(optValue()), global("__bas_dunit")); continue; }
-            if (c == 'D' && !on && !(flags & 8)) { flags |= 8; store(ir::Type::I8, toByte(optValue()), global("__bas_ddrv")); continue; }
-            fail(std::string("DLOAD: this parameter is not supported by --compile") + near() + " (?SYNTAX ERROR)");
-        }
-        if (!haveName) fail("DLOAD needs a file name (?SYNTAX ERROR)");
+        // (dosprs: name, D, U, ON U)
+        std::vector<Val> names;
+        int par = dosArgs("DLOAD", 0xE6, names);
+        if (!(par & 1)) fail("DLOAD needs a file name (?SYNTAX ERROR)");
+        name = names[0];
+        haveName = true;
     }
     (void)what;
-    store(ir::Type::PTR, haveName ? name.op : ir::Operand::imm(0, ir::Type::PTR), global("__bas_sa"));
+    if (kw == T_LOAD) store(ir::Type::PTR, haveName ? name.op : ir::Operand::imm(0, ir::Type::PTR), global("__bas_sa"));
     store(ir::Type::I8, ir::Operand::imm(flags, ir::Type::I8), global("__bas_dflg"));
     call("__bas_chainprep");      // (the name and device checked, built)
     if (hasExport_) exportVars();

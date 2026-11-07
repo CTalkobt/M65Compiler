@@ -9786,7 +9786,7 @@ void IRBuilder::visit(SwitchStatement& node) {
     if (!currentBlock_ || currentBlock_->insts.empty() || currentBlock_->insts.back().op != ir::Op::BR) {
         ir::Inst brEnd;
         brEnd.op = ir::Op::BR;
-        brEnd.dest = ir::Operand::label(breakLabel);
+        brEnd.src1 = ir::Operand::label(breakLabel);
         emit(brEnd);
     }
     startBlock(breakLabel);
