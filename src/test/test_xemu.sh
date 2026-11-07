@@ -771,6 +771,27 @@ else
     echo "FAIL: test_basic_compile3_xemu.bas (basic45 or basic45 --compile failed)"
     failed=$((failed + 1))
 fi
+# test_basic_compile4_xemu.bas: OPEN / CLOSE, PRINT#, INPUT#, GET#, CMD, ST
+# on a disk (an empty D81 as drive 8, one per run); the same four ways
+BC4_EXP="01 01 01 01 01 01 01 AA"
+if ./bin/basic45 src/test-resources/test_basic_compile4_xemu.bas -o build/test/test_basic_compile4_i.prg >/dev/null 2>&1 &&
+   ./bin/basic45 --compile src/test-resources/test_basic_compile4_xemu.bas -o build/test/test_basic_compile4.prg >/dev/null 2>&1 &&
+   ./bin/basic45 --compile -O0 src/test-resources/test_basic_compile4_xemu.bas -o build/test/test_basic_compile4_O0.prg >/dev/null 2>&1 &&
+   ./bin/basic45 --compile --speed src/test-resources/test_basic_compile4_xemu.bas -o build/test/test_basic_compile4_speed.prg >/dev/null 2>&1; then
+    for bc4 in i "" O0 speed; do
+        bc4n="test_basic_compile4${bc4:+_$bc4}"
+        rm -f "build/test/$bc4n.d81"
+        if ./bin/disk45 create "build/test/$bc4n.d81" -n "BC4" >/dev/null 2>&1; then
+            run_xemu_test "$bc4n" "build/test/$bc4n.prg" "C0C0" 8 "$BC4_EXP" -8 "$PWD/build/test/$bc4n.d81"
+        else
+            echo "FAIL: $bc4n (disk45 create failed)"
+            failed=$((failed + 1))
+        fi
+    done
+else
+    echo "FAIL: test_basic_compile4_xemu.bas (basic45 or basic45 --compile failed)"
+    failed=$((failed + 1))
+fi
 # an array subscript past its DIM: ?BAD SUBSCRIPT (18)
 printf '10 dim a(5):a(5)=1:print a(6):poke 49344,1\n' > build/test/test_basic_compile_bs.bas
 if ./bin/basic45 --compile build/test/test_basic_compile_bs.bas -o build/test/test_basic_compile_bs.prg >/dev/null 2>&1; then

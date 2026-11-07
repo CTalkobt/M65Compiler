@@ -53,7 +53,7 @@ enum : int {
     T_MID = 0xCA, T_GO = 0xCB, T_KEY = 0xF9, T_ELSE = 0xD5, T_DEF = 0x96, T_FN = 0xA5, T_POS = 0xB9, T_VAL = 0xC5, T_DEC = 0xD1, T_HEX = 0xD2,
     T_INSTR = 0xD4, T_SCNCLR = 0xE8, T_XOR = 0xE9, T_WAIT = 0x92, T_SLEEP = 0xFE0B, T_WPOKE = 0xFE1D,
     T_MOD = 0xCE0B, T_WPEEK = 0xCE10, T_STRBIN = 0xCE12, T_RPT = 0xCE14, T_BANK = 0xFE02, T_ERRS = 0xD3, T_RESUME = 0xD6, T_TRAP = 0xD7, T_ASL = 0xFE52, T_ASR = 0xFE53, T_DO = 0xEB, T_LOOP = 0xEC, T_EXIT = 0xED, T_UNTIL = 0xFC, T_WHILE = 0xFD, T_PI = 0xFF,
-    T_BEGIN = 0xFE18, T_BEND = 0xFE19,
+    T_BEGIN = 0xFE18, T_BEND = 0xFE19, T_PRINTN = 0x98, T_CMD = 0x9D, T_OPEN = 0x9F, T_CLOSE = 0xA0,
 };
 
 enum class TK { Kw, Num, Str, Name, Ch };
@@ -362,10 +362,11 @@ private:
         // the run time's routines that never raise an error
         static const std::set<std::string> safe = {
             "__bas_prs", "__bas_prn", "__bas_prcr", "__bas_prcomma", "__bas_prspc", "__bas_prtab", "__bas_scmp",
-            "__bas_left", "__bas_right", "__bas_chr", "__bas_str", "__bas_iline", "__bas_iitem", "__bas_get",
+            "__bas_left", "__bas_right", "__bas_chr", "__bas_str", "__bas_iline", "__bas_iitem", "__bas_get", "__bas_st", "__bas_clrch",
             "__bas_ti", "__bas_tis", "__bas_restore", "__bas_rnd", "__bas_int", "__float_sin", "__float_cos",
             "__float_tan", "__float_atn", "__float_abs"};
-        if (!safe.count(f)) raises();
+        // (with CMD, PRINT's output can go to a file: an error)
+        if (!safe.count(f) || (cmdUsed_ && f.compare(0, 8, "__bas_pr") == 0)) raises();
         externs_.insert(f);
         fn_->originalCallees.insert(f);
         ir::Inst in; in.op = ir::Op::CALL_VOID; in.resultType = ir::Type::VOID;
@@ -452,6 +453,13 @@ private:
             return v;
         }
         if (name == "TI$") return strCall("__bas_tis", nullptr, nullptr);
+        // ST: the KERNAL's I/O status, a signed byte (BASIC 65's Get_ST: float)
+        if (name == "ST") {
+            call("__bas_st");
+            Val v; v.k = VK::I; v.bound = 128;
+            v.op = sext(trunc(load(ir::Type::I16, global("__bas_n")), ir::Type::I8), ir::Type::I8, ir::Type::I16);
+            return v;
+        }
         // ER: the last error's number (-1: none), EL: its line (65535: none)
         if (name == "ER" || name == "EL") {
             erVars_ = true;
@@ -848,6 +856,7 @@ private:
     }
     bool farMem_ = false;    // a BANK in the program
     bool usesTrap_ = false, resumeStmt_ = false, erVars_ = false;
+    bool cmdUsed_ = false;   // a CMD in the program
     std::set<size_t> trapTargets_;     // the lines TRAPs go to
 
     // A condition's truth: I8, nonzero when true
@@ -1351,7 +1360,9 @@ private:
     LV parseLV(const std::string& name);
     void assignLV(const LV& lv, const Val& v);
     LV listVar(const char* stmt);
-    void inputStmt();
+    void inputStmt(bool chan = false);
+    void chanArg(const char* routine);
+    void openStmt();
     void doStmt();
     // DEF FN name(x) = expr: each FN name(...) is the expression compiled where
     // it is used, x bound to the argument; a flag set when the DEF runs
@@ -1418,6 +1429,7 @@ void Compiler::prescan() {
                 const Tok& t = sg.toks[k];
                 if (t.k != TK::Kw) continue;
                 if (t.kw == T_TRAP) usesTrap_ = true;
+                if (t.kw == T_CMD) cmdUsed_ = true;
                 if (t.kw == T_RESUME && !(k + 1 < sg.toks.size() && sg.toks[k + 1].k == TK::Num)) resumeStmt_ = true;
             }
     // the DATA statements (a statement's first token)
@@ -1879,7 +1891,24 @@ void Compiler::statement() {
     case T_RESTORE: restoreStmt(); return;
     case T_DIM: dimStmt(); return;
     case T_INPUT: inputStmt(); return;
-    case T_INPUTN: fail("INPUT# is not supported by --compile yet");
+    case T_INPUTN: inputStmt(true); return;
+    case T_PRINTN: case T_CMD: {
+        // PRINT# / CMD lf [, items]: the output to the file; PRINT# then
+        // back to the screen (CMD: until a PRINT# or an error)
+        bool cmd = kw == T_CMD;
+        chanArg("__bas_chkout");
+        if (!atEnd() && !isKw(T_ELSE)) expectCh(',');
+        printStmt();
+        if (!cmd) call("__bas_clrch");
+        return;
+    }
+    case T_OPEN: openStmt(); return;
+    case T_CLOSE: {
+        Val v = expr();
+        store(ir::Type::I16, zext(toByte(v), ir::Type::I8, ir::Type::I16), global("__bas_n"));
+        call("__bas_close");
+        return;
+    }
     case T_GET: getStmt(); return;
     case T_DO: doStmt(); return;
     case T_DEF: defStmt(); return;
@@ -2061,15 +2090,50 @@ Compiler::LV Compiler::listVar(const char* stmt) {
     return parseLV(t->text);
 }
 
-void Compiler::inputStmt() {
-    if (isCh('#')) fail("INPUT# is not supported by --compile yet");
+void Compiler::chanArg(const char* routine) {
+    Val n = expr();
+    store(ir::Type::I16, zext(toByte(n), ir::Type::I8, ir::Type::I16), global("__bas_n"));
+    call(routine);
+}
+
+void Compiler::openStmt() {
+    // OPEN lf [, device [, secondary [, name]]]
+    static const char* const g[] = {"__bas_olf", "__bas_odev", "__bas_osa"};
+    int n = 0;
+    do {
+        if (n == 3) break;
+        Val v = expr();
+        store(ir::Type::I8, toByte(v), global(g[n]));
+        n++;
+    } while (acceptCh(','));
+    ir::Operand nm = ir::Operand::imm(0, ir::Type::PTR);
+    Val name;
+    if (n == 3 && toks_->at(p_ - 1).k == TK::Ch && toks_->at(p_ - 1).ch == ',') {
+        name = expr();
+        if (name.k != VK::S) fail("OPEN's file name must be a string (?TYPE MISMATCH)");
+        nm = name.op;
+        n++;
+    }
+    store(ir::Type::PTR, nm, global("__bas_sa"));
+    store(ir::Type::I8, ir::Operand::imm(n, ir::Type::I8), global("__bas_ocnt"));
+    call("__bas_open");
+    if (n == 4) freeVal(name);
+}
+
+void Compiler::inputStmt(bool chan) {
+    if (isCh('#')) fail("INPUT # (with a space) is not supported by --compile yet");
+    // INPUT# lf, ...: from the file (no prompt; bad data ?FILE DATA)
+    if (chan) {
+        chanArg("__bas_chkin");
+        expectCh(',');
+    }
     // (?REDO FROM START: the INPUT again, its prompt too)
     std::string again = newLabel("input"), end = newLabel("inend");
     br(again);
     block(again);
-    bool qmark = true;
+    bool qmark = !chan;
     auto t = peek();
-    if (t && t->k == TK::Str) {
+    if (!chan && t && t->k == TK::Str) {
         p_++;
         Val pr = strLit(t->text);
         store(ir::Type::PTR, pr.op, global("__bas_sa"));
@@ -2103,6 +2167,7 @@ void Compiler::inputStmt() {
     } while (acceptCh(','));
     br(end);
     block(end);
+    if (chan) call("__bas_clrch");
 }
 
 std::string Compiler::loopTarget(size_t li, size_t si, size_t k) {
@@ -2209,8 +2274,13 @@ void Compiler::restoreStmt() {
 }
 
 void Compiler::getStmt() {
-    if (isCh('#')) fail("GET# is not supported by --compile yet");
-    bool wait = acceptKw(T_KEY);
+    // GET# lf, ...: from the file (never waits)
+    bool chan = acceptCh('#');
+    if (chan) {
+        chanArg("__bas_chkin");
+        expectCh(',');
+    }
+    bool wait = !chan && acceptKw(T_KEY);
     do {
         LV lv = listVar(wait ? "GETKEY" : "GET");
         Val v;
@@ -2223,12 +2293,13 @@ void Compiler::getStmt() {
         store(ir::Type::I16, iconst(ir::Type::I16, (wait ? 1 : 0) | (lv.k == VK::S ? 2 : 0)), global("__bas_m"));
         call("__bas_get");
         if (lv.k != VK::S) {
-            // BASIC 65: the key's code (0 for none)
-            v.k = VK::I; v.bound = 255;
-            v.op = load(ir::Type::I16, global("__bas_n"));
+            // BASIC 65: the key's code (0 for none), a signed byte (its float)
+            v.k = VK::I; v.bound = 128;
+            v.op = sext(trunc(load(ir::Type::I16, global("__bas_n")), ir::Type::I8), ir::Type::I8, ir::Type::I16);
         }
         assignLV(lv, v);
     } while (acceptCh(','));
+    if (chan) call("__bas_clrch");
 }
 
 void Compiler::printStmt() {

@@ -4,6 +4,19 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### basic45 --compile: OPEN, CLOSE, PRINT#, INPUT#, GET#, CMD, ST (#369)
+
+- `OPEN lf [, device [, secondary [, name]]]` with the ROM's defaults,
+  `CLOSE`, `PRINT#`, `CMD`, `INPUT#` (no prompts; ?FILE DATA; a bad status
+  ends it), `GET#` (never waits, `CHR$(0)` for a 0 byte), `ST` (signed). The
+  channels go through the KERNAL on the page-1 stack (`__rom_call`); a
+  KERNAL error is BASIC's of that number, and an error releases the channel.
+  A program without files links none of it (`lib/stdlib/basic_io.c`,
+  `basic_rt.s45`'s `__bas_chkout` / `__bas_chkin` / `__bas_clrch`).
+- A numeric `GET` gives a signed byte, as BASIC 65's (a code over 127 was
+  128..255).
+- Test `test_basic_compile4_xemu.bas` on a D81 (interpreted, -O2, -O0, --speed).
+
 ### basic45 --compile: TRAP / RESUME, ER, EL, ERR$ (#369)
 
 - TRAP line / TRAP; RESUME, RESUME NEXT, RESUME line (?CAN'T RESUME without
