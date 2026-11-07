@@ -4,6 +4,17 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### basic45 --compile: HEADER, SCRATCH, RENAME, COPY, CONCAT, COLLECT, DCLEAR, BACKUP, RECORD# (#369)
+
+- The DOS statements share one parser, as the ROM's `dosprs` (`TO` and a
+  second file, `I` id, `R`, `ON U`), and the ROM's command strings (`sendp`,
+  `trans`) in `lib/stdlib/basic_io.c`: `HEADER`, `SCRATCH` / `ERASE` /
+  `DELETE "name"`, `RENAME`, `COPY` (one unit, or the internal drives),
+  `CONCAT`, `COLLECT`, `DCLEAR`, `BACKUP`, `RECORD#`.
+- `DOPEN`'s `ON U unit` is checked but not used, as the ROM's (it was the
+  unit).
+- Test `test_basic_compile7_xemu.bas` on a D81 (interpreted, -O2, -O0, --speed).
+
 ### basic45 --compile: DLOAD / LOAD chaining, REM PRAGMA EXPORT / IMPORT (#369)
 
 - `DLOAD` / `LOAD` in a compiled program load the next program and run it, as
