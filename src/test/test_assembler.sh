@@ -2,7 +2,7 @@
 
 # Test script for ca45 assembler specific features (directives, etc.)
 
-AS="./bin/ca45"
+AS="${AS:-./bin/ca45}"
 mkdir -p build/test
 
 failed=0
@@ -1469,6 +1469,31 @@ if $AS -c -o $C/a.o45 $C/a.s45 >/dev/null 2>&1 &&
     passed=$((passed + 1))
 else
     echo "FAIL: @label after a plain label: $(./bin/objdump45 -d $C/a.o45 2>&1 | grep sta | tr '\n' ' ')"
+    failed=$((failed + 1))
+fi
+
+# INW/DEW write both bytes of their word: the optimizer keeps the store
+# before them and the loads after them (the store-load pair and the
+# redundant-load passes once removed both, fixed in 0ba52be0 / 75238d48)
+W=build/test/inw_dew_mem
+mkdir -p $W
+wd_ok=1; wd_why=""
+for op in inw dew; do
+    printf '.org $2000\n    lda #$FF\n    sta $10\n    lda #$00\n    sta $11\n    %s $10\n    lda $10\n    cmp #$00\n    bne fail\n    lda $11\n    cmp #$01\n    bne fail\n    lda #$01\n    sta $0400\n    rts\nfail:\n    lda #$FF\n    sta $0400\n    rts\n' $op > $W/$op.s45
+    if $AS -O2 $W/$op.s45 -o $W/$op.bin >/dev/null 2>&1; then
+        h=$(xxd -p $W/$op.bin | tr -d '\n')
+        case $op in inw) o=e310 ;; dew) o=c310 ;; esac
+        # sta $10 ... sta $11; op $10; lda $10 ... lda $11
+        echo "$h" | grep -q "8510a9008511${o}a510" && echo "$h" | grep -q "a511c901" || { wd_ok=0; wd_why+=" [$op: $h]"; }
+    else
+        wd_ok=0; wd_why+=" [$op: assembly failed]"
+    fi
+done
+if [ $wd_ok = 1 ]; then
+    echo "SUCCESS: -O2 keeps the store before and the loads after INW/DEW"
+    passed=$((passed + 1))
+else
+    echo "FAIL: -O2 around INW/DEW:$wd_why"
     failed=$((failed + 1))
 fi
 
