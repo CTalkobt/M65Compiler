@@ -4,6 +4,15 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### ca45: regression test for -O2 around INW/DEW (#452)
+
+- `test_assembler.sh` checks that `-O2` keeps the store before `INW`/`DEW`
+  and the loads after them. ca45 v1.0.4 and v1.0.5 removed them (the
+  store-load pair and redundant-load passes didn't see INW/DEW write
+  memory); fixed in v1.0.6 by 0ba52be0 and 75238d48, untested until now.
+- `test_assembler.sh` takes the assembler from `$AS` (default `./bin/ca45`),
+  to run it against another build.
+
 ### basic45 --compile: OPEN, CLOSE, PRINT#, INPUT#, GET#, CMD, ST (#369)
 
 - `OPEN lf [, device [, secondary [, name]]]` with the ROM's defaults,
