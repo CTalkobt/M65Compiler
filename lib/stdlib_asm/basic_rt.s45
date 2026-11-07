@@ -277,6 +277,43 @@ __bas_rights_done:
     .split "__bas_error"
 .global __bas_error
 __bas_error:
+    ; TRAP set: the error noted (ER, EL, the statement for RESUME), the trap
+    ; off until RESUME, the CPU stack as at the start, on at the TRAP's line
+    lda __bas_trapon
+    beq @show
+    lda __bas_n
+    cmp #30                 ; (BREAK: STOP is not trapped, as BASIC 65's)
+    beq @show
+    lda #0
+    sta __bas_trapon
+    lda #1
+    sta __bas_trapre
+    sta __bas_pend
+    lda __bas_n
+    sta __bas_er
+    lda #0
+    sta __bas_er+1
+    lda __bas_line
+    sta __bas_el
+    lda __bas_line+1
+    sta __bas_el+1
+    lda __bas_spc
+    sta __bas_rpc
+    lda __bas_spc+1
+    sta __bas_rpc+1
+    lda __bas_snext
+    sta __bas_rnext
+    lda __bas_snext+1
+    sta __bas_rnext+1
+    jsr __bp_prog
+    sei
+    ldx __bas_sp0
+    ldy __bas_sp0+1
+    txs
+    tys
+    cli
+    jmp (__bas_trapv)
+@show:
     lda #13
     jsr __bas_out
     lda __bas_n
@@ -285,27 +322,16 @@ __bas_error:
     lda #'?'
     jsr __bas_out
 @nomark:
-    ; find the message: "N" + text, zero-terminated, in the table
-    ldx #0
-@find:
-    lda __bas_msgs,x
-    beq @print              ; the end: "ERROR" alone
-    cmp __bas_n
-    beq @found
-@skip:
-    inx
-    lda __bas_msgs,x
-    bne @skip
-    inx
-    bra @find
-@found:
-    inx
+    lda __bas_n
+    jsr __bas_msgptr
+    bcs @print              ; (none: "ERROR" alone)
+    ldy #0
 @msg:
-    lda __bas_msgs,x
+    lda ($F6),y
     beq @print
     jsr __bas_out
-    inx
-    bra @msg
+    iny
+    bne @msg
 @print:
     lda __bas_n
     cmp #30                 ; BREAK: no " ERROR"
@@ -341,6 +367,90 @@ __bas_error:
     lda __bas_n
     ldx #0
     jmp __exit
+
+; $F6/$F7 := message A's text in __bas_msgs (C clear), C set for none
+    .split "__bas_msgptr"
+.global __bas_msgptr
+__bas_msgptr:
+    tax
+    lda #<__bas_msgs
+    sta $F6
+    lda #>__bas_msgs
+    sta $F7
+    txa
+    sta __bas_m             ; (the number sought)
+    ldy #0
+@find:
+    lda ($F6),y
+    beq @none
+    cmp __bas_m
+    beq @found
+@skip:
+    inw $F6
+    lda ($F6),y
+    bne @skip
+    inw $F6
+    bra @find
+@found:
+    inw $F6
+    clc
+    rts
+@none:
+    sec
+    rts
+
+; ERR$(__bas_n) into __bas_sr's buffer: the message, "OK" for none (as BASIC 65's)
+    .split "__bas_errs"
+.global __bas_errs
+__bas_errs:
+    lda __bas_sr
+    sta $F8
+    lda __bas_sr+1
+    sta $F9
+    lda __bas_n+1
+    bne @ok
+    lda __bas_n
+    beq @ok
+    jsr __bas_msgptr
+    bcs @ok
+    ldy #0
+@copy:
+    lda ($F6),y
+    beq @len
+    iny
+    sta ($F8),y
+    bra @copy
+@len:
+    tya
+    ldy #0
+    sta ($F8),y
+    rts
+@ok:
+    ldy #0
+    lda #2
+    sta ($F8),y
+    iny
+    lda #$4F                ; (PETSCII "OK")
+    sta ($F8),y
+    iny
+    lda #$4B
+    sta ($F8),y
+    rts
+
+; TRAP: the CPU stack the program has after this call (an error goes on there)
+    .split "__bas_trapinit"
+.global __bas_trapinit
+__bas_trapinit:
+    tsx
+    tsy
+    txa
+    clc
+    adc #2
+    sta __bas_sp0
+    tya
+    adc #0
+    sta __bas_sp0+1
+    rts
 
 ; The error A
     .split "__bas_raise"
@@ -735,37 +845,139 @@ __bas_getbyt:
     .split "__bas_msgs"
 ; the messages of the errors compiled code can raise: the number, the text
 __bas_msgs:
+    .byte 1
+    .text "too many files"
+    .byte 0
+    .byte 2
+    .text "file open"
+    .byte 0
+    .byte 3
+    .text "file not open"
+    .byte 0
+    .byte 4
+    .text "file not found"
+    .byte 0
+    .byte 5
+    .text "device not present"
+    .byte 0
+    .byte 6
+    .text "not input file"
+    .byte 0
+    .byte 7
+    .text "not output file"
+    .byte 0
+    .byte 8
+    .text "missing file name"
+    .byte 0
+    .byte 9
+    .text "illegal device number"
+    .byte 0
     .byte 10
     .text "next without for"
-    .byte 0, 12
+    .byte 0
+    .byte 11
+    .text "syntax"
+    .byte 0
+    .byte 12
     .text "return without gosub"
-    .byte 0, 14
-    .text "illegal quantity"
-    .byte 0, 13
+    .byte 0
+    .byte 13
     .text "out of data"
-    .byte 0, 15
+    .byte 0
+    .byte 14
+    .text "illegal quantity"
+    .byte 0
+    .byte 15
     .text "overflow"
-    .byte 0, 16
+    .byte 0
+    .byte 16
     .text "out of memory"
-    .byte 0, 18
+    .byte 0
+    .byte 17
+    .text "undefined statement"
+    .byte 0
+    .byte 18
     .text "bad subscript"
-    .byte 0, 19
+    .byte 0
+    .byte 19
     .text "redimensioned array"
-    .byte 0, 20
+    .byte 0
+    .byte 20
     .text "division by zero"
-    .byte 0, 22
+    .byte 0
+    .byte 21
+    .text "illegal direct"
+    .byte 0
+    .byte 22
     .text "type mismatch"
-    .byte 0, 27
-    .text "undefined function"
-    .byte 0, 23
+    .byte 0
+    .byte 23
     .text "string too long"
-    .byte 0, 30
+    .byte 0
+    .byte 24
+    .text "file data"
+    .byte 0
+    .byte 25
+    .text "formula too complex"
+    .byte 0
+    .byte 26
+    .text "can't continue"
+    .byte 0
+    .byte 27
+    .text "undefined function"
+    .byte 0
+    .byte 28
+    .text "verify"
+    .byte 0
+    .byte 29
+    .text "load"
+    .byte 0
+    .byte 30
     .text "break"
-    .byte 0, 32
+    .byte 0
+    .byte 31
+    .text "can't resume"
+    .byte 0
+    .byte 32
     .text "loop not found"
-    .byte 0, 33
+    .byte 0
+    .byte 33
     .text "loop without do"
-    .byte 0, 0
+    .byte 0
+    .byte 34
+    .text "direct mode only"
+    .byte 0
+    .byte 35
+    .text "screen not open"
+    .byte 0
+    .byte 36
+    .text "bad disk"
+    .byte 0
+    .byte 37
+    .text "bend not found"
+    .byte 0
+    .byte 38
+    .text "line number too large"
+    .byte 0
+    .byte 39
+    .text "unresolved reference"
+    .byte 0
+    .byte 40
+    .text "unimplemented command"
+    .byte 0
+    .byte 41
+    .text "file read"
+    .byte 0
+    .byte 42
+    .text "edit mode"
+    .byte 0
+    .byte 43
+    .text "reserved name"
+    .byte 0
+    .byte 44
+    .text "cbdos drives only"
+    .byte 0
+    .byte 0
 __bas_errtxt:
     .text " error"
     .byte 0
@@ -792,6 +1004,33 @@ __bas_line: .res 2
 __bas_fx: .res 5
 .global __bas_fa
 __bas_fa: .res 4
+; TRAP / RESUME: the trap on, its line (basic45's code), on again at RESUME,
+; an error to resume from, ER, EL, the CPU stack, the code going on at the
+; TRAP's line, the statement running and the next (__bas_spc / __bas_snext:
+; programs with RESUME), those of the error
+.global __bas_trapon
+__bas_trapon: .res 1
+.global __bas_trapln
+__bas_trapln: .res 2
+.global __bas_trapre
+__bas_trapre: .res 1
+.global __bas_pend
+__bas_pend: .res 1
+.global __bas_er
+__bas_er: .res 2
+.global __bas_el
+__bas_el: .res 2
+__bas_sp0: .res 2
+.global __bas_trapv
+__bas_trapv: .res 2
+.global __bas_spc
+__bas_spc: .res 2
+.global __bas_snext
+__bas_snext: .res 2
+.global __bas_rpc
+__bas_rpc: .res 2
+.global __bas_rnext
+__bas_rnext: .res 2
 .global __bas_bankx
 __bas_bankx: .res 1
 __bas_fy: .res 5

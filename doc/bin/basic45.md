@@ -333,10 +333,10 @@ status at `$FD`/`$FE` is the error number), after which BASIC's `READY.` follows
 
 | | |
 |---|---|
-| Statements | `LET` and assignments, `PRINT` (`;`, `,`, `TAB(`, `SPC(`), `IF` … `THEN` / `GOTO` (a line number or statements), `ELSE`, `BEGIN` / `BEND`, `GOTO`, `GO TO`, `GOSUB`, `RETURN`, `ON` … `GOTO` / `GOSUB`, `FOR` … `TO` … `STEP` / `NEXT` (a float variable; `NEXT a, b`), `POKE`, `DIM`, `INPUT` (a prompt with `;` or `,`), `GET`, `GETKEY`, `DO` … `LOOP` (`WHILE` / `UNTIL` on either), `EXIT`, `READ`, `DATA`, `RESTORE` (a line number or none), `DEF FN`, `WPOKE`, `WAIT`, `SLEEP`, `SCNCLR` (the text screen), `BANK`, `END`, `STOP`, `REM`; `POKE` / `WPOKE` with a list of values |
+| Statements | `LET` and assignments, `PRINT` (`;`, `,`, `TAB(`, `SPC(`), `IF` … `THEN` / `GOTO` (a line number or statements), `ELSE`, `BEGIN` / `BEND`, `GOTO`, `GO TO`, `GOSUB`, `RETURN`, `ON` … `GOTO` / `GOSUB`, `FOR` … `TO` … `STEP` / `NEXT` (a float variable; `NEXT a, b`), `POKE`, `DIM`, `INPUT` (a prompt with `;` or `,`), `GET`, `GETKEY`, `DO` … `LOOP` (`WHILE` / `UNTIL` on either), `EXIT`, `READ`, `DATA`, `RESTORE` (a line number or none), `DEF FN`, `WPOKE`, `WAIT`, `SLEEP`, `SCNCLR` (the text screen), `BANK`, `TRAP` (a line number or none), `RESUME` (none, `NEXT` or a line), `END`, `STOP`, `REM`; `POKE` / `WPOKE` with a list of values |
 | Values | floats, `%` integers (-32768..32767), strings (up to 255 characters); arrays of each (`DIM a(n, m)`, up to 8 subscripts; sizes at run time) |
 | Operators | `+ - * / ^`, unary `-`, `= <> < > <= >=` (numbers and strings), `AND`, `OR`, `XOR`, `NOT` (-32768..65535, as BASIC 65's), `<<`, `>>` |
-| Functions | `ABS`, `INT`, `SGN`, `SQR`, `SIN`, `COS`, `TAN`, `ATN`, `LOG`, `EXP`, `PEEK`, `LEN`, `ASC`, `CHR$`, `STR$`, `LEFT$`, `RIGHT$`, `MID$`, `RND`, `FN`, `POS`, `VAL`, `DEC`, `HEX$`, `STRBIN$`, `INSTR` (a pound sign's pattern too), `MOD`, `WPEEK`, `RPT$`, π; the variables `TI` and `TI$` |
+| Functions | `ABS`, `INT`, `SGN`, `SQR`, `SIN`, `COS`, `TAN`, `ATN`, `LOG`, `EXP`, `PEEK`, `LEN`, `ASC`, `CHR$`, `STR$`, `LEFT$`, `RIGHT$`, `MID$`, `RND`, `FN`, `POS`, `VAL`, `DEC`, `HEX$`, `STRBIN$`, `INSTR` (a pound sign's pattern too), `MOD`, `WPEEK`, `RPT$`, `ERR$`, π; the variables `TI`, `TI$`, `ER` and `EL` |
 
 **How**: the program is one function; each line and statement starts a block. `GOTO` is a branch; `GOSUB`
 pushes the address of the code after it on BASIC's stack and `RETURN` jumps back to it. `FOR` pushes its
@@ -365,6 +365,12 @@ nested ones passed; none: `?LOOP NOT FOUND`). `READ` takes the items of the `DAT
 (the same rules as `INPUT`'s: `?OUT OF DATA`, `?TYPE MISMATCH`), `RESTORE n` from the first `DATA` at or after
 line `n`. `RND` is the ROM's (the interpreter's seed and sequence), `TI` CIA 2's timers as BASIC 65 reads them,
 `TI$` the clock (`"hh:mm:ss"`). The run time of these is `lib/stdlib/basic_in.c`.
+
+**TRAP**: with a trap set, an error (not `STOP`'s BREAK) sets `ER` and `EL`, turns the trap off and goes on at
+the trap's line with the CPU stack as at the start (BASIC's stack of `GOSUB`, `FOR` and `DO` as it was, as the ROM
+does); `RESUME` turns it on again and goes back to the statement (`RESUME`), to the one after it (`RESUME NEXT`)
+or to a line; `?CAN'T RESUME` without an error. A trap's line is a number (`TRAP 100`). A program with `RESUME`
+without a line notes each statement's address as it runs (`__bas_spc` / `__bas_snext`).
 
 **PEEK, POKE, WPEEK, WPOKE, WAIT** take BASIC 65's addresses: 0..2^32-1, above 65535 a 28-bit address (far memory,
 `[zp],z`), below it in the bank `BANK` chose (128, the default, the CPU's map). A `POKE` value is 0..65535, its low
@@ -405,7 +411,6 @@ The run-time support is `lib/stdlib_asm/basic_rt.s45` (PRINT, the errors, BASIC'
   interpreter's own conversion can differ in the last bit.
 - A float result too large gives the largest float, not `?OVERFLOW ERROR` (except for `EXP` and `^`).
 - `PEEK` of `$C000`-`$CFFF` reads RAM; the interpreter reads the ROM there.
-- An error cannot be caught (`TRAP` is not compiled yet).
 - A number typed at `INPUT` or read from `DATA` is converted by the library's `strtof` (correctly rounded); the
   interpreter's own conversion can differ in the last bit, as for numbers in the program.
 - Arrays and strings share the program's heap, from the end of the program to the stack's share below `$B000`

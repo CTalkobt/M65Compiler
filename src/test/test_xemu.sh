@@ -756,6 +756,21 @@ for ln in ln1 ln2; do
         failed=$((failed + 1))
     fi
 done
+# test_basic_compile3_xemu.bas: TRAP / RESUME (NEXT, a line, the statement
+# again), ER / EL / ERR$; the same four ways
+BC3_EXP="01 01 01 01 01 AA"
+if ./bin/basic45 src/test-resources/test_basic_compile3_xemu.bas -o build/test/test_basic_compile3_i.prg >/dev/null 2>&1 &&
+   ./bin/basic45 --compile src/test-resources/test_basic_compile3_xemu.bas -o build/test/test_basic_compile3.prg >/dev/null 2>&1 &&
+   ./bin/basic45 --compile -O0 src/test-resources/test_basic_compile3_xemu.bas -o build/test/test_basic_compile3_O0.prg >/dev/null 2>&1 &&
+   ./bin/basic45 --compile --speed src/test-resources/test_basic_compile3_xemu.bas -o build/test/test_basic_compile3_speed.prg >/dev/null 2>&1; then
+    run_xemu_test "test_basic_compile3_interpreted" "build/test/test_basic_compile3_i.prg" "C0C0" 6 "$BC3_EXP"
+    run_xemu_test "test_basic_compile3" "build/test/test_basic_compile3.prg" "C0C0" 6 "$BC3_EXP"
+    run_xemu_test "test_basic_compile3_O0" "build/test/test_basic_compile3_O0.prg" "C0C0" 6 "$BC3_EXP"
+    run_xemu_test "test_basic_compile3_speed" "build/test/test_basic_compile3_speed.prg" "C0C0" 6 "$BC3_EXP"
+else
+    echo "FAIL: test_basic_compile3_xemu.bas (basic45 or basic45 --compile failed)"
+    failed=$((failed + 1))
+fi
 # an array subscript past its DIM: ?BAD SUBSCRIPT (18)
 printf '10 dim a(5):a(5)=1:print a(6):poke 49344,1\n' > build/test/test_basic_compile_bs.bas
 if ./bin/basic45 --compile build/test/test_basic_compile_bs.bas -o build/test/test_basic_compile_bs.prg >/dev/null 2>&1; then

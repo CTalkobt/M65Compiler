@@ -52,7 +52,7 @@ enum : int {
     T_STR = 0xC4, T_ASC = 0xC6, T_CHR = 0xC7, T_LEFT = 0xC8, T_RIGHT = 0xC9,
     T_MID = 0xCA, T_GO = 0xCB, T_KEY = 0xF9, T_ELSE = 0xD5, T_DEF = 0x96, T_FN = 0xA5, T_POS = 0xB9, T_VAL = 0xC5, T_DEC = 0xD1, T_HEX = 0xD2,
     T_INSTR = 0xD4, T_SCNCLR = 0xE8, T_XOR = 0xE9, T_WAIT = 0x92, T_SLEEP = 0xFE0B, T_WPOKE = 0xFE1D,
-    T_MOD = 0xCE0B, T_WPEEK = 0xCE10, T_STRBIN = 0xCE12, T_RPT = 0xCE14, T_BANK = 0xFE02, T_ASL = 0xFE52, T_ASR = 0xFE53, T_DO = 0xEB, T_LOOP = 0xEC, T_EXIT = 0xED, T_UNTIL = 0xFC, T_WHILE = 0xFD, T_PI = 0xFF,
+    T_MOD = 0xCE0B, T_WPEEK = 0xCE10, T_STRBIN = 0xCE12, T_RPT = 0xCE14, T_BANK = 0xFE02, T_ERRS = 0xD3, T_RESUME = 0xD6, T_TRAP = 0xD7, T_ASL = 0xFE52, T_ASR = 0xFE53, T_DO = 0xEB, T_LOOP = 0xEC, T_EXIT = 0xED, T_UNTIL = 0xFC, T_WHILE = 0xFD, T_PI = 0xFF,
     T_BEGIN = 0xFE18, T_BEND = 0xFE19,
 };
 
@@ -452,6 +452,15 @@ private:
             return v;
         }
         if (name == "TI$") return strCall("__bas_tis", nullptr, nullptr);
+        // ER: the last error's number (-1: none), EL: its line (65535: none)
+        if (name == "ER" || name == "EL") {
+            erVars_ = true;
+            Val v; v.k = VK::I;
+            auto x = load(ir::Type::I16, global(name == "ER" ? "__bas_er" : "__bas_el"));
+            if (name == "ER") { v.op = x; v.bound = 32768; }
+            else { v.op = zext(x, ir::Type::I16, ir::Type::I32); v.bound = 65535; }
+            return v;
+        }
         VK k;
         std::string g = varGlobal(name, k);
         Val v;
@@ -838,6 +847,8 @@ private:
         call("__bas_poke");
     }
     bool farMem_ = false;    // a BANK in the program
+    bool usesTrap_ = false, resumeStmt_ = false, erVars_ = false;
+    std::set<size_t> trapTargets_;     // the lines TRAPs go to
 
     // A condition's truth: I8, nonzero when true
     ir::Operand truth(const Val& v) {
@@ -1222,6 +1233,11 @@ private:
             return strCall("__bas_rpt", &a, nullptr);
         }
         case T_FN: return fnCall();
+        case T_ERRS: {
+            Val n = toI16(parenExpr());
+            store(ir::Type::I16, asType(n, ir::Type::I16), global("__bas_n"));
+            return strCall("__bas_errs", nullptr, nullptr);
+        }
         case T_ABS: {
             Val a = parenExpr();
             if (a.k == VK::I && !a.isConst) {
@@ -1395,6 +1411,15 @@ void Compiler::prescan() {
         for (const auto& sg : l.segs)
             for (const auto& t : sg.toks)
                 if (t.k == TK::Kw && t.kw == T_BANK) farMem_ = true;
+    // TRAP; RESUME going back to a statement (none or NEXT after it)
+    for (const auto& l : lines_)
+        for (const auto& sg : l.segs)
+            for (size_t k = 0; k < sg.toks.size(); k++) {
+                const Tok& t = sg.toks[k];
+                if (t.k != TK::Kw) continue;
+                if (t.kw == T_TRAP) usesTrap_ = true;
+                if (t.kw == T_RESUME && !(k + 1 < sg.toks.size() && sg.toks[k + 1].k == TK::Num)) resumeStmt_ = true;
+            }
     // the DATA statements (a statement's first token)
     dataAt_.assign(lines_.size() + 1, 0);
     for (size_t li = 0; li < lines_.size(); li++) {
@@ -1641,6 +1666,15 @@ std::shared_ptr<ir::Module> Compiler::run() {
         entry();
         for (si_ = 0; si_ < lines_[li_].segs.size(); si_++) {
             block(stmtLabel(li_, si_));
+            if (resumeStmt_) {
+                // (RESUME: this statement and the next one, should it raise an error)
+                for (auto [lbl, g] : {std::pair<std::string, const char*>{stmtLabel(li_, si_), "__bas_spc"},
+                                      {nextStmtLabel(li_, si_), "__bas_snext"}}) {
+                    auto r = vreg(ir::Type::I16);
+                    ir::Inst in; in.op = ir::Op::ADDR_LABEL; in.dest = r; in.src1 = ir::Operand::label(lbl); emit(in);
+                    store(ir::Type::I16, r, global(g));
+                }
+            }
             toks_ = &lines_[li_].segs[si_].toks;
             p_ = 0;
             slots_ = 0;
@@ -1723,6 +1757,17 @@ void Compiler::finish() {
         }
     }
     for (int id : stepBlocks_) stepBlock(fors_[id - 1]);
+    // TRAP: an error goes on at the trap's line (__bas_error comes here)
+    if (usesTrap_) {
+        block("trapgo");
+        auto ln = load(ir::Type::I16, global("__bas_trapln"));
+        for (size_t t : trapTargets_) {
+            std::string nx = newLabel("trapnx");
+            brCond(bin(ir::Op::CMP_EQ, ir::Type::I8, ln, ir::Operand::imm(lines_[t].num, ir::Type::I16)), lineLabel(t), nx);
+            block(nx);
+        }
+        br("Lend");
+    }
     // the errors' blocks
     for (int n : errBlocks_) {
         block("Err" + std::to_string(n));
@@ -1734,6 +1779,16 @@ void Compiler::finish() {
     // init: the string variables empty; then the program
     block("init");
     store(ir::Type::I8, iconst(ir::Type::I8, 0), global("__bas_sp"));
+    if (usesTrap_ || erVars_) {
+        store(ir::Type::I16, iconst(ir::Type::I16, -1), global("__bas_er"));
+        store(ir::Type::I16, iconst(ir::Type::I16, -1), global("__bas_el"));
+    }
+    if (usesTrap_) {
+        call("__bas_trapinit");
+        auto r = vreg(ir::Type::I16);
+        ir::Inst in; in.op = ir::Op::ADDR_LABEL; in.dest = r; in.src1 = ir::Operand::label("trapgo"); emit(in);
+        store(ir::Type::I16, r, global("__bas_trapv"));
+    }
     for (const auto& [g, t] : vars_)
         if (t == ir::Type::PTR) {
             auto e = vreg(ir::Type::PTR);
@@ -1898,6 +1953,38 @@ void Compiler::statement() {
             k++;
         }
         if (!k) fail("POKE needs a value (?SYNTAX ERROR)");
+        return;
+    }
+    case T_TRAP: {
+        // TRAP line: on; TRAP: off
+        if (atEnd() || isKw(T_ELSE)) {
+            store(ir::Type::I8, iconst(ir::Type::I8, 0), global("__bas_trapon"));
+            return;
+        }
+        auto t = peek();
+        if (!t || t->k != TK::Num) fail("TRAP with a computed line is not supported by --compile");
+        size_t target = lineTarget();
+        trapTargets_.insert(target);
+        store(ir::Type::I16, iconst(ir::Type::I16, lines_[target].num), global("__bas_trapln"));
+        store(ir::Type::I8, iconst(ir::Type::I8, 1), global("__bas_trapon"));
+        return;
+    }
+    case T_RESUME: {
+        // an error to resume from (else ?CAN'T RESUME): the trap on again, the error cleared
+        raiseIf(bin(ir::Op::CMP_EQ, ir::Type::I8, load(ir::Type::I8, global("__bas_pend")),
+                    ir::Operand::imm(0, ir::Type::I8)), 31);
+        store(ir::Type::I8, iconst(ir::Type::I8, 0), global("__bas_pend"));
+        store(ir::Type::I8, load(ir::Type::I8, global("__bas_trapre")), global("__bas_trapon"));
+        // (back in the error's line: an error there names it)
+        store(ir::Type::I16, load(ir::Type::I16, global("__bas_el")), global("__bas_line"));
+        store(ir::Type::I16, iconst(ir::Type::I16, -1), global("__bas_er"));
+        store(ir::Type::I16, iconst(ir::Type::I16, -1), global("__bas_el"));
+        auto t = peek();
+        if (t && t->k == TK::Num) { br(lineLabel(lineTarget())); block(newLabel("dead")); return; }
+        bool next = acceptKw(T_NEXT);
+        auto a = load(ir::Type::PTR, global(next ? "__bas_rnext" : "__bas_rpc"));
+        ir::Inst in; in.op = ir::Op::BR_INDIRECT; in.src1 = a; emit(in);
+        block(newLabel("dead"));
         return;
     }
     case T_BANK: {
