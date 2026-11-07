@@ -25,6 +25,7 @@
 #include "CodegenStage.hpp"
 #include "BasicTokenizer.hpp"
 
+#include <algorithm>
 #include <cmath>
 #include <cstring>
 #include <functional>
@@ -54,6 +55,7 @@ enum : int {
     T_INSTR = 0xD4, T_SCNCLR = 0xE8, T_XOR = 0xE9, T_WAIT = 0x92, T_SLEEP = 0xFE0B, T_WPOKE = 0xFE1D,
     T_MOD = 0xCE0B, T_WPEEK = 0xCE10, T_STRBIN = 0xCE12, T_RPT = 0xCE14, T_BANK = 0xFE02, T_ERRS = 0xD3, T_RESUME = 0xD6, T_TRAP = 0xD7, T_ASL = 0xFE52, T_ASR = 0xFE53, T_DO = 0xEB, T_LOOP = 0xEC, T_EXIT = 0xED, T_UNTIL = 0xFC, T_WHILE = 0xFD, T_PI = 0xFF,
     T_BEGIN = 0xFE18, T_BEND = 0xFE19, T_PRINTN = 0x98, T_CMD = 0x9D, T_OPEN = 0x9F, T_CLOSE = 0xA0,
+    T_DOPEN = 0xFE0D, T_APPEND = 0xFE0E, T_DCLOSE = 0xFE0F,
 };
 
 enum class TK { Kw, Num, Str, Name, Ch };
@@ -453,6 +455,14 @@ private:
             return v;
         }
         if (name == "TI$") return strCall("__bas_tis", nullptr, nullptr);
+        // DS: the drive's status number, DS$ its message (read when not kept)
+        if (name == "DS") {
+            call("__bas_ds");
+            Val v; v.k = VK::I; v.bound = 255;
+            v.op = load(ir::Type::I16, global("__bas_n"));
+            return v;
+        }
+        if (name == "DS$") return strCall("__bas_dss", nullptr, nullptr);
         // ST: the KERNAL's I/O status, a signed byte (BASIC 65's Get_ST: float)
         if (name == "ST") {
             call("__bas_st");
@@ -1363,6 +1373,8 @@ private:
     void inputStmt(bool chan = false);
     void chanArg(const char* routine);
     void openStmt();
+    void dosStmt(int kw);
+    Val optValue();
     void doStmt();
     // DEF FN name(x) = expr: each FN name(...) is the expression compiled where
     // it is used, x bound to the argument; a flag set when the DEF runs
@@ -1903,6 +1915,7 @@ void Compiler::statement() {
         return;
     }
     case T_OPEN: openStmt(); return;
+    case T_DOPEN: case T_APPEND: case T_DCLOSE: dosStmt(kw); return;
     case T_CLOSE: {
         Val v = expr();
         store(ir::Type::I16, zext(toByte(v), ir::Type::I8, ir::Type::I16), global("__bas_n"));
@@ -2094,6 +2107,89 @@ void Compiler::chanArg(const char* routine) {
     Val n = expr();
     store(ir::Type::I16, zext(toByte(n), ir::Type::I8, ir::Type::I16), global("__bas_n"));
     call(routine);
+}
+
+// A DOS parameter's value after its letter (U8, D0, L80, UDV, U(X)): the
+// rest of the name as the start of the expression, as the ROM reads the
+// text after the letter
+Val Compiler::optValue() {
+    std::string rest = peek()->text.substr(1);
+    p_++;
+    if (rest.empty()) return expr();
+    Tok r;
+    if (std::all_of(rest.begin(), rest.end(), [](char c) { return c >= '0' && c <= '9'; })) {
+        r.k = TK::Num; r.num = std::stod(rest); r.whole = true;
+    } else if (rest[0] >= 'A' && rest[0] <= 'Z') {
+        r.k = TK::Name; r.text = rest;
+    } else fail("a value expected after the DOS parameter's letter (?SYNTAX ERROR)");
+    std::vector<Tok> tmp{r};
+    tmp.insert(tmp.end(), toks_->begin() + (long)p_, toks_->end());
+    auto saved = toks_;
+    size_t at = p_;
+    toks_ = &tmp;
+    p_ = 0;
+    Val v = expr();
+    size_t used = p_;
+    toks_ = saved;
+    p_ = at + used - 1;
+    return v;
+}
+
+void Compiler::dosStmt(int kw) {
+    // DOPEN# lf, name [, D drive] [, U unit] [, W] [, L len] [ON U unit];
+    // APPEND# lf, name [, D] [, U]; DCLOSE [# lf] [, U unit]: as the ROM's
+    // dosprs (each once, in any order; ON U without a comma too)
+    const char* what = kw == T_DOPEN ? "DOPEN" : kw == T_APPEND ? "APPEND" : "DCLOSE";
+    int flags = 0;
+    bool haveName = false, first = true;
+    Val name;
+    auto once = [&](int bit) {
+        if (flags & bit) fail(std::string(what) + ": a parameter given twice (?SYNTAX ERROR)");
+        flags |= bit;
+    };
+    auto byteTo = [&](const char* g, Val v) { store(ir::Type::I8, toByte(v), global(g)); };
+    while (!atEnd() && !isKw(T_ELSE)) {
+        if (!first && !isKw(T_ON)) expectCh(',');
+        first = false;
+        auto t = peek();
+        if (!t) fail(std::string(what) + ": a parameter expected (?SYNTAX ERROR)");
+        if (acceptCh('#')) {
+            once(16);
+            byteTo("__bas_dlf", expr());
+            continue;
+        }
+        if (kw != T_DCLOSE && (t->k == TK::Str || isCh('('))) {
+            if (haveName) fail(std::string(what) + ": a parameter given twice (?SYNTAX ERROR)");
+            haveName = true;
+            name = expr();
+            if (name.k != VK::S) fail(std::string(what) + "'s file name must be a string (?TYPE MISMATCH)");
+            continue;
+        }
+        bool on = acceptKw(T_ON);
+        t = peek();
+        if (!t || t->k != TK::Name) fail(std::string(what) + ": this parameter is not supported by --compile" + near() + " (?SYNTAX ERROR)");
+        char c = t->text[0];
+        if (c == 'U') { once(4); byteTo("__bas_dunit", optValue()); continue; }
+        if (on) fail(std::string(what) + ": ON takes U (?SYNTAX ERROR)");
+        if (c == 'D' && kw != T_DCLOSE) { once(8); byteTo("__bas_ddrv", optValue()); continue; }
+        if (kw == T_DOPEN && t->text == "W") { once(1 | 2); p_++; flags &= ~2; continue; }
+        if (kw == T_DOPEN && c == 'L') {
+            once(1 | 2);
+            flags &= ~1;
+            if (t->text == "L" && (p_ + 1 >= toks_->size())) {
+                p_++;
+                store(ir::Type::I8, ir::Operand::imm(1, ir::Type::I8), global("__bas_drcl"));
+            } else byteTo("__bas_drcl", optValue());
+            continue;
+        }
+        fail(std::string(what) + ": this parameter is not supported by --compile" + near() + " (?SYNTAX ERROR)");
+    }
+    if (kw != T_DCLOSE && (!(flags & 16) || !haveName))
+        fail(std::string(what) + " needs # and a file name (?SYNTAX ERROR)");
+    if (haveName) store(ir::Type::PTR, name.op, global("__bas_sa"));
+    store(ir::Type::I8, ir::Operand::imm(flags, ir::Type::I8), global("__bas_dflg"));
+    call(kw == T_DOPEN ? "__bas_dopen" : kw == T_APPEND ? "__bas_append" : "__bas_dclose");
+    if (haveName) freeVal(name);
 }
 
 void Compiler::openStmt() {
