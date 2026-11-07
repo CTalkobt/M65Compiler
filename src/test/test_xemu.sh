@@ -835,6 +835,28 @@ else
     echo "FAIL: test_basic_compile7_xemu.bas (basic45 or basic45 --compile failed)"
     failed=$((failed + 1))
 fi
+# test_basic_compile8_xemu.bas: LINE INPUT# / LINE INPUT, FREAD# / FWRITE#,
+# BSAVE / BLOAD / BVERIFY, DIR / CATALOG (W) on a disk (an empty D81 per
+# run); the same four ways
+BC8_EXP="01 01 01 01 01 01 01 AA"
+if ./bin/basic45 src/test-resources/test_basic_compile8_xemu.bas -o build/test/test_basic_compile8_i.prg >/dev/null 2>&1 &&
+   ./bin/basic45 --compile src/test-resources/test_basic_compile8_xemu.bas -o build/test/test_basic_compile8.prg >/dev/null 2>&1 &&
+   ./bin/basic45 --compile -O0 src/test-resources/test_basic_compile8_xemu.bas -o build/test/test_basic_compile8_O0.prg >/dev/null 2>&1 &&
+   ./bin/basic45 --compile --speed src/test-resources/test_basic_compile8_xemu.bas -o build/test/test_basic_compile8_speed.prg >/dev/null 2>&1; then
+    for bc8 in i "" O0 speed; do
+        bc8n="test_basic_compile8${bc8:+_$bc8}"
+        rm -f "build/test/$bc8n.d81"
+        if ./bin/disk45 create "build/test/$bc8n.d81" -n "BC8" >/dev/null 2>&1; then
+            run_xemu_test "$bc8n" "build/test/$bc8n.prg" "C0C0" 8 "$BC8_EXP" -8 "$PWD/build/test/$bc8n.d81"
+        else
+            echo "FAIL: $bc8n (disk45 create failed)"
+            failed=$((failed + 1))
+        fi
+    done
+else
+    echo "FAIL: test_basic_compile8_xemu.bas (basic45 or basic45 --compile failed)"
+    failed=$((failed + 1))
+fi
 # test_basic_compile6_xemu.bas: chaining. It (REM PRAGMA EXPORT) DLOADs
 # test_basic_compile6b_xemu.bas ("BC6B" on its D81; REM PRAGMA IMPORT, the
 # map from --import-map), which checks the variables; LOAD of a missing file

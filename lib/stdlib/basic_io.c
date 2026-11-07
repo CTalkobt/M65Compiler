@@ -17,6 +17,17 @@
  *     the command channel (trans), or DOPEN / APPEND's file opened on a free
  *     secondary address $62-$6E (?TOO MANY FILES). DOPEN forgets DS$.
  *   _bas_record: RECORD# lf, record, byte (P on the file's unit).
+ *   _bas_dos 16: DIR / CATALOG [name] [, D] [, U] [, R] [, W] [, P] (directory,
+ *     ldir): "$0:name" ("_" with R) loaded on lf 0, secondary address $60, a
+ *     line per entry (the blocks right-aligned in 4, the rest as the drive
+ *     sends it); W: 20 characters each in columns of 21 rows below the
+ *     header (the screen cleared first, the BLOCKS FREE line two rows above
+ *     the bottom; dirpos), not with P or
+ *     CMD; P: the screen cleared, [MORE] and a key at the bottom (STOP or Q
+ *     ends it). STOP ends the listing.
+ *   _bas_fread / _bas_fwrite: FREAD# / FWRITE# __bas_dlf: __bas_m bytes (0:
+ *     65536) from the file (GETIN) to the 28-bit address __bas_fa, or from
+ *     there to the file (BSOUT), as the ROM's fread.
  *   _bas_ds / _bas_dss: DS into __bas_n, DS$ into __bas_sr's buffer: the
  *     drive's error channel read (lf 0, sa 15) when DS$ is not kept, from
  *     the KERNAL's device ($BA) if a drive, else the last DOS statement's
@@ -43,6 +54,9 @@ extern unsigned char *_bas_sa, *_bas_sr;
 extern int _bas_n, _bas_m;
 extern unsigned char _float_a[5];
 extern void _bas_error(void);
+extern void _bas_out(void);
+/* a character to the screen (basic_rt.s45's __bas_out: A) */
+static void _bas_putc(unsigned char c) { __jsr_raw(_bas_out, .A = c); }
 
 unsigned char _bas_olf, _bas_odev, _bas_osa, _bas_ocnt;
 unsigned char _bas_dlf, _bas_dunit, _bas_drcl, _bas_dflg;
@@ -67,7 +81,10 @@ static void kerr(unsigned char e) {
  * the ROM checks them, into dosfa / dosun (the units), ds1 / ds2 (the
  * drives), dosla, the names */
 unsigned char _bas_dpar, _bas_dflx, _bas_derr, _bas_dd1, _bas_dd2, _bas_du1, _bas_du2, _bas_donu;
-unsigned char _bas_did0, _bas_did1;
+unsigned char _bas_did0, _bas_did1, _bas_daux, _bas_dbnk;
+unsigned long _bas_dofl, _bas_dofh;
+extern unsigned char _bas_bankx;
+extern unsigned char _bas_chan;       /* the output channel (CMD; basic_rt.s45) */      /* BANK (basic_rt.s45: the bank XOR 128) */
 unsigned char *_bas_sid;
 extern unsigned char *_bas_sb;
 
@@ -157,6 +174,8 @@ static const unsigned char t_fren[] = {0x52, 0xD1, ':', 0xF2, '=', 0xD1, ':', 0x
 static const unsigned char t_fscr[] = {0x53, 0xD1, ':', 0xF0, 0xF1};
 static const unsigned char t_frscr[] = {0x46, '-', 0x52, 0xD1, ':', 0xF0, 0xF1};
 static const unsigned char t_frec[] = {0x50, 0xC2, 0xE2, 0xE0};
+static const unsigned char t_fdir[] = {'$', 0xD1, ':', 0xF1};
+static const unsigned char t_fdirr[] = {0x5F, 0xD1, ':', 0xF1};
 
 static unsigned char sendp(const unsigned char *t, unsigned char count) {
     unsigned char n = 0, k, c, rcl = _bas_drcl;
@@ -264,6 +283,154 @@ void _bas_dos(void) {
         closeall();
         trans(t_fbak, 4);
         break;
+    case 13:    /* BLOAD, BVERIFY (bload_boot): at P or the file's address */
+    case 14: {
+        unsigned char bnk = _bas_daux & 1 ? _bas_dbnk : _bas_bankx ^ 128, a, y, st, lo, hi;
+        unsigned long at = _bas_daux & 2 ? _bas_dofl : 0xFFFFUL;
+        dosprs(0);
+        n = sendp(t_fopn, 4);
+        cbm_setnam((char *)cmd, n);
+        cbm_setlfs(0, dosfa, (unsigned char)at == 0xFF && (unsigned char)(at >> 8) == 0xFF ? 0xFF : 0);
+        /* (setbank_from_dos_args: a 16-bit address in bank B (BANK), else its bank) */
+        if (at >> 16) { a = (unsigned char)(at >> 24) | 0x80; y = (unsigned char)(at >> 16); }
+        else { a = bnk & 0x7F; y = 0; }
+        __jsr(0xFF6B, .A = a, .X = 0, .Y = y);
+        if (__jsr(0xFFD5, .A = (_bas_m == 14 ? 1 : 0) | (_bas_dflx & 0x40), .X = (unsigned char)at,
+                  .Y = (unsigned char)(at >> 8), .A -> e, .X -> lo, .Y -> hi).Carry) kerr(e);
+        st = (unsigned char)cbm_readst();
+        cbm_setbnk(0, 0);
+        if (_bas_m == 14) {
+            if (st & 0x10) {
+                /* VERIFY ERROR AT $ the address (8 hex digits, up to 4 leading zeros left out) */
+                static const unsigned char msg[] = {13, 0x56, 0x45, 0x52, 0x49, 0x46, 0x59, ' ', 0x45, 0x52, 0x52, 0x4F,
+                                                    0x52, ' ', 0x41, 0x54, ' ', '$', 0};
+                unsigned long v = (at >> 16) << 16 | lo | (unsigned)hi << 8;
+                unsigned char k, d, lead = 1;
+                for (k = 0; msg[k]; k++) _bas_putc(msg[k]);
+                for (k = 0; k < 8; k++) {
+                    d = (unsigned char)(v >> 28) & 15;
+                    v <<= 4;
+                    if (lead && !d && k < 4) continue;
+                    lead = 0;
+                    _bas_putc(d < 10 ? '0' + d : 0x41 + d - 10);
+                }
+            }
+        } else if (st & 0xBF) kerr(29);             /* ?LOAD ERROR */
+        break;
+    }
+    case 15: {  /* BSAVE: P start TO P end (end not saved), as KERNAL SAVE writes it */
+        unsigned char bnk = _bas_daux & 1 ? _bas_dbnk : _bas_bankx ^ 128;
+        unsigned long p = _bas_dofl, end = _bas_dofh;
+        unsigned char __far *q;
+        dosprs(0);
+        if (p >= end) kerr(14);
+        n = sendp(t_fopn, 4);
+        if (!(p >> 16)) { p |= (unsigned long)(bnk & 0x7F) << 16; end |= (unsigned long)(bnk & 0x7F) << 16; }
+        cbm_setnam((char *)cmd, n);
+        cbm_setlfs(0, dosfa, 1);
+        cbm_setbnk(0, 0);
+        if (__jsr(0xFFC0, .A -> e).Carry) kerr(e);
+        if (__jsr(0xFFC9, .X = 0, .A -> e).Carry) { __jsr(0xFFC3, .A = 0, .Carry = 0); kerr(e); }
+        cbm_k_bsout((unsigned char)_bas_dofl);
+        cbm_k_bsout((unsigned char)(_bas_dofl >> 8));
+        for (q = (unsigned char __far *)p; p < end; p++) cbm_k_bsout(*q++);
+        cbm_clrchn();
+        __jsr(0xFFC3, .A = 0, .Carry = 0);
+        break;
+    }
+    case 16: {  /* DIR / CATALOG */
+        static unsigned char line[64];
+        unsigned char wide, page, k, x, col, row, c, y;
+        int integr = -2;
+        unsigned int blocks;
+        dosprs(0);
+        page = _bas_daux & 0x80 && !_bas_chan;
+        if (page) _bas_putc(147);
+        x = 1;
+        if (par & 0x11) x = par & 1 ? 4 : 2;
+        n = sendp(_bas_dflx & 0x40 ? t_fdirr : t_fdir, x);
+        cbm_setnam((char *)cmd, n);
+        cbm_setbnk(0, 0);
+        cbm_setlfs(0, dosfa, 0x60);
+        cbm_clrchn();
+        if (__jsr(0xFFC0, .A -> e).Carry) {
+            cbm_clrchn();
+            __jsr(0xFFC3, .A = 0, .Carry = 0);
+            if (_bas_chan) __jsr(0xFFC9, .X = _bas_chan);
+            kerr(e);
+        }
+        wide = (par & 0x40) && !_bas_chan && !page;
+        y = 3;
+        for (;;) {
+            if (wide) {
+                /* dirpos: the next column after 21 rows; past the screen: a key, then again */
+                for (;;) {
+                    integr++;
+                    if (integr == -1) { _bas_putc(147); break; }
+                    row = (unsigned char)integr;
+                    col = 0;
+                    while (row >= 21) { row -= 21; col += 27; }
+                    if (col < 80) { __jsr(0xFFF0, .Carry = 0, .X = row + 1, .Y = col); break; }
+                    while (!cbm_k_getin()) {}
+                    integr = -2;
+                }
+            }
+            if (__jsr(0xFFC6, .X = 0).Carry) break;
+            do {
+                if (cbm_readst()) goto done;
+                blocks = cbm_k_basin();
+                blocks |= cbm_k_basin() << 8;
+            } while (--y);
+            k = 0;
+            do c = cbm_k_basin(); while (c == ' ');
+            for (;;) {
+                line[k] = c;
+                if (!c) break;
+                if (k < sizeof line - 1) k++;
+                if (cbm_readst()) goto done;
+                c = cbm_k_basin();
+            }
+            if (wide) {
+                line[20] = 0;
+                if (line[0] == 0x42) __jsr(0xFFF0, .Carry = 0, .X = 22, .Y = 0);    /* B(LOCKS FREE) */
+            }
+            cbm_clrchn();
+            if (_bas_chan) __jsr(0xFFC9, .X = _bas_chan);
+            {
+                /* the blocks, right-aligned in 4 */
+                unsigned char dg[6], m = 0;
+                do { dg[m++] = '0' + blocks % 10; blocks /= 10; } while (blocks);
+                for (k = m; k < 4; k++) _bas_putc(' ');
+                while (m) _bas_putc(dg[--m]);
+            }
+            _bas_putc(' ');
+            for (k = 0; line[k]; k++) _bas_putc(line[k]);
+            _bas_putc(13);
+            if (_bas_chan & 0x80) _bas_putc(10);
+            cbm_clrchn();
+            if (__jsr(0xFFE1).Zero) break;         /* STOP */
+            if (page && (unsigned char)(cbm_wherexy() >> 8) == 24) {
+                /* [MORE], a key from the typing queue ($D610) */
+                static const unsigned char more[] = {18, '[', 0x4D, 0x4F, 0x52, 0x45, ']', 146, 27, 0x4A, 0};
+                volatile unsigned char *q = (volatile unsigned char *)0xD610;
+                for (k = 0; more[k]; k++) _bas_putc(more[k]);
+                while (!*q) {}
+                c = *(volatile unsigned char *)0xD619;   /* (its PETSCII; a write takes it off) */
+                *q = c;
+                _bas_putc(27);
+                _bas_putc(0x44);
+                if (c == 3 || c == 0x51) break;
+                _bas_putc(147);
+            }
+            y = 2;
+        }
+    done:
+        if (wide) __jsr(0xFFF0, .Carry = 0, .X = 22, .Y = 0);
+        cbm_clrchn();
+        if (__jsr(0xFFC3, .A = 0, .Carry = 0, .A -> e).Carry) kerr(e);
+        if (_bas_chan) __jsr(0xFFC9, .X = _bas_chan);
+        break;
+    }
     case 12: {  /* COPY: on one unit by its DOS (the internal drives' units as drives 0 / 1) */
         unsigned char c0 = CBDOS0, c1 = CBDOS1, iec = 0;
         static const unsigned char star[] = {1, '*'};
@@ -438,4 +605,27 @@ void _bas_xget(void) {
 
 void _bas_xdone(void) {
     ((unsigned char __far *)XBLOCK)[0] = 0;
+}
+
+extern unsigned long _bas_fa;
+extern void _bas_chkin(void);
+extern void _bas_chkout(void);
+extern void _bas_clrch(void);
+
+void _bas_fread(void) {
+    unsigned char __far *p = (unsigned char __far *)_bas_fa;
+    unsigned int n = (unsigned)_bas_m;
+    _bas_n = _bas_dlf;
+    _bas_chkin();
+    do *p++ = cbm_k_getin(); while (--n);
+    _bas_clrch();
+}
+
+void _bas_fwrite(void) {
+    unsigned char __far *p = (unsigned char __far *)_bas_fa;
+    unsigned int n = (unsigned)_bas_m;
+    _bas_n = _bas_dlf;
+    _bas_chkout();
+    do cbm_k_bsout(*p++); while (--n);
+    _bas_clrch();
 }

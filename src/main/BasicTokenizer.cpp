@@ -474,7 +474,8 @@ BasicToken BasicTokenizer::parseIdentifier(const std::string& source, size_t& po
     std::string word;
 
     // A word: letters, digits, _, a $ type suffix. '#' belongs only to
-    // PRINT# and INPUT# (PRINT#1 is PRINT# 1; GET#1 is GET #1)
+    // PRINT#, INPUT#, FREAD# and FWRITE#, whose keywords hold it (PRINT#1 is
+    // PRINT# 1; GET#1 is GET #1)
     while (pos < source.length() && (std::isalnum(source[pos]) || source[pos] == '_' || source[pos] == '$')) {
         word += source[pos];
         pos++;
@@ -483,7 +484,7 @@ BasicToken BasicTokenizer::parseIdentifier(const std::string& source, size_t& po
     if (pos < source.length() && source[pos] == '#') {
         std::string u = word;
         std::transform(u.begin(), u.end(), u.begin(), ::toupper);
-        if (u == "PRINT" || u == "INPUT") { word += '#'; pos++; }
+        if (u == "PRINT" || u == "INPUT" || u == "FREAD" || u == "FWRITE") { word += '#'; pos++; }
     }
 
     std::string upper = word;

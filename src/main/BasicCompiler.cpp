@@ -59,7 +59,8 @@ enum : int {
     T_BEGIN = 0xFE18, T_BEND = 0xFE19, T_PRINTN = 0x98, T_CMD = 0x9D, T_OPEN = 0x9F, T_CLOSE = 0xA0,
     T_DOPEN = 0xFE0D, T_APPEND = 0xFE0E, T_DCLOSE = 0xFE0F, T_DLOAD = 0xF0, T_LOAD = 0x93,
     T_HEADER = 0xF1, T_SCRATCH = 0xF2, T_COLLECT = 0xF3, T_COPY = 0xF4, T_RENAME = 0xF5, T_BACKUP = 0xF6,
-    T_DELETE = 0xF7, T_RECORD = 0xFE12, T_CONCAT = 0xFE13, T_DCLEAR = 0xFE15, T_ERASE = 0xFE2A,
+    T_DELETE = 0xF7, T_RECORD = 0xFE12, T_FREAD = 0xFE1C, T_FWRITE = 0xFE1E, T_LINE = 0xE5,
+    T_BSAVE = 0xFE10, T_BLOAD = 0xFE11, T_BVERIFY = 0xFE28, T_DIR = 0xEE, T_CATALOG = 0xFE0C, T_CONCAT = 0xFE13, T_DCLEAR = 0xFE15, T_ERASE = 0xFE2A,
 };
 
 enum class TK { Kw, Num, Str, Name, Ch };
@@ -1395,11 +1396,14 @@ private:
     LV parseLV(const std::string& name);
     void assignLV(const LV& lv, const Val& v);
     LV listVar(const char* stmt);
-    void inputStmt(bool chan = false);
+    void inputStmt(bool chan = false, bool line = false);
+    void lineInputN();
+    void freadStmt(bool write);
     void chanArg(const char* routine);
     void openStmt();
     void dosStmt(int kw);
-    int dosArgs(const char* what, int errflags, std::vector<Val>& names);
+    int dosArgs(const char* what, int errflags, std::vector<Val>& names, int auxAllowed = 0);
+    int lastAux_ = 0;
     void recordStmt();
     Val optValue();
     void doStmt();
@@ -1945,8 +1949,15 @@ void Compiler::statement() {
     }
     case T_OPEN: openStmt(); return;
     case T_DOPEN: case T_APPEND: case T_DCLOSE: case T_HEADER: case T_SCRATCH: case T_ERASE: case T_DELETE:
-    case T_RENAME: case T_CONCAT: case T_COLLECT: case T_DCLEAR: case T_BACKUP: case T_COPY: dosStmt(kw); return;
+    case T_RENAME: case T_CONCAT: case T_COLLECT: case T_DCLEAR: case T_BACKUP: case T_COPY:
+    case T_BLOAD: case T_BVERIFY: case T_BSAVE: case T_DIR: case T_CATALOG: dosStmt(kw); return;
     case T_RECORD: recordStmt(); return;
+    case T_FREAD: case T_FWRITE: freadStmt(kw == T_FWRITE); return;
+    case T_LINE:
+        // LINE INPUT# / LINE INPUT (the ROM's linputn / linput); LINE itself draws
+        if (acceptKw(T_INPUTN)) { lineInputN(); return; }
+        if (acceptKw(T_INPUT)) { inputStmt(false, true); return; }
+        fail("LINE (graphics) is not supported by --compile yet");
     case T_DLOAD: case T_LOAD: chainStmt(kw); return;
     case 0xEF: case 0x94: case 0x95: case 0xFE14:
         // DSAVE / SAVE / VERIFY / DVERIFY: the BASIC program's text, which a
@@ -2179,9 +2190,32 @@ Val Compiler::optValue() {
 // the parameters given (the ROM's parsts) returned. errflags: parameters
 // that are a syntax error (the ROM's error flags; "@" in a name checked at
 // run time)
-int Compiler::dosArgs(const char* what, int errflags, std::vector<Val>& names) {
-    int par = 0, flx = 0;
+int Compiler::dosArgs(const char* what, int errflags, std::vector<Val>& names, int auxAllowed) {
+    int par = 0, flx = 0, aux = 0;
     auto syn = [&](const std::string& m) { fail(std::string(what) + ": " + m + " (?SYNTAX ERROR)"); };
+    // P / TO P / B / ON B (BLOAD, BSAVE: the ROM's parstx; auxAllowed: those it takes)
+    auto auxOnce = [&](int bit) {
+        if (!(auxAllowed & bit)) syn("a parameter it does not take");
+        if (aux & bit) syn("a parameter given twice");
+        aux |= bit;
+    };
+    auto addrTo = [&](const char* g) {
+        Val a = optValue();
+        if (a.k == VK::S) fail("a number expected, not a string (?TYPE MISMATCH)");
+        if (a.isConst) {
+            double f = std::floor(a.cval);
+            if (f < 0 || f >= 4294967296.0) { raiseNow(14); f = 0; }
+            store(ir::Type::I32, iconst(ir::Type::I32, (int64_t)(uint32_t)(uint64_t)f), global(g));
+        } else if (a.k == VK::I || a.k == VK::B) {
+            Val x = a.k == VK::B ? toI16(a) : a;
+            checkRange(x, 0, INT32_MAX);
+            store(ir::Type::I32, asType(x, ir::Type::I32), global(g));
+        } else {
+            store(ir::Type::F32, toF(a), global("__float_a"));
+            call("__bas_getadr32");
+            store(ir::Type::I32, load(ir::Type::I32, global("__bas_fa")), global(g));
+        }
+    };
     auto once = [&](int bit) { if (par & bit) syn("a parameter given twice"); par |= bit; };
     auto byteTo = [&](const char* g, Val v) { store(ir::Type::I8, toByte(v), global(g)); };
     auto nameTo = [&](int bit, const char* g) {
@@ -2194,7 +2228,8 @@ int Compiler::dosArgs(const char* what, int errflags, std::vector<Val>& names) {
     // ON U unit: the unit checked, not used (as the ROM's on1 / on2)
     auto onU = [&] {
         auto t = peek();
-        if (!t || t->k != TK::Name || t->text[0] != 'U') syn("ON takes U");
+        if (t && t->k == TK::Name && t->text[0] == 'B') { auxOnce(1); byteTo("__bas_dbnk", optValue()); return; }
+        if (!t || t->k != TK::Name || t->text[0] != 'U') syn("ON takes U or B");
         byteTo("__bas_donu", optValue());
         flx |= 4;
         par |= 8;
@@ -2219,6 +2254,9 @@ int Compiler::dosArgs(const char* what, int errflags, std::vector<Val>& names) {
                     } else byteTo("__bas_drcl", optValue());
                     flx |= 8;          // (L: the length checked)
                 }
+                else if (t->k == TK::Name && t->text == "P" && (auxAllowed & 0x80)) { auxOnce(0x80); p_++; }   // (DIR P: a flag)
+                else if (t->k == TK::Name && t->text[0] == 'P') { auxOnce(2); addrTo("__bas_dofl"); }
+                else if (t->k == TK::Name && t->text[0] == 'B') { auxOnce(1); byteTo("__bas_dbnk", optValue()); }
                 else if (t->k == TK::Name && t->text == "R") { if (flx & 0x40) syn("R given twice"); flx |= 0x40; p_++; }
                 else if (t->k == TK::Name && t->text[0] == 'I') {
                     if (flx & 0x80) syn("I given twice");
@@ -2246,7 +2284,21 @@ int Compiler::dosArgs(const char* what, int errflags, std::vector<Val>& names) {
             if (atEnd() || isKw(T_ELSE)) break;
             if (acceptCh(',')) continue;
             if (isKw(T_ON) || (two && peek()->k == TK::Name && peek()->text[0] == 'U')) continue;
-            if (!two && acceptKw(T_TO)) { two = true; continue; }
+            if (!two && isKw(T_TO)) {
+                p_++;
+                // TO P end: the end address, then file 1's parameters again
+                auto t = peek();
+                if (t && t->k == TK::Name && t->text[0] == 'P') {
+                    auxOnce(4);
+                    addrTo("__bas_dofh");
+                    if (atEnd() || isKw(T_ELSE)) break;
+                    if (acceptCh(',')) continue;
+                    if (isKw(T_ON)) continue;
+                    syn("unexpected" + near());
+                }
+                two = true;
+                continue;
+            }
             syn("unexpected" + near());
         }
     }
@@ -2254,6 +2306,8 @@ int Compiler::dosArgs(const char* what, int errflags, std::vector<Val>& names) {
     store(ir::Type::I8, ir::Operand::imm(par, ir::Type::I8), global("__bas_dpar"));
     store(ir::Type::I8, ir::Operand::imm(flx, ir::Type::I8), global("__bas_dflx"));
     store(ir::Type::I8, ir::Operand::imm(errflags, ir::Type::I8), global("__bas_derr"));
+    store(ir::Type::I8, ir::Operand::imm(aux, ir::Type::I8), global("__bas_daux"));
+    if (aux) lastAux_ = aux;
     return par;
 }
 
@@ -2266,13 +2320,18 @@ void Compiler::dosStmt(int kw) {
         {T_DELETE, "DELETE", 0x66, 1, 6}, {T_RENAME, "RENAME", 0xE4, 3, 7}, {T_CONCAT, "CONCAT", 0xC4, 3, 8},
         {T_COLLECT, "COLLECT", 0xE7, 0, 9}, {T_DCLEAR, "DCLEAR", 0, 0, 10}, {T_BACKUP, "BACKUP", 0xC7, 0, 11},
         {T_COPY, "COPY", 0, 0, 12},
+        {T_BLOAD, "BLOAD", 0xE6, 1, 13}, {T_BVERIFY, "BVERIFY", 0xE6, 1, 14}, {T_BSAVE, "BSAVE", 0x66, 1, 15},
+        {T_DIR, "DIR", 0xA6, 0, 16}, {T_CATALOG, "CATALOG", 0xA6, 0, 16},
     };
     const D* d = nullptr;
     for (const auto& e : table) if (e.kw == kw) d = &e;
     if (kw == T_DELETE && !(peek() && (peek()->k == TK::Str || isCh('('))))
         fail("DELETE of program lines works only in direct mode (?ILLEGAL DIRECT ERROR)");
     std::vector<Val> names;
-    int par = dosArgs(d->name, d->err, names);
+    int auxOk = kw == T_BSAVE ? 7 : (kw == T_BLOAD || kw == T_BVERIFY) ? 3 : (kw == T_DIR || kw == T_CATALOG) ? 0x80 : 0;
+    lastAux_ = 0;
+    int par = dosArgs(d->name, d->err, names, auxOk);
+    if (kw == T_BSAVE && (lastAux_ & 6) != 6) fail("BSAVE needs P start TO P end (?SYNTAX ERROR)");
     if ((par & d->need) != d->need) fail(std::string(d->name) + ": a required parameter is missing (?SYNTAX ERROR)");
     if (kw == T_BACKUP && (par & 0x30) != 0x30 && !(par & 8))
         fail("BACKUP takes D source TO D target, or U source TO U target (?SYNTAX ERROR)");
@@ -2281,6 +2340,49 @@ void Compiler::dosStmt(int kw) {
     store(ir::Type::I16, iconst(ir::Type::I16, d->cmd), global("__bas_m"));
     call("__bas_dos");
     for (auto it = names.rbegin(); it != names.rend(); ++it) freeVal(*it);
+}
+
+// LINE INPUT# lf, a$ [, b$ ...]: a line each (the ROM's linputn: InputBuffer,
+// no prompts, no item rules)
+void Compiler::lineInputN() {
+    chanArg("__bas_chkin");
+    expectCh(',');
+    do {
+        LV lv = listVar("LINE INPUT#");
+        if (lv.k != VK::S) fail("LINE INPUT# takes string variables (?TYPE MISMATCH)");
+        Val v;
+        v.k = VK::S;
+        v.slot = newSlot();
+        v.op = slotAddr(v.slot);
+        store(ir::Type::PTR, v.op, global("__bas_sr"));
+        call("__bas_lin");
+        assignLV(lv, v);
+    } while (acceptCh(','));
+    call("__bas_clrch");
+}
+
+// FREAD# / FWRITE# lf, address, size: size bytes (0: 65536) between the file
+// and memory at the 28-bit address (BANK not used, as the ROM's fread)
+void Compiler::freadStmt(bool write) {
+    store(ir::Type::I8, toByte(expr()), global("__bas_dlf"));
+    expectCh(',');
+    Val a = expr();
+    if (a.k == VK::S) fail("a number expected, not a string (?TYPE MISMATCH)");
+    if (a.isConst) {
+        double f = std::floor(a.cval);
+        if (f < 0 || f >= 4294967296.0) { raiseNow(14); f = 0; }
+        store(ir::Type::I32, iconst(ir::Type::I32, (int64_t)(uint32_t)(uint64_t)f), global("__bas_fa"));
+    } else if (a.k == VK::I || a.k == VK::B) {
+        Val x = a.k == VK::B ? toI16(a) : a;
+        checkRange(x, 0, INT32_MAX);
+        store(ir::Type::I32, asType(x, ir::Type::I32), global("__bas_fa"));
+    } else {
+        store(ir::Type::F32, toF(a), global("__float_a"));
+        call("__bas_getadr32");
+    }
+    expectCh(',');
+    store(ir::Type::I16, toAddr(expr()), global("__bas_m"));
+    call(write ? "__bas_fwrite" : "__bas_fread");
 }
 
 void Compiler::recordStmt() {
@@ -2552,7 +2654,7 @@ void Compiler::openStmt() {
     if (n == 4) freeVal(name);
 }
 
-void Compiler::inputStmt(bool chan) {
+void Compiler::inputStmt(bool chan, bool lineIn) {
     if (isCh('#')) fail("INPUT # (with a space) is not supported by --compile yet");
     // INPUT# lf, ...: from the file (no prompt; bad data ?FILE DATA)
     if (chan) {
@@ -2580,7 +2682,8 @@ void Compiler::inputStmt(bool chan) {
                ir::Operand::imm(0, ir::Type::I8)), end, items);
     block(items);
     do {
-        LV lv = listVar("INPUT");
+        LV lv = listVar(lineIn ? "LINE INPUT" : "INPUT");
+        if (lineIn && lv.k != VK::S) fail("LINE INPUT takes string variables (?TYPE MISMATCH)");
         Val v;
         if (lv.k == VK::S) {
             v.k = VK::S;
@@ -2588,7 +2691,8 @@ void Compiler::inputStmt(bool chan) {
             v.op = slotAddr(v.slot);
             store(ir::Type::PTR, v.op, global("__bas_sr"));
         }
-        store(ir::Type::I16, iconst(ir::Type::I16, lv.k == VK::S ? 1 : 0), global("__bas_m"));
+        // (__bas_m: 1 a string, 4 the line's rest: LINE INPUT)
+        store(ir::Type::I16, iconst(ir::Type::I16, lv.k == VK::S ? (lineIn ? 5 : 1) : 0), global("__bas_m"));
         call("__bas_iitem");
         std::string ok = newLabel("inok");
         brCond(bin(ir::Op::CMP_NE, ir::Type::I8, trunc(load(ir::Type::I16, global("__bas_n")), ir::Type::I8),

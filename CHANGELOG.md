@@ -4,6 +4,16 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### basic45 --compile: BLOAD, BSAVE, BVERIFY, DIR, CATALOG, FREAD#, FWRITE#, LINE INPUT[#] (#369)
+
+- `BSAVE` / `BLOAD` / `BVERIFY` with `P`, `TO P`, `B` / `ON B`, `R`, 28-bit
+  addresses; `DIR` / `CATALOG` (name, `D`, `U`, `R`, `W` columns, `P` pages);
+  `FREAD#` / `FWRITE#`; `LINE INPUT#` and `LINE INPUT` (`lib/stdlib/basic_io.c`,
+  `basic_in.c`).
+- basic45 tokenizes `FREAD#` / `FWRITE#` (they were the variables `FR` / `FW`
+  and `#`), and its variable warnings count `LINE INPUT[#]` as assigning.
+- Test `test_basic_compile8_xemu.bas` on a D81 (interpreted, -O2, -O0, --speed).
+
 ### basic45 --compile: HEADER, SCRATCH, RENAME, COPY, CONCAT, COLLECT, DCLEAR, BACKUP, RECORD# (#369)
 
 - The DOS statements share one parser, as the ROM's `dosprs` (`TO` and a
