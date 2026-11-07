@@ -4,6 +4,19 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### basic45 --compile: DLOAD / LOAD chaining, REM PRAGMA EXPORT / IMPORT (#369)
+
+- `DLOAD` / `LOAD` in a compiled program load the next program and run it, as
+  the interpreter does: a stub in BASIC's input buffer loads it on BASIC's
+  stack and returns through the SYS with BASIC's text pointer at its start;
+  a load error is the old program's (`__bas_chain`, `_bas_chainprep`).
+- Variables pass between compiled programs with `REM PRAGMA EXPORT [names]`
+  (basic45 writes `<output>.map`) and `REM PRAGMA IMPORT ["file.map"]
+  [names]` / `--import-map FILE`, through a block in attic RAM; basic45's
+  variable warnings leave them out.
+- `DSAVE`, `SAVE`, `VERIFY`, `DVERIFY`: an error naming why (no BASIC text).
+- Test `test_basic_compile6_xemu.bas` / `6b` (interpreted, -O2, -O0, --speed).
+
 ### Fixed: a switch's last case falling out of it inside a loop (cc45)
 
 - The branch from a switch's last case (one without `break`) to the

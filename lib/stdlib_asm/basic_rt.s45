@@ -369,6 +369,111 @@ __bas_kerr:
     sta __bas_n+1
     jmp __bas_error
 
+; DLOAD / LOAD in a running program (#369): the next program loaded and run,
+; as BASIC 65's load_it / cld70. The load overwrites this program, so a stub
+; does it from BASIC's input buffer ($0200; the name at $0280, set by
+; basic_io.c's _bas_chainprep with __bas_clen / __bas_cdev / __bas_csa): on
+; the caller's page-1 stack and base page 0 (as __exit), SETBNK 0, SETNAM,
+; SETLFS, LOAD at $2001 (or, a secondary address given, the file's own);
+; then text_top, BASIC's text pointer at the program's start ($2000) and
+; the DATA pointer, and back through the SYS: BASIC runs the new program
+; from its first line. A load error (the program still here): back to this
+; program's stack and base page and its error (__bas_kerr).
+    .split "__bas_chain"
+.global __bas_chain
+.extern __bas_clen
+.extern __bas_cdev
+.extern __bas_csa
+.extern __saved_spl
+.extern __saved_sph
+.extern __saved_p
+.extern __zp_page
+__bas_chain:
+    lda __saved_spl+1
+    sta @spl+1
+    lda __saved_sph+1
+    sta @sph+1
+    lda __saved_p+1
+    sta @p+1
+    lda __bas_clen
+    sta @len+1
+    lda __bas_cdev
+    sta @dev+1
+    lda __bas_csa
+    sta @sa+1
+    sei
+    tsx
+    stx @pspl+1
+    tsy
+    sty @psph+1
+    ldx #127                ; (the stub, under 128 bytes)
+@copy:
+    lda @stub,x
+    sta $0200,x
+    dex
+    bpl @copy
+    jmp $0200
+@stub:
+    lda #0
+    tab
+    see
+@spl:
+    ldx #$FF
+    txs
+@sph:
+    ldy #$01
+    tys
+    cli
+    lda #0
+    tax
+    jsr $FF6B               ; SETBNK 0, 0
+@len:
+    lda #0
+    ldx #$80
+    ldy #$02
+    jsr $FFBD               ; SETNAM $0280
+    lda #0
+@dev:
+    ldx #8
+@sa:
+    ldy #0
+    jsr $FFBA               ; SETLFS 0, device, secondary
+    lda #0
+    ldx #$01
+    ldy #$20
+    jsr $FFD5               ; LOAD at $2001
+    bcs @fail
+    stx $82                 ; text_top
+    sty $83
+    lda #0
+    sta $3B                 ; txtptr: $2000
+    sta $3D
+    sta $3E
+    sta $43                 ; datptr: $2000
+    lda #$20
+    sta $3C
+    sta $44
+@p:
+    lda #0
+    pha
+    plp
+    rts                     ; (to the SYS: BASIC goes on at txtptr)
+@fail:
+    taz                     ; (the KERNAL's error)
+    sei
+    cle
+@pspl:
+    ldx #0
+    txs
+@psph:
+    ldy #0
+    tys
+    lda #>__zp_page
+    tab
+    cli
+    tza
+    jmp __bas_kerr
+
 ; (a JSR through __bas_relv)
     .split "__bas_jrel"
 __bas_jrel:

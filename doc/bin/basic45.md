@@ -70,6 +70,7 @@ Without `-o` the output is the input name with its extension replaced by `.prg` 
 | `--compile` | Compile the program (the source, or a tokenized BASIC 65 `.prg`) to machine code: a `.prg` started with `RUN` ([Compiling](#compiling-compile)) |
 | `-O0` … `-O4` | `--compile`: cc45's optimization level (default `-O2`) |
 | `--asm <file>` | `--compile`: also write the generated ca45 assembly |
+| `--import-map FILE` | `--compile`: the map file of `REM PRAGMA IMPORT` without one (the exporting program's `<output>.map`; see Chaining) |
 | `--speed`, `-Ospeed` | `--compile`: `-O3` and float `+ - * /` and comparisons by the library's RAM routines (`float_fast.s45`) instead of the ROM's: faster, with the ROM's rounding fixes (see Compiling) |
 | `--convert=<dialect>` | Another BASIC's `.prg` or text listing as BASIC 65 basic45 source, with warnings for what needs a hand: `basic7` (C128 BASIC 7.0), `basic35` (C16 / Plus/4 BASIC 3.5), `simons` (C64 Simons' BASIC and TSB), `tsbneo` (TSBneo: `AT(row, column)`) ([Converting BASIC 7.0 Programs](#converting-basic-70-programs-convertbasic7)) |
 | `--ntsc`, `--pal` | With `--convert`: the source machine's video timing, for `TEMPO` and BASIC 3.5's `SOUND` (default `--pal`) |
@@ -333,7 +334,7 @@ status at `$FD`/`$FE` is the error number), after which BASIC's `READY.` follows
 
 | | |
 |---|---|
-| Statements | `LET` and assignments, `PRINT` (`;`, `,`, `TAB(`, `SPC(`), `IF` … `THEN` / `GOTO` (a line number or statements), `ELSE`, `BEGIN` / `BEND`, `GOTO`, `GO TO`, `GOSUB`, `RETURN`, `ON` … `GOTO` / `GOSUB`, `FOR` … `TO` … `STEP` / `NEXT` (a float variable; `NEXT a, b`), `POKE`, `DIM`, `INPUT` (a prompt with `;` or `,`), `GET`, `GETKEY`, `DO` … `LOOP` (`WHILE` / `UNTIL` on either), `EXIT`, `READ`, `DATA`, `RESTORE` (a line number or none), `DEF FN`, `WPOKE`, `WAIT`, `SLEEP`, `SCNCLR` (the text screen), `BANK`, `TRAP` (a line number or none), `RESUME` (none, `NEXT` or a line), `OPEN`, `CLOSE`, `PRINT#`, `INPUT#`, `GET#`, `CMD`, `DOPEN`, `APPEND`, `DCLOSE`, `END`, `STOP`, `REM`; `POKE` / `WPOKE` with a list of values |
+| Statements | `LET` and assignments, `PRINT` (`;`, `,`, `TAB(`, `SPC(`), `IF` … `THEN` / `GOTO` (a line number or statements), `ELSE`, `BEGIN` / `BEND`, `GOTO`, `GO TO`, `GOSUB`, `RETURN`, `ON` … `GOTO` / `GOSUB`, `FOR` … `TO` … `STEP` / `NEXT` (a float variable; `NEXT a, b`), `POKE`, `DIM`, `INPUT` (a prompt with `;` or `,`), `GET`, `GETKEY`, `DO` … `LOOP` (`WHILE` / `UNTIL` on either), `EXIT`, `READ`, `DATA`, `RESTORE` (a line number or none), `DEF FN`, `WPOKE`, `WAIT`, `SLEEP`, `SCNCLR` (the text screen), `BANK`, `TRAP` (a line number or none), `RESUME` (none, `NEXT` or a line), `OPEN`, `CLOSE`, `PRINT#`, `INPUT#`, `GET#`, `CMD`, `DOPEN`, `APPEND`, `DCLOSE`, `DLOAD`, `LOAD` (chaining), `END`, `STOP`, `REM`; `POKE` / `WPOKE` with a list of values |
 | Values | floats, `%` integers (-32768..32767), strings (up to 255 characters); arrays of each (`DIM a(n, m)`, up to 8 subscripts; sizes at run time) |
 | Operators | `+ - * / ^`, unary `-`, `= <> < > <= >=` (numbers and strings), `AND`, `OR`, `XOR`, `NOT` (-32768..65535, as BASIC 65's), `<<`, `>>` |
 | Functions | `ABS`, `INT`, `SGN`, `SQR`, `SIN`, `COS`, `TAN`, `ATN`, `LOG`, `EXP`, `PEEK`, `LEN`, `ASC`, `CHR$`, `STR$`, `LEFT$`, `RIGHT$`, `MID$`, `RND`, `FN`, `POS`, `VAL`, `DEC`, `HEX$`, `STRBIN$`, `INSTR` (a pound sign's pattern too), `MOD`, `WPEEK`, `RPT$`, `ERR$`, π; the variables `TI`, `TI$`, `ER`, `EL`, `ST`, `DS` and `DS$` |
@@ -385,9 +386,37 @@ its command strings (`"@0:name,W,S"`, `",L,"` and the length, `"0:name,A"`), on 
 (`?TOO MANY FILES`); its checks too (`?ILLEGAL QUANTITY` for `#0`, a drive over 9, `L0`; `?ILLEGAL DEVICE NUMBER`,
 `?MISSING FILE NAME`). `DCLOSE` without `#` closes all the unit's files. `DS` / `DS$` read the drive's error
 channel when no message is kept (the KERNAL's device if a drive, else the last DOS statement's unit) and keep it
-until a `DOPEN` or an `OPEN` of a drive, as BASIC 65's `Read_DS` / `Clear_DS`. Not compiled yet: `DLOAD`, `DSAVE`,
-`LOAD`, `SAVE`, `BLOAD`, `BSAVE`, `DIR`, `CATALOG`, `SCRATCH`, `RENAME`, `COPY`, `HEADER`, `DCLEAR`, `RECORD`,
-`FREAD#`, `FWRITE#`, `LINPUT#`.
+until a `DOPEN` or an `OPEN` of a drive, as BASIC 65's `Read_DS` / `Clear_DS`. Not compiled yet: `BLOAD`,
+`BSAVE`, `DIR`, `CATALOG`, `SCRATCH`, `RENAME`, `COPY`, `HEADER`, `DCLEAR`, `RECORD`, `FREAD#`, `FWRITE#`, `LINPUT#`.
+`DSAVE`, `SAVE`, `VERIFY` and `DVERIFY` are errors: they save or compare the BASIC program's text, which a compiled
+program does not have.
+
+**Chaining**: `DLOAD name [, D drive] [, U unit] [ON U unit]` and `LOAD [name [, device [, secondary]]]` in a running
+program load the next program and run it from its first line, as the interpreter does (`load_it`; the program
+loaded can be compiled or BASIC text). The load overwrites the program, so a stub in BASIC's input buffer (`$0200`)
+does it on BASIC's stack and base page, sets BASIC's text and DATA pointers to the new program's start and returns
+through the `SYS`; a load error (`?FILE NOT FOUND`, …) is the old program's, at its line (`TRAP` works). The
+interpreter keeps the variables across the load; a compiled program's are its own memory, so they are passed
+explicitly:
+
+```
+10 rem pragma export                        part1.bas: every scalar variable (or: rem pragma export a$, n)
+20 a$ = "test" : n = 42
+30 dload "part2"
+
+10 rem pragma import "part1.map" a$, n      part2.bas: those it names (none: all of the map's)
+20 print a$; n
+```
+
+`REM PRAGMA EXPORT [name, ...]` makes basic45 `--compile` write `<output>.map`: the variables in order, their
+types and an id. At the `DLOAD` / `LOAD` the program writes them to the chain block (attic RAM, `$87F0000`: a
+string's characters with it). `REM PRAGMA IMPORT ["file.map"] [name, ...]` reads the map at compile time (a
+name in the pragma beside the source; `--import-map FILE`, as given, when the pragma names none; a name not in it, or of another type, is an error) and at the
+start takes the variables from the block when it holds that exporter's (then forgets it: a later `RUN` starts
+empty, as BASIC's). Names are BASIC's (two characters and `$` / `%`); arrays are not passed. A program started
+otherwise keeps its variables empty. In the interpreter the pragmas are `REM`s, and basic45 does not warn about
+the variables they name. Run time: `basic_rt.s45`'s `__bas_chain`, `basic_io.c`'s `_bas_chainprep` and
+`_bas_x*`. Test: `test_basic_compile6_xemu.bas` / `test_basic_compile6b_xemu.bas`.
 
 **TRAP**: with a trap set, an error (not `STOP`'s BREAK) sets `ER` and `EL`, turns the trap off and goes on at
 the trap's line with the CPU stack as at the start (BASIC's stack of `GOSUB`, `FOR` and `DO` as it was, as the ROM

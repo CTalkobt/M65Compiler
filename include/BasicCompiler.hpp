@@ -15,8 +15,18 @@
 
 namespace ir { struct Module; }
 
+// Chaining (DLOAD / LOAD, #369): REM PRAGMA IMPORT's map file when the
+// pragma names none (basic45 --import-map), and where the pragma's names
+// are found (the source's directory)
+struct BasicChainOptions {
+    std::string importMap;
+    std::string sourceDir;
+};
+
 struct BasicCompileResult {
     bool ok = false;
+    // REM PRAGMA EXPORT: the map file's text (empty: no export)
+    std::string exportMap;
     // BASIC line number (0: none), message
     std::vector<std::pair<int, std::string>> errors;
     std::shared_ptr<ir::Module> module;
@@ -26,7 +36,7 @@ struct BasicCompileResult {
 // (--speed): + - * / and comparisons of floats by the RAM routines
 // (float_fast.s45), not the ROM's
 BasicCompileResult compileBasicToIR(const std::vector<uint8_t>& prg, const std::string& sourceName,
-                                    bool speed = false);
+                                    bool speed = false, const BasicChainOptions* chain = nullptr);
 
 // The module as ca45 assembly (relocatable: ca45 -c, then ln45 -basic with
 // c45.lib): cc45's IR passes at -O<optLevel>, then IRCodeGen. Throws on an

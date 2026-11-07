@@ -385,6 +385,28 @@ void BasicEmitter::checkVariables(const std::vector<std::vector<BasicToken>>& li
     static const std::set<std::string> reserved = {"ST", "TI", "TI$", "DS", "DS$", "ER", "EL"};
     auto up = [](std::string s) { std::transform(s.begin(), s.end(), s.begin(), ::toupper); return s; };
 
+    // REM PRAGMA IMPORT's variables are assigned by the program that loads
+    // this one, REM PRAGMA EXPORT's read by the one it loads (basic45
+    // --compile chaining): no warnings about them (all of them without names)
+    std::set<std::string> chained;
+    bool importAll = false, exportAll = false;
+    for (const auto& t : lines)
+        for (size_t k = 0; k + 1 < t.size(); k++) {
+            if (t[k].type != BasicToken::KEYWORD || t[k].value != "REM" || t[k + 1].type != BasicToken::RAW) continue;
+            std::istringstream in(up(t[k + 1].value));
+            std::string w, what;
+            if (!(in >> w) || w != "PRAGMA" || !(in >> what) || (what != "IMPORT" && what != "EXPORT")) continue;
+            std::string rest, name;
+            std::getline(in, rest);
+            if (what == "IMPORT" && rest.find('"') != std::string::npos) rest = rest.substr(rest.rfind('"') + 1);
+            bool any = false;
+            for (char c : rest + ",") {
+                if (c == ',' || c == ' ') { if (!name.empty()) { chained.insert(name); any = true; } name.clear(); }
+                else name += c;
+            }
+            if (!any) (what == "IMPORT" ? importAll : exportAll) = true;
+        }
+
     for (size_t li = 0; li < lines.size(); li++) {
         const auto& t = lines[li];
         size_t i = 0;
@@ -483,6 +505,9 @@ void BasicEmitter::checkVariables(const std::vector<std::vector<BasicToken>>& li
     for (const auto& [key, u] : vars) {
         if (u.exempt) continue;
         std::string shown = key.back() == '(' ? key + ")" : key;
+        if (key.back() != '(' && (chained.count(key) || (u.read && !u.assigned && importAll) ||
+                                  (u.assigned && !u.read && exportAll)))
+            continue;
         if (u.read && !u.assigned && !u.dimmed)
             diagnostics.push_back({u.firstLine, "variable " + shown + " is read but never assigned (a typo?)", false});
         else if (u.assigned && !u.read)

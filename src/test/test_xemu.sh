@@ -813,6 +813,28 @@ else
     echo "FAIL: test_basic_compile5_xemu.bas (basic45 or basic45 --compile failed)"
     failed=$((failed + 1))
 fi
+# test_basic_compile6_xemu.bas: chaining. It (REM PRAGMA EXPORT) DLOADs
+# test_basic_compile6b_xemu.bas ("BC6B" on its D81; REM PRAGMA IMPORT, the
+# map from --import-map), which checks the variables; LOAD of a missing file
+# trapped. Interpreted (the interpreter keeps the variables) and compiled
+# -O2, -O0, --speed
+BC6_EXP="01 01 01 01 01 AA"
+for bc6 in "i|" "|--compile" "O0|--compile -O0" "speed|--compile --speed"; do
+    IFS='|' read -r bc6s bc6f <<< "$bc6"
+    bc6n="test_basic_compile6${bc6s:+_$bc6s}"
+    rm -f "build/test/$bc6n.d81" "build/test/$bc6n.map"
+    # shellcheck disable=SC2086
+    if ./bin/basic45 $bc6f src/test-resources/test_basic_compile6_xemu.bas -o "build/test/$bc6n.prg" >/dev/null 2>&1 &&
+       ./bin/basic45 $bc6f ${bc6f:+--import-map build/test/$bc6n.map} src/test-resources/test_basic_compile6b_xemu.bas \
+           -o "build/test/${bc6n}b.prg" >/dev/null 2>&1 &&
+       ./bin/disk45 create "build/test/$bc6n.d81" -n "BC6" >/dev/null 2>&1 &&
+       ./bin/disk45 add "build/test/$bc6n.d81" "build/test/${bc6n}b.prg" bc6b >/dev/null 2>&1; then
+        run_xemu_test "$bc6n" "build/test/$bc6n.prg" "C0C0" 6 "$BC6_EXP" -8 "$PWD/build/test/$bc6n.d81"
+    else
+        echo "FAIL: $bc6n (basic45, basic45 --compile or disk45 failed)"
+        failed=$((failed + 1))
+    fi
+done
 # an array subscript past its DIM: ?BAD SUBSCRIPT (18)
 printf '10 dim a(5):a(5)=1:print a(6):poke 49344,1\n' > build/test/test_basic_compile_bs.bas
 if ./bin/basic45 --compile build/test/test_basic_compile_bs.bas -o build/test/test_basic_compile_bs.prg >/dev/null 2>&1; then
