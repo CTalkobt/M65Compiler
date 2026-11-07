@@ -1,0 +1,421 @@
+; basic_spr.s45 — the sprites' interrupt part of BASIC 65 programs compiled by
+; basic45 --compile (#369), as BASIC 65's (b65.src V920413: basic_irq's
+; collision_irq and movspr_irq, get_sprpos, put_sprpos); the VIC-IV written
+; directly, BASIC's own sprite tables not used. basic_sprite.c is the rest.
+;
+;   __bas_sprirq   the interrupt hook in the KERNAL's IRQ vector ($0314), once:
+;                  each interrupt (before the KERNAL's handler, as BASIC's runs
+;                  in it) moves the sprites with a speed (MOVSPR ... TO, #) and
+;                  records collisions (BUMP) and COLLISION's trap flags. The
+;                  vector leads to a stub at $0500 (BASIC's run-time stack, not
+;                  a compiled program's): while a ROM routine runs (JSRFAR),
+;                  BASIC's ROM hides the program, and the stub only counts the
+;                  frame (moved at the next one) and keeps the VIC's collision
+;                  flags
+;   __irqhook_exit the vector back (crt0's __exit, __bas_chain; crt0's weak
+;                  one does nothing when this is not linked)
+;   __bas_getpos   sprite __bas_sprn's position into __bas_spx / __bas_spy
+;   __bas_putpos   and back (bits 8 and 9 always written)
+;
+; __bas_sprt: 12 bytes a sprite, as BASIC's (sproff): speed (2; 0 stopped),
+; the fractions of x and y, the moves of x and y (2 each, 1/256 pixel a
+; frame), the target x and y (2 each).
+
+.weak cc45.icallinfo
+cc45.icallinfo = 1
+
+    .cpu 45gs02
+
+IIRQ = $0314
+STUB = $0500                ; the stub's code
+MISSED = $0530              ; frames it skipped
+PENDF = $0531               ; the VIC's flags they had
+OLDV = $0532                ; the KERNAL's vector
+
+    .split "__bas_sprirq"
+.global __bas_sprirq
+.global __irqhook_exit
+__bas_sprirq:
+    lda __bas_irqon
+    bne @done
+    php
+    sei
+    ldx #stubend-stub-1
+@copy:
+    lda stub,x
+    sta STUB,x
+    dex
+    bpl @copy
+    lda #0
+    sta MISSED
+    sta PENDF
+    lda IIRQ
+    sta __bas_oirq
+    sta OLDV
+    lda IIRQ+1
+    sta __bas_oirq+1
+    sta OLDV+1
+    lda #<STUB
+    sta IIRQ
+    lda #>STUB
+    sta IIRQ+1
+    lda #1
+    sta __bas_irqon
+    plp
+@done:
+    rts
+
+__irqhook_exit:
+    pha
+    lda __bas_irqon
+    beq @out
+    php
+    sei
+    lda __bas_oirq
+    sta IIRQ
+    lda __bas_oirq+1
+    sta IIRQ+1
+    lda #0
+    sta __bas_irqon
+    plp
+@out:
+    pla
+    rts
+
+; (copied to STUB: the hook when the program is there, its first bytes
+; telling; else the frame counted)
+stub:
+    lda __bas_sirq
+    cmp #$AD
+    bne @miss
+    lda __bas_sirq+1
+    cmp #$19
+    bne @miss
+    lda __bas_sirq+2
+    cmp #$D0
+    bne @miss
+    jmp __bas_sirq
+@miss:
+    inc MISSED
+    lda $D019
+    bpl @old
+    and #%00001110
+    tsb PENDF
+@old:
+    jmp (OLDV)
+stubend:
+
+; The hook: entered from the KERNAL's irq_kernel (registers saved, base page
+; 0), so no base-page variables here
+__bas_sirq:
+    ; collisions: the VIC's flags of an interrupt it raised (the KERNAL's
+    ; nirq reads and acknowledges them after this), as collision_irq; and
+    ; the frames the stub skipped
+    lda $D019               ; (the stub's signature: AD 19 D0)
+    bmi @vic
+    lda #0
+@vic:
+    and #%00001110
+    ora PENDF
+    ldx #0
+    stx PENDF
+    tax
+    beq @move
+    txa
+    lsr a                   ; bit 0 sprite/background, 1 sprite/sprite, 2 light pen
+    sta irqf
+    ldy #1
+@coll:
+    lsr irqf
+    bcc @cnext
+    lda $D01E,y             ; (reading clears it)
+    ora __bas_coll,y
+    sta __bas_coll,y
+    lda __bas_intv          ; COLLISION 1 / 2 on: the trap's flag
+    cpy #0
+    beq @c1
+    lsr a
+@c1:
+    lsr a
+    bcc @cnext
+    lda #$FF
+    sta __bas_trip0,y
+    sta __bas_tripa
+@cnext:
+    dey
+    bpl @coll
+    lsr irqf                ; the light pen
+    bcc @move
+    lda __bas_intv
+    and #4
+    beq @move
+    lda #$FF
+    sta __bas_trip2
+    sta __bas_tripa
+@move:
+    ; the moving sprites, as movspr_irq (once more for each frame skipped)
+    lda MISSED
+    inc a
+    sta irqn
+    lda #0
+    sta MISSED
+@frame:
+    ldx #7
+@m1:
+    lda $D015
+    beq @out
+    and sbits,x
+    beq @m2
+    ldy sproff,x
+    lda __bas_sprt,y
+    ora __bas_sprt+1,y
+    beq @m2
+    jsr target
+@m2:
+    dex
+    bpl @m1
+    dec irqn
+    bne @frame
+@out:
+    jmp (__bas_oirq)
+
+; Sprite X a frame on, stopped at its target (movspr_target)
+target:
+    jsr getpos
+    ldy sproff,x
+    clc
+    lda __bas_sprt+4,y      ; x move + x fraction
+    adc __bas_sprt+2,y
+    sta __bas_sprt+2,y
+    lda __bas_sprt+5,y
+    pha
+    adc posx
+    sta posx
+    lda #0
+    plz
+    bpl @t10
+    dec a
+@t10:
+    adc posx+1
+    sta posx+1
+    clc
+    lda __bas_sprt+6,y      ; y move + y fraction
+    adc __bas_sprt+3,y
+    sta __bas_sprt+3,y
+    lda __bas_sprt+7,y
+    pha
+    adc posy
+    sta posy
+    lda #0
+    plz
+    bpl @t20
+    dec a
+@t20:
+    adc posy+1
+    sta posy+1
+    ; at (or just past) the target?
+    cmp __bas_sprt+11,y
+    bne @put
+    lda posx+1
+    cmp __bas_sprt+9,y
+    bne @put
+    lda __bas_sprt+7,y
+    bmi @t30
+    lda posy
+    cmp __bas_sprt+10,y
+    bcc @put
+    bra @t31
+@t30:
+    lda __bas_sprt+10,y
+    cmp posy
+    bcc @put
+@t31:
+    lda __bas_sprt+5,y
+    bmi @t40
+    lda posx
+    cmp __bas_sprt+8,y
+    bcc @put
+    bra @t41
+@t40:
+    lda __bas_sprt+8,y
+    cmp posx
+    bcc @put
+@t41:
+    ; stopped there
+    lda #0
+    sta __bas_sprt,y
+    sta __bas_sprt+1,y
+    lda __bas_sprt+10,y
+    sta posy
+    lda __bas_sprt+11,y
+    sta posy+1
+    lda __bas_sprt+8,y
+    sta posx
+    lda __bas_sprt+9,y
+    sta posx+1
+@put:
+    jmp putpos
+
+; Sprite X's position into posx / posy (keeps X): bit 9 of x only with
+; SPRH640 ($D054 bit 4), bits 8 and 9 of y only with its SPRENV400 bit ($D076)
+getpos:
+    txa
+    asl a
+    tay
+    lda $D000,y
+    sta posx
+    lda $D001,y
+    sta posy
+    ldz #0
+    lda sbits,x
+    and $D010
+    beq @g10
+    inz
+@g10:
+    lda #%00010000
+    bit $D054
+    beq @g15
+    lda sbits,x
+    and $D05F
+    beq @g15
+    inz
+    inz
+@g15:
+    stz posx+1
+    ldz #0
+    lda sbits,x
+    bit $D076
+    beq @g25
+    lda sbits,x
+    and $D077
+    beq @g20
+    inz
+@g20:
+    lda sbits,x
+    and $D078
+    beq @g25
+    inz
+    inz
+@g25:
+    stz posy+1
+    rts
+
+; Sprite X at posx / posy (keeps X)
+putpos:
+    txa
+    asl a
+    tay
+    lda posx
+    sta $D000,y
+    lda posy
+    sta $D001,y
+    lda posx+1
+    lsr a                   ; x bit 8
+    lda $D010
+    ora sbits,x
+    bcs @p10
+    eor sbits,x
+@p10:
+    sta $D010
+    lda posx+1
+    lsr a
+    lsr a                   ; x bit 9
+    lda $D05F
+    ora sbits,x
+    bcs @p15
+    eor sbits,x
+@p15:
+    sta $D05F
+    lda posy+1
+    lsr a                   ; y bit 8
+    lda $D077
+    ora sbits,x
+    bcs @p20
+    eor sbits,x
+@p20:
+    sta $D077
+    lda posy+1
+    lsr a
+    lsr a                   ; y bit 9
+    lda $D078
+    ora sbits,x
+    bcs @p25
+    eor sbits,x
+@p25:
+    sta $D078
+    rts
+
+.global __bas_getpos
+__bas_getpos:
+    php
+    sei
+    ldx __bas_sprn
+    jsr getpos
+    lda posx
+    sta __bas_spx
+    lda posx+1
+    sta __bas_spx+1
+    lda posy
+    sta __bas_spy
+    lda posy+1
+    sta __bas_spy+1
+    plp
+    rts
+
+.global __bas_putpos
+__bas_putpos:
+    php
+    sei
+    ldx __bas_sprn
+    lda __bas_spx
+    sta posx
+    lda __bas_spx+1
+    sta posx+1
+    lda __bas_spy
+    sta posy
+    lda __bas_spy+1
+    sta posy+1
+    jsr putpos
+    plp
+    rts
+
+sbits:  .byte $01, $02, $04, $08, $10, $20, $40, $80
+sproff: .byte 0, 12, 24, 36, 48, 60, 72, 84
+
+.segment "bss"
+.global __bas_sprt
+__bas_sprt: .res 96
+.global __bas_sprn
+__bas_sprn: .res 1
+.global __bas_spx
+__bas_spx: .res 2
+.global __bas_spy
+__bas_spy: .res 2
+.global __bas_coll
+__bas_coll: .res 2          ; BUMP: sprite/sprite, sprite/background
+.global __bas_intv
+__bas_intv: .res 1          ; COLLISION 1-3 on (bits 0-2), a trap running (bit 7)
+.global __bas_tripa
+__bas_tripa: .res 1         ; a trap's flag set
+.global __bas_trip0
+.global __bas_trip1
+.global __bas_trip2
+__bas_trip0: .res 1         ; the traps' flags (COLLISION 1-3)
+__bas_trip1: .res 1
+__bas_trip2: .res 1
+.global __bas_cadr0
+.global __bas_cadr1
+.global __bas_cadr2
+__bas_cadr0: .res 2         ; their lines' code
+__bas_cadr1: .res 2
+__bas_cadr2: .res 2
+.global __bas_tret
+__bas_tret: .res 2          ; the statement a trap was seen at
+.global __bas_tret0
+__bas_tret0: .res 2         ; (and the one going on after the traps)
+posx: .res 2
+posy: .res 2
+irqf: .res 1
+irqn: .res 1
+__bas_irqon: .res 1
+__bas_oirq: .res 2

@@ -115,7 +115,10 @@ static int t_heap(void) {
     /* memory given to the heap: malloc takes it first (lower addresses) */
     _heapadd(extra, sizeof extra);
     after = _heapmemavail();
-    ok = ok && (after == before + 198 || after == before + 200);
+    /* (an odd address evened out: a byte less, the size even again; the
+       block's header, unless it joins a free neighbour) */
+    i = ((unsigned int)extra & 1) ? 196 : 198;
+    ok = ok && (after == before + i || after == before + i + 2);
     r = (char *)malloc(150);
     ok = ok && r >= (char *)extra && r < (char *)extra + sizeof extra;
     free(r);

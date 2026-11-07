@@ -857,6 +857,22 @@ else
     echo "FAIL: test_basic_compile8_xemu.bas (basic45 or basic45 --compile failed)"
     failed=$((failed + 1))
 fi
+# test_basic_compile9_xemu.bas: SPRITE, SPRCOLOR, MOVSPR (positions, TO,
+# angle # speed: moved by the interrupt hook), RSPRITE, RSPCOLOR, RSPPOS,
+# SPRSAV, COLLISION, BUMP; the same four ways
+BC9_EXP="01 01 01 01 01 01 01 AA"
+if ./bin/basic45 src/test-resources/test_basic_compile9_xemu.bas -o build/test/test_basic_compile9_i.prg >/dev/null 2>&1 &&
+   ./bin/basic45 --compile src/test-resources/test_basic_compile9_xemu.bas -o build/test/test_basic_compile9.prg >/dev/null 2>&1 &&
+   ./bin/basic45 --compile -O0 src/test-resources/test_basic_compile9_xemu.bas -o build/test/test_basic_compile9_O0.prg >/dev/null 2>&1 &&
+   ./bin/basic45 --compile --speed src/test-resources/test_basic_compile9_xemu.bas -o build/test/test_basic_compile9_speed.prg >/dev/null 2>&1; then
+    run_xemu_test "test_basic_compile9_interpreted" "build/test/test_basic_compile9_i.prg" "C0C0" 8 "$BC9_EXP"
+    run_xemu_test "test_basic_compile9" "build/test/test_basic_compile9.prg" "C0C0" 8 "$BC9_EXP"
+    run_xemu_test "test_basic_compile9_O0" "build/test/test_basic_compile9_O0.prg" "C0C0" 8 "$BC9_EXP"
+    run_xemu_test "test_basic_compile9_speed" "build/test/test_basic_compile9_speed.prg" "C0C0" 8 "$BC9_EXP"
+else
+    echo "FAIL: test_basic_compile9_xemu.bas (basic45 or basic45 --compile failed)"
+    failed=$((failed + 1))
+fi
 # test_basic_compile6_xemu.bas: chaining. It (REM PRAGMA EXPORT) DLOADs
 # test_basic_compile6b_xemu.bas ("BC6B" on its D81; REM PRAGMA IMPORT, the
 # map from --import-map), which checks the variables; LOAD of a missing file
