@@ -294,11 +294,11 @@ if $B --compile --asm "$D/c.s45" "$D/c.bas" -o "$D/c.prg" > "$D/c.log" 2>&1 &&
 else
     fail "--compile: $(cat "$D/c.log")"
 fi
-printf '10 print 1\n20 dopen#1,"x"\n' > "$D/cu.bas"
-if ! $B --compile "$D/cu.bas" -o "$D/cu.prg" > "$D/cu.log" 2>&1 && grep -q 'cu.bas:2:1: (line 20): error: DOPEN is not supported by --compile yet' "$D/cu.log"; then
-    pass "--compile: a statement outside the subset (DOPEN) is an error at its line"
+printf '10 print 1\n20 dload "x"\n' > "$D/cu.bas"
+if ! $B --compile "$D/cu.bas" -o "$D/cu.prg" > "$D/cu.log" 2>&1 && grep -q 'cu.bas:2:1: (line 20): error: DLOAD is not supported by --compile yet' "$D/cu.log"; then
+    pass "--compile: a statement outside the subset (DLOAD) is an error at its line"
 else
-    fail "--compile DOPEN: $(cat "$D/cu.log")"
+    fail "--compile DLOAD: $(cat "$D/cu.log")"
 fi
 # integer narrowing: whole-number variables (FOR's, K) without the float
 # runtime; one that grows without a bound (N = N + 1) stays a float

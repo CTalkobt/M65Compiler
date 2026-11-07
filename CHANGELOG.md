@@ -4,6 +4,14 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### basic45 --compile: DOPEN, APPEND, DCLOSE, DS, DS$ (#369)
+
+- `DOPEN#`, `APPEND#`, `DCLOSE` with the ROM's parameters (`D`, `U`, `W`,
+  `L`, `ON U`, `"@name"`), command strings, free secondary addresses and
+  checks; `DS` / `DS$` read from the drive's error channel and kept until a
+  `DOPEN` or an `OPEN` of a drive, as BASIC 65's (`lib/stdlib/basic_io.c`).
+- Test `test_basic_compile5_xemu.bas` on a D81 (interpreted, -O2, -O0, --speed).
+
 ### basic45 --compile: OPEN, CLOSE, PRINT#, INPUT#, GET#, CMD, ST (#369)
 
 - `OPEN lf [, device [, secondary [, name]]]` with the ROM's defaults,

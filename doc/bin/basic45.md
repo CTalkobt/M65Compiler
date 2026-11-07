@@ -333,10 +333,10 @@ status at `$FD`/`$FE` is the error number), after which BASIC's `READY.` follows
 
 | | |
 |---|---|
-| Statements | `LET` and assignments, `PRINT` (`;`, `,`, `TAB(`, `SPC(`), `IF` … `THEN` / `GOTO` (a line number or statements), `ELSE`, `BEGIN` / `BEND`, `GOTO`, `GO TO`, `GOSUB`, `RETURN`, `ON` … `GOTO` / `GOSUB`, `FOR` … `TO` … `STEP` / `NEXT` (a float variable; `NEXT a, b`), `POKE`, `DIM`, `INPUT` (a prompt with `;` or `,`), `GET`, `GETKEY`, `DO` … `LOOP` (`WHILE` / `UNTIL` on either), `EXIT`, `READ`, `DATA`, `RESTORE` (a line number or none), `DEF FN`, `WPOKE`, `WAIT`, `SLEEP`, `SCNCLR` (the text screen), `BANK`, `TRAP` (a line number or none), `RESUME` (none, `NEXT` or a line), `OPEN`, `CLOSE`, `PRINT#`, `INPUT#`, `GET#`, `CMD`, `END`, `STOP`, `REM`; `POKE` / `WPOKE` with a list of values |
+| Statements | `LET` and assignments, `PRINT` (`;`, `,`, `TAB(`, `SPC(`), `IF` … `THEN` / `GOTO` (a line number or statements), `ELSE`, `BEGIN` / `BEND`, `GOTO`, `GO TO`, `GOSUB`, `RETURN`, `ON` … `GOTO` / `GOSUB`, `FOR` … `TO` … `STEP` / `NEXT` (a float variable; `NEXT a, b`), `POKE`, `DIM`, `INPUT` (a prompt with `;` or `,`), `GET`, `GETKEY`, `DO` … `LOOP` (`WHILE` / `UNTIL` on either), `EXIT`, `READ`, `DATA`, `RESTORE` (a line number or none), `DEF FN`, `WPOKE`, `WAIT`, `SLEEP`, `SCNCLR` (the text screen), `BANK`, `TRAP` (a line number or none), `RESUME` (none, `NEXT` or a line), `OPEN`, `CLOSE`, `PRINT#`, `INPUT#`, `GET#`, `CMD`, `DOPEN`, `APPEND`, `DCLOSE`, `END`, `STOP`, `REM`; `POKE` / `WPOKE` with a list of values |
 | Values | floats, `%` integers (-32768..32767), strings (up to 255 characters); arrays of each (`DIM a(n, m)`, up to 8 subscripts; sizes at run time) |
 | Operators | `+ - * / ^`, unary `-`, `= <> < > <= >=` (numbers and strings), `AND`, `OR`, `XOR`, `NOT` (-32768..65535, as BASIC 65's), `<<`, `>>` |
-| Functions | `ABS`, `INT`, `SGN`, `SQR`, `SIN`, `COS`, `TAN`, `ATN`, `LOG`, `EXP`, `PEEK`, `LEN`, `ASC`, `CHR$`, `STR$`, `LEFT$`, `RIGHT$`, `MID$`, `RND`, `FN`, `POS`, `VAL`, `DEC`, `HEX$`, `STRBIN$`, `INSTR` (a pound sign's pattern too), `MOD`, `WPEEK`, `RPT$`, `ERR$`, π; the variables `TI`, `TI$`, `ER`, `EL` and `ST` |
+| Functions | `ABS`, `INT`, `SGN`, `SQR`, `SIN`, `COS`, `TAN`, `ATN`, `LOG`, `EXP`, `PEEK`, `LEN`, `ASC`, `CHR$`, `STR$`, `LEFT$`, `RIGHT$`, `MID$`, `RND`, `FN`, `POS`, `VAL`, `DEC`, `HEX$`, `STRBIN$`, `INSTR` (a pound sign's pattern too), `MOD`, `WPEEK`, `RPT$`, `ERR$`, π; the variables `TI`, `TI$`, `ER`, `EL`, `ST`, `DS` and `DS$` |
 
 **How**: the program is one function; each line and statement starts a block. `GOTO` is a branch; `GOSUB`
 pushes the address of the code after it on BASIC's stack and `RETURN` jumps back to it. `FOR` pushes its
@@ -376,8 +376,18 @@ as `INPUT` without prompts or echo (a line as BASIC's InputBuffer: up to 160 cha
 KERNAL's I/O status, signed (`-62` after reading a missing file). A KERNAL error is BASIC's of that number
 (`?FILE NOT OPEN`, `?DEVICE NOT PRESENT`, …); an error releases the channel. Routines: `basic_rt.s45`'s
 `__bas_chkout` / `__bas_chkin` / `__bas_clrch` (reached from `__bas_out` and `__bas_error` through vectors, so a
-program without files links none of it), `lib/stdlib/basic_io.c` (`OPEN`, `CLOSE`, `ST`). `DOPEN`, `DCLOSE`,
-`APPEND`, `DS` / `DS$` are not compiled yet.
+program without files links none of it), `lib/stdlib/basic_io.c` (`OPEN`, `CLOSE`, `ST`).
+
+**DOS statements**: `DOPEN# lf, name [, D drive] [, U unit] [, W] [, L length] [ON U unit]`, `APPEND# lf, name [, D]
+[, U]` and `DCLOSE [# lf] [, U unit]` take their parameters as the ROM's `dosprs` (any order, each once; `U8`,
+`D0`, `L80`, `U(x)`: the letter, then a value; a name in quotes or `(expression)`, `"@name"` to replace) and send
+its command strings (`"@0:name,W,S"`, `",L,"` and the length, `"0:name,A"`), on a free secondary address `$62`-`$6E`
+(`?TOO MANY FILES`); its checks too (`?ILLEGAL QUANTITY` for `#0`, a drive over 9, `L0`; `?ILLEGAL DEVICE NUMBER`,
+`?MISSING FILE NAME`). `DCLOSE` without `#` closes all the unit's files. `DS` / `DS$` read the drive's error
+channel when no message is kept (the KERNAL's device if a drive, else the last DOS statement's unit) and keep it
+until a `DOPEN` or an `OPEN` of a drive, as BASIC 65's `Read_DS` / `Clear_DS`. Not compiled yet: `DLOAD`, `DSAVE`,
+`LOAD`, `SAVE`, `BLOAD`, `BSAVE`, `DIR`, `CATALOG`, `SCRATCH`, `RENAME`, `COPY`, `HEADER`, `DCLEAR`, `RECORD`,
+`FREAD#`, `FWRITE#`, `LINPUT#`.
 
 **TRAP**: with a trap set, an error (not `STOP`'s BREAK) sets `ER` and `EL`, turns the trap off and goes on at
 the trap's line with the CPU stack as at the start (BASIC's stack of `GOSUB`, `FOR` and `DO` as it was, as the ROM
