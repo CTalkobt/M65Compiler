@@ -4,6 +4,15 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### basic45: a reserved word is never a label
+
+- A line starting with a BASIC 65 keyword or one of basic45's own words
+  (`endif`, `proc`, `call`, `select`, `case`, …) and `:` is the statement:
+  `10 end:print` is `END` and `PRINT` (it was the label `end` and `PRINT`,
+  the `END` lost, in numbered programs too).
+- `GOTO` / `GOSUB` / `GO TO` (and `ON … GOTO`'s items) with a reserved word
+  alone is an error: "'END' is a reserved word, not a label".
+
 ### basic45 --compile: SPRITE, SPRCOLOR, MOVSPR, SPRSAV, COLLISION, RSPRITE, RSPCOLOR, RSPPOS, BUMP (#369)
 
 - The sprite statements and functions on the VIC-IV's registers directly, with

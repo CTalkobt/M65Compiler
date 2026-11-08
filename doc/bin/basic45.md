@@ -97,14 +97,14 @@ Each non-empty source line becomes one BASIC line. Statements on a line are sepa
 
 ```basic
 start: print "hello"
-loop: print "x"
-  goto loop
+again: print "x"
+  goto again
 ```
 
-- A line beginning with `identifier:` (letters, digits, `_`; not starting with a digit) defines a label; the rest of the line is the code.
+- A line beginning with `identifier:` (letters, digits, `_`; not starting with a digit) defines a label; the rest of the line is the code. A reserved word is never a label: a BASIC 65 keyword (`end`, `loop`, `rcursor`, …) or one of basic45's own (`endif`, `proc`, `endproc`, `call`, `select`, `case`, `endselect`, `is`, `elif`, `asm`, `endasm`, `incbin`, `datainc`, `as`), in any case. `10 end: print` is `END` and `PRINT`.
 - Every line with code is one BASIC line, numbered 10, 20, 30, ... (`--increment`).
 - A label with no code on its line (`main_loop:` alone) names the next line with code (or, at the end of the source, an extra line holding `:`).
-- A label is used by name after `GOTO`, `GOSUB`, `GO TO` (also each item of `ON x GOTO a, b, c`), `THEN`, `ELSE`, `RESTORE`, `TRAP`, `RESUME` and `RUN`, and becomes that line's number. Labels are matched without regard to case (`goto Loop` finds `loop:`). A label may be named like a keyword (`loop:`) when it is used after `GOTO`/`GOSUB`; after `THEN`/`ELSE` a keyword stays a keyword (`then end`).
+- A label is used by name after `GOTO`, `GOSUB`, `GO TO` (also each item of `ON x GOTO a, b, c`), `THEN`, `ELSE`, `RESTORE`, `TRAP`, `RESUME` and `RUN`, and becomes that line's number. Labels are matched without regard to case (`goto Again` finds `again:`). A reserved word alone after `GOTO`, `GOSUB` or `GO TO` (`goto end`, an item of `ON x GOTO`) is an error; after `THEN` / `ELSE` it is the statement (`then end`).
 - Lines starting with `'` or upper-case `REM` are dropped. Lines starting with `#` that are not preprocessor directives are dropped by the preprocessor, so `#` works as a comment.
 - Leading/trailing whitespace is removed; blank lines are ignored.
 
