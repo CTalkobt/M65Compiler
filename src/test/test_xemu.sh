@@ -2395,6 +2395,11 @@ done
 
 # Test: cc65's string / stdlib / ctype / inttypes / signal / locale / time
 # functions and crc32
+for fmode in "zp|" "stack|-fno-zpcall"; do
+    IFS='|' read -r fname fflags <<< "$fmode"
+    echo "Testing test_far_cast_store_xemu.c ($fname)..."
+    xemu_case "FAIL: test_far_cast_store_xemu.c $fname (compilation/linking failed)" "src/test-resources/test_far_cast_store_xemu.c" "build/test/test_far_cast_store_${fname}_xemu.prg" "$fflags" -- "test_far_cast_store_$fname" "build/test/test_far_cast_store_${fname}_xemu.prg" "C0C0" 4 "01 01 01 AA"
+done
 for gmode in "zp|" "stack|-fno-zpcall"; do
     IFS='|' read -r gname gflags <<< "$gmode"
     echo "Testing test_cc65_gaps_xemu.c ($gname)..."

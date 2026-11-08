@@ -32,6 +32,22 @@ void IRBuilder::emitWarning(const std::string& warning) {
 void IRBuilder::generate(TranslationUnit& unit) {
     // Phase 102: Pre-pass to register all struct definitions and typedef mappings
     registerAllStructDefinitions(unit);
+    // a cast to a far / near pointer type (*(char __far *)0xF1UL = c) turns
+    // the far code on before it is reached: an assignment decides by
+    // farUsed_ before its target's cast is mapped
+    {
+        struct FarCasts : ASTWalker {
+            bool found = false;
+            using ASTWalker::visit;
+            void visit(CastExpression& node) override {
+                if (node.pointerLevel == 0 && (isFarPointerType(node.targetType) || isNearPointerType(node.targetType)))
+                    found = true;
+                ASTWalker::visit(node);
+            }
+        } fc;
+        unit.accept(fc);
+        if (fc.found) farUsed_ = true;
+    }
 
     unit.accept(*this);
     // what was declared volatile (by name: a local of the same name only

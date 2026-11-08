@@ -4,6 +4,15 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### Fixed: a store through a cast to a far pointer (cc45, #460)
+
+- `*(char __far *)0xF1UL = c` in a file with no far pointer variable was the
+  error "an object reached through a far pointer has no near address": the
+  far code was turned on only when the cast's type was mapped, after the
+  assignment had taken the near path. A pre-pass over the casts turns it on
+  first.
+- Test `test_far_cast_store_xemu.c` (both conventions).
+
 ### basic45: a reserved word is never a label
 
 - A line starting with a BASIC 65 keyword or one of basic45's own words
