@@ -24,7 +24,13 @@ KG_PLANES   = $1F50
 KG_BANKA    = $1F3E
 KG_DSBP     = $1F61
 
+KG_VPMAXX   = $1F57
+KG_VPMAXY   = $1F59
+
 PTR = $08                   ; (__zp_scratch: the byte's 28-bit address)
+
+.extern __bas_g
+.extern __bas_n
 
 ; the kernel's variables as one symbol (basic_gfx.c's struct kg65 _bas_kg)
 .global __bas_kg
@@ -33,6 +39,12 @@ __bas_kg = $1F00
     .split "__bas_gplot"
 .global __bas_gplot
 __bas_gplot:
+    jsr calcadr
+    jmp plotdot
+
+; odd, line, adr and mask of (__bas_gx, __bas_gy) (calcadr; __bas_gy's high
+; byte halved on an interlaced screen)
+calcadr:
     ; the line (y, or y / 2 interlaced: odd its parity)
     lda #0
     sta odd
@@ -81,6 +93,9 @@ __bas_gplot:
     tax
     lda bitsdn,x
     sta mask
+    rts
+
+plotdot:
     ; the pattern's bit (style 1)
     lda #1
     sta pat
@@ -120,31 +135,7 @@ __bas_gplot:
     lda KG_PLANES
     and pbit
     beq @next
-    ldx plane
-    lda KG_DSBP,x
-    ldy KG_HEIGHT
-    beq @low
-    ldy odd
-    beq @low
-    and #$E0                ; (the odd lines' segment)
-    bra @seg
-@low:
-    asl a
-    asl a
-    asl a
-    asl a
-@seg:
-    ora adr+1
-    sta PTR+1
-    lda adr
-    sta PTR
-    txa
-    and #1
-    ora KG_BANKA
-    sta PTR+2
-    lda #0
-    sta PTR+3
-    ldz #0
+    jsr paddr
     lda [PTR],z
     sta cur
     ; the mode
@@ -197,6 +188,105 @@ __bas_gplot:
     bcc @plane
     rts
 
+; PTR := the byte of plane `plane` (Z = 0)
+paddr:
+    ldx plane
+    lda KG_DSBP,x
+    ldy KG_HEIGHT
+    beq @low
+    ldy odd
+    beq @low
+    and #$E0                ; (the odd lines' segment)
+    bra @seg
+@low:
+    asl a
+    asl a
+    asl a
+    asl a
+@seg:
+    ora adr+1
+    sta PTR+1
+    lda adr
+    sta PTR
+    txa
+    and #1
+    ora KG_BANKA
+    sta PTR+2
+    lda #0
+    sta PTR+3
+    ldz #0
+    rts
+
+; ---------------------------------------------------------------------------
+;   __bas_gpix    A := the colour index at (__bas_gx, __bas_gy) (q.pixel),
+;                 carry clear; carry set (A = 0) beyond the viewport's far
+;                 edges
+;   __bas_gpixel  PIXEL(x, y): _bas_g[0-3] (x, y) to __bas_n
+; ---------------------------------------------------------------------------
+    .split "__bas_gpixel"
+.global __bas_gpixel
+__bas_gpixel:
+    lda __bas_g
+    sta __bas_gx
+    lda __bas_g+1
+    sta __bas_gx+1
+    lda __bas_g+2
+    sta __bas_gy
+    lda __bas_g+3
+    sta __bas_gy+1
+    jsr __bas_gpix
+    sta __bas_n
+    lda #0
+    sta __bas_n+1
+    rts
+
+.global __bas_gpix
+__bas_gpix:
+    lda __bas_gx+1
+    cmp KG_VPMAXX+1
+    bcc @x
+    bne @out
+    lda __bas_gx
+    cmp KG_VPMAXX
+    bcs @out
+@x:
+    lda __bas_gy+1
+    cmp KG_VPMAXY+1
+    bcc @y
+    bne @out
+    lda __bas_gy
+    cmp KG_VPMAXY
+    bcs @out
+@y:
+    jsr calcadr
+    lda #0
+    sta cur
+    sta plane
+    lda #1
+    sta pbit
+@pl:
+    lda KG_PLANES
+    and pbit
+    beq @nx
+    jsr paddr
+    lda [PTR],z
+    and mask
+    beq @nx
+    lda cur
+    ora pbit
+    sta cur
+@nx:
+    inc plane
+    asl pbit
+    bcc @pl
+    lda cur
+    clc
+    rts
+@out:
+    lda #0
+    sec
+    rts
+
 bitsdn:   .byte 128, 64, 32, 16, 8, 4, 2, 1
 patrbits: .byte 8, 16, 24, 32
 
@@ -232,8 +322,6 @@ cur:   .res 1
 
 KG_VPMINX = $1F53
 KG_VPMINY = $1F55
-KG_VPMAXX = $1F57
-KG_VPMAXY = $1F59
 
 .segment "code"
     .split "__bas_gline0"
@@ -1295,3 +1383,1546 @@ fn:    .res 2
 fa:    .res 1
 fb:    .res 1
 fe:    .res 1
+
+; ---------------------------------------------------------------------------
+;   __bas_gepstab  the ellipse's octant table (kg65.s.epstab) for radii
+;                  __bas_ecrx / __bas_ecry (__bas_eflag bit 7: not a circle)
+;                  in attic RAM ($8710000, __bas_etp its index): $FF, the
+;                  first half's steps (old x - new x: 0 / 1) to the turn point
+;                  $FE, the second's (new y - old y, 0 below) to $FD, then all
+;                  of it reversed back to the $FF. x = floor(SQR(...)) of
+;                  ry^2 - y^2 (circle), or rx^2 (ry^2 - y^2) / ry^2 (the math
+;                  unit; in floats when the product passes 32 bits)
+; ---------------------------------------------------------------------------
+
+.extern __float_ultof
+.extern __bas_sqr
+
+ETABLEN = $2000
+EPTR = $08                  ; (__zp_scratch: the table byte's 28-bit address)
+
+.segment "code"
+    .split "__bas_gepstab"
+.global __bas_gepstab
+__bas_gepstab:
+    ; rqx = rx^2, rqy = ry^2, and as floats
+    lda __bas_ecrx
+    ldx __bas_ecrx+1
+    jsr square
+    ldx #3
+@q1:
+    lda PRODUCT,x
+    sta rqx,x
+    dex
+    bpl @q1
+    lda __bas_ecry
+    ldx __bas_ecry+1
+    jsr square
+    ldx #3
+@q2:
+    lda PRODUCT,x
+    sta rqy,x
+    dex
+    bpl @q2
+    lda rqx
+    ldx rqx+1
+    ldy rqx+2
+    ldz rqx+3
+    jsr __float_ultof
+    ldx #4
+@q3:
+    lda __float_a,x
+    sta xrfp,x
+    dex
+    bpl @q3
+    lda rqy
+    ldx rqy+1
+    ldy rqy+2
+    ldz rqy+3
+    jsr __float_ultof
+    ldx #4
+@q4:
+    lda __float_a,x
+    sta yrfp,x
+    dex
+    bpl @q4
+    ; the table from its $FF
+    lda #0
+    sta __bas_etp
+    sta __bas_etp+1
+    lda #$FF
+    jsr eput
+    lda #0
+    sta ecdx
+    sta ecdx+1
+    lda __bas_ecrx
+    sta ex
+    lda __bas_ecrx+1
+    sta ex+1
+@h1:
+    lda ex
+    sta ecdy
+    lda ex+1
+    sta ecdy+1
+    inc ecdx
+    bne @h1a
+    inc ecdx+1
+@h1a:
+    ; d = rqy - y^2; negative: the turn point
+    lda ecdx
+    ldx ecdx+1
+    jsr square
+    sec
+    ldx #0
+    ldy #4
+@h1b:
+    lda rqy,x
+    sbc PRODUCT,x
+    sta ed,x
+    inx
+    dey
+    bne @h1b
+    lda ed+3
+    bmi @turn
+    bit __bas_eflag
+    bpl @h1c                ; (a circle: sqrt(d))
+    ; rx^2 * d: past 32 bits in floats, else / ry^2
+    ldx #3
+@h1d:
+    lda ed,x
+    sta MULTINA,x
+    lda rqx,x
+    sta MULTINB,x
+    dex
+    bpl @h1d
+    lda PRODUCT+4
+    ora PRODUCT+5
+    ora PRODUCT+6
+    ora PRODUCT+7
+    beq @h1e
+    jsr dfloat              ; float(d) * xrfp / yrfp
+    ldx #4
+@h1f:
+    lda xrfp,x
+    sta __float_b,x
+    dex
+    bpl @h1f
+    jsr __float_mul
+    ldx #4
+@h1g:
+    lda yrfp,x
+    sta __float_b,x
+    dex
+    bpl @h1g
+    jsr __float_div
+    jsr __bas_sqr
+    jsr __bas_ayint
+    bra @h1h
+@h1e:
+    jsr prod2ed
+    ldx #3
+@h1i:
+    lda ed,x
+    sta MULTINA,x
+    lda rqy,x
+    sta MULTINB,x
+    dex
+    bpl @h1i
+    jsr quot                ; ed := the quotient
+@h1c:
+    jsr esqrt
+@h1h:
+    ; the step: old x - new x (low bytes); 2 or more: the turn point
+    sec
+    lda ecdy
+    sbc __bas_n
+    cmp #2
+    bcs @turn
+    jsr eput
+    lda __bas_n
+    sta ex
+    lda __bas_n+1
+    sta ex+1
+    jmp @h1
+@turn:
+    lda #$FE
+    jsr eput
+    ; x = y - 1, y = the last x
+    lda ecdx
+    bne @t1
+    dec ecdx+1
+@t1:
+    dec ecdx
+    lda ecdx
+    sta ex
+    lda ecdx+1
+    sta ex+1
+    lda ecdy
+    sta ecdx
+    lda ecdy+1
+    sta ecdx+1
+@h2:
+    lda ex
+    sta ecdy
+    lda ex+1
+    sta ecdy+1
+    lda ecdx
+    bne @h2a
+    dec ecdx+1
+@h2a:
+    dec ecdx
+    lda ecdx+1
+    bmi @end
+    ; d = rqx - x^2
+    lda ecdx
+    ldx ecdx+1
+    jsr square
+    sec
+    ldx #0
+    ldy #4
+@h2b:
+    lda rqx,x
+    sbc PRODUCT,x
+    sta ed,x
+    inx
+    dey
+    bne @h2b
+    bit __bas_eflag
+    bpl @h2c
+    ; (d * ry^2, its low 32 bits) / rx^2
+    ldx #3
+@h2d:
+    lda ed,x
+    sta MULTINA,x
+    lda rqy,x
+    sta MULTINB,x
+    dex
+    bpl @h2d
+    jsr prod2ed
+    ldx #3
+@h2e:
+    lda ed,x
+    sta MULTINA,x
+    lda rqx,x
+    sta MULTINB,x
+    dex
+    bpl @h2e
+    jsr quot
+@h2c:
+    jsr esqrt
+    ; new y - old y (low bytes), 0 below
+    sec
+    lda __bas_n
+    sbc ecdy
+    bcs @h2f
+    lda #0
+@h2f:
+    jsr eput
+    lda ecdx
+    ora ecdx+1
+    beq @end
+    lda __bas_n
+    sta ex
+    lda __bas_n+1
+    sta ex+1
+    jmp @h2
+@end:
+    ; $FD (not counted), then everything back to the $FF reversed after it
+    lda __bas_etp
+    sta esrc
+    sta edst
+    lda __bas_etp+1
+    sta esrc+1
+    sta edst+1
+    lda #$FD
+    ldx #edst-ebase0
+    jsr eput2
+@rev:
+    lda esrc
+    bne @r1
+    dec esrc+1
+@r1:
+    dec esrc
+    inc edst
+    bne @r2
+    inc edst+1
+@r2:
+    ldx #esrc-ebase0
+    jsr eget2
+    pha
+    ldx #edst-ebase0
+    jsr eput2
+    pla
+    cmp #$FF
+    bne @rev
+    rts
+
+; PRODUCT := (A/X) squared
+square:
+    sta MULTINA
+    sta MULTINB
+    stx MULTINA+1
+    stx MULTINB+1
+    lda #0
+    sta MULTINA+2
+    sta MULTINB+2
+    sta MULTINA+3
+    sta MULTINB+3
+    rts
+
+; ed := PRODUCT's low 32 bits
+prod2ed:
+    ldx #3
+@p:
+    lda PRODUCT,x
+    sta ed,x
+    dex
+    bpl @p
+    rts
+
+; ed := MULTINA / MULTINB (the divider's quotient)
+quot:
+@w:
+    bit MATHBUSY
+    bmi @w
+    ldx #3
+@q:
+    lda DIVQUOT,x
+    sta ed,x
+    dex
+    bpl @q
+    rts
+
+; __float_a := float(ed) (unsigned 32 bits)
+dfloat:
+    lda ed
+    ldx ed+1
+    ldy ed+2
+    ldz ed+3
+    jmp __float_ultof
+
+; __bas_n := floor(SQR(ed))
+esqrt:
+    jsr dfloat
+    jsr __bas_sqr
+    jmp __bas_ayint
+
+; the table byte A at __bas_etp (then __bas_etp + 1), below ETABLEN
+eput:
+    pha
+    lda __bas_etp+1
+    cmp #>ETABLEN
+    bcs @skip
+    jsr eaddr
+    pla
+    ldz #0
+    sta [EPTR],z
+    bra @inc
+@skip:
+    pla
+@inc:
+    inc __bas_etp
+    bne @r
+    inc __bas_etp+1
+@r:
+    rts
+eaddr:
+    lda __bas_etp
+    sta EPTR
+    lda __bas_etp+1
+    sta EPTR+1
+    lda #$71
+    sta EPTR+2
+    lda #$08
+    sta EPTR+3
+    rts
+; A at the index ebase0+X (esrc / edst), below ETABLEN; A from it
+eput2:
+    pha
+    lda ebase0+1,x
+    cmp #>ETABLEN
+    bcs @skip
+    jsr eaddr2
+    pla
+    ldz #0
+    sta [EPTR],z
+    rts
+@skip:
+    pla
+    rts
+eget2:
+    jsr eaddr2
+    ldz #0
+    lda [EPTR],z
+    rts
+eaddr2:
+    lda ebase0,x
+    sta EPTR
+    lda ebase0+1,x
+    sta EPTR+1
+    lda #$71
+    sta EPTR+2
+    lda #$08
+    sta EPTR+3
+    rts
+
+.segment "bss"
+.global __bas_ecrx
+.global __bas_ecry
+.global __bas_eflag
+.global __bas_etp
+__bas_ecrx: .res 2
+__bas_ecry: .res 2
+__bas_eflag: .res 1
+__bas_etp:  .res 2
+rqx:    .res 4
+rqy:    .res 4
+xrfp:   .res 5
+yrfp:   .res 5
+ed:     .res 4
+ex:     .res 2
+ecdx:   .res 2
+ecdy:   .res 2
+ebase0:
+esrc:   .res 2
+edst:   .res 2
+
+; ---------------------------------------------------------------------------
+;   __bas_gfill  PAINT x, y, mode, colour (_bas_g[1-8] as GKI.parm; mode 1's
+;                colour already the colour's index): kg65.paint, s.rfill and
+;                s.push. The fill's stack (16 bytes a span) is in attic RAM at
+;                $8700000, as long as the kernel's would be after a short
+;                program ($2100-$F6FF); full, the fill stops
+; ---------------------------------------------------------------------------
+
+PSTACK_HI = $D6             ; (psp + 16 from $D600 up: full)
+
+.segment "code"
+    .split "__bas_gfill"
+.global __bas_gfill
+__bas_gfill:
+    lda __bas_g+3
+    sta sy
+    sta pty
+    lda __bas_g+4
+    sta sy+1
+    sta pty+1
+    lda __bas_g+5
+    sta pmode
+    lda __bas_g+7
+    sta pbc
+    lda #0
+    sta psp
+    sta psp+1
+    lda pmode
+    beq @m0
+    cmp #1
+    beq @go
+    cmp #2
+    bne @ret
+    lda KG_PENS
+    sta pbc
+    jsr pxy
+    bcs @ret
+    cmp #0
+    beq @ret                ; (an empty start dot: nothing)
+    bra @go
+@m0:
+    jsr pxy
+    sta pbc                 ; (0 beyond the viewport)
+@go:
+    lda __bas_g+1
+    ldx __bas_g+2
+    jsr inside
+    beq @ret
+    ; the start's span
+    lda __bas_g+1
+    sta sl
+    lda __bas_g+2
+    sta sl+1
+@l:
+    lda sl
+    bne @l1
+    dec sl+1
+@l1:
+    dec sl
+    lda sl
+    ldx sl+1
+    jsr inside
+    bne @l
+    inc sl
+    bne @l2
+    inc sl+1
+@l2:
+    lda __bas_g+1
+    sta sr
+    lda __bas_g+2
+    sta sr+1
+@r:
+    inc sr
+    bne @r1
+    inc sr+1
+@r1:
+    lda sr
+    ldx sr+1
+    jsr inside
+    bne @r
+    lda sr
+    bne @r2
+    dec sr+1
+@r2:
+    dec sr
+    ldx #sl-pvars
+    ldy #sr-pvars
+    jsr span
+    ; up (d = 1), then down (d = -1)
+    jsr startsp
+    lda sy
+    sec
+    sbc #1
+    sta pty
+    lda sy+1
+    sbc #0
+    sta pty+1
+    lda #1
+    sta pd
+    jsr rfill
+    jsr startsp
+    lda sy
+    clc
+    adc #1
+    sta pty
+    lda sy+1
+    adc #0
+    sta pty+1
+    lda #$FF
+    sta pd
+    jmp rfill
+@ret:
+    rts
+
+; lx = pl = sl, rx = pr = sr
+startsp:
+    lda sl
+    sta plx
+    sta ppl
+    lda sl+1
+    sta plx+1
+    sta ppl+1
+    lda sr
+    sta prx
+    sta ppr
+    lda sr+1
+    sta prx+1
+    sta ppr+1
+    rts
+
+; A := the colour index at (x, y) of the parameters (__bas_gpix)
+pxy:
+    lda __bas_g+1
+    sta __bas_gx
+    lda __bas_g+2
+    sta __bas_gx+1
+    lda sy
+    sta __bas_gy
+    lda sy+1
+    sta __bas_gy+1
+    jmp __bas_gpix
+
+; A (Z clear) := 1 when (A/X, ty) is inside the boundary, else 0 (Z set)
+inside:
+    sta __bas_gx
+    stx __bas_gx+1
+    lda pty
+    sta __bas_gy
+    lda pty+1
+    sta __bas_gy+1
+    jsr __bas_gpix
+    bcs @no
+    ldx pmode
+    beq @m0
+    dex
+    beq @m1
+    cmp #0                  ; mode 2: not 0, not the colour
+    beq @no
+    cmp pbc
+    beq @no
+    bra @yes
+@m1:
+    cmp KG_PENS             ; mode 1: neither pen 0 nor the colour
+    beq @no
+    cmp pbc
+    beq @no
+    bra @yes
+@m0:
+    cmp pbc                 ; mode 0: the start dot's colour
+    bne @no
+@yes:
+    lda #1
+    rts
+@no:
+    lda #0
+    rts
+
+; the line from pvars+X to pvars+Y on ty (the pattern from its start)
+span:
+    lda pvars,x
+    sta __bas_lx0
+    lda pvars+1,x
+    sta __bas_lx0+1
+    lda pvars,y
+    sta __bas_lx1
+    lda pvars+1,y
+    sta __bas_lx1+1
+    lda pty
+    sta __bas_ly0
+    sta __bas_ly1
+    lda pty+1
+    sta __bas_ly0+1
+    sta __bas_ly1+1
+    lda #0
+    sta KG_PATBIT
+    jmp __bas_gline0
+
+; the stack's PTR at psp
+spaddr:
+    lda psp
+    sta PTR
+    lda psp+1
+    sta PTR+1
+    lda #$70
+    sta PTR+2
+    lda #$08
+    sta PTR+3
+    rts
+
+; nl..d stacked; carry set: the stack is full
+push:
+    sta prp
+    clc
+    lda psp
+    adc #16
+    lda psp+1
+    adc #0
+    cmp #PSTACK_HI
+    bcs @full
+    jsr spaddr
+    ldx #15
+@c:
+    txa
+    taz
+    lda pvars,x
+    sta [PTR],z
+    dex
+    bpl @c
+    lda psp
+    clc
+    adc #16
+    sta psp
+    bcc @ok
+    inc psp+1
+@ok:
+    clc
+@full:
+    rts
+
+pop:
+    lda psp
+    sec
+    sbc #16
+    sta psp
+    bcs @p
+    dec psp+1
+@p:
+    jsr spaddr
+    ldx #15
+@c:
+    txa
+    taz
+    lda [PTR],z
+    sta pvars,x
+    dex
+    bpl @c
+    rts
+
+; ty one row in d's direction (back: opposite = 1)
+tyfwd:
+    bit pd
+    bmi tyinc
+tydec:
+    lda pty
+    bne @d
+    dec pty+1
+@d:
+    dec pty
+    rts
+tyback:
+    bit pd
+    bmi tydec
+tyinc:
+    inc pty
+    bne @i
+    inc pty+1
+@i:
+    rts
+
+; inside(nl, ty) / inside(nr, ty)
+insnl:
+    lda pnl
+    ldx pnl+1
+    jmp inside
+insnr:
+    lda pnr
+    ldx pnr+1
+    jmp inside
+
+; the spans next to [lx, rx] on line ty, then back from the stack (s.rfill)
+rfill:
+@fill:
+    lda plx
+    sta pnl
+    lda plx+1
+    sta pnl+1
+@l10:
+    jsr insnl
+    beq @l14
+    lda pnl
+    sta pnr
+    lda pnl+1
+    sta pnr+1
+@l11:
+    lda pnl
+    bne @l12
+    dec pnl+1
+@l12:
+    dec pnl
+    jsr insnl
+    bne @l11
+    inc pnl
+    bne @l18
+    inc pnl+1
+    bra @l18
+@l14:
+    inc pnl
+    bne @l15
+    inc pnl+1
+@l15:
+    jsr insnl
+    bne @l16
+    lda prx                 ; rx < nl: stop
+    cmp pnl
+    lda prx+1
+    sbc pnl+1
+    bcs @l14
+@l16:
+    lda pnl
+    sta pnr
+    lda pnl+1
+    sta pnr+1
+@l18:
+    lda pnl                 ; nl >= rx: back
+    cmp prx
+    lda pnl+1
+    sbc prx+1
+    bcc @l19
+    jmp @l42
+@l19:
+    inc pnr
+    bne @l20
+    inc pnr+1
+@l20:
+    jsr insnr
+    bne @l19
+    lda pnr
+    bne @l21
+    dec pnr+1
+@l21:
+    dec pnr
+    ldx #pnl-pvars
+    ldy #pnr-pvars
+    jsr span
+    lda #1
+    jsr push
+    bcs @done
+    lda pnl
+    sta plx
+    sta ppl
+    lda pnl+1
+    sta plx+1
+    sta ppl+1
+    lda pnr
+    sta prx
+    sta ppr
+    lda pnr+1
+    sta prx+1
+    sta ppr+1
+    jsr tyfwd
+    jmp @fill
+@done:
+    rts
+@l28:
+    sec
+    lda ppl
+    sbc #2
+    sta ptmp
+    lda ppl+1
+    sbc #0
+    sta ptmp+1
+    bmi @l34                ; (below 0)
+    lda ptmp                ; tmp < nl: on
+    cmp pnl
+    lda ptmp+1
+    sbc pnl+1
+    bcc @l34
+    lda #2
+    jsr push
+    bcs @done
+    lda pnl
+    sta plx
+    sta ppl
+    lda pnl+1
+    sta plx+1
+    sta ppl+1
+    lda ptmp
+    sta prx
+    lda ptmp+1
+    sta prx+1
+    lda pnr
+    sta ppr
+    lda pnr+1
+    sta ppr+1
+    jsr tyback
+    jmp @neg
+@l34:
+    clc
+    lda ppr
+    adc #2
+    sta ptmp
+    lda ppr+1
+    adc #0
+    sta ptmp+1
+    lda pnr                 ; nr < tmp: on
+    cmp ptmp
+    lda pnr+1
+    sbc ptmp+1
+    bcc @l40
+    lda #3
+    jsr push
+    bcs @done
+    lda ptmp
+    sta plx
+    lda ptmp+1
+    sta plx+1
+    lda pnr
+    sta prx
+    sta ppr
+    lda pnr+1
+    sta prx+1
+    sta ppr+1
+    jsr tyback
+    lda pnl
+    sta ppl
+    lda pnl+1
+    sta ppl+1
+@neg:
+    lda #0
+    sec
+    sbc pd
+    sta pd
+    jmp @fill
+@l40:
+    clc
+    lda pnr
+    adc #2
+    sta pnl
+    lda pnr+1
+    adc #0
+    sta pnl+1
+    lda pnl                 ; nl < rx: again
+    cmp prx
+    lda pnl+1
+    sbc prx+1
+    bcs @l42
+    jmp @l10
+@l42:
+    lda psp
+    ora psp+1
+    beq @done
+    jsr pop
+    lda prp
+    cmp #1
+    bne @p2
+    jmp @l28
+@p2:
+    cmp #2
+    beq @l34
+    cmp #3
+    beq @l40
+    rts
+
+.segment "bss"
+pvars:                      ; (stacked in this order, 16 bytes)
+pnl:    .res 2
+pnr:    .res 2
+plx:    .res 2
+prx:    .res 2
+pty:    .res 2
+ppl:    .res 2
+ppr:    .res 2
+prp:    .res 1
+pd:     .res 1
+sl:     .res 2              ; (span's X / Y offsets from pvars: after it)
+sr:     .res 2
+sy:     .res 2
+ptmp:   .res 2
+psp:    .res 2
+pmode:  .res 1
+pbc:    .res 1
+
+; ---------------------------------------------------------------------------
+;   __bas_gellipse  ELLIPSE / CIRCLE: _bas_g as GKI.parm (count, then words
+;                   cx, cy, xr, yr, flag, start, end): kg65.ellipse, the
+;                   table (__bas_gepstab), cdot, octa / octb, solide
+; ---------------------------------------------------------------------------
+
+.extern __bas_fdiv
+.extern __float_atn
+.extern __float_itof
+.extern __float_mul
+
+; (evars offsets)
+E_X0 = 0
+E_Y0 = 2
+E_DX = 4
+E_DY = 6
+
+.segment "code"
+    .split "__bas_gellipse"
+.global __bas_gellipse
+__bas_gellipse:
+    ldx #13
+@a:
+    lda __bas_g+1,x
+    sta eargs,x
+    dex
+    bpl @a
+    ldx #3
+@r:
+    lda earg_rx,x
+    sta __bas_ecrx,x        ; (ecrx, ecry together)
+    dex
+    bpl @r
+    lda earg_f
+    sta __bas_eflag
+    lda __bas_ecrx
+    cmp __bas_ecry
+    bne @ne
+    lda __bas_ecrx+1
+    cmp __bas_ecry+1
+    beq @eq
+@ne:
+    lda __bas_eflag
+    ora #$80
+    sta __bas_eflag
+@eq:
+    ; a radius 0: a line
+    lda __bas_ecrx
+    ora __bas_ecrx+1
+    bne @rx
+    lda ecx
+    sta __bas_lx0
+    sta __bas_lx1
+    lda ecx+1
+    sta __bas_lx0+1
+    sta __bas_lx1+1
+    sec
+    lda ecy
+    sbc __bas_ecry
+    sta __bas_ly0
+    lda ecy+1
+    sbc __bas_ecry+1
+    sta __bas_ly0+1
+    clc
+    lda ecy
+    adc __bas_ecry
+    sta __bas_ly1
+    lda ecy+1
+    adc __bas_ecry+1
+    sta __bas_ly1+1
+    jmp __bas_gline0
+@rx:
+    lda __bas_ecry
+    ora __bas_ecry+1
+    bne @ry
+    lda ecy
+    sta __bas_ly0
+    sta __bas_ly1
+    lda ecy+1
+    sta __bas_ly0+1
+    sta __bas_ly1+1
+    sec
+    lda ecx
+    sbc __bas_ecrx
+    sta __bas_lx0
+    lda ecx+1
+    sbc __bas_ecrx+1
+    sta __bas_lx0+1
+    clc
+    lda ecx
+    adc __bas_ecrx
+    sta __bas_lx1
+    lda ecx+1
+    adc __bas_ecrx+1
+    sta __bas_lx1+1
+    jmp __bas_gline0
+@ry:
+    ; a sector
+    lda estart
+    ora estart+1
+    ora eend
+    ora eend+1
+    beq @tab
+    lda __bas_eflag
+    ora #$10
+    sta __bas_eflag
+    jsr ecmpse
+    bcs @s1
+    lda __bas_eflag
+    ora #$20
+    sta __bas_eflag
+@s1:
+    lda __bas_eflag
+    and #4
+    beq @s2
+    ldx #eend-eargs         ; (from 12 o'clock: 90 less, 360 more below 0)
+    jsr eminus90
+    ldx #estart-eargs
+    jsr eminus90
+@s2:
+    jsr ecmpse
+    bcs @tab
+    lda __bas_eflag
+    ora #$28
+    sta __bas_eflag
+@tab:
+    jsr __bas_gepstab
+    jsr resettp
+    lda __bas_eflag
+    and #$11
+    cmp #1
+    bne @nsol
+    jmp solide
+@nsol:
+    lda __bas_eflag
+    and #4
+    beq @o3
+    ; from 12 o'clock: octb from the $FD, then octa
+    lda ecx
+    sta ex0
+    lda ecx+1
+    sta ex0+1
+    sec
+    lda ecy
+    sbc __bas_ecry
+    sta ey0
+    lda ecy+1
+    sbc __bas_ecry+1
+    sta ey0+1
+@fd:
+    jsr enext
+    cmp #$FD
+    bne @fd
+    jsr octb
+    jsr resettp
+    jsr etpdec
+    jmp octa
+@o3:
+    jsr x0rx
+    jsr etpdec
+    jsr octa
+octb:
+    ldx #6*4
+    jsr octant
+    ldx #7*4
+    jmp octant
+
+; carry clear: end < start
+ecmpse:
+    lda eend
+    cmp estart
+    lda eend+1
+    sbc estart+1
+    rts
+
+; the angle at eargs+X: 90 less, or 270 more below 90
+eminus90:
+    lda eargs+1,x
+    bne @sub
+    lda eargs,x
+    cmp #90
+    bcs @sub
+    adc #<270
+    sta eargs,x
+    lda #>270
+    sta eargs+1,x
+    rts
+@sub:
+    sec
+    lda eargs,x
+    sbc #90
+    sta eargs,x
+    bcs @r
+    dec eargs+1,x
+@r:
+    rts
+
+; x0 = cx + xr, y0 = cy
+x0rx:
+    clc
+    lda ecx
+    adc __bas_ecrx
+    sta ex0
+    lda ecx+1
+    adc __bas_ecrx+1
+    sta ex0+1
+    lda ecy
+    sta ey0
+    lda ecy+1
+    sta ey0+1
+    rts
+
+resettp:
+    lda #0
+    sta __bas_etp
+    sta __bas_etp+1
+    lda #$FF
+    jmp eput
+etpdec:
+    lda __bas_etp
+    bne @d
+    dec __bas_etp+1
+@d:
+    dec __bas_etp
+    rts
+
+; A := the table's next entry ($FD past its end)
+enext:
+    inc __bas_etp
+    bne @n
+    inc __bas_etp+1
+@n:
+    lda __bas_etp+1
+    cmp #>ETABLEN
+    bcs @end
+    jsr eaddr
+    ldz #0
+    lda [EPTR],z
+    rts
+@end:
+    lda #$FD
+    rts
+
+octa:
+    ldx #0
+    jsr octant
+    ldx #1*4
+    jsr octant
+    ldx #2*4
+    jsr octant
+    ldx #3*4
+    jsr octant
+    jsr resettp
+    jsr etpdec
+    ldx #4*4
+    jsr octant
+    ldx #5*4
+    ; (fall through)
+
+; an octant: the points to an entry with bit 7, each step (x0, y0) +
+; (mx, my), an entry's 1 also + (ex, ey): octtab+X (ex, ey, mx, my)
+octant:
+    stx octi
+@l:
+    jsr cdot
+    bmi @r
+    ldx octi
+    cmp #0
+    beq @m
+    lda octtab,x
+    ldy #E_X0
+    jsr addsb
+    lda octtab+1,x
+    ldy #E_Y0
+    jsr addsb
+@m:
+    lda octtab+2,x
+    ldy #E_X0
+    jsr addsb
+    lda octtab+3,x
+    ldy #E_Y0
+    jsr addsb
+    bra @l
+@r:
+    rts
+
+; evars+Y += the signed byte A (X kept)
+addsb:
+    sta etmp
+    lda #0
+    bit etmp
+    bpl @p
+    lda #$FF
+@p:
+    sta etmp+1
+    clc
+    lda evars,y
+    adc etmp
+    sta evars,y
+    lda evars+1,y
+    adc etmp+1
+    sta evars+1,y
+    rts
+
+; the point (x0, y0): the sector's test, legs, a solid sector's lines; A
+; the next entry
+cdot:
+    lda __bas_eflag
+    and #$10
+    beq @dot
+    jsr eatan
+    ; in: start <= a < end (or start <= a or a < end: bit 3)
+    lda eang
+    cmp estart
+    lda eang+1
+    sbc estart+1
+    rol etmp                ; (bit 0: a >= start)
+    lda eang
+    cmp eend
+    lda eang+1
+    sbc eend+1              ; (carry clear: a < end)
+    lda __bas_eflag
+    and #8
+    bne @or
+    bcs @out
+    lda etmp
+    lsr a
+    bcc @out
+    bra @in
+@or:
+    bcc @in
+    lda etmp
+    lsr a
+    bcc @out
+@in:
+    lda __bas_eflag
+    and #$20
+    bne @dot
+    lda __bas_eflag
+    ora #$20
+    sta __bas_eflag
+    bra @leg
+@out:
+    lda __bas_eflag
+    and #$20
+    beq @next
+    lda __bas_eflag
+    and #$DF
+    sta __bas_eflag
+@leg:
+    lda __bas_eflag
+    and #3
+    cmp #2
+    beq @noleg              ; (a leg unless only bit 1)
+    jsr clinep
+@noleg:
+    lda __bas_eflag
+    and #$20
+    beq @next
+@dot:
+    ; the dot, inside the viewport
+    lda ex0
+    cmp KG_VPMAXX
+    lda ex0+1
+    sbc KG_VPMAXX+1
+    bcs @solid
+    lda ey0
+    cmp KG_VPMAXY
+    lda ey0+1
+    sbc KG_VPMAXY+1
+    bcs @solid
+    lda ex0
+    cmp KG_VPMINX
+    lda ex0+1
+    sbc KG_VPMINX+1
+    bcc @solid
+    lda ey0
+    cmp KG_VPMINY
+    lda ey0+1
+    sbc KG_VPMINY+1
+    bcc @solid
+    lda ex0
+    sta __bas_gx
+    lda ex0+1
+    sta __bas_gx+1
+    lda ey0
+    sta __bas_gy
+    lda ey0+1
+    sta __bas_gy+1
+    jsr __bas_gplot
+@solid:
+    lda __bas_eflag
+    and #$01
+    beq @next
+    jsr clinep
+    ; to (x0, y0 -1 / +1 toward the centre: y0 >= cy signed)
+    lda ex0
+    sta __bas_lx1
+    lda ex0+1
+    sta __bas_lx1+1
+    lda ey0
+    cmp ecy
+    lda ey0+1
+    sbc ecy+1
+    bvc @v
+    eor #$80
+@v:
+    bmi @up
+    sec
+    lda ey0
+    sbc #1
+    sta __bas_ly1
+    lda ey0+1
+    sbc #0
+    bra @ly
+@up:
+    clc
+    lda ey0
+    adc #1
+    sta __bas_ly1
+    lda ey0+1
+    adc #0
+@ly:
+    sta __bas_ly1+1
+    jsr cline1
+@next:
+    jmp enext
+
+; the line from the centre to (x0, y0)
+clinep:
+    lda ex0
+    sta __bas_lx1
+    lda ex0+1
+    sta __bas_lx1+1
+    lda ey0
+    sta __bas_ly1
+    lda ey0+1
+    sta __bas_ly1+1
+cline1:
+    lda ecx
+    sta __bas_lx0
+    lda ecx+1
+    sta __bas_lx0+1
+    lda ecy
+    sta __bas_ly0
+    lda ecy+1
+    sta __bas_ly0+1
+    jmp __bas_gline0
+
+; eang := the angle of (x0 - cx, y0 - cy) in degrees, 0-359 (kg65.s.atan)
+eatan:
+    sec
+    lda ex0
+    sbc ecx
+    sta adx
+    lda ex0+1
+    sbc ecx+1
+    sta adx+1
+    sec
+    lda ey0
+    sbc ecy
+    sta ady
+    lda ey0+1
+    sbc ecy+1
+    sta ady+1
+    lda adx
+    ora adx+1
+    bne @f
+    ldx #<90
+    ldy #>90
+    bit ady+1
+    bpl @set
+    ldx #<270
+    ldy #>270
+@set:
+    stx eang
+    sty eang+1
+    rts
+@f:
+    lda adx
+    ldx adx+1
+    jsr __float_itof
+    ldx #4
+@b:
+    lda __float_a,x
+    sta __float_b,x
+    dex
+    bpl @b
+    lda ady
+    ldx ady+1
+    jsr __float_itof
+    jsr __bas_fdiv
+    jsr __float_atn
+    ldx #4
+@k:
+    lda deg,x
+    sta __float_b,x
+    dex
+    bpl @k
+    jsr __float_mul
+    jsr __bas_ayint
+    lda __bas_n
+    sta eang
+    lda __bas_n+1
+    sta eang+1
+    bit adx+1
+    bpl @p
+    clc
+    lda eang
+    adc #180
+    sta eang
+    bcc @p
+    inc eang+1
+@p:
+    bit eang+1
+    bpl @r
+    clc
+    lda eang
+    adc #<360
+    sta eang
+    lda eang+1
+    adc #>360
+    sta eang+1
+@r:
+    rts
+
+; the full solid ellipse: lines between the arc's points and their mirror
+; (a column whose low byte was the last one's skipped)
+solide:
+    jsr x0rx
+    jsr etpdec
+    ldx #3
+@c:
+    lda evars,x
+    sta evars+E_DX,x
+    dex
+    bpl @c
+    lda #1
+    jsr sline
+    ldx #0
+    jsr squarter
+    lda #0
+    jsr sline
+    ldx #1*4
+    jsr squarter
+    lda #0
+    jsr sline
+    ldx #2*4
+    jsr squarter
+    lda #0
+    jsr sline
+    ldx #3*4
+    ; (fall through)
+
+; a quarter from entry A, octtab+X's steps (dx, dy as x0, y0 mirrored)
+squarter:
+    stx octi
+@l:
+    cmp #0
+    bmi @r
+    ldx octi
+    cmp #0
+    beq @m
+    lda octtab,x
+    jsr step2x
+    lda octtab+1,x
+    jsr step2y
+@m:
+    lda octtab+2,x
+    jsr step2x
+    lda octtab+3,x
+    jsr step2y
+    lda #0
+    jsr sline
+    bra @l
+@r:
+    rts
+step2x:
+    pha
+    ldy #E_X0
+    jsr addsb
+    pla
+    ldy #E_DX
+    jmp addsb
+step2y:
+    pha
+    ldy #E_Y0
+    jsr addsb
+    pla
+    eor #$FF
+    clc
+    adc #1
+    ldy #E_DY
+    jmp addsb
+
+; the line (x0, y0)-(dx, dy) unless A = 0 and x0's low byte is the last
+; one's; A the next entry
+sline:
+    cmp #0
+    bne @draw
+    lda ex0
+    cmp elast
+    beq @skip
+@draw:
+    ldx #7
+@c:
+    lda evars,x
+    sta __bas_lx0,x
+    dex
+    bpl @c
+    lda ex0
+    sta elast
+    jsr __bas_gline0
+@skip:
+    jmp enext
+
+octtab:
+    .byte $FF, 0, 0, 1
+    .byte 0, 1, $FF, 0
+    .byte 0, $FF, $FF, 0
+    .byte $FF, 0, 0, $FF
+    .byte 1, 0, 0, $FF
+    .byte 0, $FF, 1, 0
+    .byte 0, 1, 1, 0
+    .byte 1, 0, 0, 1
+deg:    .byte $86, $65, $2E, $E0, $D3   ; (180 / pi)
+
+.segment "bss"
+eargs:                      ; (_bas_g 1-14)
+ecx:    .res 2
+ecy:    .res 2
+earg_rx: .res 2
+earg_ry: .res 2
+earg_f: .res 2
+estart: .res 2
+eend:   .res 2
+evars:                      ; (x0, y0, dx, dy: the line's lx0..ly1 order)
+ex0:   .res 2
+ey0:   .res 2
+emx:   .res 2
+emy:   .res 2
+adx:    .res 2
+ady:    .res 2
+eang:   .res 2
+etmp:   .res 2
+octi:   .res 1
+elast:  .res 1
