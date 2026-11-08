@@ -64,7 +64,7 @@ enum : int {
     T_MOVSPR = 0xFE06, T_SPRITE = 0xFE07, T_SPRCOLOR = 0xFE08, T_SPRSAV = 0xFE16, T_COLLISION = 0xFE17,
     T_BUMP = 0xCE03, T_RSPPOS = 0xCE05, T_RSPRITE = 0xCE06, T_RSPCOLOR = 0xCE07, T_CLR = 0x9C, T_SAVE = 0x94,
     T_SCREEN = 0xFE2E, T_SET = 0xFE2D, T_PEN = 0xFE33, T_DMODE = 0xFE35, T_DPAT = 0xFE36, T_DOT = 0xFE4C,
-    T_BOX = 0xE1, T_GRAPHIC = 0xDE, T_RGRAPHIC = 0xCC, T_RPEN = 0xD0, T_PIXEL = 0xCE0C, T_RPALETTE = 0xCE0D,
+    T_BOX = 0xE1, T_CIRCLE = 0xE2, T_ELLIPSE = 0xFE30, T_GRAPHIC = 0xDE, T_RGRAPHIC = 0xCC, T_RPEN = 0xD0, T_PIXEL = 0xCE0C, T_RPALETTE = 0xCE0D,
 };
 
 enum class TK { Kw, Num, Str, Name, Ch };
@@ -1441,6 +1441,7 @@ private:
         gStore(off, load(ir::Type::I16, global("__bas_n")), ir::Type::I16);
     }
     void graphicsStmt(int kw);
+    int gkiParms();
     void screenGStmt();
     Val graphicsFn(int kw);
     Val optValue();
@@ -2073,7 +2074,8 @@ void Compiler::statement() {
     case T_DO: doStmt(); return;
     case T_DEF: defStmt(); return;
     case T_SCREEN: screenGStmt(); return;
-    case T_PEN: case T_DMODE: case T_DPAT: case T_DOT: case T_BOX: case T_GRAPHIC: graphicsStmt(kw); return;
+    case T_PEN: case T_DMODE: case T_DPAT: case T_DOT: case T_BOX: case T_GRAPHIC: case T_CIRCLE: case T_ELLIPSE:
+        graphicsStmt(kw); return;
     case T_SCNCLR: {
         if (!stmtEnd()) { graphicsStmt(T_SCNCLR); return; }
         Val c = strLit(std::string(1, (char)147));
@@ -2876,27 +2878,49 @@ void Compiler::graphicsStmt(int kw) {
         }
         return;
     }
-    case T_BOX: {
-        // BOX x0, y0, x2, y2 [, solid] / x0, y0, x1, y1, x2, y2, x3, y3 [, solid]: up to 9
-        // values, an empty one 0
+    case T_BOX:
+        // BOX x0, y0, x2, y2 [, solid] / x0, y0, x1, y1, x2, y2, x3, y3 [, solid]
         call("__bas_gcheck");
-        int count = 0;
-        for (int k = 0; k < 9; k++) gStore(1 + 2 * k, iconst(ir::Type::I16, 0), ir::Type::I16);
-        for (;;) {
-            if (stmtEnd()) break;
-            if (acceptCh(',')) {
-                if (stmtEnd()) break;
-                if (isCh(',')) { count++; continue; }
-            }
-            if (count >= 9) fail("BOX takes up to 9 values (?SYNTAX ERROR)");
-            gWord(1 + 2 * count, expr());
-            count++;
-        }
-        gStore(0, iconst(ir::Type::I8, count * 2), ir::Type::I8);
+        gkiParms();
         call("__bas_gbox");
+        return;
+    case T_CIRCLE: case T_ELLIPSE: {
+        // CIRCLE cx, cy, r [, flag, start, end] (the y radius r too) / ELLIPSE cx, cy, xr, yr [, flag, start, end]
+        call("__bas_gcheck");
+        int n = gkiParms();
+        if (kw == T_CIRCLE) {
+            for (int k = 8; k >= 3; k--) {
+                auto a = vreg(ir::Type::PTR);
+                ir::Inst in; in.op = ir::Op::ADDR_ELEM; in.dest = a; in.src1 = global("__bas_g");
+                in.src2 = ir::Operand::imm(1 + 2 * (k - 1), ir::Type::I16); in.args.push_back(ir::Operand::imm(1, ir::Type::I16));
+                in.resultType = ir::Type::PTR; emit(in);
+                gStore(1 + 2 * k, load(ir::Type::I16, a), ir::Type::I16);
+            }
+        }
+        (void)n;
+        call("__bas_gellipse");
         return;
     }
     }
+}
+
+// BASIC's get_GKI.parm: up to 9 words (getwrd) into __bas_g's GKI.parm2..,
+// an empty one 0 (",,"), their count * 2 in GKI.parm1
+int Compiler::gkiParms() {
+    int count = 0;
+    for (int k = 0; k < 9; k++) gStore(1 + 2 * k, iconst(ir::Type::I16, 0), ir::Type::I16);
+    for (;;) {
+        if (stmtEnd()) break;
+        if (acceptCh(',')) {
+            if (stmtEnd()) break;
+            if (isCh(',')) { count++; continue; }
+        }
+        if (count >= 9) fail("up to 9 values (?SYNTAX ERROR)");
+        gWord(1 + 2 * count, expr());
+        count++;
+    }
+    gStore(0, iconst(ir::Type::I8, count * 2), ir::Type::I8);
+    return count;
 }
 
 Val Compiler::graphicsFn(int kw) {

@@ -703,6 +703,295 @@ void _bas_gbox(void) {
     }
 }
 
+/* --- ellipses (kg65.ellipse, epstab, cdot, octa / octb, solide) --- */
+
+/* the octant table (the kernel's is at BASIC's text_top): the kernel's
+ * scratch pages */
+#define ETAB ((unsigned char *)0x1800)
+#define ETAB_LEN 0x700
+extern void _bas_sqr(void);
+extern void _bas_fdiv(void);
+extern void _float_atn(void);
+extern unsigned char _float_b[5];
+static int ecx, ecy, ecx0, ecy0, ecdx, ecdy;
+static unsigned int ecrx, ecry, etp, estart, eend;
+static unsigned char eflag, elast;
+
+static float fget(void) {
+    float f;
+    unsigned char k;
+    for (k = 0; k < 5; k++) ((unsigned char *)&f)[k] = _float_a[k];
+    return f;
+}
+static void fset(float f) {
+    unsigned char k;
+    for (k = 0; k < 5; k++) _float_a[k] = ((unsigned char *)&f)[k];
+}
+
+/* SQR(n) rounded down (kg65.s.sqrt / esqrt: its + 0.35 reads the constant
+ * through a 32-bit pointer whose bank is what Y holds, not the constant, so
+ * nothing is added in effect: the interpreter's tables are the floor's) */
+static unsigned int esqrt(float f) {
+    fset(f);
+    _bas_sqr();
+    _bas_ayint();
+    return (unsigned int)_bas_n;
+}
+
+static void etab_put(unsigned char v) {
+    if (etp < ETAB_LEN) ETAB[etp] = v;
+    etp++;
+}
+
+static void reset_tp(void) {
+    ETAB[0] = 0xFF;
+    etp = 1;
+}
+
+/* one quadrant's steps: the first half (y up from 0: x's decrease, 0 / 1)
+ * to the turn point ($FE), the second (x down to 0: y's increase) ($FD), then
+ * both reversed back to the $FF */
+static void epstab(void) {
+    unsigned long rqx = (unsigned long)ecrx * ecrx, rqy = (unsigned long)ecry * ecry, d;
+    float xrfp = (float)rqx, yrfp = (float)rqy;
+    unsigned int cdx = 0, cdy, x = ecrx, r, src, dst;
+    reset_tp();
+    for (;;) {
+        cdy = x;
+        cdx++;
+        d = rqy - (unsigned long)cdx * cdx;
+        if (d & 0x80000000UL) break;
+        if (eflag & 0x80) {
+            /* rx^2 * (ry^2 - y^2) / ry^2: 64 bits; a high half: in floats */
+            unsigned long lo = d * rqx, hi = 0;
+            {
+                /* the high 32 bits of d * rqx */
+                unsigned long a1 = d >> 16, a0 = d & 0xFFFF, b1 = rqx >> 16, b0 = rqx & 0xFFFF;
+                unsigned long mid = a1 * b0 + ((a0 * b0) >> 16);
+                unsigned long mid2 = a0 * b1 + (mid & 0xFFFF);
+                hi = a1 * b1 + (mid >> 16) + (mid2 >> 16);
+            }
+            if (hi) {
+                fset((float)d);
+                r = esqrt(fget() * xrfp / yrfp);
+            } else r = esqrt((float)(lo / rqy));
+        } else r = esqrt((float)d);
+        if ((unsigned char)((unsigned char)cdy - (unsigned char)r) >= 2) break;
+        etab_put((unsigned char)((unsigned char)cdy - (unsigned char)r));
+        x = r;
+    }
+    etab_put(0xFE);
+    cdx--;
+    x = cdx;
+    cdx = cdy;
+    for (;;) {
+        unsigned char st;
+        cdy = x;
+        cdx--;
+        if (cdx & 0x8000) break;
+        d = rqx - (unsigned long)cdx * cdx;
+        if (eflag & 0x80) r = esqrt((float)((d * rqy) / rqx));
+        else r = esqrt((float)d);
+        st = (unsigned char)r >= (unsigned char)cdy ? (unsigned char)((unsigned char)r - (unsigned char)cdy) : 0;
+        etab_put(st);
+        if (!cdx) break;
+        x = r;
+    }
+    if (etp < ETAB_LEN) ETAB[etp] = 0xFD;
+    src = etp;
+    dst = etp;
+    for (;;) {
+        unsigned char v;
+        src--;
+        dst++;
+        v = ETAB[src];
+        if (dst < ETAB_LEN) ETAB[dst] = v;
+        if (v == 0xFF) break;
+    }
+}
+
+/* the angle of (dx, dy) in degrees, 0-359 (BASIC's kg65.s.atan) */
+static unsigned int eatan(int dx, int dy) {
+    int a;
+    if (!dx) return dy < 0 ? 270 : 90;
+    {
+        /* (both converted first: cc45's float code uses __float_a / __float_b) */
+        unsigned char k;
+        float fa = (float)dy, fb = (float)dx;
+        for (k = 0; k < 5; k++) _float_b[k] = ((unsigned char *)&fb)[k];
+        fset(fa);
+    }
+    _bas_fdiv();
+    _float_atn();
+    fset(fget() * 57.295779513082321f);
+    _bas_ayint();
+    a = _bas_n;
+    if (dx < 0) a += 180;
+    if (a < 0) a += 360;
+    return (unsigned int)a;
+}
+
+/* a dot of the draw screen, clipped to the viewport (kg65.dot without a colour) */
+static void dot_(int x, int y) {
+    if ((unsigned int)x >= KG.vpmaxx || (unsigned int)y >= KG.vpmaxy || (unsigned int)x < (unsigned int)KG.vpminx ||
+        (unsigned int)y < (unsigned int)KG.vpminy)
+        return;
+    plot((unsigned int)x, (unsigned int)y);
+}
+
+static void cline(int x, int y) {
+    lx0 = ecx; ly0 = ecy; lx1 = x; ly1 = y;
+    line_();
+}
+
+/* the point (cx0, cy0): sector, legs, solid sector's lines; the next entry */
+static unsigned char cdot(void) {
+    if (eflag & 0x10) {
+        unsigned int a = eatan(ecx0 - ecx, ecy0 - ecy);
+        unsigned char in;
+        if (!(eflag & 0x08)) in = a >= estart && a < eend;
+        else in = a >= estart || a < eend;
+        if (in) {
+            if (eflag & 0x20) goto dot;
+            eflag |= 0x20;
+        } else {
+            if (!(eflag & 0x20)) goto next;
+            eflag &= 0xDF;
+        }
+        if ((eflag & 1) || !(eflag & 2)) cline(ecx0, ecy0);
+        if (!(eflag & 0x20)) goto next;
+    }
+dot:
+    dot_(ecx0, ecy0);
+    if (eflag & 1) {
+        cline(ecx0, ecy0);
+        cline(ecx0, ecy0 >= ecy ? ecy0 - 1 : ecy0 + 1);
+    }
+next:
+    etp++;
+    return etp < ETAB_LEN ? ETAB[etp] : 0xFD;
+}
+
+/* octants 1-6 (octa) and 7-8 (octb): each entry's 1 the extra step */
+static void octant(signed char ex, signed char ey, signed char mx, signed char my) {
+    for (;;) {
+        unsigned char v = cdot();
+        if (v & 0x80) return;
+        if (v) { ecx0 += ex; ecy0 += ey; }
+        ecx0 += mx;
+        ecy0 += my;
+    }
+}
+
+static void octa(void) {
+    octant(-1, 0, 0, 1);
+    octant(0, 1, -1, 0);
+    octant(0, -1, -1, 0);
+    octant(-1, 0, 0, -1);
+    reset_tp();
+    etp--;
+    octant(1, 0, 0, -1);
+    octant(0, -1, 1, 0);
+}
+
+static void octb(void) {
+    octant(0, 1, 1, 0);
+    octant(1, 0, 0, 1);
+}
+
+/* the full solid ellipse: lines between the arc's points and their mirror
+ * (solide; a column whose low byte was the last one's skipped) */
+static unsigned char sline(unsigned char force) {
+    if (force || (unsigned char)ecx0 != elast) {
+        lx0 = ecx0; ly0 = ecy0; lx1 = ecdx; ly1 = ecdy;
+        elast = (unsigned char)ecx0;
+        line_();
+    }
+    etp++;
+    return etp < ETAB_LEN ? ETAB[etp] : 0xFD;
+}
+
+static void solide_quarter(unsigned char v, signed char ex, signed char ey, signed char mx, signed char my) {
+    for (;;) {
+        if (v & 0x80) return;
+        if (v) { ecx0 += ex; ecdx += ex; ecy0 += ey; ecdy -= ey; }
+        ecx0 += mx; ecdx += mx; ecy0 += my; ecdy -= my;
+        v = sline(0);
+    }
+}
+
+static void solide(void) {
+    unsigned char v;
+    ecx0 = ecx + (int)ecrx;
+    ecy0 = ecy;
+    etp--;
+    ecdx = ecx0;
+    ecdy = ecy0;
+    v = sline(1);
+    solide_quarter(v, -1, 0, 0, 1);
+    solide_quarter(sline(0), 0, 1, -1, 0);
+    solide_quarter(sline(0), 0, -1, -1, 0);
+    solide_quarter(sline(0), -1, 0, 0, -1);
+}
+
+/* ELLIPSE / CIRCLE: _bas_g as GKI.parm (count, then words cx, cy, xr, yr, flag, start, end) */
+void _bas_gellipse(void) {
+    unsigned int *v = (unsigned int *)&_bas_g[1];
+    ecx = (int)v[0];
+    ecy = (int)v[1];
+    ecrx = v[2];
+    ecry = v[3];
+    eflag = (unsigned char)v[4];
+    estart = v[5];
+    eend = v[6];
+    if (ecrx != ecry) eflag |= 0x80;
+    if (!ecrx) {
+        lx0 = lx1 = ecx;
+        ly0 = ecy - (int)ecry;
+        ly1 = ecy + (int)ecry;
+        line_();
+        return;
+    }
+    if (!ecry) {
+        ly0 = ly1 = ecy;
+        lx0 = ecx - (int)ecrx;
+        lx1 = ecx + (int)ecrx;
+        line_();
+        return;
+    }
+    if (estart | eend) {
+        eflag |= 0x10;
+        if (eend < estart) eflag |= 0x20;
+        if (eflag & 4) {
+            /* (from 12 o'clock: 90 degrees less, 360 more below 0) */
+            eend = eend >= 90 ? eend - 90 : eend + 270;
+            estart = estart >= 90 ? estart - 90 : estart + 270;
+        }
+        if (eend < estart) eflag |= 0x28;
+    }
+    epstab();
+    reset_tp();
+    if ((eflag & 1) && !(eflag & 0x10)) {
+        solide();
+        return;
+    }
+    if (eflag & 4) {
+        ecx0 = ecx;
+        ecy0 = ecy - (int)ecry;
+        do etp++; while (etp < ETAB_LEN && ETAB[etp] != 0xFD);
+        octb();
+        reset_tp();
+        etp--;
+        octa();
+        return;
+    }
+    ecx0 = ecx + (int)ecrx;
+    ecy0 = ecy;
+    etp--;
+    octa();
+    octb();
+}
+
 /* --- functions --- */
 
 /* RGRAPHIC(screen, n) into __bas_n */
