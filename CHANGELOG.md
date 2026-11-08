@@ -13,6 +13,21 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
   first.
 - Test `test_far_cast_store_xemu.c` (both conventions).
 
+### basic45 --compile: SPRITE, SPRCOLOR, MOVSPR, SPRSAV, COLLISION, RSPRITE, RSPCOLOR, RSPPOS, BUMP (#369)
+
+- The sprite statements and functions on the VIC-IV's registers directly, with
+  BASIC 65's checks and arithmetic (`lib/stdlib/basic_sprite.c`): `MOVSPR`'s
+  relative coordinates, `TO` a target (the ROM's `metric`), `angle # speed`.
+- Moving sprites and collisions: an interrupt hook (`lib/stdlib_asm/basic_spr.s45`)
+  in the KERNAL's IRQ vector, through a stub at `$0500` that counts the frames
+  a ROM routine hides the program in; the vector put back at the end (crt0's
+  `__exit` calls a weak `__irqhook_exit`) and before a `DLOAD`.
+- `COLLISION type, line`: a `GOSUB` to the line at the next statement, as
+  BASIC's `ngone`.
+- basic45 counts `COLLISION`'s line as a reference (labels, `--decompile`) and
+  `SPRSAV`'s string variable as assigned.
+- Test `test_basic_compile9_xemu.bas` (interpreted, -O2, -O0, --speed).
+
 ### basic45 --compile: BLOAD, BSAVE, BVERIFY, DIR, CATALOG, FREAD#, FWRITE#, LINE INPUT[#] (#369)
 
 - `BSAVE` / `BLOAD` / `BVERIFY` with `P`, `TO P`, `B` / `ON B`, `R`, 28-bit
