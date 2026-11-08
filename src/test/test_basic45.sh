@@ -337,5 +337,24 @@ $B "$D/c.bas" -o "$D/ct.prg" >/dev/null 2>&1
 $B --compile "$D/ct.prg" -o "$D/ct2.prg" > "$D/ct.log" 2>&1 && cmp -s "$D/ct2.prg" "$D/c.prg" &&
     pass "--compile: a tokenized .prg in, the same machine code out" || fail "--compile .prg: $(cat "$D/ct.log")"
 
+# a reserved word is never a label: "end: print" is END and PRINT (also in a
+# numbered program, "80 rcursor:print"); GOTO a reserved word is an error
+printf '10 end:print 1\n20 rcursor:print 2\n' > "$D/rw.bas"
+if $B "$D/rw.bas" -o "$D/rw.prg" > "$D/rw.log" 2>&1 &&
+   [ "$(od -An -tx1 -v "$D/rw.prg" | tr -d ' \n')" = "01200b200a00803a9920310016201400fe423a992032000000" ]; then
+    pass "a keyword followed by ':' at a line's start is the statement, not a label"
+else
+    fail "keyword labels: $(od -An -tx1 -v "$D/rw.prg" | tr -d ' \n') $(cat "$D/rw.log")"
+fi
+printf 'loop: print 1\ngoto loop\n' > "$D/rw2.bas"
+printf 'again: on x goto again, end\n' > "$D/rw3.bas"
+if ! $B "$D/rw2.bas" -o "$D/rw2.prg" > "$D/rw2.log" 2>&1 &&
+   grep -q "'LOOP' is a reserved word, not a label (GOTO" "$D/rw2.log" &&
+   ! $B "$D/rw3.bas" -o "$D/rw3.prg" > "$D/rw3.log" 2>&1 && grep -q "'END' is a reserved word" "$D/rw3.log"; then
+    pass "GOTO / ON ... GOTO a reserved word is an error"
+else
+    fail "GOTO a reserved word: $(cat "$D/rw2.log" "$D/rw3.log")"
+fi
+
 echo "basic45 tests: $passed passed, $failed failed"
 [ $failed -eq 0 ]
