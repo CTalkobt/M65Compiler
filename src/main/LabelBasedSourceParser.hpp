@@ -87,6 +87,7 @@ private:
     bool lineNumberOverflow = false;
     bool numbered = false;
     std::vector<std::pair<int, std::string>> numberErrors;   // (source line, message)
+    std::vector<std::pair<int, std::string>> reservedRefs;   // GOTO END and the like
 
     // Helper methods
     void extractLabelsAndReferences();
