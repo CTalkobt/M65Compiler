@@ -26,6 +26,10 @@ KG_DSBP     = $1F61
 
 PTR = $08                   ; (__zp_scratch: the byte's 28-bit address)
 
+; the kernel's variables as one symbol (basic_gfx.c's struct kg65 _bas_kg)
+.global __bas_kg
+__bas_kg = $1F00
+
     .split "__bas_gplot"
 .global __bas_gplot
 __bas_gplot:
@@ -209,3 +213,814 @@ pat:   .res 1
 plane: .res 1
 pbit:  .res 1
 cur:   .res 1
+
+; ---------------------------------------------------------------------------
+;   __bas_gline0  the line from (__bas_lx0, __bas_ly0) to (__bas_lx1, __bas_ly1),
+;                 clipped to the viewport (kg65.clip: Cohen-Sutherland, the
+;                 intersections n * d1 / d2 in BASIC's floats, rounded down;
+;                 the distances to the low edges one more, as its calconst),
+;                 each dot plotted (q.line: Bresenham by the kernel's octants)
+; ---------------------------------------------------------------------------
+
+.extern __float_itof
+.extern __float_mul
+.extern __float_div
+.extern __float_a
+.extern __float_b
+.extern __bas_ayint
+.extern __bas_n
+
+KG_VPMINX = $1F53
+KG_VPMINY = $1F55
+KG_VPMAXX = $1F57
+KG_VPMAXY = $1F59
+
+.segment "code"
+    .split "__bas_gline0"
+.global __bas_gline0
+__bas_gline0:
+    ; maxx, maxy: the viewport's last
+    sec
+    lda KG_VPMAXX
+    sbc #1
+    sta maxx
+    lda KG_VPMAXX+1
+    sbc #0
+    sta maxx+1
+    sec
+    lda KG_VPMAXY
+    sbc #1
+    sta maxy
+    lda KG_VPMAXY+1
+    sbc #0
+    sta maxy+1
+@clip:
+    ldx #0
+    jsr outcode
+    sta c0
+    ldx #4
+    jsr outcode
+    sta c1
+    and c0
+    beq @c2
+    rts                     ; all outside
+@c2:
+    lda c0
+    ora c1
+    bne @c3
+    jmp @draw
+@c3:
+    ; dx, dy
+    sec
+    lda __bas_lx1
+    sbc __bas_lx0
+    sta ddx
+    lda __bas_lx1+1
+    sbc __bas_lx0+1
+    sta ddx+1
+    sec
+    lda __bas_ly1
+    sbc __bas_ly0
+    sta ddy
+    lda __bas_ly1+1
+    sbc __bas_ly0+1
+    sta ddy+1
+    ; the point outside: the first, else the second
+    ldx #0
+    lda c0
+    bne @c4
+    ldx #4
+    lda c1
+@c4:
+    stx pt
+    sta cc
+    and #8
+    beq @n8
+    ; y > maxy: x = (maxy - y0) * dx / dy + x0, y = maxy
+    sec
+    lda maxy
+    sbc __bas_ly0
+    sta xn
+    lda maxy+1
+    sbc __bas_ly0+1
+    sta xn+1
+    jsr xclip
+    lda maxy
+    ldy maxy+1
+    bra @sety
+@n8:
+    lda cc
+    and #2
+    beq @n2
+    ; y < miny: x = (miny - y0 - 1) * dx / dy + x0, y = miny
+    clc
+    lda KG_VPMINY
+    sbc __bas_ly0
+    sta xn
+    lda KG_VPMINY+1
+    sbc __bas_ly0+1
+    sta xn+1
+    jsr xclip
+    lda KG_VPMINY
+    ldy KG_VPMINY+1
+@sety:
+    ldx pt
+    sta __bas_ly0,x
+    tya
+    sta __bas_ly0+1,x
+    lda res
+    sta __bas_lx0,x
+    lda res+1
+    sta __bas_lx0+1,x
+    jmp @clip
+@n2:
+    lda cc
+    and #4
+    beq @n4
+    ; x > maxx: y = (maxx - x0) * dy / dx + y0, x = maxx
+    sec
+    lda maxx
+    sbc __bas_lx0
+    sta xn
+    lda maxx+1
+    sbc __bas_lx0+1
+    sta xn+1
+    jsr yclip
+    lda maxx
+    ldy maxx+1
+    bra @setx
+@n4:
+    ; x < minx: y = (minx - x0 - 1) * dy / dx + y0, x = minx
+    clc
+    lda KG_VPMINX
+    sbc __bas_lx0
+    sta xn
+    lda KG_VPMINX+1
+    sbc __bas_lx0+1
+    sta xn+1
+    jsr yclip
+    lda KG_VPMINX
+    ldy KG_VPMINX+1
+@setx:
+    ldx pt
+    sta __bas_lx0,x
+    tya
+    sta __bas_lx0+1,x
+    lda res
+    sta __bas_ly0,x
+    lda res+1
+    sta __bas_ly0+1,x
+    jmp @clip
+
+@draw:
+    ; Bresenham: octant bits 2 (x back), 4 (y back), 8 (steep)
+    lda #0
+    sta oct
+    sec
+    lda __bas_lx1
+    sbc __bas_lx0
+    sta ddx
+    lda __bas_lx1+1
+    sbc __bas_lx0+1
+    sta ddx+1
+    bpl @dxp
+    lda #2
+    tsb oct
+    sec
+    lda #0
+    sbc ddx
+    sta ddx
+    lda #0
+    sbc ddx+1
+    sta ddx+1
+@dxp:
+    sec
+    lda __bas_ly1
+    sbc __bas_ly0
+    sta ddy
+    lda __bas_ly1+1
+    sbc __bas_ly0+1
+    sta ddy+1
+    bpl @dyp
+    lda #4
+    tsb oct
+    sec
+    lda #0
+    sbc ddy
+    sta ddy
+    lda #0
+    sbc ddy+1
+    sta ddy+1
+@dyp:
+    ; dx - dy < 0: swapped, steep
+    sec
+    lda ddx
+    sbc ddy
+    lda ddx+1
+    sbc ddy+1
+    bpl @shallow
+    ldx ddx
+    ldy ddx+1
+    lda ddy
+    sta ddx
+    lda ddy+1
+    sta ddx+1
+    stx ddy
+    sty ddy+1
+    lda #8
+    tsb oct
+@shallow:
+    ; e = -dx / 2 (arithmetic)
+    sec
+    lda #0
+    sbc ddx
+    sta err
+    lda #0
+    sbc ddx+1
+    cmp #$80
+    ror a
+    sta err+1
+    ror err
+    lda ddx
+    sta cnt
+    lda ddx+1
+    sta cnt+1
+    jsr dot
+@step:
+    lda cnt
+    ora cnt+1
+    bne @more
+    rts
+@more:
+    lda cnt
+    bne @dec
+    dec cnt+1
+@dec:
+    dec cnt
+    ldz oct                 ; (z: this step's octant)
+    clc
+    lda err
+    adc ddy
+    sta err
+    lda err+1
+    adc ddy+1
+    sta err+1
+    bmi @nodiag
+    sec
+    lda err
+    sbc ddx
+    sta err
+    lda err+1
+    sbc ddx+1
+    sta err+1
+    inz
+@nodiag:
+    tza
+    and #8
+    beq @xmain
+    ; steep: y always, x on the diagonal
+    jsr ystep
+    tza
+    and #1
+    beq @plot
+    jsr xstep
+    bra @plot
+@xmain:
+    jsr xstep
+    tza
+    and #1
+    beq @plot
+    jsr ystep
+@plot:
+    jsr dot
+    bra @step
+
+; x one way or the other (octant bit 1)
+xstep:
+    tza
+    and #2
+    bne @back
+    inc __bas_lx0
+    bne @x
+    inc __bas_lx0+1
+@x:
+    rts
+@back:
+    lda __bas_lx0
+    bne @x2
+    dec __bas_lx0+1
+@x2:
+    dec __bas_lx0
+    rts
+ystep:
+    tza
+    and #4
+    bne @back
+    inc __bas_ly0
+    bne @y
+    inc __bas_ly0+1
+@y:
+    rts
+@back:
+    lda __bas_ly0
+    bne @y2
+    dec __bas_ly0+1
+@y2:
+    dec __bas_ly0
+    rts
+
+; the dot at (lx0, ly0) (keeps z)
+dot:
+    phz
+    lda __bas_lx0
+    sta __bas_gx
+    lda __bas_lx0+1
+    sta __bas_gx+1
+    lda __bas_ly0
+    sta __bas_gy
+    lda __bas_ly0+1
+    sta __bas_gy+1
+    jsr __bas_gplot
+    plz
+    rts
+
+; outcode of point X (0 the first, 4 the second): 1 x < min, 4 x > max,
+; 2 y < min, 8 y > max (signed)
+outcode:
+    lda #0
+    sta oc
+    ; y
+    sec
+    lda __bas_ly0,x
+    sbc KG_VPMINY
+    lda __bas_ly0+1,x
+    sbc KG_VPMINY+1
+    bvc @y1
+    eor #$80
+@y1:
+    bpl @y2
+    lda #2
+    tsb oc
+    bra @x
+@y2:
+    sec
+    lda maxy
+    sbc __bas_ly0,x
+    lda maxy+1
+    sbc __bas_ly0+1,x
+    bvc @y3
+    eor #$80
+@y3:
+    bpl @x
+    lda #8
+    tsb oc
+@x:
+    sec
+    lda __bas_lx0,x
+    sbc KG_VPMINX
+    lda __bas_lx0+1,x
+    sbc KG_VPMINX+1
+    bvc @x1
+    eor #$80
+@x1:
+    bpl @x2
+    lda #1
+    tsb oc
+    bra @out
+@x2:
+    sec
+    lda maxx
+    sbc __bas_lx0,x
+    lda maxx+1
+    sbc __bas_lx0+1,x
+    bvc @x3
+    eor #$80
+@x3:
+    bpl @out
+    lda #4
+    tsb oc
+@out:
+    lda oc
+    rts
+
+; res = xn * dx / dy + x0 (xclip), res = xn * dy / dx + y0 (yclip)
+xclip:
+    lda ddx
+    sta d1
+    lda ddx+1
+    sta d1+1
+    lda ddy
+    sta d2
+    lda ddy+1
+    sta d2+1
+    jsr calcxypt
+    clc
+    lda __bas_n
+    adc __bas_lx0
+    sta res
+    lda __bas_n+1
+    adc __bas_lx0+1
+    sta res+1
+    rts
+yclip:
+    lda ddy
+    sta d1
+    lda ddy+1
+    sta d1+1
+    lda ddx
+    sta d2
+    lda ddx+1
+    sta d2+1
+    jsr calcxypt
+    clc
+    lda __bas_n
+    adc __bas_ly0
+    sta res
+    lda __bas_n+1
+    adc __bas_ly0+1
+    sta res+1
+    rts
+
+; __bas_n := xn * d1 / d2 in floats (no division by 0), rounded down
+calcxypt:
+    lda d1
+    ldx d1+1
+    jsr __float_itof
+    ldx #4
+@b:
+    lda __float_a,x
+    sta __float_b,x
+    dex
+    bpl @b
+    lda xn
+    ldx xn+1
+    jsr __float_itof
+    jsr __float_mul
+    lda d2
+    ora d2+1
+    beq @int
+    ldx #4
+@s:
+    lda __float_a,x
+    sta ftmp,x
+    dex
+    bpl @s
+    lda d2
+    ldx d2+1
+    jsr __float_itof
+    ldx #4
+@b2:
+    lda __float_a,x
+    sta __float_b,x
+    lda ftmp,x
+    sta __float_a,x
+    dex
+    bpl @b2
+    jsr __float_div
+@int:
+    jmp __bas_ayint
+
+.segment "bss"
+.global __bas_lx0
+.global __bas_ly0
+.global __bas_lx1
+.global __bas_ly1
+__bas_lx0: .res 2           ; (in this order: outcode's X 0 / 4)
+__bas_ly0: .res 2
+__bas_lx1: .res 2
+__bas_ly1: .res 2
+maxx: .res 2
+maxy: .res 2
+ddx:  .res 2
+ddy:  .res 2
+err:  .res 2
+cnt:  .res 2
+xn:   .res 2
+d1:   .res 2
+d2:   .res 2
+res:  .res 2
+ftmp: .res 5
+c0:   .res 1
+c1:   .res 1
+cc:   .res 1
+pt:   .res 1
+oc:   .res 1
+oct:  .res 1
+
+; ---------------------------------------------------------------------------
+;   __bas_gbox  BOX: __bas_g's count (values * 2), then up to 9 words: two
+;               corners (+ solid) or four (+ solid), as kg65.box. Solid: the
+;               edges 0-3 and 1-2 stepped together (kg65.s.line without
+;               addresses, unclipped), a line between them each step; else
+;               the four sides (each corner drawn twice)
+; ---------------------------------------------------------------------------
+
+.extern __bas_g
+.extern __bas_raise
+
+KG_PATBIT2 = $1F4A
+E_X = 0                     ; an edge's record (18 bytes, X = 0 or 18)
+E_Y = 2
+E_X1 = 4
+E_Y1 = 6
+E_DX = 8
+E_DY = 10
+E_E = 12
+E_N = 14
+E_OCT = 16
+
+.segment "code"
+    .split "__bas_gbox"
+.global __bas_gbox
+__bas_gbox:
+    lda __bas_g
+    ora #2
+    sta bcount
+    tax
+    lda __bas_g-1,x         ; the solid flag's low byte
+    sta bsolid
+    lda bcount
+    cmp #18
+    beq @four
+    cmp #10
+    beq @two
+    ; fewer values: nothing; between: ?SYNTAX ERROR
+    cmp #10
+    bcc @none
+    lda #11
+    jmp __bas_raise
+@none:
+    rts
+@four:
+    ldx #15
+@f1:
+    lda __bas_g+1,x
+    sta cx0,x
+    dex
+    bpl @f1
+    bra @corners
+@two:
+    ; (x0, y0), (x2, y0), (x2, y2), (x0, y2)
+    ldx #1
+@t1:
+    lda __bas_g+1,x         ; x0
+    sta cx0,x
+    sta cx0+12,x
+    lda __bas_g+3,x         ; y0
+    sta cx0+2,x
+    sta cx0+6,x
+    lda __bas_g+5,x         ; x2
+    sta cx0+4,x
+    sta cx0+8,x
+    lda __bas_g+7,x         ; y2
+    sta cx0+10,x
+    sta cx0+14,x
+    dex
+    bpl @t1
+@corners:
+    lda bsolid
+    bne @solid
+    ; the frame: 0-1, 1-2, 2-3, 3-0
+    lda #0
+    sta KG_PATBIT2
+    ldy #0
+@side:
+    sty bk
+    ldx #3
+@s1:
+    lda cx0,y
+    sta __bas_lx0
+    lda cx0+1,y
+    sta __bas_lx0+1
+    lda cx0+2,y
+    sta __bas_ly0
+    lda cx0+3,y
+    sta __bas_ly0+1
+    ldx bk
+    inx
+    inx
+    inx
+    inx
+    txa
+    and #15
+    tax
+    lda cx0,x
+    sta __bas_lx1
+    lda cx0+1,x
+    sta __bas_lx1+1
+    lda cx0+2,x
+    sta __bas_ly1
+    lda cx0+3,x
+    sta __bas_ly1+1
+    jsr __bas_gline0
+    lda bk
+    clc
+    adc #4
+    tay
+    cpy #16
+    bne @side
+    rts
+@solid:
+    ; edge A: corner 0 to 3, edge B: corner 1 to 2
+    ldx #3
+@e1:
+    lda cx0,x
+    sta edges+E_X,x
+    lda cx0+12,x
+    sta edges+E_X1,x
+    lda cx0+4,x
+    sta edges+18+E_X,x
+    lda cx0+8,x
+    sta edges+18+E_X1,x
+    dex
+    bpl @e1
+    ldx #0
+    jsr einit
+    ldx #18
+    jsr einit
+    bra @draw
+@loop:
+    ldx #0
+    jsr estep
+    bcc @b
+    rts
+@b:
+    lda #0
+    sta KG_PATBIT2
+    ldx #18
+    jsr estep
+@draw:
+    ldx #3
+@d1:
+    lda edges+E_X,x
+    sta __bas_lx0,x
+    lda edges+18+E_X,x
+    sta __bas_lx1,x
+    dex
+    bpl @d1
+    jsr __bas_gline0
+    bra @loop
+
+; edge X: its octant, |dx|, |dy| (swapped when steep), e = -dx / 2, n = $FFFF
+einit:
+    lda #0
+    sta edges+E_OCT,x
+    sec
+    lda edges+E_X1,x
+    sbc edges+E_X,x
+    sta edges+E_DX,x
+    lda edges+E_X1+1,x
+    sbc edges+E_X+1,x
+    sta edges+E_DX+1,x
+    bpl @i1
+    lda #2
+    ora edges+E_OCT,x
+    sta edges+E_OCT,x
+    sec
+    lda #0
+    sbc edges+E_DX,x
+    sta edges+E_DX,x
+    lda #0
+    sbc edges+E_DX+1,x
+    sta edges+E_DX+1,x
+@i1:
+    sec
+    lda edges+E_Y1,x
+    sbc edges+E_Y,x
+    sta edges+E_DY,x
+    lda edges+E_Y1+1,x
+    sbc edges+E_Y+1,x
+    sta edges+E_DY+1,x
+    bpl @i2
+    lda #4
+    ora edges+E_OCT,x
+    sta edges+E_OCT,x
+    sec
+    lda #0
+    sbc edges+E_DY,x
+    sta edges+E_DY,x
+    lda #0
+    sbc edges+E_DY+1,x
+    sta edges+E_DY+1,x
+@i2:
+    sec
+    lda edges+E_DX,x
+    sbc edges+E_DY,x
+    lda edges+E_DX+1,x
+    sbc edges+E_DY+1,x
+    bpl @i3
+    lda edges+E_DX,x        ; swap
+    ldy edges+E_DY,x
+    sta edges+E_DY,x
+    tya
+    sta edges+E_DX,x
+    lda edges+E_DX+1,x
+    ldy edges+E_DY+1,x
+    sta edges+E_DY+1,x
+    tya
+    sta edges+E_DX+1,x
+    lda #8
+    ora edges+E_OCT,x
+    sta edges+E_OCT,x
+@i3:
+    sec
+    lda #0
+    sbc edges+E_DX,x
+    sta edges+E_E,x
+    lda #0
+    sbc edges+E_DX+1,x
+    cmp #$80
+    ror a
+    sta edges+E_E+1,x
+    ror edges+E_E,x
+    lda #$FF
+    sta edges+E_N,x
+    sta edges+E_N+1,x
+    rts
+
+; edge X a dot on: C set when it has reached its end (n >= dx)
+estep:
+    ldz edges+E_OCT,x
+    clc
+    lda edges+E_E,x
+    adc edges+E_DY,x
+    sta edges+E_E,x
+    lda edges+E_E+1,x
+    adc edges+E_DY+1,x
+    sta edges+E_E+1,x
+    bmi @s1
+    sec
+    lda edges+E_E,x
+    sbc edges+E_DX,x
+    sta edges+E_E,x
+    lda edges+E_E+1,x
+    sbc edges+E_DX+1,x
+    sta edges+E_E+1,x
+    inz
+@s1:
+    tza
+    and #8
+    beq @s2
+    tza
+    and #1
+    beq @s3
+    jsr exstep
+@s3:
+    jsr eystep
+    bra @s4
+@s2:
+    jsr exstep
+    tza
+    and #1
+    beq @s4
+    jsr eystep
+@s4:
+    inc edges+E_N,x
+    bne @s5
+    inc edges+E_N+1,x
+@s5:
+    lda edges+E_N,x
+    cmp edges+E_DX,x
+    lda edges+E_N+1,x
+    sbc edges+E_DX+1,x
+    rts
+
+exstep:
+    tza
+    and #2
+    bne @back
+    inc edges+E_X,x
+    bne @r
+    inc edges+E_X+1,x
+@r:
+    rts
+@back:
+    lda edges+E_X,x
+    bne @b
+    dec edges+E_X+1,x
+@b:
+    dec edges+E_X,x
+    rts
+eystep:
+    tza
+    and #4
+    bne @back
+    inc edges+E_Y,x
+    bne @r
+    inc edges+E_Y+1,x
+@r:
+    rts
+@back:
+    lda edges+E_Y,x
+    bne @b
+    dec edges+E_Y+1,x
+@b:
+    dec edges+E_Y,x
+    rts
+
+.segment "bss"
+cx0:    .res 16             ; the corners: x0, y0, x1, y1, x2, y2, x3, y3
+edges:  .res 36
+bcount: .res 1
+bsolid: .res 1
+bk:     .res 1

@@ -52,7 +52,8 @@ struct kg65 {
     unsigned char dsbp0adr[8];       /* $61: plane segment addresses (nybbles) */
     unsigned char viewscreen, viewscrwidth, viewscrheight, viewscrdepth;    /* $69 */
 };
-#define KG (*(struct kg65 *)0x1F00)
+extern struct kg65 _bas_kg;     /* (basic_gfxa.s45: the symbol at $1F00, so cc45 addresses it absolutely) */
+#define KG _bas_kg
 
 static const unsigned char bitsdn[8] = {128, 64, 32, 16, 8, 4, 2, 1};
 static const unsigned char twosdn[4] = {0xC0, 0x30, 0x0C, 0x03};
@@ -516,7 +517,13 @@ void _bas_gpal(void) {
 
 /* --- drawing --- */
 
-static int lx0, ly0, lx1, ly1;   /* the line's ends (the kernel's linex0 ..) */
+/* the line's ends (the kernel's linex0 ..: basic_gfxa.s45's) */
+extern int _bas_lx0, _bas_ly0, _bas_lx1, _bas_ly1;
+#define lx0 _bas_lx0
+#define ly0 _bas_ly0
+#define lx1 _bas_lx1
+#define ly1 _bas_ly1
+extern void _bas_gline0(void);
 
 /* the dot at (x, y) of the draw screen with the pens, the mode and the
  * pattern (plotdot: basic_gfxa.s45) */
@@ -528,83 +535,14 @@ static void plot(unsigned int x, unsigned int y) {
     _bas_gplot();
 }
 
-/* the clip's intersection: n * d1 / d2 as BASIC's floats, rounded down (calcxypt) */
+/* a line from (lx0, ly0) to (lx1, ly1), clipped, each dot plotted (q.line:
+ * basic_gfxa.s45) */
+static void line_(void) {
+    _bas_gline0();
+}
+
 extern unsigned char _float_a[5];
 extern void _bas_ayint(void);
-static int calcxypt(int n, int d1, int d2) {
-    float f = (float)n * (float)d1;
-    unsigned char k;
-    if (d2) f = f / (float)d2;
-    for (k = 0; k < 5; k++) _float_a[k] = ((unsigned char *)&f)[k];
-    _bas_ayint();
-    return _bas_n;
-}
-
-/* Cohen-Sutherland against the viewport (kg65.clip): 1 when it is all outside */
-static unsigned char outcode(int x, int y, int maxx, int maxy) {
-    unsigned char c = 0;
-    if (y < KG.vpminy) c |= 2;
-    else if (y > maxy) c |= 8;
-    if (x < KG.vpminx) c |= 1;
-    else if (x > maxx) c |= 4;
-    return c;
-}
-
-static unsigned char clip(void) {
-    int maxx = (int)KG.vpmaxx - 1, maxy = (int)KG.vpmaxy - 1;
-    for (;;) {
-        unsigned char c0 = outcode(lx0, ly0, maxx, maxy), c1 = outcode(lx1, ly1, maxx, maxy), c;
-        int dx = lx1 - lx0, dy = ly1 - ly0, x, y;
-        int *px, *py;
-        if (c0 & c1) return 1;
-        if (!c0 && !c1) return 0;
-        /* the point outside: the first, else the second (its own deltas from the first) */
-        if (c0) { c = c0; px = &lx0; py = &ly0; }
-        else { c = c1; px = &lx1; py = &ly1; }
-        x = *px;
-        y = *py;
-        /* (the distances to the low edges one more, as calconst's clc / sbc) */
-        if (c & 8) { x = calcxypt(maxy - ly0, dx, dy) + lx0; y = maxy; }
-        else if (c & 2) { x = calcxypt(KG.vpminy - ly0 - 1, dx, dy) + lx0; y = KG.vpminy; }
-        else if (c & 4) { y = calcxypt(maxx - lx0, dy, dx) + ly0; x = maxx; }
-        else if (c & 1) { y = calcxypt(KG.vpminx - lx0 - 1, dy, dx) + ly0; x = KG.vpminx; }
-        *px = x;
-        *py = y;
-    }
-}
-
-/* a line from (lx0, ly0) to (lx1, ly1), clipped, each dot plotted (q.line) */
-static void line_(void) {
-    unsigned char oct = 0;
-    int dx, dy, e;
-    unsigned int n, len;
-    if (clip()) return;
-    dx = lx1 - lx0;
-    if (dx < 0) { oct |= 2; dx = -dx; }
-    dy = ly1 - ly0;
-    if (dy < 0) { oct |= 4; dy = -dy; }
-    if (dx - dy < 0) {
-        e = dx; dx = dy; dy = e;
-        oct |= 8;
-    }
-    e = (-dx) >> 1;
-    len = (unsigned int)dx;
-    plot((unsigned int)lx0, (unsigned int)ly0);
-    for (n = 0; n < len; n++) {
-        unsigned char o = oct, xs, ys;
-        e += dy;
-        if (e >= 0) {
-            e -= dx;
-            o++;
-        }
-        /* octable: x step, y step */
-        if (o & 8) { ys = 1; xs = o & 1; }
-        else { xs = 1; ys = o & 1; }
-        if (xs) lx0 += (o & 2) ? -1 : 1;
-        if (ys) ly0 += (o & 4) ? -1 : 1;
-        plot((unsigned int)lx0, (unsigned int)ly0);
-    }
-}
 
 /* DOT x, y [, colour] (colour: pen 0 becomes it, as the kernel's) */
 void _bas_gdot(void) {
@@ -630,79 +568,6 @@ void _bas_gline(void) {
     ly1 = *(int *)&_bas_g[6];
     line_();
     for (k = 0; k < 4; k++) _bas_g[k] = _bas_g[4 + k];
-}
-
-/* the next dot of an edge (kg65.s.line with doadr: unclipped), as the solid
- * box's two edges step */
-struct edge { int x, y, x1, y1, dx, dy, e; unsigned char oct, first; unsigned int n; };
-static unsigned char step(struct edge *g) {
-    if (g->first) {
-        g->first = 0;
-        g->oct = 0;
-        g->dx = g->x1 - g->x;
-        if (g->dx < 0) { g->oct |= 2; g->dx = -g->dx; }
-        g->dy = g->y1 - g->y;
-        if (g->dy < 0) { g->oct |= 4; g->dy = -g->dy; }
-        if (g->dx - g->dy < 0) {
-            int t = g->dx; g->dx = g->dy; g->dy = t;
-            g->oct |= 8;
-        }
-        g->e = (-g->dx) >> 1;
-        g->n = 0xFFFF;
-        return 0;
-    }
-    {
-        unsigned char o = g->oct;
-        g->e += g->dy;
-        if (g->e >= 0) { g->e -= g->dx; o++; }
-        if (o & 8) {
-            if (o & 1) g->x += (o & 2) ? -1 : 1;
-            g->y += (o & 4) ? -1 : 1;
-        } else {
-            g->x += (o & 2) ? -1 : 1;
-            if (o & 1) g->y += (o & 4) ? -1 : 1;
-        }
-    }
-    g->n++;
-    return g->n >= (unsigned int)g->dx;
-}
-
-/* BOX: _bas_g[0] the values' count * 2, then the values (words) */
-void _bas_gbox(void) {
-    unsigned int *v = (unsigned int *)&_bas_g[1];    /* GKI.parm2.. */
-    unsigned char count = (unsigned char)(_bas_g[0] | 2), solid, k;
-    int cx[4], cy[4];
-    solid = _bas_g[count - 1];                       /* (parm1 + count - 1: the flag's low byte) */
-    if (count == 18) {
-        for (k = 0; k < 4; k++) { cx[k] = (int)v[k * 2]; cy[k] = (int)v[k * 2 + 1]; }
-    } else if (count == 10) {
-        cx[0] = (int)v[0]; cy[0] = (int)v[1];
-        cx[1] = (int)v[2]; cy[1] = (int)v[1];
-        cx[2] = (int)v[2]; cy[2] = (int)v[3];
-        cx[3] = (int)v[0]; cy[3] = (int)v[3];
-    } else {
-        /* (fewer values: nothing, the kernel's carry clear; between: ?SYNTAX ERROR) */
-        if (count - 1 >= 9) raise(11);
-        return;
-    }
-    if (solid) {
-        struct edge a, b;
-        a.x = cx[0]; a.y = cy[0]; a.x1 = cx[3]; a.y1 = cy[3]; a.first = 1;
-        b.x = cx[1]; b.y = cy[1]; b.x1 = cx[2]; b.y1 = cy[2]; b.first = 1;
-        for (;;) {
-            if (step(&a)) return;
-            KG.patrbitnum = 0;
-            step(&b);
-            lx0 = a.x; ly0 = a.y; lx1 = b.x; ly1 = b.y;
-            line_();
-        }
-    }
-    KG.patrbitnum = 0;
-    for (k = 0; k < 4; k++) {
-        lx0 = cx[k]; ly0 = cy[k];
-        lx1 = cx[(k + 1) & 3]; ly1 = cy[(k + 1) & 3];
-        line_();
-    }
 }
 
 /* --- ellipses (kg65.ellipse, epstab, cdot, octa / octb, solide) --- */
