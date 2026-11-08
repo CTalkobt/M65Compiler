@@ -576,7 +576,10 @@ static bool compileToMachineCode(const Options& opts, const char* argv0, std::ve
     std::string obj = (tmp / "prog.o45").string(), prg = (tmp / "prog.prg").string();
     bool ok = step(shellQuote(tools + "/ca45") + " -c " + shellQuote((tmp / "prog.s45").string()) + " -o " + shellQuote(obj),
                    "assembling the compiled program") &&
-              step(shellQuote(tools + "/ln45") + " -basic -o " + shellQuote(prg) + " " + shellQuote(obj) + " " + shellQuote(lib),
+              // (a 1 KB share for the CPU stack: the run time's functions are statically
+              // allocated, nothing recurses; the heap, arrays and strings, gets the rest)
+              step(shellQuote(tools + "/ln45") + " -basic --stack-size=1024 -o " + shellQuote(prg) + " " + shellQuote(obj) +
+                       " " + shellQuote(lib),
                    "linking the compiled program");
     if (ok) binary = readBinary(prg);
     if (!getenv("BASIC45_KEEP_TMP")) fs::remove_all(tmp);

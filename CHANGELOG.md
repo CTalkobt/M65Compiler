@@ -4,6 +4,20 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### basic45 --compile: graphics, part 1: SCREEN, PEN, DMODE, DPAT, DOT, LINE, BOX, CIRCLE, ELLIPSE, POLYGON (#369)
+
+- BASIC 65's graphics kernel (V920413 `kg65.*`) written again in
+  `lib/stdlib/basic_gfx.c` (the dot in `basic_gfxa.s45`), its state in the
+  kernel's own variables: SCREEN (DEF, OPEN, SET, CLOSE, CLR, the old form),
+  PEN, DMODE, DPAT, DOT, LINE, BOX, CIRCLE, ELLIPSE, POLYGON, PALETTE of a
+  screen, SCNCLR colour, GRAPHIC CLR; RGRAPHIC, PIXEL, RPEN, RPALETTE. The
+  bitplanes compared with the interpreter's on xemu: the same bytes.
+- An error or BREAK views the text screen first, as BASIC's.
+- Compiled programs link with a 1 KB CPU stack share (`ln45 --stack-size=1024`):
+  3 KB more heap for arrays and strings.
+- Tests `test_basic_compile11_xemu.bas` (four ways), `test_basic_compile12_xemu.bas`
+  (interpreted, -O2).
+
 ### basic45 --compile: COLOR, FOREGROUND, BACKGROUND, BORDER, HIGHLIGHT, CURSOR, WINDOW, SPEED, PALETTE, VSYNC (#369)
 
 - The text screen and colour statements and `RCOLOR`, `RCURSOR`, `RWINDOW`,
