@@ -1,0 +1,211 @@
+; basic_gfxa.s45 — the graphics run time's dot (basic_gfx.c, basic45 --compile, #369)
+;
+;   __bas_gplot  the dot at (__bas_gx, __bas_gy) of the draw screen with the
+;                pens, the draw mode and the pattern, as BASIC 65's graphics
+;                kernel's plotdot (b65alt.src V920413) after calcadr: each plane
+;                of the screen read, changed and written in bank 4 (even
+;                planes) or 5 (odd) at the plane's segment
+;
+; The kernel's variables (bank 0 $1F00, kg65vars.src) are read in place.
+
+.weak cc45.icallinfo
+cc45.icallinfo = 1
+
+    .cpu 45gs02
+
+KG_PENS     = $1F41
+KG_MODE     = $1F44
+KG_DPATYPE  = $1F45
+KG_DPAT     = $1F46
+KG_PATBIT   = $1F4A
+KG_WIDTH    = $1F4C
+KG_HEIGHT   = $1F4D
+KG_PLANES   = $1F50
+KG_BANKA    = $1F3E
+KG_DSBP     = $1F61
+
+PTR = $08                   ; (__zp_scratch: the byte's 28-bit address)
+
+    .split "__bas_gplot"
+.global __bas_gplot
+__bas_gplot:
+    ; the line (y, or y / 2 interlaced: odd its parity)
+    lda #0
+    sta odd
+    lda __bas_gy
+    ldx KG_HEIGHT
+    beq @v200
+    lsr __bas_gy+1
+    ror a
+    rol odd
+@v200:
+    sta line
+    ; row * $500, halved for 640, quartered for 320
+    lsr a
+    lsr a
+    lsr a
+    sta adr+1
+    asl a
+    asl a
+    clc
+    adc adr+1               ; row * 5
+    sta adr+1
+    lda #0
+    sta adr
+    lsr adr+1
+    ror adr
+    lda KG_WIDTH
+    bne @w640
+    lsr adr+1
+    ror adr
+@w640:
+    lda line
+    and #7
+    ora adr
+    sta adr
+    ; + the column's byte (x AND $FFF8)
+    lda __bas_gx
+    and #$F8
+    clc
+    adc adr
+    sta adr
+    lda __bas_gx+1
+    adc adr+1
+    sta adr+1
+    lda __bas_gx
+    and #7
+    tax
+    lda bitsdn,x
+    sta mask
+    ; the pattern's bit (style 1)
+    lda #1
+    sta pat
+    lda KG_MODE
+    and #8
+    beq @nopat
+    lda KG_PATBIT
+    and #7
+    tax
+    lda bitsdn,x
+    sta pat
+    lda KG_PATBIT
+    lsr a
+    lsr a
+    lsr a
+    and #3
+    tax
+    lda KG_DPAT,x
+    and pat
+    sta pat
+    inc KG_PATBIT
+    lda KG_DPATYPE
+    and #3
+    tax
+    lda KG_PATBIT
+    cmp patrbits,x
+    bne @nopat
+    lda #0
+    sta KG_PATBIT
+@nopat:
+    ; the planes
+    lda #0
+    sta plane
+    lda #1
+    sta pbit
+@plane:
+    lda KG_PLANES
+    and pbit
+    beq @next
+    ldx plane
+    lda KG_DSBP,x
+    ldy KG_HEIGHT
+    beq @low
+    ldy odd
+    beq @low
+    and #$E0                ; (the odd lines' segment)
+    bra @seg
+@low:
+    asl a
+    asl a
+    asl a
+    asl a
+@seg:
+    ora adr+1
+    sta PTR+1
+    lda adr
+    sta PTR
+    txa
+    and #1
+    ora KG_BANKA
+    sta PTR+2
+    lda #0
+    sta PTR+3
+    ldz #0
+    lda [PTR],z
+    sta cur
+    ; the mode
+    lda KG_MODE
+    and #7
+    beq @normal
+    lda KG_PENS
+    and pbit
+    beq @next               ; (a plane pen 0 does not use: left)
+    lda KG_MODE
+    and #2
+    beq @notxor
+    lda KG_MODE
+    and #8
+    beq @xor
+    lda pat
+    beq @next
+@xor:
+    lda cur
+    eor mask
+    bra @store
+@notxor:
+    lda KG_MODE
+    and #1
+    beq @normal
+    lda pat                 ; jam2: off bits in pen 1's colour
+    bne @pen0
+    lda KG_PENS+1
+    bra @pen
+@normal:
+    lda pat
+    beq @next
+@pen0:
+    lda KG_PENS
+@pen:
+    and pbit
+    bne @set
+    lda mask
+    eor #$FF
+    and cur
+    bra @store
+@set:
+    lda cur
+    ora mask
+@store:
+    sta [PTR],z
+@next:
+    inc plane
+    asl pbit
+    bcc @plane
+    rts
+
+bitsdn:   .byte 128, 64, 32, 16, 8, 4, 2, 1
+patrbits: .byte 8, 16, 24, 32
+
+.segment "bss"
+.global __bas_gx
+.global __bas_gy
+__bas_gx: .res 2
+__bas_gy: .res 2
+odd:   .res 1
+line:  .res 1
+adr:   .res 2
+mask:  .res 1
+pat:   .res 1
+plane: .res 1
+pbit:  .res 1
+cur:   .res 1

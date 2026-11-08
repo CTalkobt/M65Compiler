@@ -516,55 +516,14 @@ void _bas_gpal(void) {
 
 static int lx0, ly0, lx1, ly1;   /* the line's ends (the kernel's linex0 ..) */
 
-/* the dot at (x, y) of the draw screen with the pens, the mode and the pattern (plotdot) */
+/* the dot at (x, y) of the draw screen with the pens, the mode and the
+ * pattern (plotdot: basic_gfxa.s45) */
+extern unsigned int _bas_gx, _bas_gy;
+extern void _bas_gplot(void);
 static void plot(unsigned int x, unsigned int y) {
-    unsigned char odd = 0, line, mask, plane, bit = 1, pat = 1;
-    unsigned int adr;
-    unsigned char mode = KG.drawmode;
-    if (KG.drawscrheight) {
-        odd = (unsigned char)(y & 1);
-        y >>= 1;
-    }
-    line = (unsigned char)y;
-    adr = (unsigned int)(line >> 3) * 0x500;
-    adr >>= KG.drawscrwidth ? 1 : 2;
-    adr |= line & 7;
-    adr += x & 0xFFF8;
-    mask = bitsdn[x & 7];
-    if (mode & 8) {
-        unsigned char n = KG.patrbitnum;
-        pat = KG.dpattern[(n >> 3) & 3] & bitsdn[n & 7];
-        n++;
-        if (n == patrbits[KG.dpatype & 3]) n = 0;
-        KG.patrbitnum = n;
-    }
-    for (plane = 0; plane < 8; plane++, bit <<= 1) {
-        unsigned char seg, b;
-        unsigned char __far *p;
-        if (!(KG.drawscrbp & bit)) continue;
-        seg = KG.dsbp0adr[plane];
-        seg = (KG.drawscrheight && odd) ? (seg & 0xE0) : (unsigned char)(seg << 4);
-        p = (unsigned char __far *)(((unsigned long)(KG.banka | (plane & 1)) << 16) |
-                                    (unsigned int)(((seg | (adr >> 8)) << 8) | (adr & 0xFF)));
-        b = *p;
-        if (mode & 7) {
-            if (!(KG.drawpens[0] & bit)) continue;
-            if (mode & 2) {
-                if ((mode & 8) && !pat) continue;
-                b ^= mask;
-            } else if (mode & 1) {
-                if (pat) b = (KG.drawpens[0] & bit) ? (b | mask) : (unsigned char)(b & ~mask);
-                else b = (KG.drawpens[1] & bit) ? (b | mask) : (unsigned char)(b & ~mask);
-            } else {
-                if (!pat) continue;
-                b = (KG.drawpens[0] & bit) ? (b | mask) : (unsigned char)(b & ~mask);
-            }
-        } else {
-            if (!pat) continue;
-            b = (KG.drawpens[0] & bit) ? (b | mask) : (unsigned char)(b & ~mask);
-        }
-        *p = b;
-    }
+    _bas_gx = x;
+    _bas_gy = y;
+    _bas_gplot();
 }
 
 /* the clip's intersection: n * d1 / d2 as BASIC's floats, rounded down (calcxypt) */
