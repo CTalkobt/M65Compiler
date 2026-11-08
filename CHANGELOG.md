@@ -4,6 +4,18 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### basic45 --compile: graphics, part 2: PAINT, VIEWPORT, GCOPY, CUT, PASTE, CHAR (#369)
+
+- PAINT (modes 0-2; its stack in attic RAM), VIEWPORT and VIEWPORT CLR,
+  GCOPY / CUT / PASTE (the kernel's brush), CHAR (control codes, scaling,
+  directions, a font address) as BASIC 65's kernel; the bitplanes compared
+  with the interpreter's on xemu.
+- The line engine, BOX, the triangle fill, the ellipses (table, octants,
+  sectors, solid), PAINT and the pixel read are assembly now
+  (`basic_gfxa.s45`): about 5 KB smaller and faster. The ellipses' table
+  moved to attic RAM (radii no longer limited by the scratch pages).
+- Test `test_basic_compile13_xemu.bas` (interpreted, -O2).
+
 ### basic45 --compile: graphics, part 1: SCREEN, PEN, DMODE, DPAT, DOT, LINE, BOX, CIRCLE, ELLIPSE, POLYGON (#369)
 
 - BASIC 65's graphics kernel (V920413 `kg65.*`) written again in
