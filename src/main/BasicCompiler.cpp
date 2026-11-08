@@ -63,6 +63,8 @@ enum : int {
     T_BSAVE = 0xFE10, T_BLOAD = 0xFE11, T_BVERIFY = 0xFE28, T_DIR = 0xEE, T_CATALOG = 0xFE0C, T_CONCAT = 0xFE13, T_DCLEAR = 0xFE15, T_ERASE = 0xFE2A,
     T_MOVSPR = 0xFE06, T_SPRITE = 0xFE07, T_SPRCOLOR = 0xFE08, T_SPRSAV = 0xFE16, T_COLLISION = 0xFE17,
     T_BUMP = 0xCE03, T_RSPPOS = 0xCE05, T_RSPRITE = 0xCE06, T_RSPCOLOR = 0xCE07, T_CLR = 0x9C, T_SAVE = 0x94,
+    T_SCREEN = 0xFE2E, T_SET = 0xFE2D, T_PEN = 0xFE33, T_DMODE = 0xFE35, T_DPAT = 0xFE36, T_DOT = 0xFE4C,
+    T_BOX = 0xE1, T_CIRCLE = 0xE2, T_ELLIPSE = 0xFE30, T_POLYGON = 0xFE2F, T_GRAPHIC = 0xDE, T_RGRAPHIC = 0xCC, T_RPEN = 0xD0, T_PIXEL = 0xCE0C, T_RPALETTE = 0xCE0D,
     T_COLOR = 0xE7, T_FOREGROUND = 0xFE39, T_BACKGROUND = 0xFE3B, T_BORDER = 0xFE3C, T_HIGHLIGHT = 0xFE3D,
     T_CURSOR = 0xFE41, T_RCURSOR = 0xFE42, T_WINDOW = 0xFE1A, T_FAST = 0xFE25, T_SPEED = 0xFE26,
     T_PALETTE = 0xFE34, T_VSYNC = 0xFE54, T_OFF = 0xFE24, T_RCOLOR = 0xCD, T_RWINDOW = 0xCE09, T_RSPEED = 0xCE0E,
@@ -1287,6 +1289,7 @@ private:
         }
         case T_FN: return fnCall();
         case T_RSPRITE: case T_RSPPOS: case T_RSPCOLOR: case T_BUMP: return sprFn(kw);
+        case T_RGRAPHIC: case T_PIXEL: case T_RPEN: case T_RPALETTE: return graphicsFn(kw);
         case T_RCOLOR: case T_RWINDOW: case T_RSPEED: {
             // RCOLOR(0-3), RWINDOW(0-3), RSPEED(any): a byte
             Val a = parenExpr();
@@ -1434,6 +1437,25 @@ private:
     void collisionStmt();
     void pushRet(const std::string& ret);
     Val sprFn(int kw);
+    // the graphics statements' parameters (basic_gfx.c's __bas_g, GKI.parm1..)
+    void gStore(int off, ir::Operand v, ir::Type t) {
+        auto a = vreg(ir::Type::PTR);
+        ir::Inst in; in.op = ir::Op::ADDR_ELEM; in.dest = a; in.src1 = global("__bas_g");
+        in.src2 = ir::Operand::imm(off, ir::Type::I16); in.args.push_back(ir::Operand::imm(1, ir::Type::I16));
+        in.resultType = ir::Type::PTR; emit(in);
+        store(t, v, a);
+    }
+    void gByte(int off, const Val& v) { gStore(off, toByte(v), ir::Type::I8); }
+    void gWord(int off, const Val& v) { gStore(off, toAddr(v), ir::Type::I16); }
+    void gSad(int off, const Val& v) {
+        store(ir::Type::F32, toF(v), global("__float_a"));
+        call("__bas_getsad");
+        gStore(off, load(ir::Type::I16, global("__bas_n")), ir::Type::I16);
+    }
+    void graphicsStmt(int kw);
+    int gkiParms();
+    void screenGStmt();
+    Val graphicsFn(int kw);
     void byteArg(const char* g) { store(ir::Type::I8, toByte(expr()), global(g)); }
     void nArg(ir::Operand b) { store(ir::Type::I16, zext(b, ir::Type::I8, ir::Type::I16), global("__bas_n")); }
     void mConst(int v) { store(ir::Type::I16, iconst(ir::Type::I16, v), global("__bas_m")); }
@@ -2053,7 +2075,8 @@ void Compiler::statement() {
         // LINE INPUT# / LINE INPUT (the ROM's linputn / linput); LINE itself draws
         if (acceptKw(T_INPUTN)) { lineInputN(); return; }
         if (acceptKw(T_INPUT)) { inputStmt(false, true); return; }
-        fail("LINE (graphics) is not supported by --compile yet");
+        graphicsStmt(T_LINE);
+        return;
     case T_DLOAD: case T_LOAD: chainStmt(kw); return;
     case 0xEF: case 0x94: case 0x95: case 0xFE14:
         // DSAVE / SAVE / VERIFY / DVERIFY: the BASIC program's text, which a
@@ -2068,8 +2091,11 @@ void Compiler::statement() {
     case T_GET: getStmt(); return;
     case T_DO: doStmt(); return;
     case T_DEF: defStmt(); return;
+    case T_SCREEN: screenGStmt(); return;
+    case T_PEN: case T_DMODE: case T_DPAT: case T_DOT: case T_BOX: case T_GRAPHIC: case T_CIRCLE: case T_ELLIPSE: case T_POLYGON:
+        graphicsStmt(kw); return;
     case T_SCNCLR: {
-        if (!atEnd() && !isKw(T_ELSE)) fail("SCNCLR of a graphics screen is not supported by --compile yet");
+        if (!stmtEnd()) { graphicsStmt(T_SCNCLR); return; }
         Val c = strLit(std::string(1, (char)147));
         store(ir::Type::PTR, c.op, global("__bas_sa"));
         call("__bas_prs");
@@ -2667,6 +2693,241 @@ Val Compiler::sprFn(int kw) {
     return r;
 }
 
+// --- graphics (basic_gfx.c: BASIC 65's graphics kernel's behaviour) ---
+
+// SCREEN DEF / OPEN / CLOSE / SET / CLR, or SCREEN [n,] width, height, depth
+void Compiler::screenGStmt() {
+    auto flag = [&](int off) {          // BASIC's comflag: , 0 / 1
+        expectCh(',');
+        ir::Operand b = toByte(expr());
+        raiseIf(bin(ir::Op::CMP_GEU, ir::Type::I8, b, ir::Operand::imm(2, ir::Type::I8)), 14);
+        gStore(off, b, ir::Type::I8);
+    };
+    auto screenNo = [&](ir::Operand b) {
+        raiseIf(bin(ir::Op::CMP_GEU, ir::Type::I8, b, ir::Operand::imm(4, ir::Type::I8)), 14);
+        gStore(0, b, ir::Type::I8);
+    };
+    if (acceptKw(T_DEF)) {
+        screenNo(toByte(expr()));
+        flag(1);
+        flag(2);
+        expectCh(',');
+        ir::Operand d = toByte(expr());
+        // depth 1-8 as 0-7
+        auto d1 = bin(ir::Op::SUB, ir::Type::I8, d, ir::Operand::imm(1, ir::Type::I8));
+        raiseIf(bin(ir::Op::CMP_GEU, ir::Type::I8, d1, ir::Operand::imm(8, ir::Type::I8)), 14);
+        gStore(3, d1, ir::Type::I8);
+        call("__bas_gscrdef");
+        return;
+    }
+    if (isKw(T_OPEN) || isKw(T_CLOSE)) {
+        bool open = acceptKw(T_OPEN);
+        if (!open) acceptKw(T_CLOSE);
+        if (stmtEnd()) gStore(0, iconst(ir::Type::I8, 0), ir::Type::I8);
+        else screenNo(toByte(expr()));
+        call(open ? "__bas_gscropen" : "__bas_gscrclose");
+        return;
+    }
+    if (acceptKw(T_CLR)) {
+        if (stmtEnd()) {
+            Val c = strLit(std::string(1, (char)147));
+            store(ir::Type::PTR, c.op, global("__bas_sa"));
+            call("__bas_prs");
+            return;
+        }
+        graphicsStmt(T_SCNCLR);
+        return;
+    }
+    if (acceptKw(T_SET)) {
+        // SCREEN SET [draw] [, view] (no view: the one viewed now, its index)
+        if (isCh(',')) gStore(0, iconst(ir::Type::I8, 255), ir::Type::I8);
+        else gByte(0, expr());
+        Val v;
+        if (optByt(v)) gByte(1, v);
+        else gStore(1, load(ir::Type::I8, ir::Operand::imm(0x1F69, ir::Type::PTR)), ir::Type::I8);
+        call("__bas_gscrset");
+        return;
+    }
+    // SCREEN [screen,] width, height, depth: a first value below 256 is the
+    // screen (0-3), then width, height, depth; 256 and up the width. A value
+    // missing is ?SYNTAX ERROR, one too many too, after the screen is set up
+    std::vector<Val> vals;
+    vals.push_back(expr());
+    while (acceptCh(',')) vals.push_back(expr());
+    size_t n = vals.size();
+    auto first = toAddr(vals[0]);
+    std::string scr = newLabel("gsno"), wid = newLabel("gswid"), done = newLabel("gsdone");
+    brCond(bin(ir::Op::CMP_GEU, ir::Type::I8, first, ir::Operand::imm(256, ir::Type::I16)), wid, scr);
+    // (form: screen, then w, h, d at offsets k; the extra values' error after)
+    auto form = [&](bool withScreen, ir::Operand w, size_t hk, size_t dk, bool extra) {
+        if (withScreen) gStore(0, trunc(first, ir::Type::I8), ir::Type::I8);
+        else gStore(0, iconst(ir::Type::I8, 0), ir::Type::I8);
+        gStore(1, bin(ir::Op::CMP_EQ, ir::Type::I8, w, ir::Operand::imm(640, ir::Type::I16)), ir::Type::I8);
+        gStore(2, bin(ir::Op::CMP_EQ, ir::Type::I8, toAddr(vals[hk]), ir::Operand::imm(400, ir::Type::I16)), ir::Type::I8);
+        // depth 1-8 as 0-7; anything else 7
+        auto d1 = bin(ir::Op::SUB, ir::Type::I8, toByte(vals[dk]), ir::Operand::imm(1, ir::Type::I8));
+        std::string big = newLabel("dbig"), ok = newLabel("dok"), dd = newLabel("ddone");
+        auto dv = vreg(ir::Type::I8);
+        brCond(bin(ir::Op::CMP_GEU, ir::Type::I8, d1, ir::Operand::imm(8, ir::Type::I8)), big, ok);
+        block(big);
+        { ir::Inst in; in.op = ir::Op::COPY; in.dest = dv; in.src1 = ir::Operand::imm(7, ir::Type::I8); in.resultType = ir::Type::I8; emit(in); }
+        br(dd);
+        block(ok);
+        { ir::Inst in; in.op = ir::Op::COPY; in.dest = dv; in.src1 = d1; in.resultType = ir::Type::I8; emit(in); }
+        br(dd);
+        block(dd);
+        gStore(3, dv, ir::Type::I8);
+        call("__bas_gscreen");
+        if (extra) raiseNow(11);
+        else br(done);
+    };
+    block(scr);
+    raiseIf(bin(ir::Op::CMP_GEU, ir::Type::I8, first, ir::Operand::imm(4, ir::Type::I16)), 14);
+    if (n < 4) raiseNow(11);
+    else form(true, toAddr(vals[1]), 2, 3, n > 4);
+    block(wid);
+    if (n < 3) raiseNow(11);
+    else form(false, first, 1, 2, n > 3);
+    block(done);
+    for (auto& v : vals) freeVal(v);
+}
+
+void Compiler::graphicsStmt(int kw) {
+    auto comByte = [&](int off) { expectCh(','); gByte(off, expr()); };
+    switch (kw) {
+    case T_GRAPHIC:
+        // GRAPHIC CLR: the kernel set up again (kg65.start)
+        expectKw(T_CLR);
+        call("__bas_ginit");
+        return;
+    case T_SCNCLR:
+        // SCNCLR colour / SCREEN CLR colour: the draw screen cleared
+        gByte(0, expr());
+        call("__bas_gclear");
+        return;
+    case T_PEN: {
+        // PEN [pen,] colour
+        call("__bas_gcheck");
+        ir::Operand a = toByte(expr());
+        if (stmtEnd()) {
+            gStore(0, iconst(ir::Type::I8, 0), ir::Type::I8);
+            gStore(1, a, ir::Type::I8);
+        } else {
+            raiseIf(bin(ir::Op::CMP_GEU, ir::Type::I8, a, ir::Operand::imm(3, ir::Type::I8)), 14);
+            gStore(0, a, ir::Type::I8);
+            comByte(1);
+        }
+        call("__bas_gpen");
+        return;
+    }
+    case T_DMODE: {
+        // DMODE jam, complement, stencil, style, thickness
+        static const int lim[5] = {2, 2, 2, 4, 9};
+        for (int k = 0; k < 5; k++) {
+            if (k) expectCh(',');
+            ir::Operand b = toByte(expr());
+            raiseIf(bin(ir::Op::CMP_GEU, ir::Type::I8, b, ir::Operand::imm(lim[k], ir::Type::I8)), 14);
+            gStore(k, b, ir::Type::I8);
+        }
+        call("__bas_gdmode");
+        return;
+    }
+    case T_DPAT: {
+        // DPAT type (0-4) [, bytes (1-4), byte ...]
+        ir::Operand t = toByte(expr());
+        raiseIf(bin(ir::Op::CMP_GEU, ir::Type::I8, t, ir::Operand::imm(5, ir::Type::I8)), 14);
+        gStore(0, t, ir::Type::I8);
+        if (stmtEnd()) { call("__bas_gdpat"); return; }
+        // (another type: set, then the values left over ?SYNTAX ERROR; type 0:
+        // the count, then that many bytes: fewer ?SYNTAX ERROR before, more after)
+        std::string zero = newLabel("dpz"), other = newLabel("dpo");
+        brCond(bin(ir::Op::CMP_EQ, ir::Type::I8, t, ir::Operand::imm(0, ir::Type::I8)), zero, other);
+        block(other);
+        call("__bas_gdpat");
+        raiseNow(11);
+        block(zero);
+        expectCh(',');
+        ir::Operand n = toByte(expr());
+        raiseIf(bin(ir::Op::CMP_GEU, ir::Type::I8, n, ir::Operand::imm(5, ir::Type::I8)), 14);
+        gStore(1, n, ir::Type::I8);
+        int k = 0;
+        while (acceptCh(',')) {
+            if (k == 4) fail("DPAT takes up to 4 bytes (?SYNTAX ERROR)");
+            gByte(2 + k, expr());
+            k++;
+        }
+        raiseIf(bin(ir::Op::CMP_GTU, ir::Type::I8, n, ir::Operand::imm(k, ir::Type::I8)), 11);
+        call("__bas_gdpat");
+        raiseIf(bin(ir::Op::CMP_LTU, ir::Type::I8, n, ir::Operand::imm(k, ir::Type::I8)), 11);
+        return;
+    }
+    case T_DOT: {
+        // DOT x, y [, colour]
+        call("__bas_gcheck");
+        gSad(2, expr());
+        expectCh(',');
+        gSad(4, expr());
+        Val v;
+        if (optByt(v)) {
+            gStore(1, toByte(v), ir::Type::I8);
+            gStore(0, iconst(ir::Type::I8, 0), ir::Type::I8);
+        } else gStore(0, iconst(ir::Type::I8, 255), ir::Type::I8);
+        call("__bas_gdot");
+        return;
+    }
+    case T_LINE: {
+        // LINE x0, y0 [, x1] [, y1] [, x, y ...]: each a line from the last point;
+        // a coordinate left out: the last point's
+        call("__bas_gcheck");
+        gSad(0, expr());
+        expectCh(',');
+        gSad(2, expr());
+        call("__bas_glstart");
+        bool firstSeg = true;
+        for (;;) {
+            Val v;
+            bool x = optByt(v);
+            if (x) gWord(4, v);
+            else if (!firstSeg) break;
+            if (optByt(v)) gWord(6, v);
+            call("__bas_gline");
+            firstSeg = false;
+            if (stmtEnd()) break;
+        }
+        return;
+    }
+    case T_BOX:
+        // BOX x0, y0, x2, y2 [, solid] / x0, y0, x1, y1, x2, y2, x3, y3 [, solid]
+        call("__bas_gcheck");
+        gkiParms();
+        call("__bas_gbox");
+        return;
+    case T_CIRCLE: case T_ELLIPSE: {
+        // CIRCLE cx, cy, r [, flag, start, end] (the y radius r too) / ELLIPSE cx, cy, xr, yr [, flag, start, end]
+        call("__bas_gcheck");
+        int n = gkiParms();
+        if (kw == T_CIRCLE) {
+            for (int k = 8; k >= 3; k--) {
+                auto a = vreg(ir::Type::PTR);
+                ir::Inst in; in.op = ir::Op::ADDR_ELEM; in.dest = a; in.src1 = global("__bas_g");
+                in.src2 = ir::Operand::imm(1 + 2 * (k - 1), ir::Type::I16); in.args.push_back(ir::Operand::imm(1, ir::Type::I16));
+                in.resultType = ir::Type::PTR; emit(in);
+                gStore(1 + 2 * k, load(ir::Type::I16, a), ir::Type::I16);
+            }
+        }
+        (void)n;
+        call("__bas_gellipse");
+        return;
+    }
+    case T_POLYGON:
+        // POLYGON cx, cy, xr, yr, sides [, drawn sides, subtend, angle, solid]
+        call("__bas_gcheck");
+        gkiParms();
+        call("__bas_gpolygon");
+        return;
+    }
+}
+
 // --- the text screen and colours (basic_scr.c) ---
 
 void Compiler::screenStmt(int kw) {
@@ -2752,8 +3013,27 @@ void Compiler::screenStmt(int kw) {
     case T_PALETTE: {
         // PALETTE RESTORE / PALETTE COLOR index, red, green, blue [, index, red, green, blue ...]
         if (acceptKw(T_RESTORE)) { call("__bas_palinit"); return; }
-        if (!acceptKw(T_COLOR))
-            fail("PALETTE of a graphics screen is not supported by --compile yet (PALETTE COLOR and PALETTE RESTORE are)");
+        if (!acceptKw(T_COLOR)) {
+            // PALETTE screen, colour, red (0-31), green, blue [, colour, red, green, blue ...]:
+            // the screen's palette (and the hardware's when it is viewed)
+            ir::Operand sc = toByte(expr());
+            raiseIf(bin(ir::Op::CMP_GEU, ir::Type::I8, sc, ir::Operand::imm(4, ir::Type::I8)), 14);
+            gStore(0, sc, ir::Type::I8);
+            expectCh(',');
+            Val c = expr();
+            for (;;) {
+                gByte(1, c);
+                static const int lim[3] = {32, 16, 16};
+                for (int k = 0; k < 3; k++) {
+                    expectCh(',');
+                    ir::Operand b = toByte(expr());
+                    raiseIf(bin(ir::Op::CMP_GEU, ir::Type::I8, b, ir::Operand::imm(lim[k], ir::Type::I8)), 14);
+                    gStore(2 + k, b, ir::Type::I8);
+                }
+                call("__bas_gpal");
+                if (!optByt(c)) return;
+            }
+        }
         Val v = expr();
         for (;;) {
             ir::Operand i = toByte(v);
@@ -2770,6 +3050,67 @@ void Compiler::screenStmt(int kw) {
         }
     }
     }
+}
+
+// BASIC's get_GKI.parm: up to 9 words (getwrd) into __bas_g's GKI.parm2..,
+// an empty one 0 (",,"), their count * 2 in GKI.parm1
+int Compiler::gkiParms() {
+    int count = 0;
+    for (int k = 0; k < 9; k++) gStore(1 + 2 * k, iconst(ir::Type::I16, 0), ir::Type::I16);
+    for (;;) {
+        if (stmtEnd()) break;
+        if (acceptCh(',')) {
+            if (stmtEnd()) break;
+            if (isCh(',')) { count++; continue; }
+        }
+        if (count >= 9) fail("up to 9 values (?SYNTAX ERROR)");
+        gWord(1 + 2 * count, expr());
+        count++;
+    }
+    gStore(0, iconst(ir::Type::I8, count * 2), ir::Type::I8);
+    return count;
+}
+
+Val Compiler::graphicsFn(int kw) {
+    expectCh('(');
+    switch (kw) {
+    case T_RGRAPHIC:
+        gByte(0, expr());
+        expectCh(',');
+        gByte(1, expr());
+        expectCh(')');
+        call("__bas_grgraphic");
+        break;
+    case T_PIXEL:
+        call("__bas_gcheck");
+        gSad(0, expr());
+        expectCh(',');
+        gWord(2, expr());
+        expectCh(')');
+        call("__bas_gpixel");
+        break;
+    case T_RPEN: {
+        call("__bas_gcheck");
+        ir::Operand n = toByte(expr());
+        raiseIf(bin(ir::Op::CMP_GEU, ir::Type::I8, n, ir::Operand::imm(3, ir::Type::I8)), 14);
+        gStore(0, n, ir::Type::I8);
+        expectCh(')');
+        call("__bas_grpen");
+        break;
+    }
+    case T_RPALETTE:
+        call("__bas_gcheck");
+        gByte(0, expr());
+        expectCh(',');
+        gByte(1, expr());
+        expectCh(',');
+        gByte(2, expr());
+        expectCh(')');
+        call("__bas_grpalette");
+        break;
+    }
+    Val r; r.k = VK::I; r.bound = 255; r.op = load(ir::Type::I16, global("__bas_n"));
+    return r;
 }
 
 // --- chaining (DLOAD / LOAD) ---

@@ -533,6 +533,7 @@ __bas_error:
     cli
     jmp (__bas_trapv)
 @show:
+    jsr __bas_gtext         ; (a graphics screen viewed: the text screen, as BASIC's RestoreTextScreen)
     lda #13
     jsr __bas_out
     ; the message in the highlight colour (HIGHLIGHT's errcolor, $02A7), the
@@ -600,6 +601,12 @@ __bas_error:
     jmp __exit
 
 ; $F6/$F7 := message A's text in __bas_msgs (C clear), C set for none
+; the graphics run time's (basic_gfx.c); none linked: nothing to do
+    .split "__bas_gtext"
+.weak __bas_gtext
+__bas_gtext:
+    rts
+
     .split "__bas_msgptr"
 .global __bas_msgptr
 __bas_msgptr:

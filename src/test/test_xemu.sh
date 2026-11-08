@@ -889,6 +889,34 @@ else
     echo "FAIL: test_basic_compile10_xemu.bas (basic45 or basic45 --compile failed)"
     failed=$((failed + 1))
 fi
+# test_basic_compile11_xemu.bas: graphics (SCREEN, PEN, LINE, DOT, BOX,
+# DMODE, DPAT, clipping, 640x400, RGRAPHIC, RPEN, RPALETTE, PIXEL); the same
+# four ways
+BC11_EXP="01 01 01 01 01 01 01 AA"
+if ./bin/basic45 src/test-resources/test_basic_compile11_xemu.bas -o build/test/test_basic_compile11_i.prg >/dev/null 2>&1 &&
+   ./bin/basic45 --compile src/test-resources/test_basic_compile11_xemu.bas -o build/test/test_basic_compile11.prg >/dev/null 2>&1 &&
+   ./bin/basic45 --compile -O0 src/test-resources/test_basic_compile11_xemu.bas -o build/test/test_basic_compile11_O0.prg >/dev/null 2>&1 &&
+   ./bin/basic45 --compile --speed src/test-resources/test_basic_compile11_xemu.bas -o build/test/test_basic_compile11_speed.prg >/dev/null 2>&1; then
+    run_xemu_test "test_basic_compile11_interpreted" "build/test/test_basic_compile11_i.prg" "C0C0" 8 "$BC11_EXP"
+    run_xemu_test "test_basic_compile11" "build/test/test_basic_compile11.prg" "C0C0" 8 "$BC11_EXP"
+    run_xemu_test "test_basic_compile11_O0" "build/test/test_basic_compile11_O0.prg" "C0C0" 8 "$BC11_EXP"
+    run_xemu_test "test_basic_compile11_speed" "build/test/test_basic_compile11_speed.prg" "C0C0" 8 "$BC11_EXP"
+else
+    echo "FAIL: test_basic_compile11_xemu.bas (basic45 or basic45 --compile failed)"
+    failed=$((failed + 1))
+fi
+# test_basic_compile12_xemu.bas: CIRCLE, ELLIPSE (sectors, solid), POLYGON
+# (solid), PALETTE of a screen; interpreted and -O2 (the graphics run time's
+# size leaves -O0 and --speed above $C000 for now)
+BC12_EXP="01 01 01 01 01 01 01 AA"
+if ./bin/basic45 src/test-resources/test_basic_compile12_xemu.bas -o build/test/test_basic_compile12_i.prg >/dev/null 2>&1 &&
+   ./bin/basic45 --compile src/test-resources/test_basic_compile12_xemu.bas -o build/test/test_basic_compile12.prg >/dev/null 2>&1; then
+    run_xemu_test "test_basic_compile12_interpreted" "build/test/test_basic_compile12_i.prg" "C0C0" 8 "$BC12_EXP"
+    run_xemu_test "test_basic_compile12" "build/test/test_basic_compile12.prg" "C0C0" 8 "$BC12_EXP"
+else
+    echo "FAIL: test_basic_compile12_xemu.bas (basic45 or basic45 --compile failed)"
+    failed=$((failed + 1))
+fi
 # test_basic_compile6_xemu.bas: chaining. It (REM PRAGMA EXPORT) DLOADs
 # test_basic_compile6b_xemu.bas ("BC6B" on its D81; REM PRAGMA IMPORT, the
 # map from --import-map), which checks the variables; LOAD of a missing file
