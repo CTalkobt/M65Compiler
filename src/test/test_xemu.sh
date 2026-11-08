@@ -873,6 +873,22 @@ else
     echo "FAIL: test_basic_compile9_xemu.bas (basic45 or basic45 --compile failed)"
     failed=$((failed + 1))
 fi
+# test_basic_compile10_xemu.bas: FOREGROUND / COLOR, BACKGROUND, BORDER,
+# HIGHLIGHT, RCOLOR, CURSOR, RCURSOR, WINDOW, RWINDOW, SPEED / FAST, RSPEED,
+# PALETTE COLOR / RESTORE, VSYNC; the same four ways
+BC10_EXP="01 01 01 01 01 01 01 AA"
+if ./bin/basic45 src/test-resources/test_basic_compile10_xemu.bas -o build/test/test_basic_compile10_i.prg >/dev/null 2>&1 &&
+   ./bin/basic45 --compile src/test-resources/test_basic_compile10_xemu.bas -o build/test/test_basic_compile10.prg >/dev/null 2>&1 &&
+   ./bin/basic45 --compile -O0 src/test-resources/test_basic_compile10_xemu.bas -o build/test/test_basic_compile10_O0.prg >/dev/null 2>&1 &&
+   ./bin/basic45 --compile --speed src/test-resources/test_basic_compile10_xemu.bas -o build/test/test_basic_compile10_speed.prg >/dev/null 2>&1; then
+    run_xemu_test "test_basic_compile10_interpreted" "build/test/test_basic_compile10_i.prg" "C0C0" 8 "$BC10_EXP"
+    run_xemu_test "test_basic_compile10" "build/test/test_basic_compile10.prg" "C0C0" 8 "$BC10_EXP"
+    run_xemu_test "test_basic_compile10_O0" "build/test/test_basic_compile10_O0.prg" "C0C0" 8 "$BC10_EXP"
+    run_xemu_test "test_basic_compile10_speed" "build/test/test_basic_compile10_speed.prg" "C0C0" 8 "$BC10_EXP"
+else
+    echo "FAIL: test_basic_compile10_xemu.bas (basic45 or basic45 --compile failed)"
+    failed=$((failed + 1))
+fi
 # test_basic_compile6_xemu.bas: chaining. It (REM PRAGMA EXPORT) DLOADs
 # test_basic_compile6b_xemu.bas ("BC6B" on its D81; REM PRAGMA IMPORT, the
 # map from --import-map), which checks the variables; LOAD of a missing file
@@ -2395,6 +2411,11 @@ done
 
 # Test: cc65's string / stdlib / ctype / inttypes / signal / locale / time
 # functions and crc32
+for fmode in "zp|" "stack|-fno-zpcall"; do
+    IFS='|' read -r fname fflags <<< "$fmode"
+    echo "Testing test_far_cast_store_xemu.c ($fname)..."
+    xemu_case "FAIL: test_far_cast_store_xemu.c $fname (compilation/linking failed)" "src/test-resources/test_far_cast_store_xemu.c" "build/test/test_far_cast_store_${fname}_xemu.prg" "$fflags" -- "test_far_cast_store_$fname" "build/test/test_far_cast_store_${fname}_xemu.prg" "C0C0" 4 "01 01 01 AA"
+done
 for gmode in "zp|" "stack|-fno-zpcall"; do
     IFS='|' read -r gname gflags <<< "$gmode"
     echo "Testing test_cc65_gaps_xemu.c ($gname)..."

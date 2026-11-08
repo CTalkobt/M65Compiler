@@ -64,7 +64,10 @@ enum : int {
     T_MOVSPR = 0xFE06, T_SPRITE = 0xFE07, T_SPRCOLOR = 0xFE08, T_SPRSAV = 0xFE16, T_COLLISION = 0xFE17,
     T_BUMP = 0xCE03, T_RSPPOS = 0xCE05, T_RSPRITE = 0xCE06, T_RSPCOLOR = 0xCE07, T_CLR = 0x9C, T_SAVE = 0x94,
     T_SCREEN = 0xFE2E, T_SET = 0xFE2D, T_PEN = 0xFE33, T_DMODE = 0xFE35, T_DPAT = 0xFE36, T_DOT = 0xFE4C,
-    T_BOX = 0xE1, T_CIRCLE = 0xE2, T_ELLIPSE = 0xFE30, T_GRAPHIC = 0xDE, T_RGRAPHIC = 0xCC, T_RPEN = 0xD0, T_PIXEL = 0xCE0C, T_RPALETTE = 0xCE0D,
+    T_BOX = 0xE1, T_CIRCLE = 0xE2, T_ELLIPSE = 0xFE30, T_POLYGON = 0xFE2F, T_GRAPHIC = 0xDE, T_RGRAPHIC = 0xCC, T_RPEN = 0xD0, T_PIXEL = 0xCE0C, T_RPALETTE = 0xCE0D,
+    T_COLOR = 0xE7, T_FOREGROUND = 0xFE39, T_BACKGROUND = 0xFE3B, T_BORDER = 0xFE3C, T_HIGHLIGHT = 0xFE3D,
+    T_CURSOR = 0xFE41, T_RCURSOR = 0xFE42, T_WINDOW = 0xFE1A, T_FAST = 0xFE25, T_SPEED = 0xFE26,
+    T_PALETTE = 0xFE34, T_VSYNC = 0xFE54, T_OFF = 0xFE24, T_RCOLOR = 0xCD, T_RWINDOW = 0xCE09, T_RSPEED = 0xCE0E,
 };
 
 enum class TK { Kw, Num, Str, Name, Ch };
@@ -1287,6 +1290,15 @@ private:
         case T_FN: return fnCall();
         case T_RSPRITE: case T_RSPPOS: case T_RSPCOLOR: case T_BUMP: return sprFn(kw);
         case T_RGRAPHIC: case T_PIXEL: case T_RPEN: case T_RPALETTE: return graphicsFn(kw);
+        case T_RCOLOR: case T_RWINDOW: case T_RSPEED: {
+            // RCOLOR(0-3), RWINDOW(0-3), RSPEED(any): a byte
+            Val a = parenExpr();
+            if (kw == T_RSPEED) toF(a);
+            else nArg(toByte(a));
+            call(kw == T_RCOLOR ? "__bas_rcolor" : kw == T_RWINDOW ? "__bas_rwindow" : "__bas_rspeed");
+            Val r; r.k = VK::I; r.bound = 255; r.op = load(ir::Type::I16, global("__bas_n"));
+            return r;
+        }
         case T_ERRS: {
             Val n = toI16(parenExpr());
             store(ir::Type::I16, asType(n, ir::Type::I16), global("__bas_n"));
@@ -1444,6 +1456,10 @@ private:
     int gkiParms();
     void screenGStmt();
     Val graphicsFn(int kw);
+    void byteArg(const char* g) { store(ir::Type::I8, toByte(expr()), global(g)); }
+    void nArg(ir::Operand b) { store(ir::Type::I16, zext(b, ir::Type::I8, ir::Type::I16), global("__bas_n")); }
+    void mConst(int v) { store(ir::Type::I16, iconst(ir::Type::I16, v), global("__bas_m")); }
+    void screenStmt(int kw);
     Val optValue();
     void doStmt();
     // DEF FN name(x) = expr: each FN name(...) is the expression compiled where
@@ -2052,6 +2068,8 @@ void Compiler::statement() {
     case T_MOVSPR: movsprStmt(); return;
     case T_SPRSAV: sprsavStmt(); return;
     case T_COLLISION: collisionStmt(); return;
+    case T_COLOR: case T_FOREGROUND: case T_BACKGROUND: case T_BORDER: case T_HIGHLIGHT: case T_CURSOR:
+    case T_RCURSOR: case T_WINDOW: case T_FAST: case T_SPEED: case T_PALETTE: case T_VSYNC: screenStmt(kw); return;
     case T_FREAD: case T_FWRITE: freadStmt(kw == T_FWRITE); return;
     case T_LINE:
         // LINE INPUT# / LINE INPUT (the ROM's linputn / linput); LINE itself draws
@@ -2074,7 +2092,7 @@ void Compiler::statement() {
     case T_DO: doStmt(); return;
     case T_DEF: defStmt(); return;
     case T_SCREEN: screenGStmt(); return;
-    case T_PEN: case T_DMODE: case T_DPAT: case T_DOT: case T_BOX: case T_GRAPHIC: case T_CIRCLE: case T_ELLIPSE:
+    case T_PEN: case T_DMODE: case T_DPAT: case T_DOT: case T_BOX: case T_GRAPHIC: case T_CIRCLE: case T_ELLIPSE: case T_POLYGON:
         graphicsStmt(kw); return;
     case T_SCNCLR: {
         if (!stmtEnd()) { graphicsStmt(T_SCNCLR); return; }
@@ -2900,6 +2918,136 @@ void Compiler::graphicsStmt(int kw) {
         (void)n;
         call("__bas_gellipse");
         return;
+    }
+    case T_POLYGON:
+        // POLYGON cx, cy, xr, yr, sides [, drawn sides, subtend, angle, solid]
+        call("__bas_gcheck");
+        gkiParms();
+        call("__bas_gpolygon");
+        return;
+    }
+}
+
+// --- the text screen and colours (basic_scr.c) ---
+
+void Compiler::screenStmt(int kw) {
+    switch (kw) {
+    case T_COLOR: case T_FOREGROUND:
+        nArg(toByte(expr()));
+        call("__bas_fg");
+        return;
+    case T_BACKGROUND: case T_BORDER:
+        nArg(toByte(expr()));
+        mConst(kw == T_BACKGROUND ? 33 : 32);
+        call("__bas_vicset");
+        return;
+    case T_HIGHLIGHT: {
+        // HIGHLIGHT colour [, mode]
+        if (stmtEnd()) fail("HIGHLIGHT needs a colour (?SYNTAX ERROR)");
+        ir::Operand c = toByte(expr());
+        ir::Operand m = iconst(ir::Type::I8, 255);
+        if (acceptCh(',')) m = toByte(expr());
+        nArg(c);
+        store(ir::Type::I16, zext(m, ir::Type::I8, ir::Type::I16), global("__bas_m"));
+        call("__bas_hilite");
+        return;
+    }
+    case T_CURSOR: {
+        // CURSOR [ON | OFF] [, column] [, row [, style]]
+        bool onoff = false;
+        if (acceptKw(T_ON)) { nArg(iconst(ir::Type::I8, 0)); onoff = true; }
+        else if (acceptKw(T_OFF)) { nArg(iconst(ir::Type::I8, 1)); onoff = true; }
+        if (onoff) {
+            call("__bas_curonoff");
+            if (stmtEnd()) return;
+            expectCh(',');
+        }
+        int mask = 0;
+        if (!isCh(',')) { byteArg("__bas_cc"); mask |= 1; }
+        Val v;
+        if (optByt(v)) { store(ir::Type::I8, toByte(v), global("__bas_cr")); mask |= 2; }
+        if (optByt(v)) { store(ir::Type::I8, toByte(v), global("__bas_cs")); mask |= 4; }
+        mConst(mask);
+        call("__bas_curpos");
+        return;
+    }
+    case T_RCURSOR: {
+        // RCURSOR [column variable] [, row variable]
+        if (stmtEnd()) fail("RCURSOR needs a variable (?SYNTAX ERROR)");
+        bool hasCol = !isCh(','), hasRow = false;
+        LV col, row;
+        if (hasCol) col = listVar("RCURSOR");
+        if (acceptCh(',')) { row = listVar("RCURSOR"); hasRow = true; }
+        if ((hasCol && col.k == VK::S) || (hasRow && row.k == VK::S))
+            fail("RCURSOR takes numeric variables (?TYPE MISMATCH)");
+        call("__bas_rcursor");
+        Val c; c.k = VK::I; c.bound = 255; c.op = load(ir::Type::I16, global("__bas_n"));
+        Val r; r.k = VK::I; r.bound = 255; r.op = load(ir::Type::I16, global("__bas_m"));
+        if (hasCol) assignLV(col, c);
+        if (hasRow) assignLV(row, r);
+        return;
+    }
+    case T_WINDOW: {
+        // WINDOW left, top, right, bottom [, clear]
+        byteArg("__bas_wl");
+        for (const char* g : {"__bas_wt", "__bas_wr", "__bas_wb"}) { expectCh(','); byteArg(g); }
+        Val v;
+        store(ir::Type::I8, optByt(v) ? toByte(v) : iconst(ir::Type::I8, 0), global("__bas_wc"));
+        call("__bas_window");
+        return;
+    }
+    case T_FAST: case T_SPEED:
+        // [n] (none: 40 MHz) / ON / OFF: the fast serial bus
+        if (acceptKw(T_ON) || acceptKw(T_OFF)) {
+            nArg(iconst(ir::Type::I8, (*toks_)[p_ - 1].kw == T_ON ? 1 : 0));
+            call("__bas_fastser");
+            return;
+        }
+        nArg(stmtEnd() ? iconst(ir::Type::I8, 0) : toByte(expr()));
+        call("__bas_speed");
+        return;
+    case T_VSYNC:
+        store(ir::Type::I16, toAddr(expr()), global("__bas_n"));
+        call("__bas_vsync");
+        return;
+    case T_PALETTE: {
+        // PALETTE RESTORE / PALETTE COLOR index, red, green, blue [, index, red, green, blue ...]
+        if (acceptKw(T_RESTORE)) { call("__bas_palinit"); return; }
+        if (!acceptKw(T_COLOR)) {
+            // PALETTE screen, colour, red (0-31), green, blue [, colour, red, green, blue ...]:
+            // the screen's palette (and the hardware's when it is viewed)
+            ir::Operand sc = toByte(expr());
+            raiseIf(bin(ir::Op::CMP_GEU, ir::Type::I8, sc, ir::Operand::imm(4, ir::Type::I8)), 14);
+            gStore(0, sc, ir::Type::I8);
+            expectCh(',');
+            Val c = expr();
+            for (;;) {
+                gByte(1, c);
+                static const int lim[3] = {32, 16, 16};
+                for (int k = 0; k < 3; k++) {
+                    expectCh(',');
+                    ir::Operand b = toByte(expr());
+                    raiseIf(bin(ir::Op::CMP_GEU, ir::Type::I8, b, ir::Operand::imm(lim[k], ir::Type::I8)), 14);
+                    gStore(2 + k, b, ir::Type::I8);
+                }
+                call("__bas_gpal");
+                if (!optByt(c)) return;
+            }
+        }
+        Val v = expr();
+        for (;;) {
+            ir::Operand i = toByte(v);
+            auto iv = vreg(ir::Type::I8);
+            { ir::Inst in; in.op = ir::Op::COPY; in.dest = iv; in.src1 = i; in.resultType = ir::Type::I8; emit(in); }
+            expectCh(','); byteArg("__bas_cr");
+            expectCh(','); byteArg("__bas_cs");
+            expectCh(',');
+            ir::Operand b = toByte(expr());
+            store(ir::Type::I16, zext(b, ir::Type::I8, ir::Type::I16), global("__bas_m"));
+            nArg(iv);
+            call("__bas_pal");
+            if (!optByt(v)) return;
+        }
     }
     }
 }

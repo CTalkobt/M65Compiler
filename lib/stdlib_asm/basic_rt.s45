@@ -536,6 +536,14 @@ __bas_error:
     jsr __bas_gtext         ; (a graphics screen viewed: the text screen, as BASIC's RestoreTextScreen)
     lda #13
     jsr __bas_out
+    ; the message in the highlight colour (HIGHLIGHT's errcolor, $02A7), the
+    ; text colour ($F1) back after it, as BASIC's highlight_text / _done
+    jsr __bp_rom
+    lda $F1
+    sta __bas_savcol
+    lda $02A7
+    sta $F1
+    jsr __bp_prog
     lda __bas_n
     cmp #30                 ; BREAK: no "?"
     beq @nomark
@@ -584,6 +592,10 @@ __bas_error:
     inx
     bra @digits
 @end:
+    jsr __bp_rom
+    lda __bas_savcol
+    sta $F1
+    jsr __bp_prog
     lda __bas_n
     ldx #0
     jmp __exit
@@ -1227,6 +1239,7 @@ __bas_sb: .res 2
 __bas_sr: .res 2
 .global __bas_line
 __bas_line: .res 2
+__bas_savcol: .res 1
 __bas_fx: .res 5
 .global __bas_fa
 __bas_fa: .res 4

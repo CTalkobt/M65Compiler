@@ -992,6 +992,133 @@ void _bas_gellipse(void) {
     octb();
 }
 
+/* --- polygons (BASIC's kg65.polygon, the kernel's s.facet) --- */
+
+extern void _float_cos(void);
+extern void _float_sin(void);
+
+/* y at x offset n along an edge: base + / - n * dy / dx (endpts / endaz:
+ * 16 x 16 -> 32 bits, / 16, the low 16 bits) */
+static int fend(unsigned int n, unsigned int dx, unsigned int dy, unsigned char neg, int base) {
+    unsigned int q = (unsigned int)(((unsigned long)n * dy) / dx);
+    return neg ? base - (int)q : base + (int)q;
+}
+
+/* the solid triangle (s.facet): its corners sorted by x (unsigned), each
+ * column a vertical line between the edges */
+/* (LICM miscompiles this loop: cc45 #464) */
+#pragma cc45 optimize(no-licm)
+static void facet(int *px, int *py) {
+    unsigned char k, f1, f2, f3;
+    unsigned int dx1, dx2, dx3, dy1, dy2, dy3, fx, n;
+    int t;
+    /* sortx: (min, mid), (mid, max), (min, mid) */
+    static const unsigned char pr[3][2] = {{0, 1}, {1, 2}, {0, 1}};
+    for (k = 0; k < 3; k++) {
+        unsigned char a = pr[k][0], b = pr[k][1];
+        if ((unsigned int)px[b] < (unsigned int)px[a]) {
+            t = px[a]; px[a] = px[b]; px[b] = t;
+            t = py[a]; py[a] = py[b]; py[b] = t;
+        }
+    }
+    dx1 = (unsigned int)(px[1] - px[0]);
+    dx2 = (unsigned int)(px[2] - px[1]);
+    dx3 = (unsigned int)(px[2] - px[0]);
+    f1 = (unsigned int)py[1] < (unsigned int)py[0];
+    dy1 = f1 ? (unsigned int)(py[0] - py[1]) : (unsigned int)(py[1] - py[0]);
+    f2 = (unsigned int)py[2] < (unsigned int)py[1];
+    dy2 = f2 ? (unsigned int)(py[1] - py[2]) : (unsigned int)(py[2] - py[1]);
+    f3 = (unsigned int)py[2] < (unsigned int)py[0];
+    dy3 = f3 ? (unsigned int)(py[0] - py[2]) : (unsigned int)(py[2] - py[0]);
+    if (!dx3) return;
+    fx = (unsigned int)px[0];
+    n = 0;
+    if (dx1) {
+        for (;;) {
+            unsigned char last;
+            ly0 = fend(n, dx1, dy1, f1, py[0]);
+            ly1 = fend(n, dx3, dy3, f3, py[0]);
+            lx0 = lx1 = (int)fx;
+            KG.patrbitnum = 0;
+            line_();
+            last = fx >= (unsigned int)px[1];
+            fx++;
+            n++;
+            if (last) break;
+        }
+    }
+    if (!dx2) return;
+    for (;;) {
+        unsigned char last;
+        ly1 = fend(n, dx3, dy3, f3, py[0]);
+        ly0 = fend(fx - (unsigned int)px[1], dx2, dy2, f2, py[1]);
+        lx0 = lx1 = (int)fx;
+        KG.patrbitnum = 0;
+        line_();
+        last = fx >= (unsigned int)px[2];
+        fx++;
+        n++;
+        if (last) break;
+    }
+}
+
+#pragma cc45 optimize(licm)
+/* POLYGON cx, cy, xr, yr, sides [, drawn sides, subtend, angle, solid] */
+void _bas_gpolygon(void) {
+    unsigned int *v = (unsigned int *)&_bas_g[1];
+    int pcx = (int)v[0], pcy = (int)v[1], px0 = 0, py0 = 0, px1, py1, sx = 0, sy = 0;
+    float tt, dg, xr = (float)(int)v[2], yr = (float)(int)v[3], c;
+    unsigned char sides = (unsigned char)v[4], its, first, solid = (unsigned char)v[8];
+    {
+        float sa = (float)(int)v[7];
+        tt = sa * 0.01745329252f;
+    }
+    if (sides) dg = 360.0f / (float)sides * 0.01745329252f;
+    else dg = 0;
+    its = (unsigned char)v[5] ? (unsigned char)v[5] : sides;
+    first = !(its & 0x80);
+    for (;;) {
+        fset(tt);
+        _float_cos();
+        c = fget() * xr;
+        fset(c);
+        _bas_ayint();
+        px1 = _bas_n + pcx;
+        fset(tt);
+        _float_sin();
+        c = fget() * yr;
+        fset(c);
+        _bas_ayint();
+        py1 = pcy - _bas_n;
+        if (!first) {
+            if (solid) {
+                int fxs[3], fys[3];
+                fxs[0] = px1; fys[0] = py1;     /* (fxmin, fxmid, fxmax: p1, the centre, p0) */
+                fxs[1] = pcx; fys[1] = pcy;
+                fxs[2] = px0; fys[2] = py0;
+                px0 = px1; py0 = py1;
+                facet(fxs, fys);
+                goto next;
+            }
+            lx0 = px1; ly0 = py1; lx1 = px0; ly1 = py0;
+            line_();
+        }
+        if (first) { sx = px1; sy = py1; }
+        px0 = px1;
+        py0 = py1;
+    next:
+        first = 0;
+        if (its-- == 0) break;
+        tt = tt + dg;
+    }
+    if ((unsigned char)v[6]) {
+        lx0 = pcx; ly0 = pcy; lx1 = px0; ly1 = py0;
+        line_();
+        lx0 = pcx; ly0 = pcy; lx1 = sx; ly1 = sy;
+        line_();
+    }
+}
+
 /* --- functions --- */
 
 /* RGRAPHIC(screen, n) into __bas_n */
