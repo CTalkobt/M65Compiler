@@ -64,7 +64,7 @@ enum : int {
     T_MOVSPR = 0xFE06, T_SPRITE = 0xFE07, T_SPRCOLOR = 0xFE08, T_SPRSAV = 0xFE16, T_COLLISION = 0xFE17,
     T_BUMP = 0xCE03, T_RSPPOS = 0xCE05, T_RSPRITE = 0xCE06, T_RSPCOLOR = 0xCE07, T_CLR = 0x9C, T_SAVE = 0x94,
     T_SCREEN = 0xFE2E, T_SET = 0xFE2D, T_PEN = 0xFE33, T_DMODE = 0xFE35, T_DPAT = 0xFE36, T_DOT = 0xFE4C,
-    T_BOX = 0xE1, T_CIRCLE = 0xE2, T_ELLIPSE = 0xFE30, T_POLYGON = 0xFE2F, T_PAINT = 0xDF, T_VIEWPORT = 0xFE31, T_GCOPY = 0xFE32, T_CUT = 0xE4, T_PASTE = 0xE3, T_GRAPHIC = 0xDE, T_RGRAPHIC = 0xCC, T_RPEN = 0xD0, T_PIXEL = 0xCE0C, T_RPALETTE = 0xCE0D,
+    T_BOX = 0xE1, T_CIRCLE = 0xE2, T_ELLIPSE = 0xFE30, T_POLYGON = 0xFE2F, T_PAINT = 0xDF, T_VIEWPORT = 0xFE31, T_GCOPY = 0xFE32, T_CUT = 0xE4, T_PASTE = 0xE3, T_CHAR = 0xE0, T_GRAPHIC = 0xDE, T_RGRAPHIC = 0xCC, T_RPEN = 0xD0, T_PIXEL = 0xCE0C, T_RPALETTE = 0xCE0D,
     T_COLOR = 0xE7, T_FOREGROUND = 0xFE39, T_BACKGROUND = 0xFE3B, T_BORDER = 0xFE3C, T_HIGHLIGHT = 0xFE3D,
     T_CURSOR = 0xFE41, T_RCURSOR = 0xFE42, T_WINDOW = 0xFE1A, T_FAST = 0xFE25, T_SPEED = 0xFE26,
     T_PALETTE = 0xFE34, T_VSYNC = 0xFE54, T_OFF = 0xFE24, T_RCOLOR = 0xCD, T_RWINDOW = 0xCE09, T_RSPEED = 0xCE0E,
@@ -2093,7 +2093,7 @@ void Compiler::statement() {
     case T_DEF: defStmt(); return;
     case T_SCREEN: screenGStmt(); return;
     case T_PEN: case T_DMODE: case T_DPAT: case T_DOT: case T_BOX: case T_GRAPHIC: case T_CIRCLE: case T_ELLIPSE: case T_POLYGON: case T_PAINT:
-    case T_VIEWPORT: case T_GCOPY: case T_CUT: case T_PASTE:
+    case T_VIEWPORT: case T_GCOPY: case T_CUT: case T_PASTE: case T_CHAR:
         graphicsStmt(kw); return;
     case T_SCNCLR: {
         if (!stmtEnd()) { graphicsStmt(T_SCNCLR); return; }
@@ -2918,6 +2918,28 @@ void Compiler::graphicsStmt(int kw) {
         }
         (void)n;
         call("__bas_gellipse");
+        return;
+    }
+    case T_CHAR: {
+        // CHAR column, row, height, width, direction, string [, font address]
+        if (isKw(T_DEF)) fail("CHAR DEF is not supported by --compile yet");
+        call("__bas_gcheck");
+        gByte(0, expr());
+        expectCh(',');
+        gWord(1, expr());
+        for (int k = 3; k <= 5; k++) { expectCh(','); gByte(k, expr()); }
+        expectCh(',');
+        Val str = needS(expr());
+        // the font: $29800 (the ROM's), a 16-bit address in bank 2, or a 28-bit one
+        store(ir::Type::I32, iconst(ir::Type::I32, 0x29800), global("__bas_gfont"));
+        Val f;
+        if (optByt(f)) {
+            store(ir::Type::F32, toF(f), global("__float_a"));
+            call("__bas_gfontset");
+        }
+        store(ir::Type::PTR, str.op, global("__bas_gstr"));
+        freeVal(str);
+        call("__bas_gchar");
         return;
     }
     case T_VIEWPORT:

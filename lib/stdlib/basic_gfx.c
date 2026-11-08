@@ -1460,6 +1460,226 @@ void _bas_gpaste(void) {
     } while (t != ady);
 }
 
+/* --- CHAR (kg65.char, petpok / petctr / curcntl, tiltchr, mirrorchr, flipchr) --- */
+
+/* _bas_g: column, row (2), height, width, direction; the string at _bas_gstr;
+ * the font's 28-bit address at _bas_gfont */
+unsigned char *_bas_gstr;
+unsigned long _bas_gfont;
+#define WBUFR ((unsigned char *)0x1D00)
+static const unsigned char bitsup[8] = {1, 2, 4, 8, 16, 32, 64, 128};
+static unsigned char cbuf1[8], cbuf2[8], ccount, fsta, frvs, funder, cmod, wcol, chrcol, clipcol;
+static unsigned int winy, chrrow, cliprow;
+
+/* CHAR's font address (__float_a, BASIC's getwrd: 0 .. 2^32 - 1): its low 16
+ * bits in bank 2 unless the third byte gives a bank (and the fourth a megabyte) */
+extern unsigned long _bas_fa;
+extern void _bas_getadr32(void);
+void _bas_gfontset(void) {
+    _bas_getadr32();
+    if ((_bas_fa >> 16) & 0xFF) _bas_gfont = _bas_fa;
+    else _bas_gfont = 0x20000UL | (unsigned int)_bas_fa;
+}
+
+static unsigned char cgetc(unsigned char *c) {
+    if (ccount >= _bas_gstr[0]) return 1;
+    *c = _bas_gstr[1 + ccount];
+    return 0;
+}
+
+static void ccopy(void) { chrcol = _bas_g[0]; chrrow = *(unsigned int *)&_bas_g[1]; }
+
+/* a character: its screen code (0: printable), or a control's effect (petpok) */
+static unsigned char petpok(unsigned char *a) {
+    unsigned char c = *a, x;
+    if (c >= 0x20 && c < 0x40) return 0;
+    if (c >= 0x40 && c < 0x60) { *a = c - 0x40; return 0; }
+    if (c >= 0x60 && c < 0x80) { *a = c - 0x20; return 0; }
+    if (c >= 0xA0 && c < 0xC0) { *a = c - 0x40; return 0; }
+    if (c >= 0xC0) { *a = (c == 0xFF ? 0x5E : c) & 0x7F; return 0; }
+    x = c;
+    switch (x) {
+    case 2: fsta |= 1; return x;
+    case 6: cmod ^= 0x08; return x;
+    case 9: fsta |= 4; return x;
+    case 26: cmod ^= 0x04; return x;
+    case 15: fsta |= 2; return x;
+    case 0x12: frvs = 0xFF; return x;
+    case 0x92: frvs = 0; return x;
+    case 25: {
+        unsigned char n;
+        if (cgetc(&n)) return x;
+        cmod &= 0x3F;
+        if (n == 0x2D) cmod |= 0x80;
+        else if (n == 0x2B) cmod |= 0x40;
+        else return x;
+        ccount++;
+        return x;
+    }
+    case 21: funder ^= 0xFF; return x;
+    case 24: fsta |= 8; return x;
+    }
+    /* cursor controls (curcntl): the base position moved */
+    {
+        unsigned int *row = (unsigned int *)&_bas_g[1];
+        if (x == 17) *row += 8;
+        else if (x == 145) *row -= 8;
+        else if (x == 157) _bas_g[0]--;
+        else if (x == 29) _bas_g[0]++;
+        if (x == 147 || x == 19) { _bas_g[0] = 0; *row = 0; }
+        ccopy();
+    }
+    return 0xFF;
+}
+
+static void tiltchr(void) {
+    signed char x, y;
+    for (x = 0, y = 7; y >= 0; x++, y--) {
+        unsigned char mask = (cmod & 0x80) ? bitsup[y] : bitsdn[y], b = cbuf1[x];
+        signed char k;
+        for (k = 7; k >= 0; k--) {
+            unsigned char c;
+            if (cmod & 0x80) { c = b >> 7; b <<= 1; }
+            else { c = b & 1; b >>= 1; }
+            if (c) cbuf2[k] |= mask;
+            else cbuf2[k] &= (unsigned char)~mask;
+        }
+    }
+    for (x = 0; x < 8; x++) cbuf1[x] = cbuf2[x];
+}
+
+/* the character's 8 rows (cbuf1), height times each, at column clipcol (one byte) */
+static void cdraw(void) {
+    unsigned char y, h, plane, bit;
+    for (y = 0; y < 8; y++) {
+        for (h = _bas_g[3]; h; h--) {
+            if (clipcol < wcol && cliprow < winy) {
+                unsigned int adr = calcadr((unsigned int)clipcol * 8, cliprow);
+                unsigned char def = cbuf1[y];
+                for (plane = 0, bit = 1; bit; plane++, bit <<= 1) {
+                    unsigned char __far *q;
+                    unsigned char b = 0;
+                    if (!(KG.drawscrbp & bit)) continue;
+                    q = rowp(plane, adr);
+                    if (!(fsta & 1)) b = *q;
+                    if (fsta & 0x0E) {
+                        if (KG.drawpens[0] & bit) {
+                            unsigned char a = def;
+                            if (fsta & 4) a &= b;
+                            if (fsta & 2) a |= b;
+                            if (fsta & 8) a ^= b;
+                            b = a;
+                        }
+                    } else if (KG.drawpens[0] & bit) b = (unsigned char)((b & (unsigned char)~def) | def);
+                    else b &= (unsigned char)~def;
+                    *q = b;
+                }
+            }
+            cliprow++;
+        }
+    }
+}
+
+void _bas_gchar(void) {
+    unsigned char *row_lo = &_bas_g[1];
+    ccount = fsta = frvs = funder = cmod = 0;
+    wcol = (unsigned char)(KG.vpmaxx >> 3);
+    winy = (unsigned int)KG.vpminy + KG.vphy;
+    for (;;) {
+        unsigned char c, x, k, hw, w = _bas_g[4];
+        unsigned int *row = (unsigned int *)row_lo;
+        unsigned long cp;
+        ccopy();
+        for (;;) {
+            if (cgetc(&c)) return;
+            ccount++;
+            if (!petpok(&c)) break;
+        }
+        cp = (_bas_gfont & 0xFFFF0000UL) | (unsigned int)((unsigned int)_bas_gfont + (unsigned int)c * 8);
+        for (k = 0; k < 8; k++) cbuf1[k] = ((unsigned char __far *)cp)[k];
+        clipcol = chrcol;
+        cliprow = chrrow;
+        cbuf1[7] |= funder;
+        for (k = 0; k < 8; k++) { cbuf1[k] ^= frvs; cbuf2[k] = 0; }
+        if (cmod & 0xC0) tiltchr();
+        if (cmod & 0x04)
+            for (k = 0; k < 8; k++) {
+                unsigned char b = cbuf1[k], r = 0, n;
+                for (n = 0; n < 8; n++) { r = (unsigned char)((r << 1) | (b & 1)); b >>= 1; }
+                cbuf1[k] = r;
+            }
+        if (cmod & 0x08)
+            for (k = 0; k < 4; k++) { unsigned char t = cbuf1[k]; cbuf1[k] = cbuf1[7 - k]; cbuf1[7 - k] = t; }
+        hw = (unsigned char)(w - 1);
+        if (hw) {
+            /* the widths: each row's bits w times each, chained through up to 16 bytes */
+            unsigned char len = w < 4 ? 3 : w < 7 ? 6 : w < 11 ? 10 : 16;
+            for (k = 0; k < 128; k++) WBUFR[k] = 0;
+            for (x = 0; x < 8; x++) {
+                unsigned char yb;
+                for (yb = 0; yb < 8; yb++) {
+                    unsigned char hold = (cbuf1[x] & bitsdn[yb]) ? 1 : 0, n = w;
+                    do {
+                        unsigned char cc = hold, j;
+                        for (j = 0; j < len; j++) {
+                            unsigned char b = WBUFR[j * 8 + x];
+                            WBUFR[j * 8 + x] = (unsigned char)((b << 1) | cc);
+                            cc = b >> 7;
+                        }
+                    } while (--n);
+                }
+            }
+        }
+        for (;;) {
+            if (w != 1)
+                for (k = 0; k < 8; k++) cbuf1[k] = WBUFR[(unsigned char)(hw * 8) + k];
+            cdraw();
+            chrcol++;
+            clipcol++;
+            cliprow = chrrow;
+            hw--;
+            if (hw & 0x80) break;
+        }
+        /* the direction: 1 up, 2 right, 4 down, 8 left (with the kernel's wraps) */
+        {
+            unsigned char d = _bas_g[5];
+            unsigned int h8 = (unsigned int)_bas_g[3] * 8;
+            if (d & 1) {
+                *row -= h8;
+                if (*row & 0x8000) {
+                    *row = winy - h8;
+                    _bas_g[0] -= w;
+                    if (_bas_g[0] & 0x80) _bas_g[0] = (unsigned char)(wcol - (unsigned char)(h8 >> 8));
+                }
+            }
+            if (d & 2) {
+                _bas_g[0] += w;
+                if (_bas_g[0] >= wcol) {
+                    _bas_g[0] = 0;
+                    *row += h8;
+                    if (*row >= winy) *row = 0;
+                }
+            }
+            if (d & 4) {
+                *row += h8;
+                if (*row >= winy) {
+                    *row = 0;
+                    _bas_g[0] += w;
+                    if (_bas_g[0] >= wcol) _bas_g[0] = 0;
+                }
+            }
+            if (d & 8) {
+                _bas_g[0] -= w;
+                if (_bas_g[0] & 0x80) {
+                    _bas_g[0] = (unsigned char)(wcol - (unsigned char)(h8 >> 8));
+                    *row -= h8;
+                    if (*row & 0x8000) *row = winy - h8;
+                }
+            }
+        }
+    }
+}
+
 /* --- functions --- */
 
 /* RGRAPHIC(screen, n) into __bas_n */
