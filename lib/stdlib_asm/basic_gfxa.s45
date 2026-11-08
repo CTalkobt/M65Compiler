@@ -36,6 +36,7 @@ PTR = $08                   ; (__zp_scratch: the byte's 28-bit address)
 .global __bas_kg
 __bas_kg = $1F00
 
+.segment "code"
     .split "__bas_gplot"
 .global __bas_gplot
 __bas_gplot:
