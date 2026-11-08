@@ -917,6 +917,17 @@ else
     echo "FAIL: test_basic_compile12_xemu.bas (basic45 or basic45 --compile failed)"
     failed=$((failed + 1))
 fi
+# test_basic_compile13_xemu.bas: PAINT (modes 0-2), VIEWPORT CLR, GCOPY / CUT /
+# PASTE, CHAR (reversed, scaled); interpreted and -O2 (as test 12)
+BC13_EXP="01 01 01 01 01 01 01 AA"
+if ./bin/basic45 src/test-resources/test_basic_compile13_xemu.bas -o build/test/test_basic_compile13_i.prg >/dev/null 2>&1 &&
+   ./bin/basic45 --compile src/test-resources/test_basic_compile13_xemu.bas -o build/test/test_basic_compile13.prg >/dev/null 2>&1; then
+    run_xemu_test "test_basic_compile13_interpreted" "build/test/test_basic_compile13_i.prg" "C0C0" 8 "$BC13_EXP"
+    run_xemu_test "test_basic_compile13" "build/test/test_basic_compile13.prg" "C0C0" 8 "$BC13_EXP"
+else
+    echo "FAIL: test_basic_compile13_xemu.bas (basic45 or basic45 --compile failed)"
+    failed=$((failed + 1))
+fi
 # test_basic_compile6_xemu.bas: chaining. It (REM PRAGMA EXPORT) DLOADs
 # test_basic_compile6b_xemu.bas ("BC6B" on its D81; REM PRAGMA IMPORT, the
 # map from --import-map), which checks the variables; LOAD of a missing file

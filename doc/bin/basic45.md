@@ -475,9 +475,12 @@ and `VSYNC line` (0-511, below the frame's last line) set the VIC-IV's registers
 `PEN [pen,] colour`, `DMODE`, `DPAT`, `DOT`, `LINE` (a chain of points; a value left out is the last point's), `BOX`
 (two or four corners, solid), `CIRCLE` / `ELLIPSE` (`flag`: solid, no legs, angles from 12 o'clock; a sector from
 `start` to `end` degrees), `POLYGON` (sides, the sides drawn, subtend lines, the start angle, solid), `PALETTE screen,
-colour, red, green, blue`, `SCNCLR colour`, `GRAPHIC CLR`, `RGRAPHIC`, `PIXEL` (a colour index), `RPEN`, `RPALETTE`
-are BASIC 65's graphics kernel (V920413's `kg65.*`) written again (`lib/stdlib/basic_gfx.c`, the dot in
-`lib/stdlib_asm/basic_gfxa.s45`), not called: the VIC-III's bitplanes in 8 KB segments of banks 4 (even planes) and 5
+colour, red, green, blue`, `SCNCLR colour`, `GRAPHIC CLR`, `PAINT x, y [, mode [, colour]]` (mode 0: the area of
+(x, y)'s colour, 1: up to `colour` or pen 0's, 2: up to any set dot), `VIEWPORT x, y, width, height` / `VIEWPORT CLR`,
+`GCOPY` / `CUT` / `PASTE` (a brush of up to 1 KB a plane), `CHAR column, row, height, width, direction, string$
+[, font address]` (BASIC's control codes: reverse, the next height and width), `RGRAPHIC`, `PIXEL` (a colour index),
+`RPEN`, `RPALETTE` are BASIC 65's graphics kernel (V920413's `kg65.*`) written again (`lib/stdlib/basic_gfx.c`; the
+dot, lines, `BOX`, the triangles, the ellipses and `PAINT` in `lib/stdlib_asm/basic_gfxa.s45`), not called: the VIC-III's bitplanes in 8 KB segments of banks 4 (even planes) and 5
 (odd), each screen's palette in its segments' spare bytes, the same algorithms (Bresenham's lines from the kernel's
 octants, its clipping with BASIC's floats, the ellipses' octant table from `SQR`, sectors by `ATN`, polygons'
 triangles filled by columns), so the bitplanes hold the same bytes as the interpreter's. The state is the kernel's
@@ -485,11 +488,12 @@ own variables (bank 0 `$1F00`: its screen table, pens, the draw and view screens
 `RUN` or left open after the program is the interpreter's too. An error shows the text screen first, as BASIC's.
 Its quirks are kept: the clip's low edges one pixel off, a 640-wide screen's palette at `$7E80` of its bank,
 `BOX` with fewer than four values doing nothing, `DOT`'s colour becoming pen 0's, the ellipses' `+ 0.35` that
-adds nothing (the ROM reads the constant from the wrong bank). The ellipses' table is in the kernel's scratch
-pages (`$1800`-`$1EFF`: radii up to about 630). Not compiled yet: `PAINT`, `CHAR`, `VIEWPORT`, `GCOPY` / `CUT` /
-`PASTE`, `LOADIFF` / `SAVEIFF`. The run time is about 17 KB of C for now (a program with `CIRCLE` or `POLYGON` at
-`-O0` or `--speed` can pass `$C000`); it is to become assembly. Tests: `test_basic_compile11_xemu.bas`,
-`test_basic_compile12_xemu.bas`.
+adds nothing (the ROM reads the constant from the wrong bank), `VIEWPORT CLR` going through the brush's copy,
+`PASTE` clamped to the screen, `PAINT` stopping when its stack is full. The ellipses' table and `PAINT`'s stack are in
+attic RAM (`$8710000`, 8 KB; `$8700000`, as long as the kernel's after a short program), the brush in the kernel's
+scratch pages (`$1800`-`$1BFF`). Not compiled yet: `CHAR DEF`, `LOADIFF` / `SAVEIFF`. The run time is about 19 KB
+(a program using most of it at `-O0` or `--speed` can pass `$C000`); more of it is to become assembly. Tests:
+`test_basic_compile11_xemu.bas`, `test_basic_compile12_xemu.bas`, `test_basic_compile13_xemu.bas`.
 
 **TRAP**: with a trap set, an error (not `STOP`'s BREAK) sets `ER` and `EL`, turns the trap off and goes on at
 the trap's line with the CPU stack as at the start (BASIC's stack of `GOSUB`, `FOR` and `DO` as it was, as the ROM

@@ -52,7 +52,8 @@ struct kg65 {
     unsigned char dsbp0adr[8];       /* $61: plane segment addresses (nybbles) */
     unsigned char viewscreen, viewscrwidth, viewscrheight, viewscrdepth;    /* $69 */
 };
-#define KG (*(struct kg65 *)0x1F00)
+extern struct kg65 _bas_kg;     /* (basic_gfxa.s45: the symbol at $1F00, so cc45 addresses it absolutely) */
+#define KG _bas_kg
 
 static const unsigned char bitsdn[8] = {128, 64, 32, 16, 8, 4, 2, 1};
 static const unsigned char twosdn[4] = {0xC0, 0x30, 0x0C, 0x03};
@@ -97,8 +98,10 @@ static unsigned char entry(unsigned char y) {
     return (m & 0x80) ? m : 0;
 }
 
+#define PLENUM (*(volatile unsigned char *)0x1176)   /* BASIC's plenum: the last screen's depth */
 void _bas_gscrdef(void) {
     /* parm: screen, width, height, depth (0-7) */
+    PLENUM = _bas_g[3];
     KG.scrtab[_bas_g[0] << 2] = (unsigned char)(0x80 | (_bas_g[1] << 4) | (_bas_g[2] << 3) | _bas_g[3]);
 }
 
@@ -514,7 +517,13 @@ void _bas_gpal(void) {
 
 /* --- drawing --- */
 
-static int lx0, ly0, lx1, ly1;   /* the line's ends (the kernel's linex0 ..) */
+/* the line's ends (the kernel's linex0 ..: basic_gfxa.s45's) */
+extern int _bas_lx0, _bas_ly0, _bas_lx1, _bas_ly1;
+#define lx0 _bas_lx0
+#define ly0 _bas_ly0
+#define lx1 _bas_lx1
+#define ly1 _bas_ly1
+extern void _bas_gline0(void);
 
 /* the dot at (x, y) of the draw screen with the pens, the mode and the
  * pattern (plotdot: basic_gfxa.s45) */
@@ -526,83 +535,14 @@ static void plot(unsigned int x, unsigned int y) {
     _bas_gplot();
 }
 
-/* the clip's intersection: n * d1 / d2 as BASIC's floats, rounded down (calcxypt) */
+/* a line from (lx0, ly0) to (lx1, ly1), clipped, each dot plotted (q.line:
+ * basic_gfxa.s45) */
+static void line_(void) {
+    _bas_gline0();
+}
+
 extern unsigned char _float_a[5];
 extern void _bas_ayint(void);
-static int calcxypt(int n, int d1, int d2) {
-    float f = (float)n * (float)d1;
-    unsigned char k;
-    if (d2) f = f / (float)d2;
-    for (k = 0; k < 5; k++) _float_a[k] = ((unsigned char *)&f)[k];
-    _bas_ayint();
-    return _bas_n;
-}
-
-/* Cohen-Sutherland against the viewport (kg65.clip): 1 when it is all outside */
-static unsigned char outcode(int x, int y, int maxx, int maxy) {
-    unsigned char c = 0;
-    if (y < KG.vpminy) c |= 2;
-    else if (y > maxy) c |= 8;
-    if (x < KG.vpminx) c |= 1;
-    else if (x > maxx) c |= 4;
-    return c;
-}
-
-static unsigned char clip(void) {
-    int maxx = (int)KG.vpmaxx - 1, maxy = (int)KG.vpmaxy - 1;
-    for (;;) {
-        unsigned char c0 = outcode(lx0, ly0, maxx, maxy), c1 = outcode(lx1, ly1, maxx, maxy), c;
-        int dx = lx1 - lx0, dy = ly1 - ly0, x, y;
-        int *px, *py;
-        if (c0 & c1) return 1;
-        if (!c0 && !c1) return 0;
-        /* the point outside: the first, else the second (its own deltas from the first) */
-        if (c0) { c = c0; px = &lx0; py = &ly0; }
-        else { c = c1; px = &lx1; py = &ly1; }
-        x = *px;
-        y = *py;
-        /* (the distances to the low edges one more, as calconst's clc / sbc) */
-        if (c & 8) { x = calcxypt(maxy - ly0, dx, dy) + lx0; y = maxy; }
-        else if (c & 2) { x = calcxypt(KG.vpminy - ly0 - 1, dx, dy) + lx0; y = KG.vpminy; }
-        else if (c & 4) { y = calcxypt(maxx - lx0, dy, dx) + ly0; x = maxx; }
-        else if (c & 1) { y = calcxypt(KG.vpminx - lx0 - 1, dy, dx) + ly0; x = KG.vpminx; }
-        *px = x;
-        *py = y;
-    }
-}
-
-/* a line from (lx0, ly0) to (lx1, ly1), clipped, each dot plotted (q.line) */
-static void line_(void) {
-    unsigned char oct = 0;
-    int dx, dy, e;
-    unsigned int n, len;
-    if (clip()) return;
-    dx = lx1 - lx0;
-    if (dx < 0) { oct |= 2; dx = -dx; }
-    dy = ly1 - ly0;
-    if (dy < 0) { oct |= 4; dy = -dy; }
-    if (dx - dy < 0) {
-        e = dx; dx = dy; dy = e;
-        oct |= 8;
-    }
-    e = (-dx) >> 1;
-    len = (unsigned int)dx;
-    plot((unsigned int)lx0, (unsigned int)ly0);
-    for (n = 0; n < len; n++) {
-        unsigned char o = oct, xs, ys;
-        e += dy;
-        if (e >= 0) {
-            e -= dx;
-            o++;
-        }
-        /* octable: x step, y step */
-        if (o & 8) { ys = 1; xs = o & 1; }
-        else { xs = 1; ys = o & 1; }
-        if (xs) lx0 += (o & 2) ? -1 : 1;
-        if (ys) ly0 += (o & 4) ? -1 : 1;
-        plot((unsigned int)lx0, (unsigned int)ly0);
-    }
-}
 
 /* DOT x, y [, colour] (colour: pen 0 becomes it, as the kernel's) */
 void _bas_gdot(void) {
@@ -630,92 +570,7 @@ void _bas_gline(void) {
     for (k = 0; k < 4; k++) _bas_g[k] = _bas_g[4 + k];
 }
 
-/* the next dot of an edge (kg65.s.line with doadr: unclipped), as the solid
- * box's two edges step */
-struct edge { int x, y, x1, y1, dx, dy, e; unsigned char oct, first; unsigned int n; };
-static unsigned char step(struct edge *g) {
-    if (g->first) {
-        g->first = 0;
-        g->oct = 0;
-        g->dx = g->x1 - g->x;
-        if (g->dx < 0) { g->oct |= 2; g->dx = -g->dx; }
-        g->dy = g->y1 - g->y;
-        if (g->dy < 0) { g->oct |= 4; g->dy = -g->dy; }
-        if (g->dx - g->dy < 0) {
-            int t = g->dx; g->dx = g->dy; g->dy = t;
-            g->oct |= 8;
-        }
-        g->e = (-g->dx) >> 1;
-        g->n = 0xFFFF;
-        return 0;
-    }
-    {
-        unsigned char o = g->oct;
-        g->e += g->dy;
-        if (g->e >= 0) { g->e -= g->dx; o++; }
-        if (o & 8) {
-            if (o & 1) g->x += (o & 2) ? -1 : 1;
-            g->y += (o & 4) ? -1 : 1;
-        } else {
-            g->x += (o & 2) ? -1 : 1;
-            if (o & 1) g->y += (o & 4) ? -1 : 1;
-        }
-    }
-    g->n++;
-    return g->n >= (unsigned int)g->dx;
-}
-
-/* BOX: _bas_g[0] the values' count * 2, then the values (words) */
-void _bas_gbox(void) {
-    unsigned int *v = (unsigned int *)&_bas_g[1];    /* GKI.parm2.. */
-    unsigned char count = (unsigned char)(_bas_g[0] | 2), solid, k;
-    int cx[4], cy[4];
-    solid = _bas_g[count - 1];                       /* (parm1 + count - 1: the flag's low byte) */
-    if (count == 18) {
-        for (k = 0; k < 4; k++) { cx[k] = (int)v[k * 2]; cy[k] = (int)v[k * 2 + 1]; }
-    } else if (count == 10) {
-        cx[0] = (int)v[0]; cy[0] = (int)v[1];
-        cx[1] = (int)v[2]; cy[1] = (int)v[1];
-        cx[2] = (int)v[2]; cy[2] = (int)v[3];
-        cx[3] = (int)v[0]; cy[3] = (int)v[3];
-    } else {
-        /* (fewer values: nothing, the kernel's carry clear; between: ?SYNTAX ERROR) */
-        if (count - 1 >= 9) raise(11);
-        return;
-    }
-    if (solid) {
-        struct edge a, b;
-        a.x = cx[0]; a.y = cy[0]; a.x1 = cx[3]; a.y1 = cy[3]; a.first = 1;
-        b.x = cx[1]; b.y = cy[1]; b.x1 = cx[2]; b.y1 = cy[2]; b.first = 1;
-        for (;;) {
-            if (step(&a)) return;
-            KG.patrbitnum = 0;
-            step(&b);
-            lx0 = a.x; ly0 = a.y; lx1 = b.x; ly1 = b.y;
-            line_();
-        }
-    }
-    KG.patrbitnum = 0;
-    for (k = 0; k < 4; k++) {
-        lx0 = cx[k]; ly0 = cy[k];
-        lx1 = cx[(k + 1) & 3]; ly1 = cy[(k + 1) & 3];
-        line_();
-    }
-}
-
-/* --- ellipses (kg65.ellipse, epstab, cdot, octa / octb, solide) --- */
-
-/* the octant table (the kernel's is at BASIC's text_top): the kernel's
- * scratch pages */
-#define ETAB ((unsigned char *)0x1800)
-#define ETAB_LEN 0x700
-extern void _bas_sqr(void);
-extern void _bas_fdiv(void);
-extern void _float_atn(void);
-extern unsigned char _float_b[5];
-static int ecx, ecy, ecx0, ecy0, ecdx, ecdy;
-static unsigned int ecrx, ecry, etp, estart, eend;
-static unsigned char eflag, elast;
+/* --- ellipses (kg65.ellipse, epstab, cdot, octa / octb, solide: basic_gfxa.s45) --- */
 
 static float fget(void) {
     float f;
@@ -728,341 +583,19 @@ static void fset(float f) {
     for (k = 0; k < 5; k++) _float_a[k] = ((unsigned char *)&f)[k];
 }
 
-/* SQR(n) rounded down (kg65.s.sqrt / esqrt: its + 0.35 reads the constant
- * through a 32-bit pointer whose bank is what Y holds, not the constant, so
- * nothing is added in effect: the interpreter's tables are the floor's) */
-static unsigned int esqrt(float f) {
-    fset(f);
-    _bas_sqr();
-    _bas_ayint();
-    return (unsigned int)_bas_n;
-}
-
-static void etab_put(unsigned char v) {
-    if (etp < ETAB_LEN) ETAB[etp] = v;
-    etp++;
-}
-
-static void reset_tp(void) {
-    ETAB[0] = 0xFF;
-    etp = 1;
-}
-
-/* one quadrant's steps: the first half (y up from 0: x's decrease, 0 / 1)
- * to the turn point ($FE), the second (x down to 0: y's increase) ($FD), then
- * both reversed back to the $FF */
-static void epstab(void) {
-    unsigned long rqx = (unsigned long)ecrx * ecrx, rqy = (unsigned long)ecry * ecry, d;
-    float xrfp = (float)rqx, yrfp = (float)rqy;
-    unsigned int cdx = 0, cdy, x = ecrx, r, src, dst;
-    reset_tp();
-    for (;;) {
-        cdy = x;
-        cdx++;
-        d = rqy - (unsigned long)cdx * cdx;
-        if (d & 0x80000000UL) break;
-        if (eflag & 0x80) {
-            /* rx^2 * (ry^2 - y^2) / ry^2: 64 bits; a high half: in floats */
-            unsigned long lo = d * rqx, hi = 0;
-            {
-                /* the high 32 bits of d * rqx */
-                unsigned long a1 = d >> 16, a0 = d & 0xFFFF, b1 = rqx >> 16, b0 = rqx & 0xFFFF;
-                unsigned long mid = a1 * b0 + ((a0 * b0) >> 16);
-                unsigned long mid2 = a0 * b1 + (mid & 0xFFFF);
-                hi = a1 * b1 + (mid >> 16) + (mid2 >> 16);
-            }
-            if (hi) {
-                fset((float)d);
-                r = esqrt(fget() * xrfp / yrfp);
-            } else r = esqrt((float)(lo / rqy));
-        } else r = esqrt((float)d);
-        if ((unsigned char)((unsigned char)cdy - (unsigned char)r) >= 2) break;
-        etab_put((unsigned char)((unsigned char)cdy - (unsigned char)r));
-        x = r;
-    }
-    etab_put(0xFE);
-    cdx--;
-    x = cdx;
-    cdx = cdy;
-    for (;;) {
-        unsigned char st;
-        cdy = x;
-        cdx--;
-        if (cdx & 0x8000) break;
-        d = rqx - (unsigned long)cdx * cdx;
-        if (eflag & 0x80) r = esqrt((float)((d * rqy) / rqx));
-        else r = esqrt((float)d);
-        st = (unsigned char)r >= (unsigned char)cdy ? (unsigned char)((unsigned char)r - (unsigned char)cdy) : 0;
-        etab_put(st);
-        if (!cdx) break;
-        x = r;
-    }
-    if (etp < ETAB_LEN) ETAB[etp] = 0xFD;
-    src = etp;
-    dst = etp;
-    for (;;) {
-        unsigned char v;
-        src--;
-        dst++;
-        v = ETAB[src];
-        if (dst < ETAB_LEN) ETAB[dst] = v;
-        if (v == 0xFF) break;
-    }
-}
-
-/* the angle of (dx, dy) in degrees, 0-359 (BASIC's kg65.s.atan) */
-static unsigned int eatan(int dx, int dy) {
-    int a;
-    if (!dx) return dy < 0 ? 270 : 90;
-    {
-        /* (both converted first: cc45's float code uses __float_a / __float_b) */
-        unsigned char k;
-        float fa = (float)dy, fb = (float)dx;
-        for (k = 0; k < 5; k++) _float_b[k] = ((unsigned char *)&fb)[k];
-        fset(fa);
-    }
-    _bas_fdiv();
-    _float_atn();
-    fset(fget() * 57.295779513082321f);
-    _bas_ayint();
-    a = _bas_n;
-    if (dx < 0) a += 180;
-    if (a < 0) a += 360;
-    return (unsigned int)a;
-}
-
-/* a dot of the draw screen, clipped to the viewport (kg65.dot without a colour) */
-static void dot_(int x, int y) {
-    if ((unsigned int)x >= KG.vpmaxx || (unsigned int)y >= KG.vpmaxy || (unsigned int)x < (unsigned int)KG.vpminx ||
-        (unsigned int)y < (unsigned int)KG.vpminy)
-        return;
-    plot((unsigned int)x, (unsigned int)y);
-}
-
-static void cline(int x, int y) {
-    lx0 = ecx; ly0 = ecy; lx1 = x; ly1 = y;
-    line_();
-}
-
-/* the point (cx0, cy0): sector, legs, solid sector's lines; the next entry */
-static unsigned char cdot(void) {
-    if (eflag & 0x10) {
-        unsigned int a = eatan(ecx0 - ecx, ecy0 - ecy);
-        unsigned char in;
-        if (!(eflag & 0x08)) in = a >= estart && a < eend;
-        else in = a >= estart || a < eend;
-        if (in) {
-            if (eflag & 0x20) goto dot;
-            eflag |= 0x20;
-        } else {
-            if (!(eflag & 0x20)) goto next;
-            eflag &= 0xDF;
-        }
-        if ((eflag & 1) || !(eflag & 2)) cline(ecx0, ecy0);
-        if (!(eflag & 0x20)) goto next;
-    }
-dot:
-    dot_(ecx0, ecy0);
-    if (eflag & 1) {
-        cline(ecx0, ecy0);
-        cline(ecx0, ecy0 >= ecy ? ecy0 - 1 : ecy0 + 1);
-    }
-next:
-    etp++;
-    return etp < ETAB_LEN ? ETAB[etp] : 0xFD;
-}
-
-/* octants 1-6 (octa) and 7-8 (octb): each entry's 1 the extra step */
-static void octant(signed char ex, signed char ey, signed char mx, signed char my) {
-    for (;;) {
-        unsigned char v = cdot();
-        if (v & 0x80) return;
-        if (v) { ecx0 += ex; ecy0 += ey; }
-        ecx0 += mx;
-        ecy0 += my;
-    }
-}
-
-static void octa(void) {
-    octant(-1, 0, 0, 1);
-    octant(0, 1, -1, 0);
-    octant(0, -1, -1, 0);
-    octant(-1, 0, 0, -1);
-    reset_tp();
-    etp--;
-    octant(1, 0, 0, -1);
-    octant(0, -1, 1, 0);
-}
-
-static void octb(void) {
-    octant(0, 1, 1, 0);
-    octant(1, 0, 0, 1);
-}
-
-/* the full solid ellipse: lines between the arc's points and their mirror
- * (solide; a column whose low byte was the last one's skipped) */
-static unsigned char sline(unsigned char force) {
-    if (force || (unsigned char)ecx0 != elast) {
-        lx0 = ecx0; ly0 = ecy0; lx1 = ecdx; ly1 = ecdy;
-        elast = (unsigned char)ecx0;
-        line_();
-    }
-    etp++;
-    return etp < ETAB_LEN ? ETAB[etp] : 0xFD;
-}
-
-static void solide_quarter(unsigned char v, signed char ex, signed char ey, signed char mx, signed char my) {
-    for (;;) {
-        if (v & 0x80) return;
-        if (v) { ecx0 += ex; ecdx += ex; ecy0 += ey; ecdy -= ey; }
-        ecx0 += mx; ecdx += mx; ecy0 += my; ecdy -= my;
-        v = sline(0);
-    }
-}
-
-static void solide(void) {
-    unsigned char v;
-    ecx0 = ecx + (int)ecrx;
-    ecy0 = ecy;
-    etp--;
-    ecdx = ecx0;
-    ecdy = ecy0;
-    v = sline(1);
-    solide_quarter(v, -1, 0, 0, 1);
-    solide_quarter(sline(0), 0, 1, -1, 0);
-    solide_quarter(sline(0), 0, -1, -1, 0);
-    solide_quarter(sline(0), -1, 0, 0, -1);
-}
-
-/* ELLIPSE / CIRCLE: _bas_g as GKI.parm (count, then words cx, cy, xr, yr, flag, start, end) */
-void _bas_gellipse(void) {
-    unsigned int *v = (unsigned int *)&_bas_g[1];
-    ecx = (int)v[0];
-    ecy = (int)v[1];
-    ecrx = v[2];
-    ecry = v[3];
-    eflag = (unsigned char)v[4];
-    estart = v[5];
-    eend = v[6];
-    if (ecrx != ecry) eflag |= 0x80;
-    if (!ecrx) {
-        lx0 = lx1 = ecx;
-        ly0 = ecy - (int)ecry;
-        ly1 = ecy + (int)ecry;
-        line_();
-        return;
-    }
-    if (!ecry) {
-        ly0 = ly1 = ecy;
-        lx0 = ecx - (int)ecrx;
-        lx1 = ecx + (int)ecrx;
-        line_();
-        return;
-    }
-    if (estart | eend) {
-        eflag |= 0x10;
-        if (eend < estart) eflag |= 0x20;
-        if (eflag & 4) {
-            /* (from 12 o'clock: 90 degrees less, 360 more below 0) */
-            eend = eend >= 90 ? eend - 90 : eend + 270;
-            estart = estart >= 90 ? estart - 90 : estart + 270;
-        }
-        if (eend < estart) eflag |= 0x28;
-    }
-    epstab();
-    reset_tp();
-    if ((eflag & 1) && !(eflag & 0x10)) {
-        solide();
-        return;
-    }
-    if (eflag & 4) {
-        ecx0 = ecx;
-        ecy0 = ecy - (int)ecry;
-        do etp++; while (etp < ETAB_LEN && ETAB[etp] != 0xFD);
-        octb();
-        reset_tp();
-        etp--;
-        octa();
-        return;
-    }
-    ecx0 = ecx + (int)ecrx;
-    ecy0 = ecy;
-    etp--;
-    octa();
-    octb();
-}
-
 /* --- polygons (BASIC's kg65.polygon, the kernel's s.facet) --- */
 
 extern void _float_cos(void);
 extern void _float_sin(void);
 
-/* y at x offset n along an edge: base + / - n * dy / dx (endpts / endaz:
- * 16 x 16 -> 32 bits, / 16, the low 16 bits) */
-static int fend(unsigned int n, unsigned int dx, unsigned int dy, unsigned char neg, int base) {
-    unsigned int q = (unsigned int)(((unsigned long)n * dy) / dx);
-    return neg ? base - (int)q : base + (int)q;
-}
-
-/* the solid triangle (s.facet): its corners sorted by x (unsigned), each
- * column a vertical line between the edges */
-/* (LICM miscompiles this loop: cc45 #464) */
-#pragma cc45 optimize(no-licm)
+/* the solid triangle (s.facet: basic_gfxa.s45) */
+extern int _bas_fpx[3], _bas_fpy[3];
+extern void _bas_gfacet(void);
 static void facet(int *px, int *py) {
-    unsigned char k, f1, f2, f3;
-    unsigned int dx1, dx2, dx3, dy1, dy2, dy3, fx, n;
-    int t;
-    /* sortx: (min, mid), (mid, max), (min, mid) */
-    static const unsigned char pr[3][2] = {{0, 1}, {1, 2}, {0, 1}};
-    for (k = 0; k < 3; k++) {
-        unsigned char a = pr[k][0], b = pr[k][1];
-        if ((unsigned int)px[b] < (unsigned int)px[a]) {
-            t = px[a]; px[a] = px[b]; px[b] = t;
-            t = py[a]; py[a] = py[b]; py[b] = t;
-        }
-    }
-    dx1 = (unsigned int)(px[1] - px[0]);
-    dx2 = (unsigned int)(px[2] - px[1]);
-    dx3 = (unsigned int)(px[2] - px[0]);
-    f1 = (unsigned int)py[1] < (unsigned int)py[0];
-    dy1 = f1 ? (unsigned int)(py[0] - py[1]) : (unsigned int)(py[1] - py[0]);
-    f2 = (unsigned int)py[2] < (unsigned int)py[1];
-    dy2 = f2 ? (unsigned int)(py[1] - py[2]) : (unsigned int)(py[2] - py[1]);
-    f3 = (unsigned int)py[2] < (unsigned int)py[0];
-    dy3 = f3 ? (unsigned int)(py[0] - py[2]) : (unsigned int)(py[2] - py[0]);
-    if (!dx3) return;
-    fx = (unsigned int)px[0];
-    n = 0;
-    if (dx1) {
-        for (;;) {
-            unsigned char last;
-            ly0 = fend(n, dx1, dy1, f1, py[0]);
-            ly1 = fend(n, dx3, dy3, f3, py[0]);
-            lx0 = lx1 = (int)fx;
-            KG.patrbitnum = 0;
-            line_();
-            last = fx >= (unsigned int)px[1];
-            fx++;
-            n++;
-            if (last) break;
-        }
-    }
-    if (!dx2) return;
-    for (;;) {
-        unsigned char last;
-        ly1 = fend(n, dx3, dy3, f3, py[0]);
-        ly0 = fend(fx - (unsigned int)px[1], dx2, dy2, f2, py[1]);
-        lx0 = lx1 = (int)fx;
-        KG.patrbitnum = 0;
-        line_();
-        last = fx >= (unsigned int)px[2];
-        fx++;
-        n++;
-        if (last) break;
-    }
+    unsigned char k;
+    for (k = 0; k < 3; k++) { _bas_fpx[k] = px[k]; _bas_fpy[k] = py[k]; }
+    _bas_gfacet();
 }
-
-#pragma cc45 optimize(licm)
 /* POLYGON cx, cy, xr, yr, sides [, drawn sides, subtend, angle, solid] */
 void _bas_gpolygon(void) {
     unsigned int *v = (unsigned int *)&_bas_g[1];
@@ -1119,6 +652,405 @@ void _bas_gpolygon(void) {
     }
 }
 
+void _bas_gpixel(void);
+
+/* --- PAINT (kg65.paint, s.rfill, s.push: basic_gfxa.s45) --- */
+
+extern void _bas_gfill(void);
+
+/* PAINT x, y [, mode [, colour]] (GKI.parm: x, y, mode, colour) */
+void _bas_gpaint(void) {
+    if (_bas_g[5] == 1) _bas_g[7] = color2index(KG.drawscreen, _bas_g[7]);
+    _bas_gfill();
+}
+
+/* --- VIEWPORT, GCOPY, CUT, PASTE (viewportdef, cut_copy, s.bltread, paste) --- */
+
+#define BRUSH ((unsigned char *)0x1800)      /* the kernel's temp.brush (4 pages) */
+#define SCANL ((unsigned char *)0x1E00)      /* its scanline buffer */
+static const unsigned char maskl[8] = {0, 128, 192, 224, 240, 248, 252, 254};
+static const unsigned char maskr[8] = {0, 127, 63, 31, 15, 7, 3, 1};
+static unsigned int ax, ay, adx, ady, apos;
+static unsigned char ab2sl, abor, abw, adepth, abrushw, aodd;
+
+/* VIEWPORT [DEF] x, y, width, height */
+void _bas_gviewport(void) {
+    unsigned int *v = (unsigned int *)&_bas_g[1];
+    KG.vpminx = (int)v[0];
+    KG.vpminy = (int)v[1];
+    KG.vpwx = v[2];
+    KG.vphy = v[3];
+    KG.vpmaxx = v[2] + v[0];
+    KG.vpmaxy = v[3] + v[1];
+}
+
+/* the draw screen's byte address of (x, y) without the segment (calcadr); aodd the odd line */
+static unsigned int calcadr(unsigned int x, unsigned int y) {
+    unsigned int a;
+    aodd = 0;
+    if (KG.drawscrheight) { aodd = (unsigned char)(y & 1); y >>= 1; }
+    a = (unsigned int)((unsigned char)y >> 3) * 0x500;
+    a >>= KG.drawscrwidth ? 1 : 2;
+    a |= y & 7;
+    return a + (x & 0xFFF8);
+}
+
+/* plane p's byte at adr + 8 * k (scanline.setup) */
+static unsigned char __far *rowp(unsigned char p, unsigned int adr) {
+    unsigned char seg = KG.dsbp0adr[p];
+    seg = aodd ? (unsigned char)(seg & 0xE0) : (unsigned char)(seg << 4);
+    return (unsigned char __far *)(((unsigned long)(KG.banka | (p & 1)) << 16) + ((unsigned int)seg << 8) + adr);
+}
+
+/* the edges' bits from the screen, the scanline written (paste.scanline) */
+static unsigned char merge(unsigned char brush, unsigned char mask, unsigned char scr) {
+    return (unsigned char)((brush & (unsigned char)~mask) | (scr & mask));
+}
+static void paste_line(unsigned char p, unsigned int adr) {
+    unsigned char __far *q = rowp(p, adr);
+    unsigned char k;
+    if (abw != 1) {
+        SCANL[0] = merge(SCANL[0], maskl[ab2sl], q[0]);
+        SCANL[abw - 1] = merge(SCANL[abw - 1], maskr[abor], q[(unsigned int)(abw - 1) * 8]);
+    } else SCANL[0] = merge(SCANL[0], (unsigned char)(maskl[ab2sl] | maskr[abor]), q[0]);
+    for (k = 0; k < abw; k++) q[(unsigned int)k * 8] = SCANL[k];
+}
+static void clr_line(unsigned char p, unsigned char bit, unsigned int adr) {
+    unsigned char k, v = (KG.drawpens[0] & bit) ? 0xFF : 0;
+    for (k = 0; k < abw; k++) SCANL[k] = v;
+    paste_line(p, adr);
+}
+
+/* x's bits within its byte, the byte columns (s.bltread / paste) */
+static void geom(void) {
+    unsigned int n;
+    ab2sl = (unsigned char)(ax & 7);
+    ax &= 0xFFF8;
+    n = adx + ab2sl;
+    abor = (unsigned char)(n & 7);
+    abw = (unsigned char)(n >> 3);
+    if (abor) abw++;
+}
+
+/* VIEWPORT CLR (0), GCOPY (1), CUT (2): the area to the brush, cleared with pen 0 */
+void _bas_gcut(void) {
+    unsigned char cmd = _bas_g[19], plane, bit;
+    unsigned int *v = (unsigned int *)&_bas_g[1], t = 0, y0, sx;
+    if (!cmd) { ax = (unsigned int)KG.vpminx; ay = (unsigned int)KG.vpminy; adx = KG.vpwx; ady = KG.vphy; }
+    else { ax = v[0]; ay = v[1]; adx = v[2]; ady = v[3]; }
+    sx = ax;
+    geom();
+    if (cmd) {
+        BRUSH[0] = (unsigned char)sx;
+        BRUSH[1] = (unsigned char)(ax >> 8);
+        *(unsigned int *)&BRUSH[2] = ay;
+        *(unsigned int *)&BRUSH[4] = adx;
+        *(unsigned int *)&BRUSH[6] = ady;
+        BRUSH[8] = KG.drawscrdepth;
+        BRUSH[9] = abw;
+        apos = 10;
+    }
+    y0 = ay;
+    do {
+        unsigned int adr = calcadr(ax, y0);
+        for (plane = 0, bit = 1; bit; plane++, bit <<= 1) {
+            if (!(KG.drawscrbp & bit)) continue;
+            if (cmd) {
+                unsigned char __far *q = rowp(plane, adr);
+                unsigned char k, s2;
+                for (k = 0; k < abw; k++) SCANL[k] = q[(unsigned int)k * 8];
+                SCANL[abw - 1] &= (unsigned char)~maskr[abor];
+                for (s2 = ab2sl; s2; s2--) {         /* (shiftleft) */
+                    unsigned char c = 0;
+                    signed int i;
+                    for (i = abw - 1; i >= 0; i--) {
+                        unsigned char b = SCANL[i];
+                        SCANL[i] = (unsigned char)((b << 1) | c);
+                        c = b >> 7;
+                    }
+                }
+                for (k = 0; k < abw; k++) BRUSH[apos++] = SCANL[k];
+                if (cmd != 2) continue;
+            }
+            clr_line(plane, bit, adr);
+        }
+        t++;
+        y0++;
+    } while (t != ady);
+}
+
+/* GCOPY / CUT's size: width * height in the planes of the last SCREEN DEF
+ * under the brush's 4 pages (check_1k) */
+void _bas_gcheck1k(void) {
+    unsigned int *v = (unsigned int *)&_bas_g[1];
+    unsigned long p = (unsigned long)v[2] * v[3];
+    unsigned char a, d = PLENUM;
+    if ((p >> 16) & 0xFF) raise(16);
+    a = (unsigned char)(p >> 8);
+    if (d < 4) { a >>= 1; if (d < 2) { a >>= 1; if (d < 1) a >>= 1; } }
+    if (a >= 4) raise(14);
+}
+
+/* PASTE x, y: the brush at (x, y), cut to the screen */
+void _bas_gpaste(void) {
+    unsigned int *v = (unsigned int *)&_bas_g[1], t = 0, y0, w, h;
+    unsigned char plane, bit;
+    ax = v[0];
+    ay = v[1];
+    adx = *(unsigned int *)&BRUSH[4];
+    ady = *(unsigned int *)&BRUSH[6];
+    adepth = BRUSH[8];
+    abrushw = BRUSH[9];
+    apos = 10;
+    w = (KG.drawscrwidth ? 640 : 320) - ax;
+    if (w < adx) adx = w;
+    h = (KG.drawscrheight ? 400 : 200) - ay;
+    if (h < ady) ady = h;
+    geom();
+    y0 = ay;
+    do {
+        unsigned int adr = calcadr(ax, y0);
+        for (plane = 0, bit = 1; bit; plane++, bit <<= 1) {
+            unsigned char k, s2;
+            if (!(KG.drawscrbp & bit)) continue;
+            if (adepth > KG.drawscrdepth) continue;
+            if (KG.drawscrdepth > adepth) { clr_line(plane, bit, adr); continue; }
+            for (k = 0; k < abrushw; k++) SCANL[k] = BRUSH[apos++];
+            for (s2 = ab2sl; s2; s2--) {             /* (shiftright: bwidth + 1 bytes) */
+                unsigned char c = 0, i;
+                for (i = 0; i <= abw; i++) {
+                    unsigned char b = SCANL[i];
+                    SCANL[i] = (unsigned char)((b >> 1) | (c << 7));
+                    c = b & 1;
+                }
+            }
+            paste_line(plane, adr);
+        }
+        t++;
+        y0++;
+    } while (t != ady);
+}
+
+/* --- CHAR (kg65.char, petpok / petctr / curcntl, tiltchr, mirrorchr, flipchr) --- */
+
+/* _bas_g: column, row (2), height, width, direction; the string at _bas_gstr;
+ * the font's 28-bit address at _bas_gfont */
+unsigned char *_bas_gstr;
+unsigned long _bas_gfont;
+#define WBUFR ((unsigned char *)0x1D00)
+static const unsigned char bitsup[8] = {1, 2, 4, 8, 16, 32, 64, 128};
+static unsigned char cbuf1[8], cbuf2[8], ccount, fsta, frvs, funder, cmod, wcol, chrcol, clipcol;
+static unsigned int winy, chrrow, cliprow;
+
+/* CHAR's font address (__float_a, BASIC's getwrd: 0 .. 2^32 - 1): its low 16
+ * bits in bank 2 unless the third byte gives a bank (and the fourth a megabyte) */
+extern unsigned long _bas_fa;
+extern void _bas_getadr32(void);
+void _bas_gfontset(void) {
+    _bas_getadr32();
+    if ((_bas_fa >> 16) & 0xFF) _bas_gfont = _bas_fa;
+    else _bas_gfont = 0x20000UL | (unsigned int)_bas_fa;
+}
+
+static unsigned char cgetc(unsigned char *c) {
+    if (ccount >= _bas_gstr[0]) return 1;
+    *c = _bas_gstr[1 + ccount];
+    return 0;
+}
+
+static void ccopy(void) { chrcol = _bas_g[0]; chrrow = *(unsigned int *)&_bas_g[1]; }
+
+/* a character: its screen code (0: printable), or a control's effect (petpok) */
+static unsigned char petpok(unsigned char *a) {
+    unsigned char c = *a, x;
+    if (c >= 0x20 && c < 0x40) return 0;
+    if (c >= 0x40 && c < 0x60) { *a = c - 0x40; return 0; }
+    if (c >= 0x60 && c < 0x80) { *a = c - 0x20; return 0; }
+    if (c >= 0xA0 && c < 0xC0) { *a = c - 0x40; return 0; }
+    if (c >= 0xC0) { *a = (c == 0xFF ? 0x5E : c) & 0x7F; return 0; }
+    x = c;
+    switch (x) {
+    case 2: fsta |= 1; return x;
+    case 6: cmod ^= 0x08; return x;
+    case 9: fsta |= 4; return x;
+    case 26: cmod ^= 0x04; return x;
+    case 15: fsta |= 2; return x;
+    case 0x12: frvs = 0xFF; return x;
+    case 0x92: frvs = 0; return x;
+    case 25: {
+        unsigned char n;
+        if (cgetc(&n)) return x;
+        cmod &= 0x3F;
+        if (n == 0x2D) cmod |= 0x80;
+        else if (n == 0x2B) cmod |= 0x40;
+        else return x;
+        ccount++;
+        return x;
+    }
+    case 21: funder ^= 0xFF; return x;
+    case 24: fsta |= 8; return x;
+    }
+    /* cursor controls (curcntl): the base position moved */
+    {
+        unsigned int *row = (unsigned int *)&_bas_g[1];
+        if (x == 17) *row += 8;
+        else if (x == 145) *row -= 8;
+        else if (x == 157) _bas_g[0]--;
+        else if (x == 29) _bas_g[0]++;
+        if (x == 147 || x == 19) { _bas_g[0] = 0; *row = 0; }
+        ccopy();
+    }
+    return 0xFF;
+}
+
+static void tiltchr(void) {
+    signed char x, y;
+    for (x = 0, y = 7; y >= 0; x++, y--) {
+        unsigned char mask = (cmod & 0x80) ? bitsup[y] : bitsdn[y], b = cbuf1[x];
+        signed char k;
+        for (k = 7; k >= 0; k--) {
+            unsigned char c;
+            if (cmod & 0x80) { c = b >> 7; b <<= 1; }
+            else { c = b & 1; b >>= 1; }
+            if (c) cbuf2[k] |= mask;
+            else cbuf2[k] &= (unsigned char)~mask;
+        }
+    }
+    for (x = 0; x < 8; x++) cbuf1[x] = cbuf2[x];
+}
+
+/* the character's 8 rows (cbuf1), height times each, at column clipcol (one byte) */
+static void cdraw(void) {
+    unsigned char y, h, plane, bit;
+    for (y = 0; y < 8; y++) {
+        for (h = _bas_g[3]; h; h--) {
+            if (clipcol < wcol && cliprow < winy) {
+                unsigned int adr = calcadr((unsigned int)clipcol * 8, cliprow);
+                unsigned char def = cbuf1[y];
+                for (plane = 0, bit = 1; bit; plane++, bit <<= 1) {
+                    unsigned char __far *q;
+                    unsigned char b = 0;
+                    if (!(KG.drawscrbp & bit)) continue;
+                    q = rowp(plane, adr);
+                    if (!(fsta & 1)) b = *q;
+                    if (fsta & 0x0E) {
+                        if (KG.drawpens[0] & bit) {
+                            unsigned char a = def;
+                            if (fsta & 4) a &= b;
+                            if (fsta & 2) a |= b;
+                            if (fsta & 8) a ^= b;
+                            b = a;
+                        }
+                    } else if (KG.drawpens[0] & bit) b = (unsigned char)((b & (unsigned char)~def) | def);
+                    else b &= (unsigned char)~def;
+                    *q = b;
+                }
+            }
+            cliprow++;
+        }
+    }
+}
+
+void _bas_gchar(void) {
+    unsigned char *row_lo = &_bas_g[1];
+    ccount = fsta = frvs = funder = cmod = 0;
+    wcol = (unsigned char)(KG.vpmaxx >> 3);
+    winy = (unsigned int)KG.vpminy + KG.vphy;
+    for (;;) {
+        unsigned char c, x, k, hw, w = _bas_g[4];
+        unsigned int *row = (unsigned int *)row_lo;
+        unsigned long cp;
+        ccopy();
+        for (;;) {
+            if (cgetc(&c)) return;
+            ccount++;
+            if (!petpok(&c)) break;
+        }
+        cp = (_bas_gfont & 0xFFFF0000UL) | (unsigned int)((unsigned int)_bas_gfont + (unsigned int)c * 8);
+        for (k = 0; k < 8; k++) cbuf1[k] = ((unsigned char __far *)cp)[k];
+        clipcol = chrcol;
+        cliprow = chrrow;
+        cbuf1[7] |= funder;
+        for (k = 0; k < 8; k++) { cbuf1[k] ^= frvs; cbuf2[k] = 0; }
+        if (cmod & 0xC0) tiltchr();
+        if (cmod & 0x04)
+            for (k = 0; k < 8; k++) {
+                unsigned char b = cbuf1[k], r = 0, n;
+                for (n = 0; n < 8; n++) { r = (unsigned char)((r << 1) | (b & 1)); b >>= 1; }
+                cbuf1[k] = r;
+            }
+        if (cmod & 0x08)
+            for (k = 0; k < 4; k++) { unsigned char t = cbuf1[k]; cbuf1[k] = cbuf1[7 - k]; cbuf1[7 - k] = t; }
+        hw = (unsigned char)(w - 1);
+        if (hw) {
+            /* the widths: each row's bits w times each, chained through up to 16 bytes */
+            unsigned char len = w < 4 ? 3 : w < 7 ? 6 : w < 11 ? 10 : 16;
+            for (k = 0; k < 128; k++) WBUFR[k] = 0;
+            for (x = 0; x < 8; x++) {
+                unsigned char yb;
+                for (yb = 0; yb < 8; yb++) {
+                    unsigned char hold = (cbuf1[x] & bitsdn[yb]) ? 1 : 0, n = w;
+                    do {
+                        unsigned char cc = hold, j;
+                        for (j = 0; j < len; j++) {
+                            unsigned char b = WBUFR[j * 8 + x];
+                            WBUFR[j * 8 + x] = (unsigned char)((b << 1) | cc);
+                            cc = b >> 7;
+                        }
+                    } while (--n);
+                }
+            }
+        }
+        for (;;) {
+            if (w != 1)
+                for (k = 0; k < 8; k++) cbuf1[k] = WBUFR[(unsigned char)(hw * 8) + k];
+            cdraw();
+            chrcol++;
+            clipcol++;
+            cliprow = chrrow;
+            hw--;
+            if (hw & 0x80) break;
+        }
+        /* the direction: 1 up, 2 right, 4 down, 8 left (with the kernel's wraps) */
+        {
+            unsigned char d = _bas_g[5];
+            unsigned int h8 = (unsigned int)_bas_g[3] * 8;
+            if (d & 1) {
+                *row -= h8;
+                if (*row & 0x8000) {
+                    *row = winy - h8;
+                    _bas_g[0] -= w;
+                    if (_bas_g[0] & 0x80) _bas_g[0] = (unsigned char)(wcol - (unsigned char)(h8 >> 8));
+                }
+            }
+            if (d & 2) {
+                _bas_g[0] += w;
+                if (_bas_g[0] >= wcol) {
+                    _bas_g[0] = 0;
+                    *row += h8;
+                    if (*row >= winy) *row = 0;
+                }
+            }
+            if (d & 4) {
+                *row += h8;
+                if (*row >= winy) {
+                    *row = 0;
+                    _bas_g[0] += w;
+                    if (_bas_g[0] >= wcol) _bas_g[0] = 0;
+                }
+            }
+            if (d & 8) {
+                _bas_g[0] -= w;
+                if (_bas_g[0] & 0x80) {
+                    _bas_g[0] = (unsigned char)(wcol - (unsigned char)(h8 >> 8));
+                    *row -= h8;
+                    if (*row & 0x8000) *row = winy - h8;
+                }
+            }
+        }
+    }
+}
+
 /* --- functions --- */
 
 /* RGRAPHIC(screen, n) into __bas_n */
@@ -1144,30 +1076,6 @@ void _bas_grgraphic(void) {
 }
 
 /* PIXEL(x, y): the colour index there (0 outside the viewport's far edges) */
-void _bas_gpixel(void) {
-    unsigned int x = *(unsigned int *)&_bas_g[0], y = *(unsigned int *)&_bas_g[2];
-    unsigned char odd = 0, line, mask, plane, bit = 1, r = 0;
-    unsigned int adr;
-    if (x >= KG.vpmaxx || y >= KG.vpmaxy) { _bas_n = 0; return; }
-    if (KG.drawscrheight) { odd = (unsigned char)(y & 1); y >>= 1; }
-    line = (unsigned char)y;
-    adr = (unsigned int)(line >> 3) * 0x500;
-    adr >>= KG.drawscrwidth ? 1 : 2;
-    adr |= line & 7;
-    adr += x & 0xFFF8;
-    mask = bitsdn[x & 7];
-    for (plane = 0; plane < 8; plane++, bit <<= 1) {
-        unsigned char seg;
-        unsigned char __far *p;
-        if (!(KG.drawscrbp & bit)) continue;
-        seg = KG.dsbp0adr[plane];
-        seg = (KG.drawscrheight && odd) ? (seg & 0xE0) : (unsigned char)(seg << 4);
-        p = (unsigned char __far *)(((unsigned long)(KG.banka | (plane & 1)) << 16) |
-                                    (unsigned int)(((seg | (adr >> 8)) << 8) | (adr & 0xFF)));
-        if (*p & mask) r |= bit;
-    }
-    _bas_n = r;
-}
 
 /* RPEN(n) */
 void _bas_grpen(void) {
