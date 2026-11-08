@@ -4,6 +4,21 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### basic45 --compile: COLOR, FOREGROUND, BACKGROUND, BORDER, HIGHLIGHT, CURSOR, WINDOW, SPEED, PALETTE, VSYNC (#369)
+
+- The text screen and colour statements and `RCOLOR`, `RCURSOR`, `RWINDOW`,
+  `RSPEED`, as BASIC 65's (`lib/stdlib/basic_scr.c`): the VIC-IV's registers
+  and the editor's variables, the KERNAL's `PLOT` and the editor's
+  `_set_window`, `_cursor`, `_palette_init`. `PALETTE COLOR` / `RESTORE` (a
+  graphics screen's palette waits for BASIC's graphics jump table).
+- Error messages and `BREAK` are in the `HIGHLIGHT` colour, as the
+  interpreter's (they were in the text colour).
+- cc45: a store through a cast to a far pointer in a file without a far
+  pointer variable (#460).
+- basic45's variable warnings count `RCURSOR`'s variables as assigned.
+- Test `test_basic_compile10_xemu.bas` (interpreted, -O2, -O0, --speed);
+  `test_far_cast_store_xemu.c`.
+
 ### basic45 --compile: SPRITE, SPRCOLOR, MOVSPR, SPRSAV, COLLISION, RSPRITE, RSPCOLOR, RSPPOS, BUMP (#369)
 
 - The sprite statements and functions on the VIC-IV's registers directly, with

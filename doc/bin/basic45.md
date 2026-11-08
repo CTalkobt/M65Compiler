@@ -334,10 +334,10 @@ status at `$FD`/`$FE` is the error number), after which BASIC's `READY.` follows
 
 | | |
 |---|---|
-| Statements | `LET` and assignments, `PRINT` (`;`, `,`, `TAB(`, `SPC(`), `IF` … `THEN` / `GOTO` (a line number or statements), `ELSE`, `BEGIN` / `BEND`, `GOTO`, `GO TO`, `GOSUB`, `RETURN`, `ON` … `GOTO` / `GOSUB`, `FOR` … `TO` … `STEP` / `NEXT` (a float variable; `NEXT a, b`), `POKE`, `DIM`, `INPUT` (a prompt with `;` or `,`), `GET`, `GETKEY`, `DO` … `LOOP` (`WHILE` / `UNTIL` on either), `EXIT`, `READ`, `DATA`, `RESTORE` (a line number or none), `DEF FN`, `WPOKE`, `WAIT`, `SLEEP`, `SCNCLR` (the text screen), `BANK`, `TRAP` (a line number or none), `RESUME` (none, `NEXT` or a line), `OPEN`, `CLOSE`, `PRINT#`, `INPUT#`, `GET#`, `CMD`, `DOPEN`, `APPEND`, `DCLOSE`, `DLOAD`, `LOAD` (chaining), `HEADER`, `SCRATCH` / `ERASE` / `DELETE "name"`, `RENAME`, `COPY` (on one unit), `CONCAT`, `COLLECT`, `DCLEAR`, `BACKUP`, `RECORD#`, `BLOAD`, `BSAVE`, `BVERIFY`, `DIR` / `CATALOG`, `FREAD#`, `FWRITE#`, `LINE INPUT`, `LINE INPUT#`, `SPRITE` (and `SPRITE CLR`), `SPRCOLOR`, `MOVSPR`, `SPRSAV`, `COLLISION`, `END`, `STOP`, `REM`; `POKE` / `WPOKE` with a list of values |
+| Statements | `LET` and assignments, `PRINT` (`;`, `,`, `TAB(`, `SPC(`), `IF` … `THEN` / `GOTO` (a line number or statements), `ELSE`, `BEGIN` / `BEND`, `GOTO`, `GO TO`, `GOSUB`, `RETURN`, `ON` … `GOTO` / `GOSUB`, `FOR` … `TO` … `STEP` / `NEXT` (a float variable; `NEXT a, b`), `POKE`, `DIM`, `INPUT` (a prompt with `;` or `,`), `GET`, `GETKEY`, `DO` … `LOOP` (`WHILE` / `UNTIL` on either), `EXIT`, `READ`, `DATA`, `RESTORE` (a line number or none), `DEF FN`, `WPOKE`, `WAIT`, `SLEEP`, `SCNCLR` (the text screen), `BANK`, `TRAP` (a line number or none), `RESUME` (none, `NEXT` or a line), `OPEN`, `CLOSE`, `PRINT#`, `INPUT#`, `GET#`, `CMD`, `DOPEN`, `APPEND`, `DCLOSE`, `DLOAD`, `LOAD` (chaining), `HEADER`, `SCRATCH` / `ERASE` / `DELETE "name"`, `RENAME`, `COPY` (on one unit), `CONCAT`, `COLLECT`, `DCLEAR`, `BACKUP`, `RECORD#`, `BLOAD`, `BSAVE`, `BVERIFY`, `DIR` / `CATALOG`, `FREAD#`, `FWRITE#`, `LINE INPUT`, `LINE INPUT#`, `SPRITE` (and `SPRITE CLR`), `SPRCOLOR`, `MOVSPR`, `SPRSAV`, `COLLISION`, `COLOR` / `FOREGROUND`, `BACKGROUND`, `BORDER`, `HIGHLIGHT`, `CURSOR`, `RCURSOR`, `WINDOW`, `SPEED` / `FAST`, `PALETTE COLOR` / `PALETTE RESTORE`, `VSYNC`, `END`, `STOP`, `REM`; `POKE` / `WPOKE` with a list of values |
 | Values | floats, `%` integers (-32768..32767), strings (up to 255 characters); arrays of each (`DIM a(n, m)`, up to 8 subscripts; sizes at run time) |
 | Operators | `+ - * / ^`, unary `-`, `= <> < > <= >=` (numbers and strings), `AND`, `OR`, `XOR`, `NOT` (-32768..65535, as BASIC 65's), `<<`, `>>` |
-| Functions | `ABS`, `INT`, `SGN`, `SQR`, `SIN`, `COS`, `TAN`, `ATN`, `LOG`, `EXP`, `PEEK`, `LEN`, `ASC`, `CHR$`, `STR$`, `LEFT$`, `RIGHT$`, `MID$`, `RND`, `FN`, `POS`, `VAL`, `DEC`, `HEX$`, `STRBIN$`, `INSTR` (a pound sign's pattern too), `MOD`, `WPEEK`, `RPT$`, `ERR$`, `RSPRITE`, `RSPCOLOR`, `RSPPOS`, `BUMP`, π; the variables `TI`, `TI$`, `ER`, `EL`, `ST`, `DS` and `DS$` |
+| Functions | `ABS`, `INT`, `SGN`, `SQR`, `SIN`, `COS`, `TAN`, `ATN`, `LOG`, `EXP`, `PEEK`, `LEN`, `ASC`, `CHR$`, `STR$`, `LEFT$`, `RIGHT$`, `MID$`, `RND`, `FN`, `POS`, `VAL`, `DEC`, `HEX$`, `STRBIN$`, `INSTR` (a pound sign's pattern too), `MOD`, `WPEEK`, `RPT$`, `ERR$`, `RSPRITE`, `RSPCOLOR`, `RSPPOS`, `BUMP`, `RCOLOR`, `RWINDOW`, `RSPEED`, π; the variables `TI`, `TI$`, `ER`, `EL`, `ST`, `DS` and `DS$` |
 
 **How**: the program is one function; each line and statement starts a block. `GOTO` is a branch; `GOSUB`
 pushes the address of the code after it on BASIC's stack and `RETURN` jumps back to it. `FOR` pushes its
@@ -457,6 +457,19 @@ frame, moved at the next one. The program's end (and a `DLOAD`) puts the vector 
 number) is a `GOSUB` to the line at the next statement after a collision of that type (none while one runs; light
 pen, sprite/background, sprite/sprite, as BASIC's `ngone`); `COLLISION type` turns it off. Not compiled:
 `SPRITE SAVE` / `SPRITE LOAD`. Test: `test_basic_compile9_xemu.bas`.
+
+**Screen and colours**: `FOREGROUND` / `COLOR c` (the text colour; 16 and up: the colour - 16 with attribute bit 6),
+`BACKGROUND c`, `BORDER c`, `HIGHLIGHT c [, mode]` (the error messages' colour; mode 1 `REM`s, 2 keywords, 3 both:
+`LIST`'s), `RCOLOR(0-3)`, `CURSOR [ON | OFF] [, column] [, row [, style]]` (style 0 flashing, 1 solid: ESC F / ESC
+E), `RCURSOR [column] [, row]` (into numeric variables), `WINDOW left, top, right, bottom [, clear]` (the ROM's
+checks: `?ILLEGAL QUANTITY` beyond the screen, right of the right, below the bottom; a `clear` other than 0 / 1
+after the window is set), `RWINDOW(0-3)` (the window's width, height, the screen's), `SPEED` / `FAST [1 | 3 | other:
+40 MHz]`, `FAST ON` / `OFF` (the fast serial bus), `RSPEED(x)`, `PALETTE COLOR index, red, green, blue [, index,
+red, green, blue ...]` (red 0-31, its bit 4 the foreground/background flag; green, blue 0-15), `PALETTE RESTORE`
+and `VSYNC line` (0-511, below the frame's last line) set the VIC-IV's registers and the editor's variables as BASIC
+65's (`lib/stdlib/basic_scr.c`), through the KERNAL's `PLOT` and the editor's `_set_window`, `_cursor` and
+`_palette_init`. An error message (and `BREAK`) is in `HIGHLIGHT`'s colour, as the interpreter's. Not compiled:
+`PALETTE` of a graphics screen (BASIC's graphics, through its jump table). Test: `test_basic_compile10_xemu.bas`.
 
 **TRAP**: with a trap set, an error (not `STOP`'s BREAK) sets `ER` and `EL`, turns the trap off and goes on at
 the trap's line with the CPU stack as at the start (BASIC's stack of `GOSUB`, `FOR` and `DO` as it was, as the ROM
