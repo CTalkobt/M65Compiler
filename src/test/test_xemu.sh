@@ -928,6 +928,25 @@ else
     echo "FAIL: test_basic_compile13_xemu.bas (basic45 or basic45 --compile failed)"
     failed=$((failed + 1))
 fi
+# test_basic_compile14_xemu.bas: SAVEIFF / LOADIFF (320x200x2, 640x400x4, the
+# file's bytes, the errors) on an empty D81 as drive 8; interpreted and -O2
+BC14_EXP="01 01 01 01 01 01 01 AA"
+if ./bin/basic45 src/test-resources/test_basic_compile14_xemu.bas -o build/test/test_basic_compile14_i.prg >/dev/null 2>&1 &&
+   ./bin/basic45 --compile src/test-resources/test_basic_compile14_xemu.bas -o build/test/test_basic_compile14.prg >/dev/null 2>&1; then
+    for bc14 in i ""; do
+        bc14n="test_basic_compile14${bc14:+_$bc14}"
+        rm -f "build/test/$bc14n.d81"
+        if ./bin/disk45 create "build/test/$bc14n.d81" -n "BC14" >/dev/null 2>&1; then
+            run_xemu_test "$bc14n" "build/test/$bc14n.prg" "C0C0" 8 "$BC14_EXP" -8 "$PWD/build/test/$bc14n.d81"
+        else
+            echo "FAIL: $bc14n (disk45 create failed)"
+            failed=$((failed + 1))
+        fi
+    done
+else
+    echo "FAIL: test_basic_compile14_xemu.bas (basic45 or basic45 --compile failed)"
+    failed=$((failed + 1))
+fi
 # test_basic_compile6_xemu.bas: chaining. It (REM PRAGMA EXPORT) DLOADs
 # test_basic_compile6b_xemu.bas ("BC6B" on its D81; REM PRAGMA IMPORT, the
 # map from --import-map), which checks the variables; LOAD of a missing file

@@ -64,7 +64,7 @@ enum : int {
     T_MOVSPR = 0xFE06, T_SPRITE = 0xFE07, T_SPRCOLOR = 0xFE08, T_SPRSAV = 0xFE16, T_COLLISION = 0xFE17,
     T_BUMP = 0xCE03, T_RSPPOS = 0xCE05, T_RSPRITE = 0xCE06, T_RSPCOLOR = 0xCE07, T_CLR = 0x9C, T_SAVE = 0x94,
     T_SCREEN = 0xFE2E, T_SET = 0xFE2D, T_PEN = 0xFE33, T_DMODE = 0xFE35, T_DPAT = 0xFE36, T_DOT = 0xFE4C,
-    T_BOX = 0xE1, T_CIRCLE = 0xE2, T_ELLIPSE = 0xFE30, T_POLYGON = 0xFE2F, T_PAINT = 0xDF, T_VIEWPORT = 0xFE31, T_GCOPY = 0xFE32, T_CUT = 0xE4, T_PASTE = 0xE3, T_CHAR = 0xE0, T_GRAPHIC = 0xDE, T_RGRAPHIC = 0xCC, T_RPEN = 0xD0, T_PIXEL = 0xCE0C, T_RPALETTE = 0xCE0D,
+    T_BOX = 0xE1, T_CIRCLE = 0xE2, T_ELLIPSE = 0xFE30, T_POLYGON = 0xFE2F, T_PAINT = 0xDF, T_VIEWPORT = 0xFE31, T_GCOPY = 0xFE32, T_CUT = 0xE4, T_PASTE = 0xE3, T_LOADIFF = 0xFE43, T_SAVEIFF = 0xFE44, T_CHAR = 0xE0, T_GRAPHIC = 0xDE, T_RGRAPHIC = 0xCC, T_RPEN = 0xD0, T_PIXEL = 0xCE0C, T_RPALETTE = 0xCE0D,
     T_COLOR = 0xE7, T_FOREGROUND = 0xFE39, T_BACKGROUND = 0xFE3B, T_BORDER = 0xFE3C, T_HIGHLIGHT = 0xFE3D,
     T_CURSOR = 0xFE41, T_RCURSOR = 0xFE42, T_WINDOW = 0xFE1A, T_FAST = 0xFE25, T_SPEED = 0xFE26,
     T_PALETTE = 0xFE34, T_VSYNC = 0xFE54, T_OFF = 0xFE24, T_RCOLOR = 0xCD, T_RWINDOW = 0xCE09, T_RSPEED = 0xCE0E,
@@ -1424,6 +1424,7 @@ private:
     void openStmt();
     void dosStmt(int kw);
     int dosArgs(const char* what, int errflags, std::vector<Val>& names, int auxAllowed = 0);
+    void iffStmt(int kw);
     int lastAux_ = 0;
     void recordStmt();
     bool stmtEnd() const { return atEnd() || isKw(T_ELSE); }
@@ -2095,6 +2096,7 @@ void Compiler::statement() {
     case T_PEN: case T_DMODE: case T_DPAT: case T_DOT: case T_BOX: case T_GRAPHIC: case T_CIRCLE: case T_ELLIPSE: case T_POLYGON: case T_PAINT:
     case T_VIEWPORT: case T_GCOPY: case T_CUT: case T_PASTE: case T_CHAR:
         graphicsStmt(kw); return;
+    case T_LOADIFF: case T_SAVEIFF: iffStmt(kw); return;
     case T_SCNCLR: {
         if (!stmtEnd()) { graphicsStmt(T_SCNCLR); return; }
         Val c = strLit(std::string(1, (char)147));
@@ -2432,6 +2434,24 @@ int Compiler::dosArgs(const char* what, int errflags, std::vector<Val>& names, i
     store(ir::Type::I8, ir::Operand::imm(aux, ir::Type::I8), global("__bas_daux"));
     if (aux) lastAux_ = aux;
     return par;
+}
+
+// LOADIFF "name" [,U#] [,D#] / SAVEIFF "[@]name" [,U#] [,D#] (b65.src loadiff /
+// saveiff): a graphics screen first, the file opened as DLOAD / DSAVE would, the
+// kernel's kg65.loadiff / saveiff, then exit_GKI_disk_op (closed, STOP)
+void Compiler::iffStmt(int kw) {
+    bool load = kw == T_LOADIFF;
+    call("__bas_gcheck");
+    std::vector<Val> names;
+    lastAux_ = 0;
+    int par = dosArgs(load ? "LOADIFF" : "SAVEIFF", load ? 0xE6 : 0x66, names, 0);
+    if (!(par & 1)) fail(std::string(load ? "LOADIFF" : "SAVEIFF") + ": a file name is required (?SYNTAX ERROR)");
+    store(ir::Type::I16, iconst(ir::Type::I16, load ? 17 : 18), global("__bas_m"));
+    call("__bas_dos");
+    call(load ? "__bas_gloadiff" : "__bas_gsaveiff");
+    store(ir::Type::I16, iconst(ir::Type::I16, 19), global("__bas_m"));
+    call("__bas_dos");
+    for (auto it = names.rbegin(); it != names.rend(); ++it) freeVal(*it);
 }
 
 void Compiler::dosStmt(int kw) {
