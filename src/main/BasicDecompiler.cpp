@@ -223,7 +223,11 @@ BasicDecompileResult decompileBasic(const std::vector<uint8_t>& prg, const Basic
             bool list = false;
             if (k == "GOTO" || k == "GOSUB") list = true;
             else if (k == "GO" && j < l.pieces.size() && l.pieces[j].isKw && l.pieces[j].text == "TO") { list = true; j++; }
-            else if (k != "THEN" && k != "ELSE" && k != "RESTORE" && k != "TRAP" && k != "RESUME" && k != "RUN") continue;
+            else if (k == "COLLISION") {
+                // COLLISION type, line
+                if (!(j + 1 < l.pieces.size() && l.pieces[j + 1].text == ",")) continue;
+                j += 2;
+            } else if (k != "THEN" && k != "ELSE" && k != "RESTORE" && k != "TRAP" && k != "RESUME" && k != "RUN") continue;
             while (j < l.pieces.size() && !l.pieces[j].isKw && isNumber(l.pieces[j].text)) {
                 f(l.pieces[j]);
                 if (!list || j + 2 >= l.pieces.size() || l.pieces[j + 1].text != ",") break;

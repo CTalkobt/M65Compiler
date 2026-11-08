@@ -23,6 +23,7 @@ cc45.icallinfo = 1
 .extern __rom_calli
 .extern __bp_prog
 .extern __exit
+.extern __irqhook_exit
 .extern __float_a
 .extern __float_b
 .extern __float_str
@@ -389,6 +390,7 @@ __bas_kerr:
 .extern __saved_p
 .extern __zp_page
 __bas_chain:
+    jsr __irqhook_exit      ; (the sprites' interrupt hook out: the next program's own)
     lda __saved_spl+1
     sta @spl+1
     lda __saved_sph+1
