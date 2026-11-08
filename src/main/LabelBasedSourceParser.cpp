@@ -170,6 +170,24 @@ void LabelBasedSourceParser::extractLabelsAndReferences() {
             referencedLabels.insert(n);
             firstRefLine.insert({n, at});
         });
+        // GOTO / GOSUB / GO TO a reserved word alone (GOTO END): not a label
+        for (size_t i = 0; i < toks.size(); i++) {
+            if (toks[i].type != BasicToken::KEYWORD) continue;
+            size_t j = i + 1;
+            if (toks[i].value == "GO" && j < toks.size() && toks[j].type == BasicToken::KEYWORD && toks[j].value == "TO") j++;
+            else if (toks[i].value != "GOTO" && toks[i].value != "GOSUB") continue;
+            // each item of the list (ON X GOTO a, b) alone before ':', ',' or the end
+            for (; j < toks.size(); j += 2) {
+                bool alone = j + 1 >= toks.size() || toks[j + 1].type == BasicToken::EOL ||
+                             toks[j + 1].type == BasicToken::END_OF_FILE ||
+                             (toks[j + 1].type == BasicToken::OPERATOR && (toks[j + 1].value == ":" || toks[j + 1].value == ","));
+                if (!alone) break;
+                if (toks[j].type == BasicToken::KEYWORD)
+                    reservedRefs.push_back({at, "'" + toks[j].value + "' is a reserved word, not a label (" +
+                                                toks[i].value + " needs a line number or a label)"});
+                if (!(j + 1 < toks.size() && toks[j + 1].type == BasicToken::OPERATOR && toks[j + 1].value == ",")) break;
+            }
+        }
     }
 }
 
@@ -257,6 +275,7 @@ bool LabelBasedSourceParser::validate(std::vector<std::pair<int, std::string>>& 
     // a numbered program: its numbers, and the lines GOTO 100 and the like
     // name must exist (?UNDEF'D STATEMENT when run)
     for (const auto& e : numberErrors) { errors.push_back(e); isValid = false; }
+    for (const auto& e : reservedRefs) { errors.push_back(e); isValid = false; }
     if (numbered) {
         std::unordered_set<uint16_t> lineNums;
         for (const auto& sl : sourceLines) if (sl.basicLineNum) lineNums.insert(sl.basicLineNum);
@@ -289,13 +308,33 @@ std::string LabelBasedSourceParser::trim(const std::string& str) const {
     return str.substr(first, last - first + 1);
 }
 
+// A BASIC 65 keyword or one of basic45's own (block IF, procs, select,
+// asm, incbin): never a label
+static bool isReservedWord(const std::string& name) {
+    static const std::unordered_set<std::string> words = [] {
+        std::unordered_set<std::string> w;
+        BasicTokenizer t;
+        for (const auto& [k, v] : t.getKeywords()) w.insert(k);
+        for (const auto& [k, v] : t.getEscapeKeywords()) w.insert(k);
+        for (const auto& [k, v] : t.getCeKeywords()) w.insert(k);
+        for (const char* k : {"ENDIF", "ELIF", "PROC", "ENDPROC", "CALL", "SELECT", "CASE", "ENDSELECT", "IS",
+                              "ASM", "ENDASM", "INCBIN", "DATAINC", "AS"})
+            w.insert(k);
+        return w;
+    }();
+    std::string u;
+    for (char c : name) u += (char)std::toupper((unsigned char)c);
+    return words.count(u) > 0;
+}
+
 bool LabelBasedSourceParser::isValidLabelName(const std::string& name) const {
     if (name.empty()) return false;
     if (!std::isalpha(name[0]) && name[0] != '_') return false;
     for (char c : name) {
         if (!std::isalnum(c) && c != '_') return false;
     }
-    return true;
+    // (a reserved word is never a label: "end: print" is END, then PRINT)
+    return !isReservedWord(name);
 }
 
 bool LabelBasedSourceParser::isLabelDefinition(const std::string& line,

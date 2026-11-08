@@ -13,11 +13,27 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
   graphics screen's palette waits for BASIC's graphics jump table).
 - Error messages and `BREAK` are in the `HIGHLIGHT` colour, as the
   interpreter's (they were in the text colour).
-- cc45: a store through a cast to a far pointer in a file without a far
-  pointer variable (#460).
 - basic45's variable warnings count `RCURSOR`'s variables as assigned.
 - Test `test_basic_compile10_xemu.bas` (interpreted, -O2, -O0, --speed);
   `test_far_cast_store_xemu.c`.
+
+### Fixed: a store through a cast to a far pointer (cc45, #460)
+
+- `*(char __far *)0xF1UL = c` in a file with no far pointer variable was the
+  error "an object reached through a far pointer has no near address": the
+  far code was turned on only when the cast's type was mapped, after the
+  assignment had taken the near path. A pre-pass over the casts turns it on
+  first.
+- Test `test_far_cast_store_xemu.c` (both conventions).
+
+### basic45: a reserved word is never a label
+
+- A line starting with a BASIC 65 keyword or one of basic45's own words
+  (`endif`, `proc`, `call`, `select`, `case`, …) and `:` is the statement:
+  `10 end:print` is `END` and `PRINT` (it was the label `end` and `PRINT`,
+  the `END` lost, in numbered programs too).
+- `GOTO` / `GOSUB` / `GO TO` (and `ON … GOTO`'s items) with a reserved word
+  alone is an error: "'END' is a reserved word, not a label".
 
 ### basic45 --compile: SPRITE, SPRCOLOR, MOVSPR, SPRSAV, COLLISION, RSPRITE, RSPCOLOR, RSPPOS, BUMP (#369)
 
