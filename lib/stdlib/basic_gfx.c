@@ -864,72 +864,14 @@ void _bas_gellipse(void) {
 extern void _float_cos(void);
 extern void _float_sin(void);
 
-/* y at x offset n along an edge: base + / - n * dy / dx (endpts / endaz:
- * 16 x 16 -> 32 bits, / 16, the low 16 bits) */
-static int fend(unsigned int n, unsigned int dx, unsigned int dy, unsigned char neg, int base) {
-    unsigned int q = (unsigned int)(((unsigned long)n * dy) / dx);
-    return neg ? base - (int)q : base + (int)q;
-}
-
-/* the solid triangle (s.facet): its corners sorted by x (unsigned), each
- * column a vertical line between the edges */
-/* (LICM miscompiles this loop: cc45 #464) */
-#pragma cc45 optimize(no-licm)
+/* the solid triangle (s.facet: basic_gfxa.s45) */
+extern int _bas_fpx[3], _bas_fpy[3];
+extern void _bas_gfacet(void);
 static void facet(int *px, int *py) {
-    unsigned char k, f1, f2, f3;
-    unsigned int dx1, dx2, dx3, dy1, dy2, dy3, fx, n;
-    int t;
-    /* sortx: (min, mid), (mid, max), (min, mid) */
-    static const unsigned char pr[3][2] = {{0, 1}, {1, 2}, {0, 1}};
-    for (k = 0; k < 3; k++) {
-        unsigned char a = pr[k][0], b = pr[k][1];
-        if ((unsigned int)px[b] < (unsigned int)px[a]) {
-            t = px[a]; px[a] = px[b]; px[b] = t;
-            t = py[a]; py[a] = py[b]; py[b] = t;
-        }
-    }
-    dx1 = (unsigned int)(px[1] - px[0]);
-    dx2 = (unsigned int)(px[2] - px[1]);
-    dx3 = (unsigned int)(px[2] - px[0]);
-    f1 = (unsigned int)py[1] < (unsigned int)py[0];
-    dy1 = f1 ? (unsigned int)(py[0] - py[1]) : (unsigned int)(py[1] - py[0]);
-    f2 = (unsigned int)py[2] < (unsigned int)py[1];
-    dy2 = f2 ? (unsigned int)(py[1] - py[2]) : (unsigned int)(py[2] - py[1]);
-    f3 = (unsigned int)py[2] < (unsigned int)py[0];
-    dy3 = f3 ? (unsigned int)(py[0] - py[2]) : (unsigned int)(py[2] - py[0]);
-    if (!dx3) return;
-    fx = (unsigned int)px[0];
-    n = 0;
-    if (dx1) {
-        for (;;) {
-            unsigned char last;
-            ly0 = fend(n, dx1, dy1, f1, py[0]);
-            ly1 = fend(n, dx3, dy3, f3, py[0]);
-            lx0 = lx1 = (int)fx;
-            KG.patrbitnum = 0;
-            line_();
-            last = fx >= (unsigned int)px[1];
-            fx++;
-            n++;
-            if (last) break;
-        }
-    }
-    if (!dx2) return;
-    for (;;) {
-        unsigned char last;
-        ly1 = fend(n, dx3, dy3, f3, py[0]);
-        ly0 = fend(fx - (unsigned int)px[1], dx2, dy2, f2, py[1]);
-        lx0 = lx1 = (int)fx;
-        KG.patrbitnum = 0;
-        line_();
-        last = fx >= (unsigned int)px[2];
-        fx++;
-        n++;
-        if (last) break;
-    }
+    unsigned char k;
+    for (k = 0; k < 3; k++) { _bas_fpx[k] = px[k]; _bas_fpy[k] = py[k]; }
+    _bas_gfacet();
 }
-
-#pragma cc45 optimize(licm)
 /* POLYGON cx, cy, xr, yr, sides [, drawn sides, subtend, angle, solid] */
 void _bas_gpolygon(void) {
     unsigned int *v = (unsigned int *)&_bas_g[1];

@@ -1024,3 +1024,274 @@ edges:  .res 36
 bcount: .res 1
 bsolid: .res 1
 bk:     .res 1
+
+; ---------------------------------------------------------------------------
+;   __bas_gfacet  the solid triangle __bas_fpx / __bas_fpy (3 corners), as
+;                 kg65.s.facet: the corners sorted by x (unsigned: (0,1),
+;                 (1,2), (0,1)), each column x a vertical line between the
+;                 edges' y = base +/- n * dy / dx (the math unit: 16 x 16 ->
+;                 32 bits, / 16, the low 16 bits). The edges (Y): 0 corner 0
+;                 to 1, 2 corner 0 to 2, 4 corner 1 to 2
+; ---------------------------------------------------------------------------
+
+MULTINA = $D770
+MULTINB = $D774
+PRODUCT = $D778
+DIVQUOT = $D76C
+MATHBUSY = $D70F
+
+.segment "code"
+    .split "__bas_gfacet"
+.global __bas_gfacet
+__bas_gfacet:
+    ldx #0
+    jsr fsort
+    ldx #2
+    jsr fsort
+    ldx #0
+    jsr fsort
+    ; the edges: dx, |dy|, the flag (y back: unsigned borrow), the base y
+    ldx #0
+    ldy #2
+    lda #0
+    jsr fedge
+    ldx #0
+    ldy #4
+    lda #2
+    jsr fedge
+    ldx #2
+    ldy #4
+    lda #4
+    jsr fedge
+    lda edx+2
+    ora edx+3
+    bne @go
+    rts
+@go:
+    lda __bas_fpx
+    sta ffx
+    lda __bas_fpx+1
+    sta ffx+1
+    lda #0
+    sta fn
+    sta fn+1
+    lda edx
+    ora edx+1
+    beq @second
+@l1:
+    lda fn
+    ldx fn+1
+    ldy #0
+    jsr fend
+    sta __bas_ly0
+    stx __bas_ly0+1
+    lda fn
+    ldx fn+1
+    ldy #2
+    jsr fend
+    sta __bas_ly1
+    stx __bas_ly1+1
+    jsr fcol
+    lda ffx                 ; (last when fx >= x1, before it moves on)
+    cmp __bas_fpx+2
+    lda ffx+1
+    sbc __bas_fpx+3
+    php
+    jsr fnext
+    plp
+    bcc @l1
+@second:
+    lda edx+4
+    ora edx+5
+    bne @l2
+    rts
+@l2:
+    lda fn
+    ldx fn+1
+    ldy #2
+    jsr fend
+    sta __bas_ly1
+    stx __bas_ly1+1
+    sec
+    lda ffx
+    sbc __bas_fpx+2
+    pha
+    lda ffx+1
+    sbc __bas_fpx+3
+    tax
+    pla
+    ldy #4
+    jsr fend
+    sta __bas_ly0
+    stx __bas_ly0+1
+    jsr fcol
+    lda ffx
+    cmp __bas_fpx+4
+    lda ffx+1
+    sbc __bas_fpx+5
+    php
+    jsr fnext
+    plp
+    bcc @l2
+    rts
+
+; the column: (fx, ly0) to (fx, ly1), the pattern from its start
+fcol:
+    lda ffx
+    sta __bas_lx0
+    sta __bas_lx1
+    lda ffx+1
+    sta __bas_lx0+1
+    sta __bas_lx1+1
+    lda #0
+    sta KG_PATBIT2
+    jmp __bas_gline0
+fnext:
+    inc ffx
+    bne @a
+    inc ffx+1
+@a:
+    inc fn
+    bne @b
+    inc fn+1
+@b:
+    rts
+
+; corners X/2 and X/2 + 1 in x order (unsigned)
+fsort:
+    lda __bas_fpx+2,x
+    cmp __bas_fpx,x
+    lda __bas_fpx+3,x
+    sbc __bas_fpx+1,x
+    bcs @ok
+    ldy #1
+@sw:
+    lda __bas_fpx,x
+    pha
+    lda __bas_fpx+2,x
+    sta __bas_fpx,x
+    pla
+    sta __bas_fpx+2,x
+    lda __bas_fpy,x
+    pha
+    lda __bas_fpy+2,x
+    sta __bas_fpy,x
+    pla
+    sta __bas_fpy+2,x
+    inx
+    dey
+    bpl @sw
+@ok:
+    rts
+
+; edge A (0, 2, 4) from corner X to corner Y (byte offsets)
+fedge:
+    stx fa
+    sty fb
+    tax                     ; x := the edge
+    stx fe
+    ldy fa
+    lda __bas_fpy,y         ; base: the first corner's y
+    sta ebase,x
+    lda __bas_fpy+1,y
+    sta ebase+1,x
+    ; dx = x[b] - x[a]
+    ldy fb
+    sec
+    lda __bas_fpx,y
+    ldy fa
+    sbc __bas_fpx,y
+    sta edx,x
+    ldy fb
+    lda __bas_fpx+1,y
+    ldy fa
+    sbc __bas_fpx+1,y
+    sta edx+1,x
+    ; dy = y[b] - y[a], or its negation (flag) when y[b] < y[a]
+    ldy fb
+    sec
+    lda __bas_fpy,y
+    ldy fa
+    sbc __bas_fpy,y
+    sta edy,x
+    ldy fb
+    lda __bas_fpy+1,y
+    ldy fa
+    sbc __bas_fpy+1,y
+    sta edy+1,x
+    lda #0
+    bcs @pos
+    sec
+    lda #0
+    sbc edy,x
+    sta edy,x
+    lda #0
+    sbc edy+1,x
+    sta edy+1,x
+    lda #1
+@pos:
+    sta eflag,x
+    rts
+
+; A/X := base +/- (A/X) * dy / dx of edge Y
+fend:
+    sta MULTINA
+    stx MULTINA+1
+    lda #0
+    sta MULTINA+2
+    sta MULTINA+3
+    sta MULTINB+2
+    sta MULTINB+3
+    lda edy,y
+    sta MULTINB
+    lda edy+1,y
+    sta MULTINB+1
+    ldx #3
+@m:
+    lda PRODUCT,x
+    sta MULTINA,x
+    dex
+    bpl @m
+    lda edx,y
+    sta MULTINB
+    lda edx+1,y
+    sta MULTINB+1
+@w:
+    bit MATHBUSY
+    bmi @w
+    lda eflag,y
+    bne @sub
+    clc
+    lda ebase,y
+    adc DIVQUOT
+    pha
+    lda ebase+1,y
+    adc DIVQUOT+1
+    tax
+    pla
+    rts
+@sub:
+    sec
+    lda ebase,y
+    sbc DIVQUOT
+    pha
+    lda ebase+1,y
+    sbc DIVQUOT+1
+    tax
+    pla
+    rts
+
+.segment "bss"
+.global __bas_fpx
+.global __bas_fpy
+__bas_fpx: .res 6
+__bas_fpy: .res 6
+edx:   .res 6
+edy:   .res 6
+ebase: .res 6
+eflag: .res 6
+ffx:   .res 2
+fn:    .res 2
+fa:    .res 1
+fb:    .res 1
+fe:    .res 1
