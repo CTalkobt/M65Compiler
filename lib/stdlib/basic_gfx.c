@@ -97,8 +97,10 @@ static unsigned char entry(unsigned char y) {
     return (m & 0x80) ? m : 0;
 }
 
+#define PLENUM (*(volatile unsigned char *)0x1176)   /* BASIC's plenum: the last screen's depth */
 void _bas_gscrdef(void) {
     /* parm: screen, width, height, depth (0-7) */
+    PLENUM = _bas_g[3];
     KG.scrtab[_bas_g[0] << 2] = (unsigned char)(0x80 | (_bas_g[1] << 4) | (_bas_g[2] << 3) | _bas_g[3]);
 }
 
@@ -705,10 +707,10 @@ void _bas_gbox(void) {
 
 /* --- ellipses (kg65.ellipse, epstab, cdot, octa / octb, solide) --- */
 
-/* the octant table (the kernel's is at BASIC's text_top): the kernel's
- * scratch pages */
-#define ETAB ((unsigned char *)0x1800)
-#define ETAB_LEN 0x700
+/* the octant table (the kernel's is at BASIC's text_top): attic RAM (the
+ * kernel's scratch pages hold GCOPY's brush) */
+#define ETAB ((unsigned char __far *)0x8710000UL)
+#define ETAB_LEN 0x2000
 extern void _bas_sqr(void);
 extern void _bas_fdiv(void);
 extern void _float_atn(void);
@@ -1117,6 +1119,345 @@ void _bas_gpolygon(void) {
         lx0 = pcx; ly0 = pcy; lx1 = sx; ly1 = sy;
         line_();
     }
+}
+
+void _bas_gpixel(void);
+
+/* --- PAINT (kg65.paint, s.rfill, s.push, q.pixel's boundary test) --- */
+
+/* the paint stack (the kernel's is from BASIC's text_top to $F6FF): attic
+ * RAM, as much as the kernel would have after a short program */
+#define PSTACK 0x8700000UL
+#define PSTACK_LEN (0xF6FFU - 0x2100U)
+static unsigned int psp;
+static int pnl, pnr, plx, prx, pty, ppl, ppr, ptmp;
+static unsigned char prp, pd, pmode, pbc;
+
+/* the colour index at (x, y) as the boundary test (q.pixel): 0 a boundary
+ * (or outside the viewport's far edges), else not */
+static unsigned char inside(int x, int y) {
+    unsigned char c;
+    if ((unsigned int)x >= KG.vpmaxx || (unsigned int)y >= KG.vpmaxy) return 0;
+    _bas_g[0] = (unsigned char)x; _bas_g[1] = (unsigned char)((unsigned int)x >> 8);
+    _bas_g[2] = (unsigned char)y; _bas_g[3] = (unsigned char)((unsigned int)y >> 8);
+    _bas_gpixel();
+    c = (unsigned char)_bas_n;
+    if (pmode == 0) return c == pbc;
+    if (pmode == 1) return c != KG.drawpens[0] && c != pbc;
+    return c && c != pbc;
+}
+
+static void span(int l, int r, int y) {
+    lx0 = l; lx1 = r; ly0 = ly1 = y;
+    KG.patrbitnum = 0;
+    line_();
+}
+
+/* the 16 bytes stacked: nl, nr, lx, rx, ty, pl, pr (2 each), rp, d */
+static unsigned char push(void) {
+    unsigned char __far *p;
+    if (psp + 16 > PSTACK_LEN) return 1;
+    p = (unsigned char __far *)(PSTACK + psp);
+    *(int __far *)(p + 0) = pnl;
+    *(int __far *)(p + 2) = pnr;
+    *(int __far *)(p + 4) = plx;
+    *(int __far *)(p + 6) = prx;
+    *(int __far *)(p + 8) = pty;
+    *(int __far *)(p + 10) = ppl;
+    *(int __far *)(p + 12) = ppr;
+    p[14] = prp;
+    p[15] = pd;
+    psp += 16;
+    return 0;
+}
+
+static void pop(void) {
+    unsigned char __far *p;
+    psp -= 16;
+    p = (unsigned char __far *)(PSTACK + psp);
+    pnl = *(int __far *)(p + 0);
+    pnr = *(int __far *)(p + 2);
+    plx = *(int __far *)(p + 4);
+    prx = *(int __far *)(p + 6);
+    pty = *(int __far *)(p + 8);
+    ppl = *(int __far *)(p + 10);
+    ppr = *(int __far *)(p + 12);
+    prp = p[14];
+    pd = p[15];
+}
+
+/* the spans next to [lx, rx] on line ty, then back from the stack (s.rfill) */
+static void rfill(void) {
+fill:
+    pnl = plx;
+l10:
+    if (!inside(pnl, pty)) goto l14;
+    pnr = pnl;
+    do pnl--; while (inside(pnl, pty));
+    pnl++;
+    goto l18;
+l14:
+    for (;;) {
+        pnl++;
+        if (inside(pnl, pty)) break;
+        if ((unsigned int)prx < (unsigned int)pnl) break;   /* (bcs: nl <= rx) */
+    }
+    pnr = pnl;
+l18:
+    if ((unsigned int)pnl >= (unsigned int)prx) goto l42;     /* (the kernel's bcs: nl >= rx) */
+    do pnr++; while (inside(pnr, pty));
+    pnr--;
+    span(pnl, pnr, pty);
+    prp = 1;
+    if (push()) return;
+    plx = ppl = pnl;
+    prx = ppr = pnr;
+    if (pd & 0x80) pty++;
+    else pty--;
+    goto fill;
+l28:
+    ptmp = ppl - 2;
+    if (ptmp < 0 || (unsigned int)ptmp < (unsigned int)pnl) goto l34;
+    prp = 2;
+    if (push()) return;
+    plx = ppl = pnl;
+    prx = ptmp;
+    ppr = pnr;
+    if (pd & 0x80) pty--;
+    else pty++;
+    pd = (unsigned char)(0 - pd);
+    goto fill;
+l34:
+    ptmp = ppr + 2;
+    if ((unsigned int)pnr < (unsigned int)ptmp) goto l40;
+    prp = 3;
+    if (push()) return;
+    plx = ptmp;
+    prx = ppr = pnr;
+    if (pd & 0x80) pty--;
+    else pty++;
+    ppl = pnl;
+    pd = (unsigned char)(0 - pd);
+    goto fill;
+l40:
+    pnl = pnr + 2;
+    if ((unsigned int)pnl < (unsigned int)prx) goto l10;
+l42:
+    if (!psp) return;
+    pop();
+    if (prp == 1) goto l28;
+    if (prp == 2) goto l34;
+    if (prp == 3) goto l40;
+}
+
+/* PAINT x, y [, mode [, colour]] (GKI.parm: x, y, mode, colour) */
+void _bas_gpaint(void) {
+    unsigned int *v = (unsigned int *)&_bas_g[1];
+    int x = (int)v[0], y = (int)v[1], sl, sr;
+    pmode = (unsigned char)v[2];
+    pbc = (unsigned char)v[3];
+    psp = 0;
+    if (pmode == 0) {
+        pbc = 0;
+        if ((unsigned int)x < KG.vpmaxx && (unsigned int)y < KG.vpmaxy) {
+            _bas_g[0] = (unsigned char)x; _bas_g[1] = (unsigned char)((unsigned int)x >> 8);
+            _bas_g[2] = (unsigned char)y; _bas_g[3] = (unsigned char)((unsigned int)y >> 8);
+            _bas_gpixel();
+            pbc = (unsigned char)_bas_n;
+        }
+    } else if (pmode == 1) pbc = color2index(KG.drawscreen, pbc);
+    else if (pmode == 2) {
+        /* (an empty start dot: nothing) */
+        pbc = KG.drawpens[0];
+        if ((unsigned int)x >= KG.vpmaxx || (unsigned int)y >= KG.vpmaxy) return;
+        _bas_g[0] = (unsigned char)x; _bas_g[1] = (unsigned char)((unsigned int)x >> 8);
+        _bas_g[2] = (unsigned char)y; _bas_g[3] = (unsigned char)((unsigned int)y >> 8);
+        _bas_gpixel();
+        if (!_bas_n) return;
+    } else return;
+    if (!inside(x, y)) return;
+    sl = x;
+    do sl--; while (inside(sl, y));
+    sl++;
+    sr = x;
+    do sr++; while (inside(sr, y));
+    sr--;
+    span(sl, sr, y);
+    plx = ppl = sl; prx = ppr = sr;
+    pty = y - 1;
+    pd = 1;
+    rfill();
+    plx = ppl = sl; prx = ppr = sr;
+    pty = y + 1;
+    pd = 0xFF;
+    rfill();
+}
+
+/* --- VIEWPORT, GCOPY, CUT, PASTE (viewportdef, cut_copy, s.bltread, paste) --- */
+
+#define BRUSH ((unsigned char *)0x1800)      /* the kernel's temp.brush (4 pages) */
+#define SCANL ((unsigned char *)0x1E00)      /* its scanline buffer */
+static const unsigned char maskl[8] = {0, 128, 192, 224, 240, 248, 252, 254};
+static const unsigned char maskr[8] = {0, 127, 63, 31, 15, 7, 3, 1};
+static unsigned int ax, ay, adx, ady, apos;
+static unsigned char ab2sl, abor, abw, adepth, abrushw, aodd;
+
+/* VIEWPORT [DEF] x, y, width, height */
+void _bas_gviewport(void) {
+    unsigned int *v = (unsigned int *)&_bas_g[1];
+    KG.vpminx = (int)v[0];
+    KG.vpminy = (int)v[1];
+    KG.vpwx = v[2];
+    KG.vphy = v[3];
+    KG.vpmaxx = v[2] + v[0];
+    KG.vpmaxy = v[3] + v[1];
+}
+
+/* the draw screen's byte address of (x, y) without the segment (calcadr); aodd the odd line */
+static unsigned int calcadr(unsigned int x, unsigned int y) {
+    unsigned int a;
+    aodd = 0;
+    if (KG.drawscrheight) { aodd = (unsigned char)(y & 1); y >>= 1; }
+    a = (unsigned int)((unsigned char)y >> 3) * 0x500;
+    a >>= KG.drawscrwidth ? 1 : 2;
+    a |= y & 7;
+    return a + (x & 0xFFF8);
+}
+
+/* plane p's byte at adr + 8 * k (scanline.setup) */
+static unsigned char __far *rowp(unsigned char p, unsigned int adr) {
+    unsigned char seg = KG.dsbp0adr[p];
+    seg = aodd ? (unsigned char)(seg & 0xE0) : (unsigned char)(seg << 4);
+    return (unsigned char __far *)(((unsigned long)(KG.banka | (p & 1)) << 16) + ((unsigned int)seg << 8) + adr);
+}
+
+/* the edges' bits from the screen, the scanline written (paste.scanline) */
+static unsigned char merge(unsigned char brush, unsigned char mask, unsigned char scr) {
+    return (unsigned char)((brush & (unsigned char)~mask) | (scr & mask));
+}
+static void paste_line(unsigned char p, unsigned int adr) {
+    unsigned char __far *q = rowp(p, adr);
+    unsigned char k;
+    if (abw != 1) {
+        SCANL[0] = merge(SCANL[0], maskl[ab2sl], q[0]);
+        SCANL[abw - 1] = merge(SCANL[abw - 1], maskr[abor], q[(unsigned int)(abw - 1) * 8]);
+    } else SCANL[0] = merge(SCANL[0], (unsigned char)(maskl[ab2sl] | maskr[abor]), q[0]);
+    for (k = 0; k < abw; k++) q[(unsigned int)k * 8] = SCANL[k];
+}
+static void clr_line(unsigned char p, unsigned char bit, unsigned int adr) {
+    unsigned char k, v = (KG.drawpens[0] & bit) ? 0xFF : 0;
+    for (k = 0; k < abw; k++) SCANL[k] = v;
+    paste_line(p, adr);
+}
+
+/* x's bits within its byte, the byte columns (s.bltread / paste) */
+static void geom(void) {
+    unsigned int n;
+    ab2sl = (unsigned char)(ax & 7);
+    ax &= 0xFFF8;
+    n = adx + ab2sl;
+    abor = (unsigned char)(n & 7);
+    abw = (unsigned char)(n >> 3);
+    if (abor) abw++;
+}
+
+/* VIEWPORT CLR (0), GCOPY (1), CUT (2): the area to the brush, cleared with pen 0 */
+void _bas_gcut(void) {
+    unsigned char cmd = _bas_g[19], plane, bit;
+    unsigned int *v = (unsigned int *)&_bas_g[1], t = 0, y0, sx;
+    if (!cmd) { ax = (unsigned int)KG.vpminx; ay = (unsigned int)KG.vpminy; adx = KG.vpwx; ady = KG.vphy; }
+    else { ax = v[0]; ay = v[1]; adx = v[2]; ady = v[3]; }
+    sx = ax;
+    geom();
+    if (cmd) {
+        BRUSH[0] = (unsigned char)sx;
+        BRUSH[1] = (unsigned char)(ax >> 8);
+        *(unsigned int *)&BRUSH[2] = ay;
+        *(unsigned int *)&BRUSH[4] = adx;
+        *(unsigned int *)&BRUSH[6] = ady;
+        BRUSH[8] = KG.drawscrdepth;
+        BRUSH[9] = abw;
+        apos = 10;
+    }
+    y0 = ay;
+    do {
+        unsigned int adr = calcadr(ax, y0);
+        for (plane = 0, bit = 1; bit; plane++, bit <<= 1) {
+            if (!(KG.drawscrbp & bit)) continue;
+            if (cmd) {
+                unsigned char __far *q = rowp(plane, adr);
+                unsigned char k, s2;
+                for (k = 0; k < abw; k++) SCANL[k] = q[(unsigned int)k * 8];
+                SCANL[abw - 1] &= (unsigned char)~maskr[abor];
+                for (s2 = ab2sl; s2; s2--) {         /* (shiftleft) */
+                    unsigned char c = 0;
+                    signed int i;
+                    for (i = abw - 1; i >= 0; i--) {
+                        unsigned char b = SCANL[i];
+                        SCANL[i] = (unsigned char)((b << 1) | c);
+                        c = b >> 7;
+                    }
+                }
+                for (k = 0; k < abw; k++) BRUSH[apos++] = SCANL[k];
+                if (cmd != 2) continue;
+            }
+            clr_line(plane, bit, adr);
+        }
+        t++;
+        y0++;
+    } while (t != ady);
+}
+
+/* GCOPY / CUT's size: width * height in the planes of the last SCREEN DEF
+ * under the brush's 4 pages (check_1k) */
+void _bas_gcheck1k(void) {
+    unsigned int *v = (unsigned int *)&_bas_g[1];
+    unsigned long p = (unsigned long)v[2] * v[3];
+    unsigned char a, d = PLENUM;
+    if ((p >> 16) & 0xFF) raise(16);
+    a = (unsigned char)(p >> 8);
+    if (d < 4) { a >>= 1; if (d < 2) { a >>= 1; if (d < 1) a >>= 1; } }
+    if (a >= 4) raise(14);
+}
+
+/* PASTE x, y: the brush at (x, y), cut to the screen */
+void _bas_gpaste(void) {
+    unsigned int *v = (unsigned int *)&_bas_g[1], t = 0, y0, w, h;
+    unsigned char plane, bit;
+    ax = v[0];
+    ay = v[1];
+    adx = *(unsigned int *)&BRUSH[4];
+    ady = *(unsigned int *)&BRUSH[6];
+    adepth = BRUSH[8];
+    abrushw = BRUSH[9];
+    apos = 10;
+    w = (KG.drawscrwidth ? 640 : 320) - ax;
+    if (w < adx) adx = w;
+    h = (KG.drawscrheight ? 400 : 200) - ay;
+    if (h < ady) ady = h;
+    geom();
+    y0 = ay;
+    do {
+        unsigned int adr = calcadr(ax, y0);
+        for (plane = 0, bit = 1; bit; plane++, bit <<= 1) {
+            unsigned char k, s2;
+            if (!(KG.drawscrbp & bit)) continue;
+            if (adepth > KG.drawscrdepth) continue;
+            if (KG.drawscrdepth > adepth) { clr_line(plane, bit, adr); continue; }
+            for (k = 0; k < abrushw; k++) SCANL[k] = BRUSH[apos++];
+            for (s2 = ab2sl; s2; s2--) {             /* (shiftright: bwidth + 1 bytes) */
+                unsigned char c = 0, i;
+                for (i = 0; i <= abw; i++) {
+                    unsigned char b = SCANL[i];
+                    SCANL[i] = (unsigned char)((b >> 1) | (c << 7));
+                    c = b & 1;
+                }
+            }
+            paste_line(plane, adr);
+        }
+        t++;
+        y0++;
+    } while (t != ady);
 }
 
 /* --- functions --- */
