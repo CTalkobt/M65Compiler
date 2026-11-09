@@ -603,7 +603,7 @@ undoes). Tests: `test_basic_compile19_xemu.bas`, `test_basic_compile21_xemu.bas`
 
 **DEF FN**: each `FN name(...)` is the function's expression compiled where it is used, its parameter the
 argument (a variable of the same name keeps its value); `FN` before its `DEF` has run is `?UNDEFINED FUNCTION`. A
-function defined twice is not compiled yet. `VAL` follows the ROM's number syntax (a second point or `E`, or an `E`
+function defined more than once is each of its expressions, the one of the `DEF` run last chosen when it is used. `VAL` follows the ROM's number syntax (a second point or `E`, or an `E`
 without digits: 0; it ends at another character), its value from `strtof` (correctly rounded). `INSTR`'s pattern
 (a needle starting with a pound sign) searches the whole haystack from the position; the ROM without a position
 argument searches as far as a value left in its float accumulator says. `RPT$` is in BASIC 65 releases after 920413.

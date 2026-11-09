@@ -23,6 +23,12 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
   and coded, both conventions); `test_tune45.sh` the tokens;
   `test_basic_compile17_xemu.bas` [7].
 
+### basic45 --compile: DEF FN defined more than once (#369)
+
+- A function defined by several `DEF FN` statements is compiled: `FN`
+  evaluates the expression of the `DEF` run last (its own parameter), as the
+  interpreter does. Test `test_basic_compile15_xemu.bas` [7].
+
 ### basic45 --compile: BOOT SYS (#369)
 
 - `BOOT SYS` calls the KERNAL's `bootsys` ($FF59) through `_jsr_far`
