@@ -3,7 +3,7 @@
 3 rem [0] sys, rreg (registers given, kept, skipped; after float code); [1] usr (a routine,
 4 rem the default: ?undef'd function); [2] fre; [3] dma (jobs, chained: ?illegal quantity),
 5 rem edma; [4] clr variable, err$, ti, st; [5] clr (variables, arrays, def fn, data, the
-6 rem trap); [6] clr in a for loop (?next without for); [7] $aa
+6 rem trap); [6] clr in a for loop (?next without for); [7] def fn defined again; [8] $aa
 10 trap 900:dim v(40):n=0
 20 for i=0 to 11:read b:poke 4096+i,b:next
 30 data 24,105,1,170,232,152,105,2,168,107,123,96
@@ -27,6 +27,8 @@
 190 q=1:dim d(3):d(2)=9:def fn f(x)=x*2:read r:clr:trap 900:read s:dim d(5)
 200 x=fn f(2):if q=0 and ee=27 and s=24 and r=0 then poke 49349,1
 210 ee=0:for i=1 to 2:clr:trap 900:next:if ee=10 then poke 49350,1
-220 poke 49351,170:end
+215 def fn g(x)=x*2:a=fn g(5):def fn g(y)=y+100:b=fn g(5):def fn g(x)=x*2:c=fn g(fn g(1))
+216 if a=10 and b=105 and c=4 then poke 49351,1
+220 poke 49352,170:end
 230 data 24
 900 e=e+1:ee=er:resume next
