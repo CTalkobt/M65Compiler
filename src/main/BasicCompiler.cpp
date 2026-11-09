@@ -65,7 +65,7 @@ enum : int {
     T_MOVSPR = 0xFE06, T_SPRITE = 0xFE07, T_SPRCOLOR = 0xFE08, T_SPRSAV = 0xFE16, T_COLLISION = 0xFE17,
     T_BUMP = 0xCE03, T_RSPPOS = 0xCE05, T_RSPRITE = 0xCE06, T_RSPCOLOR = 0xCE07, T_CLR = 0x9C, T_SAVE = 0x94,
     T_SCREEN = 0xFE2E, T_SET = 0xFE2D, T_PEN = 0xFE33, T_DMODE = 0xFE35, T_DPAT = 0xFE36, T_DOT = 0xFE4C,
-    T_BOX = 0xE1, T_CIRCLE = 0xE2, T_ELLIPSE = 0xFE30, T_POLYGON = 0xFE2F, T_PAINT = 0xDF, T_VIEWPORT = 0xFE31, T_GCOPY = 0xFE32, T_CUT = 0xE4, T_PASTE = 0xE3, T_SYS = 0x9E, T_SOUND = 0xDA, T_BOOT = 0xFE1B, T_VERIFY = 0x95, T_BIT = 0xFE4E, T_TYPE = 0xFE27, T_DISK = 0xFE40, T_CHDIR = 0xFE4B, T_UNLOCK = 0xFE4F, T_LOCK = 0xFE50, T_MKDIR = 0xFE51, T_FONT = 0xFE46, T_DECBIN = 0xCE11, T_RUN = 0x8A, T_FGOTO = 0xFE47, T_FGOSUB = 0xFE48, T_USING = 0xFB, T_PLAY = 0xFE04, T_TEMPO = 0xFE05, T_VOL = 0xDB, T_FILTER = 0xFE03, T_ENVELOPE = 0xFE0A, T_RPLAY = 0xCE0F, T_JOY = 0xCF, T_POT = 0xCE02, T_LPEN = 0xCE04, T_MOUSE = 0xFE3E, T_RMOUSE = 0xFE3F, T_USR = 0xB7, T_FRE = 0xB8, T_RREG = 0xFE09, T_DMA = 0xFE1F, T_EDMA = 0xFE21, T_LOADIFF = 0xFE43, T_SAVEIFF = 0xFE44, T_CHAR = 0xE0, T_GRAPHIC = 0xDE, T_RGRAPHIC = 0xCC, T_RPEN = 0xD0, T_PIXEL = 0xCE0C, T_RPALETTE = 0xCE0D,
+    T_BOX = 0xE1, T_CIRCLE = 0xE2, T_ELLIPSE = 0xFE30, T_POLYGON = 0xFE2F, T_PAINT = 0xDF, T_VIEWPORT = 0xFE31, T_GCOPY = 0xFE32, T_CUT = 0xE4, T_PASTE = 0xE3, T_SYS = 0x9E, T_MOUNT = 0xFE49, T_POINTER = 0xCE0A, T_SOUND = 0xDA, T_BOOT = 0xFE1B, T_VERIFY = 0x95, T_BIT = 0xFE4E, T_TYPE = 0xFE27, T_DISK = 0xFE40, T_CHDIR = 0xFE4B, T_UNLOCK = 0xFE4F, T_LOCK = 0xFE50, T_MKDIR = 0xFE51, T_FONT = 0xFE46, T_DECBIN = 0xCE11, T_RUN = 0x8A, T_FGOTO = 0xFE47, T_FGOSUB = 0xFE48, T_USING = 0xFB, T_PLAY = 0xFE04, T_TEMPO = 0xFE05, T_VOL = 0xDB, T_FILTER = 0xFE03, T_ENVELOPE = 0xFE0A, T_RPLAY = 0xCE0F, T_JOY = 0xCF, T_POT = 0xCE02, T_LPEN = 0xCE04, T_MOUSE = 0xFE3E, T_RMOUSE = 0xFE3F, T_USR = 0xB7, T_FRE = 0xB8, T_RREG = 0xFE09, T_DMA = 0xFE1F, T_EDMA = 0xFE21, T_LOADIFF = 0xFE43, T_SAVEIFF = 0xFE44, T_CHAR = 0xE0, T_GRAPHIC = 0xDE, T_RGRAPHIC = 0xCC, T_RPEN = 0xD0, T_PIXEL = 0xCE0C, T_RPALETTE = 0xCE0D,
     T_COLOR = 0xE7, T_FOREGROUND = 0xFE39, T_BACKGROUND = 0xFE3B, T_BORDER = 0xFE3C, T_HIGHLIGHT = 0xFE3D,
     T_CURSOR = 0xFE41, T_RCURSOR = 0xFE42, T_WINDOW = 0xFE1A, T_FAST = 0xFE25, T_SPEED = 0xFE26,
     T_PALETTE = 0xFE34, T_VSYNC = 0xFE54, T_OFF = 0xFE24, T_RCOLOR = 0xCD, T_RWINDOW = 0xCE09, T_RSPEED = 0xCE0E,
@@ -1230,6 +1230,27 @@ private:
             Val r; r.k = VK::I; r.bound = 1; r.op = load(ir::Type::I16, global("__bas_n"));
             return r;
         }
+        case T_POINTER: {
+            // POINTER(variable): the address of its value in the compiled
+            // program (bank 0; a string's: its length byte and characters; an
+            // array element's too), not the interpreter's variable tables
+            expectCh('(');
+            auto t = peek();
+            if (!t || t->k != TK::Name) fail("POINTER needs a variable (?SYNTAX ERROR)");
+            p_++;
+            LV lv = parseLV(t->text);
+            expectCh(')');
+            ir::Operand a;
+            if (lv.elem) a = lv.addr;
+            else if (lv.k == VK::S) a = load(ir::Type::PTR, ir::Operand::global(lv.g));
+            else a = addrGlobal(lv.g);
+            // (as WPEEK's: the 16-bit address, unsigned)
+            auto w = vreg(ir::Type::I16);
+            store(ir::Type::PTR, a, global("__bas_sr"));
+            w = load(ir::Type::I16, global("__bas_sr"));
+            Val r; r.k = VK::I; r.bound = 65535; r.op = zext(w, ir::Type::I16, ir::Type::I32);
+            return r;
+        }
         case T_DECBIN: {
             // DECBIN(s$): its binary digits as a number
             Val a = needS(parenExpr());
@@ -2203,7 +2224,8 @@ void Compiler::statement() {
     case T_DOPEN: case T_APPEND: case T_DCLOSE: case T_HEADER: case T_SCRATCH: case T_ERASE: case T_DELETE:
     case T_RENAME: case T_CONCAT: case T_COLLECT: case T_DCLEAR: case T_BACKUP: case T_COPY:
     case T_BLOAD: case T_BVERIFY: case T_BSAVE: case T_DIR: case T_CATALOG: dosStmt(kw); return;
-    case T_TYPE: case T_DISK: case T_LOCK: case T_UNLOCK: case T_MKDIR: case T_CHDIR: dosStmt(kw); return;
+    case T_TYPE: case T_DISK: case T_LOCK: case T_UNLOCK: case T_MKDIR: case T_CHDIR: case T_MOUNT:
+        dosStmt(kw); return;
     case T_RECORD: recordStmt(); return;
     case T_SPRITE: spriteStmt(); return;
     case T_SPRCOLOR: sprcolorStmt(); return;
@@ -2779,6 +2801,7 @@ void Compiler::runStmt() {
     if (!(par & 1)) fail("RUN needs a file name or a line (?SYNTAX ERROR)");
     store(ir::Type::I8, ir::Operand::imm(0, ir::Type::I8), global("__bas_dflg"));
     call("__bas_chainprep");
+    call("__bas_prcr");                 // (run_a_program's crdo)
     call("__bas_chain");
     for (auto it = names.rbegin(); it != names.rend(); ++it) freeVal(*it);
 }
@@ -2820,7 +2843,10 @@ void Compiler::keyStmt() {
             store(ir::Type::I8, iconst(ir::Type::I8, 7), global("__bas_daux"));
             store(ir::Type::I16, iconst(ir::Type::I16, 15), global("__bas_m"));
             call("__bas_dos");
-        } else call("__bas_dos20");
+        } else {
+            store(ir::Type::I16, iconst(ir::Type::I16, 0x110), global("__bas_n"));    // ($1000, a page)
+            call("__bas_dos20");
+        }
         for (auto it = names.rbegin(); it != names.rend(); ++it) freeVal(*it);
         return;
     }
@@ -2892,7 +2918,21 @@ void Compiler::setStmt() {
 // BLOAD's parsing and load, then the code at its start called)
 void Compiler::bootStmt() {
     if (acceptKw(T_SYS)) fail("BOOT SYS is not supported by --compile");
-    if (stmtEnd()) fail("BOOT without a file name (AUTOBOOT.C65) is not supported by --compile yet");
+    if (stmtEnd()) {
+        // BOOT alone: AUTOBOOT.C65* loaded and run (set_ab_fn, dload_boot), as
+        // DLOAD chains
+        Val nm = strLit("AUTOBOOT.C65*");
+        store(ir::Type::PTR, nm.op, global("__bas_sa"));
+        store(ir::Type::I8, ir::Operand::imm(1, ir::Type::I8), global("__bas_dpar"));
+        store(ir::Type::I8, ir::Operand::imm(0, ir::Type::I8), global("__bas_dflx"));
+        store(ir::Type::I8, ir::Operand::imm(0xE6, ir::Type::I8), global("__bas_derr"));
+        store(ir::Type::I8, ir::Operand::imm(0, ir::Type::I8), global("__bas_daux"));
+        store(ir::Type::I8, ir::Operand::imm(0, ir::Type::I8), global("__bas_dflg"));
+        call("__bas_chainprep");
+        call("__bas_prcr");             // (run_a_program's crdo)
+        call("__bas_chain");
+        return;
+    }
     std::vector<Val> names;
     lastAux_ = 0;
     int par = dosArgs("BOOT", 0xE6, names, 3);
@@ -3034,6 +3074,7 @@ void Compiler::dosStmt(int kw) {
         {T_DIR, "DIR", 0xA6, 0, 16}, {T_CATALOG, "CATALOG", 0xA6, 0, 16},
         {T_TYPE, "TYPE", 0xE6, 1, 21}, {T_DISK, "DISK", 0xE6, 0, 22}, {T_LOCK, "LOCK", 0xE6, 1, 23},
         {T_UNLOCK, "UNLOCK", 0xE6, 1, 24}, {T_MKDIR, "MKDIR", 0xA6, 1, 25}, {T_CHDIR, "CHDIR", 0xE6, 0, 26},
+        {T_MOUNT, "MOUNT", 0xE6, 0, 30},
     };
     const D* d = nullptr;
     for (const auto& e : table) if (e.kw == kw) d = &e;
@@ -3140,8 +3181,30 @@ void Compiler::sprNum(const Val& v) {
 // [, y expanded] [, multicolour]: each value given set as it is read
 void Compiler::spriteStmt() {
     if (acceptKw(T_CLR)) { call("__bas_sprclr"); return; }
-    if (isKw(T_SAVE) || isKw(T_LOAD))
-        fail("SPRITE SAVE / SPRITE LOAD are not supported by --compile yet");
+    if (isKw(T_SAVE) || isKw(T_LOAD)) {
+        // SPRITE SAVE / LOAD name: the sprites' 2 pages at $0600 (b65.src
+        // Sprite_Save, Sprite_Load), as KEY's
+        bool save = acceptKw(T_SAVE);
+        if (!save) acceptKw(T_LOAD);
+        std::vector<Val> names;
+        int par = dosArgs(save ? "SPRITE SAVE" : "SPRITE LOAD", save ? 0x66 : 0xE6, names, 0);
+        if (!(par & 1)) fail("SPRITE SAVE / LOAD needs a file name (?SYNTAX ERROR)");
+        if (save) {
+            store(ir::Type::I32, iconst(ir::Type::I32, 0x0600), global("__bas_dofl"));
+            store(ir::Type::I32, iconst(ir::Type::I32, 0x0801), global("__bas_dofh"));
+            store(ir::Type::I8, iconst(ir::Type::I8, 0), global("__bas_dbnk"));
+            store(ir::Type::I8, iconst(ir::Type::I8, 7), global("__bas_daux"));
+            store(ir::Type::I16, iconst(ir::Type::I16, 15), global("__bas_m"));
+        } else {
+            store(ir::Type::I16, iconst(ir::Type::I16, 0x206), global("__bas_n"));    // ($0600, 2 pages)
+            call("__bas_dos20");
+            for (auto it = names.rbegin(); it != names.rend(); ++it) freeVal(*it);
+            return;
+        }
+        call("__bas_dos");
+        for (auto it = names.rbegin(); it != names.rend(); ++it) freeVal(*it);
+        return;
+    }
     sprNum(expr());
     static const int regs[6] = {21, -1, 27, 29, 23, 28};
     for (int k = 0; k < 6; k++) {

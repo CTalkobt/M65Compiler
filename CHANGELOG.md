@@ -4,6 +4,14 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### basic45 --compile: BOOT alone, MOUNT, SPRITE SAVE / LOAD, POINTER (#369)
+
+- BOOT alone (AUTOBOOT.C65*) and RUN "name" with the ROM's return before
+  the program; MOUNT (an SD card image through the hypervisor, or the real
+  drive) and CHDIR on the SD card; SPRITE SAVE / LOAD; POINTER (the
+  compiled program's own addresses).
+- Test `test_basic_compile21_xemu.bas` (four ways, an empty D81).
+
 ### cc45: fewer float copies (#485)
 
 - A float result the next float operation uses (once) stays in `__float_a`

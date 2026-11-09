@@ -38,3 +38,12 @@ __bas_usr:
     ldx #>__float_a
     jsr __float_store_fac
     jmp __bp_prog
+
+; __bas_hyv: a hypervisor call (b65.src's "sta HYV_TRAP / nop"): A the
+; function, X / Y as it takes them; its carry back (set: done)
+    .split "__bas_hyv"
+.global __bas_hyv
+__bas_hyv:
+    sta $D640
+    .byte $EA               ; (the trap's NOP: EOM on the 45GS02)
+    rts
