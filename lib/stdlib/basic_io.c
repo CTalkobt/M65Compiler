@@ -249,6 +249,221 @@ void _bas_iffclose(void) {
     __jsr(0xFFC3, .A = dosla, .Carry = 0);
 }
 
+/* KEY LOAD / SPRITE LOAD (GetLoadChannel, LoadBlock): pages of the file at
+ * page _bas_n (the keys' $10, the sprites' $06), _bas_n >> 8 of them (the
+ * next only after a full one) */
+void _bas_dos20(void) {
+    unsigned char e, n;
+    unsigned char la = 0, k = 0, st = 0, pages = (unsigned char)((unsigned int)_bas_n >> 8);
+    volatile unsigned char *t = (volatile unsigned char *)((unsigned int)(unsigned char)_bas_n << 8);
+    dosprs(0);
+    dossa = 0;
+    do {
+        if (++la & 0x80) kerr(1);
+    } while (!__jsr(0xFF5F, .A = la).Carry);
+    dosla = la;
+    n = sendp(t_fopn, 4);
+    cbm_clrchn();
+    cbm_setbnk(0, 0);
+    cbm_setnam((char *)cmd, n);
+    cbm_setlfs(dosla, dosfa, dossa);
+    if (__jsr(0xFFC0, .A -> e).Carry) kerr(e);
+    if (__jsr(0xFFC6, .X = dosla, .A -> e).Carry) { _bas_iffclose(); kerr(e); }
+    cbm_k_basin();                      /* (the load address) */
+    cbm_k_basin();
+    if (cbm_readst()) { _bas_iffclose(); kerr(29); }
+    while (pages-- && !st) {
+        do {
+            t[k] = cbm_k_basin();
+            st = (unsigned char)cbm_readst();
+            if (st) break;
+        } while (++k);
+        t += 256;
+    }
+    _bas_iffclose();
+}
+
+/* TYPE name (open_SEQ_file): its characters printed until its
+ * end (STOP ends it; P: the screen cleared, [MORE] at the bottom) */
+void _bas_dos21(void) {   /* _bas_m 21 */
+    unsigned char e, n;
+    unsigned char la = 0, sa, c, st, page = (_bas_daux & 0x80) && !_bas_chan;
+    dosprs(0);
+    do {
+        if (++la & 0x80) kerr(1);
+    } while (!__jsr(0xFF5F, .A = la).Carry);
+    dosla = la;
+    for (sa = 0x62; ; sa++) {
+        if (sa == 0x6F) kerr(1);
+        if (__jsr(0xFF62, .Y = sa).Carry) break;
+    }
+    dossa = sa;
+    n = sendp(t_fopnseq, 6);
+    cbm_clrchn();
+    cbm_setbnk(0, 0);
+    cbm_setnam((char *)cmd, n);
+    cbm_setlfs(dosla, dosfa, dossa);
+    if (__jsr(0xFFC0, .A -> e).Carry) kerr(e);
+    *(volatile unsigned char __far *)0x90UL = 0;
+    if (!__jsr(0xFFC6, .X = dosla).Carry) {
+        if (page) _bas_putc(147);
+        for (;;) {
+            if (__jsr(0xFFE1).Zero) break;          /* STOP */
+            c = cbm_k_basin();
+            _bas_putc(c);
+            if (page && (unsigned char)(cbm_wherexy() >> 8) == 24) {
+                static const unsigned char more[] = {18, '[', 0x4D, 0x4F, 0x52, 0x45, ']', 146, 27, 0x4A, 0};
+                volatile unsigned char *q = (volatile unsigned char *)0xD610;
+                unsigned char k;
+                for (k = 0; more[k]; k++) _bas_putc(more[k]);
+                while (!*q) {}
+                c = *(volatile unsigned char *)0xD619;
+                *q = c;
+                _bas_putc(27);
+                _bas_putc(0x44);
+                if (c == 3 || c == 0x51) break;
+                _bas_putc(147);
+            }
+            st = (unsigned char)cbm_readst();
+            if (st) break;
+        }
+    }
+    cbm_clrchn();
+    _bas_putc(13);                          /* (list_done: the line flushed) */
+    __jsr(0xFFC3, .A = dosla, .Carry = 0);
+}
+
+/* DISK / @ "command" (the command channel, la 0); none: the
+ * drive's status printed (Print_DS) */
+void _bas_dos22(void) {   /* _bas_m 22 */
+    unsigned char e, n;
+    dosprs(0);
+    if (fn1l) {
+        unsigned char c;
+        n = sendp(t_fdisk, 1);
+        cbm_setnam((char *)cmd, n);
+        cbm_setlfs(0, dosfa, 0x6F);
+        cbm_clrchn();
+        cbm_setbnk(0, 0);
+        c = __jsr(0xFFC0, .A -> e).Carry;
+        __jsr(0xFFC3, .A = 0, .Carry = 1);
+        if (c) kerr(e);
+    } else {
+        unsigned char k;
+        unitfa = dosfa;
+        dsread();
+        for (k = 1; k <= ds[0]; k++) _bas_putc(ds[k]);
+    }
+}
+
+/* LOCK name   UNLOCK name */
+void _bas_dos23(void) {   /* _bas_m 23, 24 */
+    unsigned char e, n;
+    dosprs(0);
+    trans(_bas_m == 23 ? t_flock : t_funlo, 6);
+}
+
+/* MKDIR name [, L tracks] (CBDOS units only; 3 tracks at least) */
+void _bas_dos25(void) {   /* _bas_m 25 */
+    unsigned char e, n;
+    dosprs(0);
+    if (dosfa != CBDOS0 && dosfa != CBDOS1) kerr(44);
+    if (_bas_drcl <= 3) _bas_drcl = 3;
+    trans(t_fmkdir, 6);
+}
+
+/* CHDIR name ("/" alone: up to the root); on the SD card (unit 12) through
+ * the hypervisor */
+void _bas_dos26(void) {
+    unsigned char e, n;
+    dosprs(0);
+    if (dosfa == 12) {
+        ds[0] = 0;
+        hdosname();
+        if (!__jsr_raw(_bas_hyv, .A = 0x34).Carry) kerr(4);
+        __jsr_raw(_bas_hyv, .A = 0x0C);
+        break;
+    }
+    trans(t_fchdir, fn1l == 1 && fn1[0] == '/' ? 1 : 4);
+}
+
+/* SET DEF unit: the default drive and the DOS unit */
+void _bas_dos27(void) {   /* _bas_m 27 */
+    unsigned char e, n;
+    DEFDRV = (unsigned char)_bas_n;
+    dosfa = (unsigned char)_bas_n;
+    ds[0] = 0;
+}
+
+/* SET DISK unit [TO new]: the DOS unit; with a new number the
+ * drive renumbered (M-W 119 0 2, files closed) */
+void _bas_dos28(void) {   /* _bas_m 28 */
+    unsigned char e, n;
+    unsigned char u = (unsigned char)_bas_n, nu = (unsigned char)(_bas_n >> 8);
+    dosfa = u;
+    if (nu) {
+        unsigned char c[8] = {0x4D, '-', 0x57, 119, 0, 2, 0, 0};
+        closeall();
+        c[6] = nu | 32;
+        c[7] = nu | 64;
+        cbm_setnam((char *)c, 8);
+        cbm_setbnk(0, 0);
+        cbm_clrchn();
+        cbm_setlfs(0, dosfa, 0x6F);
+        cbm_open();
+        __jsr(0xFFC3, .A = 0, .Carry = 1);
+        dosfa = nu;
+        KFA = nu;
+    }
+    ds[0] = 0;
+}
+
+/* SET VERIFY ON / OFF (_bas_n 1 / 0): U0>V1 / U0>V0 */
+void _bas_dos29(void) {   /* _bas_m 29 */
+    unsigned char e, n;
+    unsigned char c[5] = {0x55, '0', '>', 0x56, 0};
+    c[4] = '0' + (unsigned char)_bas_n;
+    if (!dosfa) dosfa = DEFDRV;
+    cbm_setnam((char *)c, 5);
+    cbm_setbnk(0, 0);
+    cbm_clrchn();
+    cbm_setlfs(0, dosfa, 0x6F);
+    cbm_open();
+    __jsr(0xFFC3, .A = 0, .Carry = 1);
+    ds[0] = 0;
+}
+
+/* MOUNT name [, U unit] (the hypervisor: the image on the SD card as unit 8
+ * or 9; not found: ?FILE NOT FOUND); MOUNT alone: the real drive selected,
+ * its head stepped home and back (the freezer's disk select) */
+void _bas_dos30(void) {
+    unsigned char e, n;
+    volatile unsigned char *fdc = (volatile unsigned char *)0xD080;
+    dosprs(0);
+    if (!(par & 1)) {
+        unsigned char tr;
+        *(volatile unsigned char *)0xD68B &= ~1;
+        *(volatile unsigned char *)0xD6A1 |= 1;
+        fdc[0] = 0x60;
+        fdc[1] = 0x20;
+        while (!(fdc[2] & 1)) {
+            fdc[1] = 0x10;
+            while (fdc[2] & 0x80) {}
+        }
+        tr = fdc[4];
+        while (tr) {
+            fdc[1] = 0x18;
+            while (fdc[2] & 0x80) {}
+            tr--;
+        }
+        fdc[0] = 0;
+        *(volatile unsigned char *)0xD6A1 |= 1;
+        break;
+    }
+    hdosname();
+    if (!__jsr_raw(_bas_hyv, .A = dosfa == 9 ? 0x46 : 0x40, .X = dosfa).Carry) kerr(4);
+}
+
 void _bas_dos(void) {
     unsigned char e, sa, n;
     switch ((unsigned char)_bas_m) {
@@ -286,198 +501,6 @@ void _bas_dos(void) {
         if (_bas_m == 17) {
             if (__jsr(0xFFC6, .X = dosla, .A -> e).Carry) kerr(e);
         } else if (__jsr(0xFFC9, .X = dosla, .A -> e).Carry) kerr(e);
-        break;
-    }
-    case 20: {  /* KEY LOAD / SPRITE LOAD (GetLoadChannel, LoadBlock): pages of
-                 * the file at page _bas_n (the keys' $10, the sprites' $06), _bas_n
-                 * >> 8 of them (the next only after a full one) */
-        unsigned char la = 0, k = 0, st = 0, pages = (unsigned char)((unsigned int)_bas_n >> 8);
-        volatile unsigned char *t = (volatile unsigned char *)((unsigned int)(unsigned char)_bas_n << 8);
-        dosprs(0);
-        dossa = 0;
-        do {
-            if (++la & 0x80) kerr(1);
-        } while (!__jsr(0xFF5F, .A = la).Carry);
-        dosla = la;
-        n = sendp(t_fopn, 4);
-        cbm_clrchn();
-        cbm_setbnk(0, 0);
-        cbm_setnam((char *)cmd, n);
-        cbm_setlfs(dosla, dosfa, dossa);
-        if (__jsr(0xFFC0, .A -> e).Carry) kerr(e);
-        if (__jsr(0xFFC6, .X = dosla, .A -> e).Carry) { _bas_iffclose(); kerr(e); }
-        cbm_k_basin();                      /* (the load address) */
-        cbm_k_basin();
-        if (cbm_readst()) { _bas_iffclose(); kerr(29); }
-        while (pages-- && !st) {
-            do {
-                t[k] = cbm_k_basin();
-                st = (unsigned char)cbm_readst();
-                if (st) break;
-            } while (++k);
-            t += 256;
-        }
-        _bas_iffclose();
-        break;
-    }
-    case 21: {  /* TYPE name (open_SEQ_file): its characters printed until its
-                 * end (STOP ends it; P: the screen cleared, [MORE] at the bottom) */
-        unsigned char la = 0, sa, c, st, page = (_bas_daux & 0x80) && !_bas_chan;
-        dosprs(0);
-        do {
-            if (++la & 0x80) kerr(1);
-        } while (!__jsr(0xFF5F, .A = la).Carry);
-        dosla = la;
-        for (sa = 0x62; ; sa++) {
-            if (sa == 0x6F) kerr(1);
-            if (__jsr(0xFF62, .Y = sa).Carry) break;
-        }
-        dossa = sa;
-        n = sendp(t_fopnseq, 6);
-        cbm_clrchn();
-        cbm_setbnk(0, 0);
-        cbm_setnam((char *)cmd, n);
-        cbm_setlfs(dosla, dosfa, dossa);
-        if (__jsr(0xFFC0, .A -> e).Carry) kerr(e);
-        *(volatile unsigned char __far *)0x90UL = 0;
-        if (!__jsr(0xFFC6, .X = dosla).Carry) {
-            if (page) _bas_putc(147);
-            for (;;) {
-                if (__jsr(0xFFE1).Zero) break;          /* STOP */
-                c = cbm_k_basin();
-                _bas_putc(c);
-                if (page && (unsigned char)(cbm_wherexy() >> 8) == 24) {
-                    static const unsigned char more[] = {18, '[', 0x4D, 0x4F, 0x52, 0x45, ']', 146, 27, 0x4A, 0};
-                    volatile unsigned char *q = (volatile unsigned char *)0xD610;
-                    unsigned char k;
-                    for (k = 0; more[k]; k++) _bas_putc(more[k]);
-                    while (!*q) {}
-                    c = *(volatile unsigned char *)0xD619;
-                    *q = c;
-                    _bas_putc(27);
-                    _bas_putc(0x44);
-                    if (c == 3 || c == 0x51) break;
-                    _bas_putc(147);
-                }
-                st = (unsigned char)cbm_readst();
-                if (st) break;
-            }
-        }
-        cbm_clrchn();
-        _bas_putc(13);                          /* (list_done: the line flushed) */
-        __jsr(0xFFC3, .A = dosla, .Carry = 0);
-        break;
-    }
-    case 22:    /* DISK / @ "command" (the command channel, la 0); none: the
-                 * drive's status printed (Print_DS) */
-        dosprs(0);
-        if (fn1l) {
-            unsigned char c;
-            n = sendp(t_fdisk, 1);
-            cbm_setnam((char *)cmd, n);
-            cbm_setlfs(0, dosfa, 0x6F);
-            cbm_clrchn();
-            cbm_setbnk(0, 0);
-            c = __jsr(0xFFC0, .A -> e).Carry;
-            __jsr(0xFFC3, .A = 0, .Carry = 1);
-            if (c) kerr(e);
-        } else {
-            unsigned char k;
-            unitfa = dosfa;
-            dsread();
-            for (k = 1; k <= ds[0]; k++) _bas_putc(ds[k]);
-        }
-        break;
-    case 23:    /* LOCK name */
-    case 24:    /* UNLOCK name */
-        dosprs(0);
-        trans(_bas_m == 23 ? t_flock : t_funlo, 6);
-        break;
-    case 25:    /* MKDIR name [, L tracks] (CBDOS units only; 3 tracks at least) */
-        dosprs(0);
-        if (dosfa != CBDOS0 && dosfa != CBDOS1) kerr(44);
-        if (_bas_drcl <= 3) _bas_drcl = 3;
-        trans(t_fmkdir, 6);
-        break;
-    case 26:    /* CHDIR name ("/" alone: up to the root); on the SD card (unit
-                 * 12) through the hypervisor */
-        dosprs(0);
-        if (dosfa == 12) {
-            ds[0] = 0;
-            hdosname();
-            if (!__jsr_raw(_bas_hyv, .A = 0x34).Carry) kerr(4);
-            __jsr_raw(_bas_hyv, .A = 0x0C);
-            break;
-        }
-        trans(t_fchdir, fn1l == 1 && fn1[0] == '/' ? 1 : 4);
-        break;
-    case 27:    /* SET DEF unit: the default drive and the DOS unit */
-        DEFDRV = (unsigned char)_bas_n;
-        dosfa = (unsigned char)_bas_n;
-        ds[0] = 0;
-        break;
-    case 28: {  /* SET DISK unit [TO new]: the DOS unit; with a new number the
-                 * drive renumbered (M-W 119 0 2, files closed) */
-        unsigned char u = (unsigned char)_bas_n, nu = (unsigned char)(_bas_n >> 8);
-        dosfa = u;
-        if (nu) {
-            unsigned char c[8] = {0x4D, '-', 0x57, 119, 0, 2, 0, 0};
-            closeall();
-            c[6] = nu | 32;
-            c[7] = nu | 64;
-            cbm_setnam((char *)c, 8);
-            cbm_setbnk(0, 0);
-            cbm_clrchn();
-            cbm_setlfs(0, dosfa, 0x6F);
-            cbm_open();
-            __jsr(0xFFC3, .A = 0, .Carry = 1);
-            dosfa = nu;
-            KFA = nu;
-        }
-        ds[0] = 0;
-        break;
-    }
-    case 29: {  /* SET VERIFY ON / OFF (_bas_n 1 / 0): U0>V1 / U0>V0 */
-        unsigned char c[5] = {0x55, '0', '>', 0x56, 0};
-        c[4] = '0' + (unsigned char)_bas_n;
-        if (!dosfa) dosfa = DEFDRV;
-        cbm_setnam((char *)c, 5);
-        cbm_setbnk(0, 0);
-        cbm_clrchn();
-        cbm_setlfs(0, dosfa, 0x6F);
-        cbm_open();
-        __jsr(0xFFC3, .A = 0, .Carry = 1);
-        ds[0] = 0;
-        break;
-    }
-    case 30: {  /* MOUNT name [, U unit] (the hypervisor: the image on the SD
-                 * card as unit 8 or 9; not found: ?FILE NOT FOUND); MOUNT
-                 * alone: the real drive selected, its head stepped home and
-                 * back (the freezer's disk select) */
-        volatile unsigned char *fdc = (volatile unsigned char *)0xD080;
-        dosprs(0);
-        if (!(par & 1)) {
-            unsigned char tr;
-            *(volatile unsigned char *)0xD68B &= ~1;
-            *(volatile unsigned char *)0xD6A1 |= 1;
-            fdc[0] = 0x60;
-            fdc[1] = 0x20;
-            while (!(fdc[2] & 1)) {
-                fdc[1] = 0x10;
-                while (fdc[2] & 0x80) {}
-            }
-            tr = fdc[4];
-            while (tr) {
-                fdc[1] = 0x18;
-                while (fdc[2] & 0x80) {}
-                tr--;
-            }
-            fdc[0] = 0;
-            *(volatile unsigned char *)0xD6A1 |= 1;
-            break;
-        }
-        hdosname();
-        if (!__jsr_raw(_bas_hyv, .A = dosfa == 9 ? 0x46 : 0x40, .X = dosfa).Carry) kerr(4);
         break;
     }
     case 19:    /* exit_GKI_disk_op: closed; STOP down: BREAK */
