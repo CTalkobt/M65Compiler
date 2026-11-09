@@ -4,6 +4,12 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### basic45 --compile: DEF FN defined more than once (#369)
+
+- A function defined by several `DEF FN` statements is compiled: `FN`
+  evaluates the expression of the `DEF` run last (its own parameter), as the
+  interpreter does. Test `test_basic_compile15_xemu.bas` [7].
+
 ### basic45 --compile: arrays' __bas_aref in assembly (#487)
 
 - `__bas_aref` (making an array, several subscripts, the errors) is
