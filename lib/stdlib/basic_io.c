@@ -175,6 +175,12 @@ static const unsigned char t_fscr[] = {0x53, 0xD1, ':', 0xF0, 0xF1};
 static const unsigned char t_frscr[] = {0x46, '-', 0x52, 0xD1, ':', 0xF0, 0xF1};
 static const unsigned char t_frec[] = {0x50, 0xC2, 0xE2, 0xE0};
 static const unsigned char t_fdir[] = {'$', 0xD1, ':', 0xF1};
+static const unsigned char t_fopnseq[] = {0xF0, 0xD1, ':', 0xF1, ',', 0x53};           /* @0:name,S */
+static const unsigned char t_flock[] = {0x46, '-', 0x4C, 0xD1, ':', 0xF1};              /* F-L0:name */
+static const unsigned char t_funlo[] = {0x46, '-', 0x55, 0xD1, ':', 0xF1};              /* F-U0:name */
+static const unsigned char t_fmkdir[] = {'/', 0xD1, ':', 0xF1, ',', 0xE0};             /* /0:name,tracks */
+static const unsigned char t_fchdir[] = {'/', 0xD1, ':', 0xF1};
+static const unsigned char t_fdisk[] = {0xF1};
 static const unsigned char t_fdirr[] = {0x5F, 0xD1, ':', 0xF1};
 
 static unsigned char sendp(const unsigned char *t, unsigned char count) {
@@ -219,6 +225,7 @@ static void trans(const unsigned char *t, unsigned char count) {
     __jsr(0xFFC3, .A = dosla, .Carry = 1);
 }
 
+static void dsread(void);
 static void clall(void) { __jsr(0xFFE7); }
 static void closeall(void) { __jsr(0xFF50, .A = dosfa); }
 
@@ -230,6 +237,177 @@ static void closeall(void) { __jsr(0xFF50, .A = dosfa); }
 void _bas_iffclose(void) {
     cbm_clrchn();
     __jsr(0xFFC3, .A = dosla, .Carry = 0);
+}
+
+/* KEY LOAD (GetLoadChannel, LoadBlock): the keys' table at $1000 */
+void _bas_dos20(void) {   /* _bas_m 20 */
+    unsigned char e, n;
+    unsigned char la = 0, k = 0, st;
+    volatile unsigned char *t = (volatile unsigned char *)0x1000;
+    dosprs(0);
+    dossa = 0;
+    do {
+        if (++la & 0x80) kerr(1);
+    } while (!__jsr(0xFF5F, .A = la).Carry);
+    dosla = la;
+    n = sendp(t_fopn, 4);
+    cbm_clrchn();
+    cbm_setbnk(0, 0);
+    cbm_setnam((char *)cmd, n);
+    cbm_setlfs(dosla, dosfa, dossa);
+    if (__jsr(0xFFC0, .A -> e).Carry) kerr(e);
+    if (__jsr(0xFFC6, .X = dosla, .A -> e).Carry) { _bas_iffclose(); kerr(e); }
+    cbm_k_basin();                      /* (the load address) */
+    cbm_k_basin();
+    if (cbm_readst()) { _bas_iffclose(); kerr(29); }
+    do {
+        t[k] = cbm_k_basin();
+        st = (unsigned char)cbm_readst();
+        if (st) break;
+    } while (++k);
+    _bas_iffclose();
+}
+
+/* TYPE name (open_SEQ_file): its characters printed until its
+ * end (STOP ends it; P: the screen cleared, [MORE] at the bottom) */
+void _bas_dos21(void) {   /* _bas_m 21 */
+    unsigned char e, n;
+    unsigned char la = 0, sa, c, st, page = (_bas_daux & 0x80) && !_bas_chan;
+    dosprs(0);
+    do {
+        if (++la & 0x80) kerr(1);
+    } while (!__jsr(0xFF5F, .A = la).Carry);
+    dosla = la;
+    for (sa = 0x62; ; sa++) {
+        if (sa == 0x6F) kerr(1);
+        if (__jsr(0xFF62, .Y = sa).Carry) break;
+    }
+    dossa = sa;
+    n = sendp(t_fopnseq, 6);
+    cbm_clrchn();
+    cbm_setbnk(0, 0);
+    cbm_setnam((char *)cmd, n);
+    cbm_setlfs(dosla, dosfa, dossa);
+    if (__jsr(0xFFC0, .A -> e).Carry) kerr(e);
+    *(volatile unsigned char __far *)0x90UL = 0;
+    if (!__jsr(0xFFC6, .X = dosla).Carry) {
+        if (page) _bas_putc(147);
+        for (;;) {
+            if (__jsr(0xFFE1).Zero) break;          /* STOP */
+            c = cbm_k_basin();
+            _bas_putc(c);
+            if (page && (unsigned char)(cbm_wherexy() >> 8) == 24) {
+                static const unsigned char more[] = {18, '[', 0x4D, 0x4F, 0x52, 0x45, ']', 146, 27, 0x4A, 0};
+                volatile unsigned char *q = (volatile unsigned char *)0xD610;
+                unsigned char k;
+                for (k = 0; more[k]; k++) _bas_putc(more[k]);
+                while (!*q) {}
+                c = *(volatile unsigned char *)0xD619;
+                *q = c;
+                _bas_putc(27);
+                _bas_putc(0x44);
+                if (c == 3 || c == 0x51) break;
+                _bas_putc(147);
+            }
+            st = (unsigned char)cbm_readst();
+            if (st) break;
+        }
+    }
+    cbm_clrchn();
+    _bas_putc(13);                          /* (list_done: the line flushed) */
+    __jsr(0xFFC3, .A = dosla, .Carry = 0);
+}
+
+/* DISK / @ "command" (the command channel, la 0); none: the
+ * drive's status printed (Print_DS) */
+void _bas_dos22(void) {   /* _bas_m 22 */
+    unsigned char e, n;
+    dosprs(0);
+    if (fn1l) {
+        unsigned char c;
+        n = sendp(t_fdisk, 1);
+        cbm_setnam((char *)cmd, n);
+        cbm_setlfs(0, dosfa, 0x6F);
+        cbm_clrchn();
+        cbm_setbnk(0, 0);
+        c = __jsr(0xFFC0, .A -> e).Carry;
+        __jsr(0xFFC3, .A = 0, .Carry = 1);
+        if (c) kerr(e);
+    } else {
+        unsigned char k;
+        unitfa = dosfa;
+        dsread();
+        for (k = 1; k <= ds[0]; k++) _bas_putc(ds[k]);
+    }
+}
+
+/* LOCK name   UNLOCK name */
+void _bas_dos23(void) {   /* _bas_m 23, 24 */
+    unsigned char e, n;
+    dosprs(0);
+    trans(_bas_m == 23 ? t_flock : t_funlo, 6);
+}
+
+/* MKDIR name [, L tracks] (CBDOS units only; 3 tracks at least) */
+void _bas_dos25(void) {   /* _bas_m 25 */
+    unsigned char e, n;
+    dosprs(0);
+    if (dosfa != CBDOS0 && dosfa != CBDOS1) kerr(44);
+    if (_bas_drcl <= 3) _bas_drcl = 3;
+    trans(t_fmkdir, 6);
+}
+
+/* CHDIR name ("/" alone: up to the root) */
+void _bas_dos26(void) {   /* _bas_m 26 */
+    unsigned char e, n;
+    dosprs(0);
+    trans(t_fchdir, fn1l == 1 && fn1[0] == '/' ? 1 : 4);
+}
+
+/* SET DEF unit: the default drive and the DOS unit */
+void _bas_dos27(void) {   /* _bas_m 27 */
+    unsigned char e, n;
+    DEFDRV = (unsigned char)_bas_n;
+    dosfa = (unsigned char)_bas_n;
+    ds[0] = 0;
+}
+
+/* SET DISK unit [TO new]: the DOS unit; with a new number the
+ * drive renumbered (M-W 119 0 2, files closed) */
+void _bas_dos28(void) {   /* _bas_m 28 */
+    unsigned char e, n;
+    unsigned char u = (unsigned char)_bas_n, nu = (unsigned char)(_bas_n >> 8);
+    dosfa = u;
+    if (nu) {
+        unsigned char c[8] = {0x4D, '-', 0x57, 119, 0, 2, 0, 0};
+        closeall();
+        c[6] = nu | 32;
+        c[7] = nu | 64;
+        cbm_setnam((char *)c, 8);
+        cbm_setbnk(0, 0);
+        cbm_clrchn();
+        cbm_setlfs(0, dosfa, 0x6F);
+        cbm_open();
+        __jsr(0xFFC3, .A = 0, .Carry = 1);
+        dosfa = nu;
+        KFA = nu;
+    }
+    ds[0] = 0;
+}
+
+/* SET VERIFY ON / OFF (_bas_n 1 / 0): U0>V1 / U0>V0 */
+void _bas_dos29(void) {   /* _bas_m 29 */
+    unsigned char e, n;
+    unsigned char c[5] = {0x55, '0', '>', 0x56, 0};
+    c[4] = '0' + (unsigned char)_bas_n;
+    if (!dosfa) dosfa = DEFDRV;
+    cbm_setnam((char *)c, 5);
+    cbm_setbnk(0, 0);
+    cbm_clrchn();
+    cbm_setlfs(0, dosfa, 0x6F);
+    cbm_open();
+    __jsr(0xFFC3, .A = 0, .Carry = 1);
+    ds[0] = 0;
 }
 
 void _bas_dos(void) {
@@ -269,33 +447,6 @@ void _bas_dos(void) {
         if (_bas_m == 17) {
             if (__jsr(0xFFC6, .X = dosla, .A -> e).Carry) kerr(e);
         } else if (__jsr(0xFFC9, .X = dosla, .A -> e).Carry) kerr(e);
-        break;
-    }
-    case 20: {  /* KEY LOAD (GetLoadChannel, LoadBlock): the keys' table at $1000 */
-        unsigned char la = 0, k = 0, st;
-        volatile unsigned char *t = (volatile unsigned char *)0x1000;
-        dosprs(0);
-        dossa = 0;
-        do {
-            if (++la & 0x80) kerr(1);
-        } while (!__jsr(0xFF5F, .A = la).Carry);
-        dosla = la;
-        n = sendp(t_fopn, 4);
-        cbm_clrchn();
-        cbm_setbnk(0, 0);
-        cbm_setnam((char *)cmd, n);
-        cbm_setlfs(dosla, dosfa, dossa);
-        if (__jsr(0xFFC0, .A -> e).Carry) kerr(e);
-        if (__jsr(0xFFC6, .X = dosla, .A -> e).Carry) { _bas_iffclose(); kerr(e); }
-        cbm_k_basin();                      /* (the load address) */
-        cbm_k_basin();
-        if (cbm_readst()) { _bas_iffclose(); kerr(29); }
-        do {
-            t[k] = cbm_k_basin();
-            st = (unsigned char)cbm_readst();
-            if (st) break;
-        } while (++k);
-        _bas_iffclose();
         break;
     }
     case 19:    /* exit_GKI_disk_op: closed; STOP down: BREAK */

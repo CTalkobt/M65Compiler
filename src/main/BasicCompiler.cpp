@@ -65,7 +65,7 @@ enum : int {
     T_MOVSPR = 0xFE06, T_SPRITE = 0xFE07, T_SPRCOLOR = 0xFE08, T_SPRSAV = 0xFE16, T_COLLISION = 0xFE17,
     T_BUMP = 0xCE03, T_RSPPOS = 0xCE05, T_RSPRITE = 0xCE06, T_RSPCOLOR = 0xCE07, T_CLR = 0x9C, T_SAVE = 0x94,
     T_SCREEN = 0xFE2E, T_SET = 0xFE2D, T_PEN = 0xFE33, T_DMODE = 0xFE35, T_DPAT = 0xFE36, T_DOT = 0xFE4C,
-    T_BOX = 0xE1, T_CIRCLE = 0xE2, T_ELLIPSE = 0xFE30, T_POLYGON = 0xFE2F, T_PAINT = 0xDF, T_VIEWPORT = 0xFE31, T_GCOPY = 0xFE32, T_CUT = 0xE4, T_PASTE = 0xE3, T_SYS = 0x9E, T_FONT = 0xFE46, T_DECBIN = 0xCE11, T_RUN = 0x8A, T_FGOTO = 0xFE47, T_FGOSUB = 0xFE48, T_USING = 0xFB, T_PLAY = 0xFE04, T_TEMPO = 0xFE05, T_VOL = 0xDB, T_FILTER = 0xFE03, T_ENVELOPE = 0xFE0A, T_RPLAY = 0xCE0F, T_JOY = 0xCF, T_POT = 0xCE02, T_LPEN = 0xCE04, T_MOUSE = 0xFE3E, T_RMOUSE = 0xFE3F, T_USR = 0xB7, T_FRE = 0xB8, T_RREG = 0xFE09, T_DMA = 0xFE1F, T_EDMA = 0xFE21, T_LOADIFF = 0xFE43, T_SAVEIFF = 0xFE44, T_CHAR = 0xE0, T_GRAPHIC = 0xDE, T_RGRAPHIC = 0xCC, T_RPEN = 0xD0, T_PIXEL = 0xCE0C, T_RPALETTE = 0xCE0D,
+    T_BOX = 0xE1, T_CIRCLE = 0xE2, T_ELLIPSE = 0xFE30, T_POLYGON = 0xFE2F, T_PAINT = 0xDF, T_VIEWPORT = 0xFE31, T_GCOPY = 0xFE32, T_CUT = 0xE4, T_PASTE = 0xE3, T_SYS = 0x9E, T_BOOT = 0xFE1B, T_VERIFY = 0x95, T_BIT = 0xFE4E, T_TYPE = 0xFE27, T_DISK = 0xFE40, T_CHDIR = 0xFE4B, T_UNLOCK = 0xFE4F, T_LOCK = 0xFE50, T_MKDIR = 0xFE51, T_FONT = 0xFE46, T_DECBIN = 0xCE11, T_RUN = 0x8A, T_FGOTO = 0xFE47, T_FGOSUB = 0xFE48, T_USING = 0xFB, T_PLAY = 0xFE04, T_TEMPO = 0xFE05, T_VOL = 0xDB, T_FILTER = 0xFE03, T_ENVELOPE = 0xFE0A, T_RPLAY = 0xCE0F, T_JOY = 0xCF, T_POT = 0xCE02, T_LPEN = 0xCE04, T_MOUSE = 0xFE3E, T_RMOUSE = 0xFE3F, T_USR = 0xB7, T_FRE = 0xB8, T_RREG = 0xFE09, T_DMA = 0xFE1F, T_EDMA = 0xFE21, T_LOADIFF = 0xFE43, T_SAVEIFF = 0xFE44, T_CHAR = 0xE0, T_GRAPHIC = 0xDE, T_RGRAPHIC = 0xCC, T_RPEN = 0xD0, T_PIXEL = 0xCE0C, T_RPALETTE = 0xCE0D,
     T_COLOR = 0xE7, T_FOREGROUND = 0xFE39, T_BACKGROUND = 0xFE3B, T_BORDER = 0xFE3C, T_HIGHLIGHT = 0xFE3D,
     T_CURSOR = 0xFE41, T_RCURSOR = 0xFE42, T_WINDOW = 0xFE1A, T_FAST = 0xFE25, T_SPEED = 0xFE26,
     T_PALETTE = 0xFE34, T_VSYNC = 0xFE54, T_OFF = 0xFE24, T_RCOLOR = 0xCD, T_RWINDOW = 0xCE09, T_RSPEED = 0xCE0E,
@@ -1468,6 +1468,9 @@ private:
     bool fgoUsed_ = false;   // FGOTO / FGOSUB: the line dispatch emitted at the end
     void keyStmt();
     void fontStmt();
+    void bootStmt();
+    void setStmt();
+    void bitStmt(bool set);
     void sysStmt();
     void rregStmt();
     void dmaStmt(bool enhanced);
@@ -2198,6 +2201,7 @@ void Compiler::statement() {
     case T_DOPEN: case T_APPEND: case T_DCLOSE: case T_HEADER: case T_SCRATCH: case T_ERASE: case T_DELETE:
     case T_RENAME: case T_CONCAT: case T_COLLECT: case T_DCLEAR: case T_BACKUP: case T_COPY:
     case T_BLOAD: case T_BVERIFY: case T_BSAVE: case T_DIR: case T_CATALOG: dosStmt(kw); return;
+    case T_TYPE: case T_DISK: case T_LOCK: case T_UNLOCK: case T_MKDIR: case T_CHDIR: dosStmt(kw); return;
     case T_RECORD: recordStmt(); return;
     case T_SPRITE: spriteStmt(); return;
     case T_SPRCOLOR: sprcolorStmt(); return;
@@ -2233,6 +2237,8 @@ void Compiler::statement() {
         graphicsStmt(kw); return;
     case T_LOADIFF: case T_SAVEIFF: iffStmt(kw); return;
     case T_SYS: sysStmt(); return;
+    case T_BOOT: bootStmt(); return;
+    case T_SET: setStmt(); return;
     case T_KEY: keyStmt(); return;
     case T_FONT: fontStmt(); return;
     case T_RUN: runStmt(); return;
@@ -2600,6 +2606,7 @@ void Compiler::clrStmt() {
         block(back);
         return;
     }
+    if (acceptKw(T_BIT)) { bitStmt(false); return; }
     if (acceptKw(T_ERRS)) {
         store(ir::Type::I16, iconst(ir::Type::I16, -1), global("__bas_er"));
         store(ir::Type::I16, iconst(ir::Type::I16, -1), global("__bas_el"));
@@ -2809,8 +2816,8 @@ void Compiler::keyStmt() {
             store(ir::Type::I8, iconst(ir::Type::I8, 0), global("__bas_dbnk"));
             store(ir::Type::I8, iconst(ir::Type::I8, 7), global("__bas_daux"));
             store(ir::Type::I16, iconst(ir::Type::I16, 15), global("__bas_m"));
-        } else store(ir::Type::I16, iconst(ir::Type::I16, 20), global("__bas_m"));
-        call("__bas_dos");
+            call("__bas_dos");
+        } else call("__bas_dos20");
         for (auto it = names.rbegin(); it != names.rend(); ++it) freeVal(*it);
         return;
     }
@@ -2832,6 +2839,66 @@ void Compiler::fontStmt() {
     p_++;
     store(ir::Type::I16, iconst(ir::Type::I16, t->text[0] - 'A'), global("__bas_n"));
     call("__bas_font");
+}
+
+// SET / CLR BIT address, bit (b65.src bit_arg: the address as POKE's, bit
+// 0-7, else ?SYNTAX ERROR): that bit of the byte set or cleared
+void Compiler::bitStmt(bool set) {
+    Val a = expr();
+    MemAddr m = memAddr(a);
+    expectCh(',');
+    Val b = expr();
+    ir::Operand bit = toByte(b);
+    raiseIf(bin(ir::Op::CMP_GEU, ir::Type::I8, bit, ir::Operand::imm(8, ir::Type::I8)), 11);
+    ir::Operand mask = bin(ir::Op::SHL, ir::Type::I16, iconst(ir::Type::I16, 1), zext(bit, ir::Type::I8, ir::Type::I16));
+    ir::Operand old = zext(peekAt(m, 1), ir::Type::I8, ir::Type::I16);
+    ir::Operand v = set ? bin(ir::Op::OR, ir::Type::I16, old, mask)
+                        : bin(ir::Op::AND, ir::Type::I16, old, bin(ir::Op::XOR, ir::Type::I16, mask, iconst(ir::Type::I16, 0xFF)));
+    pokeAt(m, 0, 1, v);
+}
+
+// SET DEF unit | SET DISK unit [, | TO new] | SET VERIFY ON | OFF | SET BIT a, b
+void Compiler::setStmt() {
+    if (acceptKw(T_BIT)) { bitStmt(true); return; }
+    auto unit = [&]() {
+        // (getdisknum: 8-30, else ?ILLEGAL QUANTITY)
+        ir::Operand u = toByte(expr());
+        raiseIf(bin(ir::Op::CMP_LTU, ir::Type::I8, u, ir::Operand::imm(8, ir::Type::I8)), 14);
+        raiseIf(bin(ir::Op::CMP_GEU, ir::Type::I8, u, ir::Operand::imm(31, ir::Type::I8)), 14);
+        return zext(u, ir::Type::I8, ir::Type::I16);
+    };
+    if (acceptKw(T_VERIFY)) {
+        int on = acceptKw(T_ON) ? 1 : (expectKw(T_OFF), 0);
+        store(ir::Type::I16, iconst(ir::Type::I16, on), global("__bas_n"));
+        call("__bas_dos29");
+        return;
+    }
+    if (acceptKw(T_DEF)) {
+        store(ir::Type::I16, unit(), global("__bas_n"));
+        call("__bas_dos27");
+        return;
+    }
+    if (!acceptKw(T_DISK)) fail("SET DEF, SET DISK, SET VERIFY or SET BIT (?SYNTAX ERROR)");
+    ir::Operand u = unit(), nu = iconst(ir::Type::I16, 0);
+    if (acceptCh(',') || acceptKw(T_TO)) nu = bin(ir::Op::SHL, ir::Type::I16, unit(), iconst(ir::Type::I16, 8));
+    store(ir::Type::I16, bin(ir::Op::OR, ir::Type::I16, u, nu), global("__bas_n"));
+    call("__bas_dos28");
+}
+
+// BOOT "name" [, B bank] [, P address] [, U unit] [, D drive] (b65.src boot:
+// BLOAD's parsing and load, then the code at its start called)
+void Compiler::bootStmt() {
+    if (acceptKw(T_SYS)) fail("BOOT SYS is not supported by --compile");
+    if (stmtEnd()) fail("BOOT without a file name (AUTOBOOT.C65) is not supported by --compile yet");
+    std::vector<Val> names;
+    lastAux_ = 0;
+    int par = dosArgs("BOOT", 0xE6, names, 3);
+    if (!(par & 1)) fail("BOOT needs a file name (?SYNTAX ERROR)");
+    store(ir::Type::I16, iconst(ir::Type::I16, 13), global("__bas_m"));
+    call("__bas_dos");
+    sysUsed_ = true;
+    call("__bas_boot");
+    for (auto it = names.rbegin(); it != names.rend(); ++it) freeVal(*it);
 }
 
 // SYS address [, a, x, y, z, s] (b65.src sys: poke_sub's address, the
@@ -2939,6 +3006,8 @@ void Compiler::dosStmt(int kw) {
         {T_COPY, "COPY", 0, 0, 12},
         {T_BLOAD, "BLOAD", 0xE6, 1, 13}, {T_BVERIFY, "BVERIFY", 0xE6, 1, 14}, {T_BSAVE, "BSAVE", 0x66, 1, 15},
         {T_DIR, "DIR", 0xA6, 0, 16}, {T_CATALOG, "CATALOG", 0xA6, 0, 16},
+        {T_TYPE, "TYPE", 0xE6, 1, 21}, {T_DISK, "DISK", 0xE6, 0, 22}, {T_LOCK, "LOCK", 0xE6, 1, 23},
+        {T_UNLOCK, "UNLOCK", 0xE6, 1, 24}, {T_MKDIR, "MKDIR", 0xA6, 1, 25}, {T_CHDIR, "CHDIR", 0xE6, 0, 26},
     };
     const D* d = nullptr;
     for (const auto& e : table) if (e.kw == kw) d = &e;
@@ -2947,7 +3016,15 @@ void Compiler::dosStmt(int kw) {
     std::vector<Val> names;
     int auxOk = kw == T_BSAVE ? 7 : (kw == T_BLOAD || kw == T_BVERIFY) ? 3 : (kw == T_DIR || kw == T_CATALOG) ? 0x80 : 0;
     lastAux_ = 0;
+    // (TYPE P "name": the page mode, before dosprs; CHDIR needs arguments)
+    bool typePage = false;
+    if (kw == T_TYPE) {
+        auto t = peek();
+        if (t && t->k == TK::Name && t->text == "P") { p_++; typePage = true; }
+    }
+    if (kw == T_CHDIR && stmtEnd()) fail("CHDIR needs a directory (?SYNTAX ERROR)");
     int par = dosArgs(d->name, d->err, names, auxOk);
+    if (typePage) store(ir::Type::I8, ir::Operand::imm(0x80, ir::Type::I8), global("__bas_daux"));
     if (kw == T_BSAVE && (lastAux_ & 6) != 6) fail("BSAVE needs P start TO P end (?SYNTAX ERROR)");
     if ((par & d->need) != d->need) fail(std::string(d->name) + ": a required parameter is missing (?SYNTAX ERROR)");
     if (kw == T_BACKUP && (par & 0x30) != 0x30 && !(par & 8))
@@ -2955,7 +3032,8 @@ void Compiler::dosStmt(int kw) {
     if (kw == T_COPY && (par & 0xC7) && ((par & 0xC4) || !(par & 1)))
         fail("COPY: a parameter it does not take, or no source file (?SYNTAX ERROR)");
     store(ir::Type::I16, iconst(ir::Type::I16, d->cmd), global("__bas_m"));
-    call("__bas_dos");
+    // (commands from 20 on are functions of their own: a program links those it uses)
+    call(d->cmd >= 20 ? "__bas_dos" + std::to_string(d->cmd == 24 ? 23 : d->cmd) : std::string("__bas_dos"));
     for (auto it = names.rbegin(); it != names.rend(); ++it) freeVal(*it);
 }
 
