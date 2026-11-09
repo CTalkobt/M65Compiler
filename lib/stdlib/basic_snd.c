@@ -57,16 +57,23 @@ static void speed(void) {
 extern unsigned char _bas_ptune[];
 #define PT_INS 26           /* (BasicPlay.hpp: the header's bytes, an instrument's) */
 #define PT_ISIZE 17
+static unsigned char *ptune;   /* (the tune once a PLAY ran: ENVELOPE changes its instruments) */
+
+/* envelope k (BASIC's tables) into the tune's instrument k: a voice's next
+ * T takes it (#479) */
+static void envset(unsigned char k) {
+    unsigned char *p = ptune + PT_INS + (unsigned int)k * PT_ISIZE;
+    p[0] = WAVTAB[k] & 0xFE;
+    p[1] = ATKTAB[k];
+    p[2] = SUSTAB[k];
+    p[3] = PULSLW[k];
+    p[4] = PULSHI[k] & 0x0F;
+}
+
 void _bas_play(void) {
     unsigned char *d = _bas_sa, k;
-    for (k = 0; k < 10; k++) {
-        unsigned char *p = _bas_ptune + PT_INS + (unsigned int)k * PT_ISIZE;
-        p[0] = WAVTAB[k] & 0xFE;
-        p[1] = ATKTAB[k];
-        p[2] = SUSTAB[k];
-        p[3] = PULSLW[k];
-        p[4] = PULSHI[k] & 0x0F;
-    }
+    ptune = _bas_ptune;
+    for (k = 0; k < 10; k++) envset(k);
     if (!_bas_musv || !tune_playing()) {
         tune_voices(0);
         speed();
@@ -178,6 +185,7 @@ void _bas_envelope(void) {
     ATKTAB[n] = t[0];
     SUSTAB[n] = t[1];
     WAVTAB[n] = t[2];
+    if (ptune) envset(n);       /* (while music plays: its next T n) */
 }
 
 /* FILTER sid, freq, lp, bp, hp, res: _bas_g[0] the SID (1-2), [1] the given

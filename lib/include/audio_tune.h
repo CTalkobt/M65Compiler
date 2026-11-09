@@ -123,7 +123,11 @@ __fastcall__ void tune_detune(unsigned char voice, signed char amount);
  *                     tune's data at the next tick (its note now off); with
  *                     nothing playing, the tune goes on again
  *   tune_voice_stop   the voice ended (its gate off)
- *   tune_voice_busy   1 while the voice has its stream to play */
+ *   tune_voice_busy   1 while the voice has its stream to play
+ * A voice reads its instrument's bytes from the tune's table at each $81
+ * (instrument) event, so a tune in RAM can have its instruments changed
+ * while it plays: the voices' next $81 take them (#479); tune_tempo changes
+ * the speed from the next frame. */
 __fastcall__ void tune_voice_play(unsigned char voice, unsigned int offset);
 __fastcall__ void tune_voice_stop(unsigned char voice);
 __fastcall__ unsigned char tune_voice_busy(unsigned char voice);

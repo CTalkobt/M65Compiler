@@ -558,7 +558,9 @@ as its instruments, voices 4-6 on SID 3 as BASIC's), which the program's interru
 puts the envelopes' current values (`ENVELOPE`, in BASIC's own tables at `$1289`) into the instruments and starts
 the voices it gives on their strings (`tune_voice_play`) at the next tick, the others going on as BASIC's (#478; a
 voice's string starts on the tick grid of those playing, not at the next frame as BASIC's), at `TEMPO`'s speed
-(`tune_tempo`); `RPLAY(v)` is 1 while voice v has its string to play (`tune_voice_busy`), for good with an `L`. `TEMPO`, `VOL`, `ENVELOPE`, `FILTER` and `PLAY` alone set BASIC's
+(`tune_tempo`); `RPLAY(v)` is 1 while voice v has its string to play (`tune_voice_busy`), for good with an `L`.
+`ENVELOPE` while music plays changes the tune's instrument, which a voice's next `T` takes (the notes sounding keep
+theirs), and `TEMPO` the speed from the next frame, as BASIC's (#479). `TEMPO`, `VOL`, `ENVELOPE`, `FILTER` and `PLAY` alone set BASIC's
 variables (`$1273`, `$1278`-`$12BA`) as the ROM does, so the values carry over to and from the interpreter. The
 lengths match the interpreter's to a frame (2.010 s for four quarter notes at `TEMPO 12`). `U`, `X`, `M` and `P`
 are the player's events (#474-#477): `vol:` (U's volume through BASIC's table: 0 1 3 5 7 8 10 12 14 15, the mode

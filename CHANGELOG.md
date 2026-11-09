@@ -4,7 +4,7 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
-### Tune player: single voices; basic45 --compile's PLAY leaves the others playing (#478, #369)
+### Tune player: single voices; basic45 --compile's PLAY leaves the others playing (#478, #479, #369)
 
 - `tune_voice_play(voice, offset)`, `tune_voice_stop(voice)`,
   `tune_voice_busy(voice)`: one voice of the tune playing started on a
@@ -14,6 +14,9 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
   the ten envelopes as instruments, each string's stream; BasicPlay.cpp
   writes the streams itself); a `PLAY` starts the voices it gives and leaves
   the others playing, as BASIC's (they stopped); `RPLAY(v)` asks the voice.
+  `ENVELOPE` while music plays changes the tune's instrument (a voice's next
+  `T` takes it, #479); the player reads instruments from the tune's data at
+  each `$81`, so a tune in RAM can be changed while it plays.
 - Tests: `test_basic_compile17_xemu.bas` [8] (voice 1 on to its end after
   a `PLAY` of voice 2); `api_xemu.c` the three calls and `tune_filter`.
 
