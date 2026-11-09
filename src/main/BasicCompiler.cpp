@@ -64,7 +64,7 @@ enum : int {
     T_MOVSPR = 0xFE06, T_SPRITE = 0xFE07, T_SPRCOLOR = 0xFE08, T_SPRSAV = 0xFE16, T_COLLISION = 0xFE17,
     T_BUMP = 0xCE03, T_RSPPOS = 0xCE05, T_RSPRITE = 0xCE06, T_RSPCOLOR = 0xCE07, T_CLR = 0x9C, T_SAVE = 0x94,
     T_SCREEN = 0xFE2E, T_SET = 0xFE2D, T_PEN = 0xFE33, T_DMODE = 0xFE35, T_DPAT = 0xFE36, T_DOT = 0xFE4C,
-    T_BOX = 0xE1, T_CIRCLE = 0xE2, T_ELLIPSE = 0xFE30, T_POLYGON = 0xFE2F, T_PAINT = 0xDF, T_VIEWPORT = 0xFE31, T_GCOPY = 0xFE32, T_CUT = 0xE4, T_PASTE = 0xE3, T_SYS = 0x9E, T_USR = 0xB7, T_FRE = 0xB8, T_RREG = 0xFE09, T_DMA = 0xFE1F, T_EDMA = 0xFE21, T_LOADIFF = 0xFE43, T_SAVEIFF = 0xFE44, T_CHAR = 0xE0, T_GRAPHIC = 0xDE, T_RGRAPHIC = 0xCC, T_RPEN = 0xD0, T_PIXEL = 0xCE0C, T_RPALETTE = 0xCE0D,
+    T_BOX = 0xE1, T_CIRCLE = 0xE2, T_ELLIPSE = 0xFE30, T_POLYGON = 0xFE2F, T_PAINT = 0xDF, T_VIEWPORT = 0xFE31, T_GCOPY = 0xFE32, T_CUT = 0xE4, T_PASTE = 0xE3, T_SYS = 0x9E, T_JOY = 0xCF, T_POT = 0xCE02, T_LPEN = 0xCE04, T_MOUSE = 0xFE3E, T_RMOUSE = 0xFE3F, T_USR = 0xB7, T_FRE = 0xB8, T_RREG = 0xFE09, T_DMA = 0xFE1F, T_EDMA = 0xFE21, T_LOADIFF = 0xFE43, T_SAVEIFF = 0xFE44, T_CHAR = 0xE0, T_GRAPHIC = 0xDE, T_RGRAPHIC = 0xCC, T_RPEN = 0xD0, T_PIXEL = 0xCE0C, T_RPALETTE = 0xCE0D,
     T_COLOR = 0xE7, T_FOREGROUND = 0xFE39, T_BACKGROUND = 0xFE3B, T_BORDER = 0xFE3C, T_HIGHLIGHT = 0xFE3D,
     T_CURSOR = 0xFE41, T_RCURSOR = 0xFE42, T_WINDOW = 0xFE1A, T_FAST = 0xFE25, T_SPEED = 0xFE26,
     T_PALETTE = 0xFE34, T_VSYNC = 0xFE54, T_OFF = 0xFE24, T_RCOLOR = 0xCD, T_RWINDOW = 0xCE09, T_RSPEED = 0xCE0E,
@@ -1220,6 +1220,14 @@ private:
         case T_TAN: return floatFn("__float_tan");
         case T_ATN: return floatFn("__float_atn");
         case T_RND: return floatFn("__bas_rnd");
+        case T_JOY: case T_POT: case T_LPEN: {
+            // JOY(1-3), POT(1-4), LPEN(0-1): conint's byte (else ?ILLEGAL QUANTITY)
+            Val a = parenExpr();
+            store(ir::Type::I16, zext(toByte(a), ir::Type::I8, ir::Type::I16), global("__bas_n"));
+            call(kw == T_JOY ? "__bas_joy" : kw == T_POT ? "__bas_pot" : "__bas_lpen");
+            Val r; r.k = VK::I; r.bound = 4095; r.op = load(ir::Type::I16, global("__bas_n"));
+            return r;
+        }
         case T_POS: {
             parenExpr();     // (a dummy argument)
             call("__bas_pos");
@@ -1430,6 +1438,8 @@ private:
     void clrStmt();
     bool clrUsed_ = false;   // CLR: its block (every variable cleared) emitted at the end
     bool gfxUsed_ = false;   // a graphics statement: CLR clears the graphics kernel too
+    void mouseStmt();
+    void rmouseStmt();
     void sysStmt();
     void rregStmt();
     void dmaStmt(bool enhanced);
@@ -1562,7 +1572,7 @@ void Compiler::prescan() {
                 if (t.k != TK::Kw) continue;
                 if (t.kw == T_TRAP) usesTrap_ = true;
                 if (t.kw == T_CMD) cmdUsed_ = true;
-                if (t.kw == T_MOVSPR || t.kw == T_BUMP || t.kw == T_COLLISION) sprIrq_ = true;
+                if (t.kw == T_MOVSPR || t.kw == T_BUMP || t.kw == T_COLLISION || t.kw == T_LPEN) sprIrq_ = true;
                 if (t.kw == T_COLLISION) collision_ = true;
                 if (t.kw == T_RESUME && !(k + 1 < sg.toks.size() && sg.toks[k + 1].k == TK::Num)) resumeStmt_ = true;
             }
@@ -2173,6 +2183,8 @@ void Compiler::statement() {
         graphicsStmt(kw); return;
     case T_LOADIFF: case T_SAVEIFF: iffStmt(kw); return;
     case T_SYS: sysStmt(); return;
+    case T_MOUSE: mouseStmt(); return;
+    case T_RMOUSE: rmouseStmt(); return;
     case T_CLR: clrStmt(); return;
     case T_RREG: rregStmt(); return;
     case T_DMA: case T_EDMA: dmaStmt(kw == T_EDMA); return;
@@ -2552,6 +2564,54 @@ void Compiler::clrStmt() {
     if (lv.k == VK::S) z = strLit("");
     else { z.k = VK::I; z.isConst = true; z.cval = 0; z.bound = 0; z.op = iconst(ir::Type::I16, 0); }
     assignLV(lv, z);
+}
+
+// MOUSE ON [, port [, sprite [, hotspot x [, hotspot y [, x, y]]]]] / MOUSE OFF
+// (b65.src mouse: the KERNAL's driver; port 2 and sprite 0 by default; the
+// position as MOVSPR's)
+void Compiler::mouseStmt() {
+    if (acceptKw(T_OFF)) { call("__bas_mouseoff"); return; }
+    if (!acceptKw(T_ON)) fail("MOUSE ON or MOUSE OFF (?SYNTAX ERROR)");
+    Val v;
+    ir::Operand port = iconst(ir::Type::I16, 2);
+    if (optByt(v)) port = zext(toByte(v), ir::Type::I8, ir::Type::I16);
+    Val sp;
+    sp.k = VK::I; sp.isConst = true; sp.cval = 0; sp.bound = 0; sp.op = iconst(ir::Type::I16, 0);
+    if (optByt(v)) sp = v;
+    store(ir::Type::I16, port, global("__bas_n"));
+    store(ir::Type::I16, zext(toByte(sp), ir::Type::I8, ir::Type::I16), global("__bas_m"));
+    int given = 0;
+    if (optByt(v)) { given |= 1; gByte(1, v); }
+    if (optByt(v)) { given |= 2; gByte(2, v); }
+    gStore(0, iconst(ir::Type::I8, given), ir::Type::I8);
+    call("__bas_mouseon");
+    if (stmtEnd()) return;
+    sprNum(sp);
+    call("__bas_mvget");
+    expectCh(',');
+    coordArg(0);
+    expectCh(',');
+    coordArg(1);
+    call("__bas_mvput");
+}
+
+// RMOUSE [x] [, y] [, buttons]: the pointer sprite's position and the
+// buttons (128 left, 1 right; -1 each without a mouse)
+void Compiler::rmouseStmt() {
+    call("__bas_rmouse");
+    for (int k = 0; k < 3 && !stmtEnd(); k++) {
+        if (acceptCh(',')) continue;
+        LV lv = listVar("RMOUSE");
+        if (lv.k == VK::S) fail("RMOUSE takes numeric variables (?TYPE MISMATCH)");
+        auto a = vreg(ir::Type::PTR);
+        ir::Inst in; in.op = ir::Op::ADDR_ELEM; in.dest = a; in.src1 = global("__bas_rmv");
+        in.src2 = ir::Operand::imm(k * 2, ir::Type::I16); in.args.push_back(ir::Operand::imm(1, ir::Type::I16));
+        in.resultType = ir::Type::PTR; emit(in);
+        Val r; r.k = VK::I; r.bound = 32768; r.op = load(ir::Type::I16, a);
+        assignLV(lv, r);
+        if (stmtEnd()) break;
+        expectCh(',');
+    }
 }
 
 // SYS address [, a, x, y, z, s] (b65.src sys: poke_sub's address, the
