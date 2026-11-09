@@ -11,6 +11,8 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
   156 of storage); sizes and offsets by the MEGA65's multiplier.
 - A sample game: 10561 to 9910 bytes; `examples/disk/games_menu.bas` 12101
   to 11421.
+- The error messages in the ROM's packed form (the last character's bit 7
+  set, no number or terminator): 630 bytes, not 719.
 
 ### basic45 --compile: the program's checks only with --checks (#489)
 
