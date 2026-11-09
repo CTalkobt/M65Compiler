@@ -4,6 +4,16 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### cc45: shorter float copy calls (#485, #369)
+
+- With `-ffloat-copy-call`, a copy into `__float_a` / `__float_b` or out of
+  `__float_a` is `jsr __f32lda` / `__f32ldb` / `__f32sta` with the other
+  address (5 bytes, not 7), and the two operands of a float operation loaded
+  together are one `jsr __f32ldab` with both (7 bytes, not 14); used when
+  they save more than their 90 bytes (`lib/stdlib_asm/f32cpy.s45`;
+  `CC45_NO_F32LD=1` keeps `__f32cpy`).
+- `basic45 --compile`'s tests: up to 380 bytes smaller.
+
 ### cc45: fewer float copies through temporaries (#485, #369)
 
 - A float read through a pointer (an array element in `basic45 --compile`)

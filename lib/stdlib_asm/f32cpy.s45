@@ -57,3 +57,90 @@ __f32cpy:
     bpl @byte
     ply
     rts
+
+; The short forms (cc45 uses them when they save more than they cost):
+;
+;     jsr __f32lda / .word src         src -> __float_a
+;     jsr __f32ldb / .word src         src -> __float_b
+;     jsr __f32sta / .word dst         __float_a -> dst
+;     jsr __f32ldab / .word sa, sb     sa -> __float_a, then sb -> __float_b
+;
+; Each returns after its list; A and X clobbered, Y and Z kept; $F6-$FA used.
+
+mode    = $FA       ; 0 lda, 2 ldb, 4 sta, 6 ldab's first
+
+.extern __float_a
+.extern __float_b
+
+    .split "__f32ld"
+.global __f32lda
+.global __f32ldb
+.global __f32sta
+.global __f32ldab
+__f32ldab:
+    ldx #6
+    bra f32ld_go
+__f32lda:
+    ldx #0
+    bra f32ld_go
+__f32ldb:
+    ldx #2
+    bra f32ld_go
+__f32sta:
+    ldx #4
+f32ld_go:
+    stx mode
+    pla
+    sta list
+    pla
+    sta list+1
+    phy
+f32ld_next:
+    ldy #1              ; the next address of the list (list: the byte before)
+    lda (list),y
+    sta dst
+    iny
+    lda (list),y
+    sta dst+1
+    clc
+    lda list
+    adc #2
+    sta list
+    bcc f32ld_nc
+    inc list+1
+f32ld_nc:
+    ldy #4
+    lda mode
+    cmp #4
+    beq f32ld_st
+    cmp #2
+    beq f32ld_b
+f32ld_a:
+    lda (dst),y
+    sta __float_a,y
+    dey
+    bpl f32ld_a
+    lda mode
+    cmp #6
+    bne f32ld_ret
+    lda #2              ; ldab: then the second into __float_b
+    sta mode
+    bra f32ld_next
+f32ld_b:
+    lda (dst),y
+    sta __float_b,y
+    dey
+    bpl f32ld_b
+    bra f32ld_ret
+f32ld_st:
+    lda __float_a,y
+    sta (dst),y
+    dey
+    bpl f32ld_st
+f32ld_ret:
+    ply
+    lda list+1          ; return after the list
+    pha
+    lda list
+    pha
+    rts
