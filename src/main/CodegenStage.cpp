@@ -297,6 +297,8 @@ void CodegenStage::generateAssembly() {
         std::string out = ss.str();
         // SAC locals never live at the same time share their storage (#324)
         if (staticAlloc_ && optOn("SacSlotSharing")) out = shareSacSlots(out);
+        // many float copies as calls of __f32cpy (#485)
+        if (objectOnly_ && optOn("FloatCopyCall")) out = IRCodeGen::callF32Copies(out);
         return out;
     };
 
