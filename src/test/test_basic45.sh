@@ -329,6 +329,20 @@ if $B --compile --asm "$D/cf.s45" "$D/cf.bas" -o "$D/cf.prg" > "$D/cf.log" 2>&1 
 else
     fail "--compile counted loops: $(grep -c 'jsr __bas_forpush' "$D/cf.s45") forpush $(cat "$D/cf.log")"
 fi
+# strtof (about 1.7 KB) is linked only by a program INPUTting or READing a
+# number (#484); the link map shows its object
+printf '10 input a$:read b$:print a$;b$\n20 data x\n' > "$D/cis.bas"
+printf '10 input a:read b:print a;b\n20 data 1\n' > "$D/cin.bas"
+for n in cis cin; do
+    $B --compile --asm "$D/$n.s45" "$D/$n.bas" -o "$D/$n.prg" > "$D/$n.log" 2>&1 &&
+        ./bin/ca45 -c "$D/$n.s45" -o "$D/$n.o45" >> "$D/$n.log" 2>&1 &&
+        ./bin/ln45 -basic -M "$D/$n.map" -o "$D/$n.m.prg" "$D/$n.o45" lib/build/c45.lib >> "$D/$n.log" 2>&1
+done
+if ! grep -q 'strtof\.o45' "$D/cis.map" && grep -q 'strtof\.o45' "$D/cin.map"; then
+    pass "--compile: INPUT and READ of strings link no number conversion"
+else
+    fail "--compile INPUT/READ strings: $(grep -c 'strtof\.o45' "$D/cis.map" "$D/cin.map" | tr '\n' ' ') $(cat "$D/cis.log" "$D/cin.log")"
+fi
 printf '10 goto 30\n' > "$D/cg.bas"
 ! $B --compile "$D/cg.bas" -o "$D/cg.prg" > "$D/cg.log" 2>&1 && grep -q 'line 30 does not exist' "$D/cg.log" &&
     pass "--compile: GOTO to a missing line is an error" || fail "--compile GOTO 30: $(cat "$D/cg.log")"

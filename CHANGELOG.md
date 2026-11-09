@@ -4,6 +4,15 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### basic45 --compile: number conversion only for numbers read (#484)
+
+- `INPUT` and `READ` of a number call `_bas_iitemn` / `_bas_readn`
+  (`lib/stdlib/basic_innum.c`), which convert the item's text with `strtof`;
+  a program reading only strings no longer links `strtof` (about 1.9 KB:
+  a sample game 13079 to 11148 bytes, `examples/disk/games_menu.bas` 14297 to
+  12312).
+- A number item's first 80 characters are read (READ's were 39).
+
 ### basic45 --compile: line numbers only with --line-numbers (#483)
 
 - The running line is recorded (for errors' ` IN line` and `EL`) only with
