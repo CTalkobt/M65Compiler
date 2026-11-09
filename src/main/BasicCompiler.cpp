@@ -1505,6 +1505,7 @@ private:
     void playStmt();
     void soundStmt(int kw);
     int playTunes_ = 0;
+    PlayBank playBank_;                  // every PLAY's strings: one tune (__bas_ptune)
     std::set<std::string> warned_;
     void runStmt();
     void fgotoStmt(bool sub);
@@ -2163,6 +2164,14 @@ void Compiler::finish() {
         gv.name = "__bas_fn" + std::to_string(d.id); gv.type = ir::Type::I8; gv.size = 1;
         mod_->globals.push_back(gv);
     }
+    if (playTunes_) {
+        // (in RAM: each PLAY puts the envelopes into its instruments)
+        ir::Module::GlobalVar gv;
+        std::vector<uint8_t> b = playBank_.blob();
+        gv.name = "__bas_ptune"; gv.type = ir::Type::I8; gv.size = (int)b.size();
+        gv.hasInitValue = true; gv.hasImage = true; gv.initBytes = b;
+        mod_->globals.push_back(gv);
+    }
     if (clrUsed_) {
         ir::Module::GlobalVar gv;
         gv.name = "__bas_clrret"; gv.type = ir::Type::I16; gv.size = 2;
@@ -2727,7 +2736,8 @@ void Compiler::rmouseStmt() {
 }
 
 // PLAY "voice 1" [, "voice 2" ... "voice 6"] / PLAY alone (the defaults): the
-// strings, constants, converted to a tune for the tune player (BasicPlay.cpp)
+// strings, constants, converted to streams of the program's tune for the tune
+// player (BasicPlay.cpp); the voices given start on theirs, the others go on
 void Compiler::playStmt() {
     if (stmtEnd()) { call("__bas_snddef"); return; }
     std::vector<std::optional<std::string>> voices;
@@ -2747,7 +2757,7 @@ void Compiler::playStmt() {
         expectCh(',');
         if (stmtEnd()) { voices.push_back(std::nullopt); break; }
     }
-    PlayTune pt = convertPlay(voices);
+    PlayTune pt = playBank_.add(voices);
     if (!pt.error.empty()) fail(pt.error);
     for (const auto& w : pt.warnings)
         if (warned_.insert(w).second) warnings.push_back({lines_[li_].num, w});

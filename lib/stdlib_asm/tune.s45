@@ -71,6 +71,7 @@ cc45.icallinfo = 1
 .global _tune_play, _tune_play_far, _tune_stop, _tune_update, _tune_playing
 .global _tune_voices, _tune_tempo, _tune_vibrato, _tune_transpose, _tune_detune, _tune_ticks, _tune_note
 .global _tune_seek, _tune_samples, _tune_digi_channels, _tune_digi_volume
+.global _tune_voice_play, _tune_voice_stop, _tune_voice_busy
 .global _tune_volume, _tune_filter, _tune_fade, _tune_fading, _tune_borrow, _tune_return, _tune_queue, _tune_queue_far, _tune_queued
 .extern ___sid_put, ___sid_shadow, ___digi_regs
 ; (for tune_code.s45: coded data's reader)
@@ -2843,6 +2844,110 @@ proc _tune_stop
     plp
     rts
     .func_flags zp_call
+endproc
+
+; void tune_voice_play(unsigned char voice, unsigned int offset): tune voice
+; voice of the tune playing (tune_play: its instruments, tempo, base) starts
+; on the stream at offset in the tune's data at the next tick, the others
+; going on (its note now off; its portamento, modulation and filter routing
+; kept: BASIC's PLAY with a voice's string, #478). Nothing playing: the
+; tune goes on again, the next frame a tick.
+proc _tune_voice_play
+    .zp_uses $10, $11, $12, $13
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    php
+    sei
+    ldx $10
+    cpx __tune_n
+    bcs @out
+    lda $12
+    sta __tv_start_lo,x
+    sta __tv_pos_lo,x
+    lda $13
+    sta __tv_start_hi,x
+    sta __tv_pos_hi,x
+    lda #1
+    sta __tv_left,x
+    lda #0
+    sta __tv_ptr,x
+    bit __tune_coded
+    bpl @plain
+    jsr __tune_jinit    ; (coded: its bit, no calls)
+    lda #0
+@plain:
+    sta __tv_done,x
+    sta __tv_arpa,x
+    sta __tv_arpb,x
+    sta __tv_gpend,x
+    sta __tv_glide,x
+    sta __tv_hrdone,x
+    sta __tv_wti,x
+    sta __tv_wsemi,x
+    sta __tv_gated,x
+    jsr __tune_ctrl
+    lda __tune_active
+    bne @out
+    sec                 ; (the next tune_update a tick, as tune_play's first)
+    lda __tune_fpt
+    sbc __tune_step
+    sta __tune_acc
+    lda __tune_fpt+1
+    sbc __tune_step+1
+    sta __tune_acc+1
+    bcs @acc
+    lda #0
+    sta __tune_acc
+    sta __tune_acc+1
+@acc:
+    lda #1
+    sta __tune_active
+@out:
+    plp
+    rts
+    .func_flags zp_call
+endproc
+
+; void tune_voice_stop(unsigned char voice): tune voice voice ended (its
+; gate off), the others going on
+proc _tune_voice_stop
+    .zp_uses $10, $11
+    .reg_clobbers A, X, Y
+    .flag_clobbers C, N, Z, V
+    php
+    sei
+    ldx $10
+    cpx __tune_n
+    bcs @out
+    lda #1
+    sta __tv_done,x
+    lda #0
+    sta __tv_gated,x
+    jsr __tune_ctrl
+@out:
+    plp
+    rts
+    .func_flags zp_call
+endproc
+
+; unsigned char tune_voice_busy(unsigned char voice): 1 while tune voice
+; voice has its stream to play (BASIC's RPLAY)
+proc _tune_voice_busy
+    .zp_uses $10, $11
+    .reg_clobbers A, X, Y
+    .flag_clobbers C, N, Z, V
+    ldx $10
+    lda #0
+    cpx __tune_n
+    bcs @out
+    ldy __tune_active
+    beq @out
+    lda __tv_done,x
+    eor #1
+@out:
+    ldx #0
+    rts
+    .func_flags zp_call, leaf
 endproc
 
 ; void tune_update(void): once a frame

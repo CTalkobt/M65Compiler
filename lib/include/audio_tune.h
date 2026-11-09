@@ -117,6 +117,17 @@ __fastcall__ void tune_vibrato(unsigned char extra);
 __fastcall__ void tune_transpose(unsigned char voice, signed char semitones);
 __fastcall__ void tune_detune(unsigned char voice, signed char amount);
 
+/* Single voices of the tune playing (tune_play: its instruments, tempo and
+ * data), the others going on (BASIC 65's PLAY and RPLAY):
+ *   tune_voice_play   tune voice voice starts on the stream at offset in the
+ *                     tune's data at the next tick (its note now off); with
+ *                     nothing playing, the tune goes on again
+ *   tune_voice_stop   the voice ended (its gate off)
+ *   tune_voice_busy   1 while the voice has its stream to play */
+__fastcall__ void tune_voice_play(unsigned char voice, unsigned int offset);
+__fastcall__ void tune_voice_stop(unsigned char voice);
+__fastcall__ unsigned char tune_voice_busy(unsigned char voice);
+
 /* Chip 0-3's filter at once, while a tune plays: the cutoff (11 bits; its
  * sweep stopped), the resonance (0-15; the voices' routing kept) and the
  * mode (bit 0 low, 1 band, 2 high pass; the volume kept). A filtered

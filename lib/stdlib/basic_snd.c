@@ -10,7 +10,8 @@
  * $127C), so a program and the interpreter share them. A PLAY puts the
  * envelopes' current values into the tune's instruments and plays it at
  * the tempo's speed (tune_tempo: TEMPO n is n / 12 of the speed it was
- * written for). Arguments in _bas_sa (PLAY's descriptor), _bas_n, _bas_g.
+ * written for); all of a program's strings are one tune, a PLAY starting the
+ * voices it gives. Arguments in _bas_sa (PLAY's descriptor), _bas_n, _bas_g.
  */
 
 #include <audio_tune.h>
@@ -42,46 +43,46 @@ static void raise(int n) {
 
 /* the interrupt hook's music routine (0: none) */
 void (*_bas_musv)(void);
-static unsigned char playmask;
 
 static void speed(void) {
     tune_tempo((unsigned int)TEMPO_RATE * 256 / 12);
 }
 
-/* PLAY "...", ...: the descriptor _bas_sa (mask, instruments, their table's
- * offset, an instrument's bytes, each voice's ticks, each instrument's
- * envelope, the tune) */
-static unsigned char *playd;
+/* PLAY "...", ...: the descriptor _bas_sa (the voices given, bit n voice n +
+ * 1; each one's stream in the program's tune _bas_ptune: BasicPlay.cpp). The
+ * envelopes' current values into the tune's ten instruments; the tune
+ * started when nothing plays; each voice given started on its stream at the
+ * next tick (tune_voice_play), the others going on (#478). Voices 4-6 are
+ * the tune's 7-9 (SID 3). */
+extern unsigned char _bas_ptune[];
+#define PT_INS 26           /* (BasicPlay.hpp: the header's bytes, an instrument's) */
+#define PT_ISIZE 17
 void _bas_play(void) {
-    unsigned char *d = _bas_sa, n = d[1], k;
-    unsigned char *tune = d + 17 + n;
-    unsigned char *ins = tune + (d[2] | (unsigned int)d[3] << 8);
-    for (k = 0; k < n; k++) {
-        unsigned char e = d[17 + k], *p = ins + (unsigned int)k * d[4];
-        p[0] = WAVTAB[e] & 0xFE;
-        p[1] = ATKTAB[e];
-        p[2] = SUSTAB[e];
-        p[3] = PULSLW[e];
-        p[4] = PULSHI[e] & 0x0F;
+    unsigned char *d = _bas_sa, k;
+    for (k = 0; k < 10; k++) {
+        unsigned char *p = _bas_ptune + PT_INS + (unsigned int)k * PT_ISIZE;
+        p[0] = WAVTAB[k] & 0xFE;
+        p[1] = ATKTAB[k];
+        p[2] = SUSTAB[k];
+        p[3] = PULSLW[k];
+        p[4] = PULSHI[k] & 0x0F;
     }
-    playmask = d[0];
-    playd = d;
-    _bas_musv = tune_update;
-    tune_voices(0);
-    speed();
-    tune_play(tune);
+    if (!_bas_musv || !tune_playing()) {
+        tune_voices(0);
+        speed();
+        tune_play(_bas_ptune);
+        _bas_musv = tune_update;
+    }
+    for (k = 0; k < 6; k++)
+        if (d[0] & (1 << k))
+            tune_voice_play(k < 3 ? k : k + 3, d[1 + k * 2] | (unsigned int)d[2 + k * 2] << 8);
 }
 
-/* RPLAY(v), v 1-6: 1 while voice v plays: the last PLAY gave it a string
- * and the tune has not played its ticks yet */
+/* RPLAY(v), v 1-6: 1 while voice v has its string to play */
 void _bas_rplay(void) {
     unsigned char v = (unsigned char)(_bas_n - 1);
-    unsigned int len;
     if ((unsigned int)_bas_n - 1 >= 6) raise(14);
-    _bas_n = 0;
-    if (!(playmask & (1 << v)) || !_bas_musv || !tune_playing()) return;
-    len = playd[5 + v * 2] | (unsigned int)playd[6 + v * 2] << 8;
-    _bas_n = tune_ticks() <= len ? 1 : 0;      /* (the last tick played out) */
+    _bas_n = _bas_musv ? tune_voice_busy(v < 3 ? v : v + 3) : 0;
 }
 
 static const unsigned char atkmus[10] = {0x09, 0xC0, 0x00, 0x05, 0x94, 0x09, 0x09, 0x09, 0x89, 0x09};
@@ -95,7 +96,6 @@ static const unsigned char pwhmus[10] = {0x06, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0
 void _bas_snddef(void) {
     unsigned char k, c;
     if (_bas_musv) tune_stop();
-    playmask = 0;
     __asm__("php\n sei");
     for (c = 0; c < 4; c++) {
         volatile unsigned char *s = SID + c * 0x20;

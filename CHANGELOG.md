@@ -4,6 +4,19 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### Tune player: single voices; basic45 --compile's PLAY leaves the others playing (#478, #369)
+
+- `tune_voice_play(voice, offset)`, `tune_voice_stop(voice)`,
+  `tune_voice_busy(voice)`: one voice of the tune playing started on a
+  stream of its data at the next tick (or the tune going on again when
+  nothing plays), ended, asked; the others going on.
+- basic45 --compile: a program's PLAY strings are one tune (`__bas_ptune`:
+  the ten envelopes as instruments, each string's stream; BasicPlay.cpp
+  writes the streams itself); a `PLAY` starts the voices it gives and leaves
+  the others playing, as BASIC's (they stopped); `RPLAY(v)` asks the voice.
+- Tests: `test_basic_compile17_xemu.bas` [8] (voice 1 on to its end after
+  a `PLAY` of voice 2); `api_xemu.c` the three calls and `tune_filter`.
+
 ### Tune player: BASIC 65's PLAY U, X, M, P; basic45 --compile plays them (#474-#477, #369)
 
 - Four stream events and tune45 tokens: `vol:n` ($8D: the voice's chip's

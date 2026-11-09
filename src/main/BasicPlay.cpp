@@ -1,5 +1,5 @@
-// BasicPlay.cpp — BASIC 65's PLAY strings as tune45 text, then the tune
-// player's data (TuneCompiler), for basic45 --compile (#369)
+// BasicPlay.cpp — BASIC 65's PLAY strings as the tune player's streams, for
+// basic45 --compile (#369, #478)
 //
 // As b65.src V920413's play_one_character reads a string: A-G a note (# and
 // $ before it: sharp, flat), W H Q I S its length from then on (a whole note
@@ -11,16 +11,16 @@
 // seconds); the run time scales it for the TEMPO in force and puts the
 // envelopes' current values (ENVELOPE) into the instruments.
 //
-// U, X, M, P are the player's events vol: (through BASIC's voltab), filt:,
-// mod:, port: (#474-#477). Voices 4-6 are tune voices 7-9: SID 3, as BASIC's.
+// U, X, M, P are the player's events $8D (through BASIC's voltab), $8E, $8F,
+// $90 (#474-#477). The streams (<audio_tune.h>): a note $00-$7F n d (longer
+// than 255 ticks: ties $82 d after it), a rest $80 d, an envelope $81 e; at
+// the end $FE (L: from the start again) or $FF. Voices 4-6 are tune voices
+// 7-9: SID 3, as BASIC's.
 
 #include "BasicPlay.hpp"
-#include "TuneCompiler.hpp"
 
 #include <algorithm>
 #include <cstring>
-#include <set>
-#include <sstream>
 
 namespace {
 
@@ -33,53 +33,47 @@ const uint8_t kPwh[10] = {0x06, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0x08, 0x02, 
 const int kScale[7] = {9, 11, 0, 2, 4, 5, 7};   // A B C D E F G (scalen)
 const int kVol[10] = {0, 1, 3, 5, 7, 8, 10, 12, 14, 15};   // U's volumes (voltab)
 
-std::string hex(unsigned v, int digits) {
-    static const char* d = "0123456789abcdef";
-    std::string s(digits, '0');
-    for (int i = digits - 1; i >= 0; i--, v >>= 4) s[i] = d[v & 15];
-    return s;
+// a note (op its number) or rest ($80) for so many ticks: at most 255 an
+// event, ties after
+void timed(std::vector<uint8_t>& s, uint8_t op, int ticks) {
+    int first = std::min(ticks, 255);
+    s.push_back(op);
+    s.push_back((uint8_t)first);
+    for (ticks -= first; ticks > 0; ticks -= 255) {
+        s.push_back(0x82);
+        s.push_back((uint8_t)std::min(ticks, 255));
+    }
 }
 
 }  // namespace
 
-PlayTune convertPlay(const std::vector<std::optional<std::string>>& voices) {
+PlayTune PlayBank::add(const std::vector<std::optional<std::string>>& voices) {
     PlayTune r;
-    std::ostringstream t;
-    for (int e = 0; e < 10; e++)
-        t << "instrument e" << e << " " << hex(kWav[e] & 0xFE, 2) << " " << hex(kAtk[e], 2) << " "
-          << hex(kSus[e], 2) << " " << hex(kPwh[e] << 8, 3) << " 0 0\n";
-    bool anyLoop = false, allLoop = true;
-    std::vector<std::string> lines(9);
-    std::vector<int> lens(6, 0);           // each voice's ticks
-    int looped = 0;                        // the voices with an L (RPLAY: on while the tune plays)
+    r.data.assign(13, 0);
     int mask = 0;
     for (size_t v = 0; v < voices.size() && v < 6; v++) {
         if (!voices[v]) continue;
         mask |= 1 << v;
-        const std::string& s = *voices[v];
-        std::ostringstream o;
+        const std::string& str = *voices[v];
+        std::vector<uint8_t> s = {0x81, 0};   // (envelope 0)
         int octave = 4, len = 8, sharp = 0, env = 0;
-        bool dot = false, loop = false;
+        bool dot = false, loop = false, any = false;
         char flag = 0;
-        o << "@e0";
-        for (unsigned char c : s) {
+        for (unsigned char c : str) {
             if (c == 'L') { loop = true; break; }
             if (c == ' ') continue;
             if (c >= 'A' && c <= 'G') {
                 int n = kScale[c - 'A'] + sharp + 12 * (octave + 1);
-                int ticks = dot ? len * 3 / 2 : len;
-                o << " " << TuneCompiler::noteName(n) << ":" << ticks;
-                lens[v] += ticks;
-                sharp = 0; dot = false; flag = 0;
+                timed(s, (uint8_t)std::clamp(n, 0, 127), dot ? len * 3 / 2 : len);
+                any = true; sharp = 0; dot = false; flag = 0;
                 continue;
             }
             const char* lengths = "WHQIS";
             const char* l = c ? strchr(lengths, c) : nullptr;
             if (l) { len = 32 >> (l - lengths); continue; }
             if (c == 'R') {
-                o << " r:" << (dot ? len * 3 / 2 : len);
-                lens[v] += dot ? len * 3 / 2 : len;
-                sharp = 0; dot = false; flag = 0;
+                timed(s, 0x80, dot ? len * 3 / 2 : len);
+                any = true; sharp = 0; dot = false; flag = 0;
                 continue;
             }
             if (c == '.') { dot = true; continue; }
@@ -90,57 +84,46 @@ PlayTune convertPlay(const std::vector<std::optional<std::string>>& voices) {
                 int d = c - '0';
                 switch (flag) {
                 case 'O': if (d >= 7) r.badValue = true; else octave = d; break;
-                case 'T': if (d != env) { env = d; o << " @e" << d; } break;
-                case 'X': if (d >= 2) r.badValue = true; else o << " filt:" << (d ? "on" : "off"); break;
-                case 'U': o << " vol:" << kVol[d]; break;
-                case 'M': o << " mod:" << d; break;
-                case 'P': o << " port:" << d; break;
+                case 'T': if (d != env) { env = d; s.push_back(0x81); s.push_back((uint8_t)d); } break;
+                case 'X': if (d >= 2) r.badValue = true; else { s.push_back(0x8E); s.push_back((uint8_t)d); } break;
+                case 'U': s.push_back(0x8D); s.push_back((uint8_t)kVol[d]); break;
+                case 'M': s.push_back(0x8F); s.push_back((uint8_t)d); break;
+                case 'P': s.push_back(0x90); s.push_back((uint8_t)d); break;
+                default: break;
                 }
             }
             flag = 0;
         }
-        if (loop) { anyLoop = true; looped |= 1 << v; } else allLoop = false;
-        lines[v < 3 ? v : v + 3] = o.str();
+        s.push_back(loop && any ? 0xFE : 0xFF);   // (an L with nothing before it: the voice ends)
+        size_t at = kStreams + streams_.size();
+        if (at + s.size() > 0xFFFF) { r.error = "PLAY: the program's strings are over 64 KB"; return r; }
+        streams_.insert(streams_.end(), s.begin(), s.end());
+        r.data[1 + 2 * v] = (uint8_t)at;
+        r.data[2 + 2 * v] = (uint8_t)(at >> 8);
     }
     if (!mask) { r.error = "PLAY without a string"; return r; }
-    // (the tune's voices as long: the shorter ones end in rests; RPLAY uses
-    // each one's own length)
-    int most = 0;
-    for (int l : lens) most = std::max(most, l);
-    if (!most) { r.error = "PLAY: no note or rest to play"; return r; }
-    t << "tune play 3.125 " << (anyLoop ? "loop" : "once") << "\n";
-    for (int v = 0; v < 9; v++) {
-        int bv = v < 3 ? v : v >= 6 ? v - 3 : -1;     // (tune voices 4-6: SID 2, unused)
-        int have = bv >= 0 ? lens[bv] : 0;
-        std::string line = lines[v];
-        for (int rest = most - have; rest > 0; rest -= 255) line += " r:" + std::to_string(std::min(rest, 255));
-        t << "v" << v + 1 << ": " << line << "\n";
-    }
-    if (anyLoop) {
-        for (int l : lens)
-            if (l && l != most) { r.warnings.push_back("PLAY: looping voices of different lengths loop together"); break; }
-    }
-    if (anyLoop && !allLoop) r.warnings.push_back("PLAY: L on some voices only: all of them loop");
-    TuneCompiler tc;
-    TuneFile f;
-    if (!tc.parse(t.str(), "PLAY", f) || f.tunes.empty()) {
-        r.error = "PLAY: " + (tc.errors().empty() ? std::string("not converted") : tc.errors()[0]);
-        return r;
-    }
-    const Tune& tune = f.tunes[0];
-    std::vector<uint8_t> blob = TuneCompiler::plainBlob(f, tune);
-    std::vector<int> used = TuneCompiler::usedInstruments(f, tune);
-    r.data.push_back((uint8_t)mask);
-    r.data.push_back((uint8_t)used.size());
-    r.data.push_back(blob[6]);
-    r.data.push_back(blob[7]);
-    r.data.push_back(blob[5]);
-    for (int v = 0; v < 6; v++) {
-        int l = (looped & (1 << v)) ? 0xFFFF : lens[v];
-        r.data.push_back((uint8_t)l);
-        r.data.push_back((uint8_t)(l >> 8));
-    }
-    for (int i : used) r.data.push_back((uint8_t)i);
-    r.data.insert(r.data.end(), blob.begin(), blob.end());
+    r.data[0] = (uint8_t)mask;
     return r;
+}
+
+std::vector<uint8_t> PlayBank::blob() const {
+    std::vector<uint8_t> b(kHeader, 0);
+    b[0] = 0;                       // (plays once: a voice's L is its $FE)
+    b[1] = 9;
+    b[2] = 0x20;                    // 3.125 frames a tick (8.8)
+    b[3] = 0x03;
+    b[4] = 10;
+    b[5] = kInstrument;
+    b[6] = (uint8_t)kHeader;
+    b[7] = 0;
+    for (int v = 0; v < 9; v++) {   // (each voice empty at first)
+        b[8 + 2 * v] = (uint8_t)kStreams;
+        b[9 + 2 * v] = (uint8_t)(kStreams >> 8);
+    }
+    for (int e = 0; e < 10; e++) {
+        uint8_t in[kInstrument] = {(uint8_t)(kWav[e] & 0xFE), kAtk[e], kSus[e], 0, kPwh[e]};
+        b.insert(b.end(), in, in + kInstrument);
+    }
+    b.insert(b.end(), streams_.begin(), streams_.end());
+    return b;
 }
