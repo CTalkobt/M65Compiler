@@ -307,5 +307,16 @@ ffs() { ./bin/cc45 "$@" -S $T/ff.c -o $T/ff.s 2>/dev/null && grep -c 'jsr __ffas
 [ "$(ffs -Ospeed -fno-fast-float)" = 0 ] && pass || fail "-Ospeed -fno-fast-float still uses them"
 [ "$(ffs -O3)" = 0 ] && pass || fail "-O3 uses the RAM float routines"
 
+# #485: a float result the next operation uses stays in __float_a; many
+# copies between places outside the base page are calls of __f32cpy
+# (-O1, -O2, -Os), loops with -fno-float-copy-call and from -O3
+ffc() { ./bin/cc45 "$@" -c src/test-resources/test_float_copy_xemu.c -o $T/fc.o45 2>/dev/null && ./bin/nm45 $T/fc.o45 | grep -c ' U __f32cpy'; }
+[ "$(ffc -O2)" = 1 ] && pass || fail "-O2: float copies not through __f32cpy"
+[ "$(ffc -O2 -fno-float-copy-call)" = 0 ] && pass || fail "-fno-float-copy-call still calls __f32cpy"
+[ "$(ffc -O3)" = 0 ] && pass || fail "-O3 calls __f32cpy"
+printf 'float a, b, c, r;\nvoid f(void) { r = a * b + c; }\n' > $T/fa.c
+./bin/cc45 -O2 -S $T/fa.c -o $T/fa.s 2>/dev/null
+[ "$(grep -c '@__fcpy_[0-9]*:' $T/fa.s)" = 4 ] && pass || fail "a * b + c: $(grep -c '@__fcpy_[0-9]*:' $T/fa.s) float copies, not 4 (a, b, c, r: the product left in __float_a)"
+
 echo "Optimization switch tests: $passed passed, $failed failed"
 [ $failed -eq 0 ]
