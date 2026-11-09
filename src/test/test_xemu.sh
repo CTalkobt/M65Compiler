@@ -1081,6 +1081,34 @@ else
     echo "FAIL: test_basic_compile21_xemu.bas (basic45 or basic45 --compile --checks failed)"
     failed=$((failed + 1))
 fi
+# test_basic_compile23_xemu.bas: BOOT SYS (drive 8's home sector run: a D81 with
+# the sector's code at its start; an empty one: ?BAD DISK); four ways, each disk
+if ./bin/basic45 src/test-resources/test_basic_compile23_xemu.bas -o build/test/test_basic_compile23_i.prg >/dev/null 2>&1 &&
+   ./bin/basic45 --compile --checks src/test-resources/test_basic_compile23_xemu.bas -o build/test/test_basic_compile23.prg >/dev/null 2>&1 &&
+   ./bin/basic45 --compile --checks -O0 src/test-resources/test_basic_compile23_xemu.bas -o build/test/test_basic_compile23_O0.prg >/dev/null 2>&1 &&
+   ./bin/basic45 --compile src/test-resources/test_basic_compile23_xemu.bas -o build/test/test_basic_compile23_nochk.prg >/dev/null 2>&1; then
+    for bc23 in i "" O0 nochk; do
+        for bc23d in boot empty; do
+            bc23n="test_basic_compile23${bc23:+_$bc23}_$bc23d"
+            rm -f "build/test/$bc23n.d81"
+            if ./bin/disk45 create "build/test/$bc23n.d81" -n "BC23" >/dev/null 2>&1; then
+                bc23x="00 24 01 AA"
+                if [ $bc23d = boot ]; then
+                    printf '\x4c\x03\x04\xa9\x2a\x8d\x00\x06\x60' |
+                        dd of="build/test/$bc23n.d81" bs=1 conv=notrunc 2>/dev/null
+                    bc23x="2A 00 01 AA"
+                fi
+                run_xemu_test "$bc23n" "build/test/test_basic_compile23${bc23:+_$bc23}.prg" "C0C0" 4 "$bc23x" -8 "$PWD/build/test/$bc23n.d81"
+            else
+                echo "FAIL: $bc23n (disk45 create failed)"
+                failed=$((failed + 1))
+            fi
+        done
+    done
+else
+    echo "FAIL: test_basic_compile23_xemu.bas (basic45 or basic45 --compile --checks failed)"
+    failed=$((failed + 1))
+fi
 # test_basic_compile22_xemu.bas: without --line-numbers (the default, #483) EL
 # stays 65535 after an error, ER and the trap as with them; compiled only
 BC22_EXP="01 01 01 AA"

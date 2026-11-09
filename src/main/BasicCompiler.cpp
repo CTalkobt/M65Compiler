@@ -2975,7 +2975,11 @@ void Compiler::setStmt() {
 // BOOT "name" [, B bank] [, P address] [, U unit] [, D drive] (b65.src boot:
 // BLOAD's parsing and load, then the code at its start called)
 void Compiler::bootStmt() {
-    if (acceptKw(T_SYS)) fail("BOOT SYS is not supported by --compile");
+    if (acceptKw(T_SYS)) {
+        // BOOT SYS: the KERNAL's bootsys ($FF59), ?BAD DISK when it fails
+        call("__bas_bootsys");
+        return;
+    }
     if (stmtEnd()) {
         // BOOT alone: AUTOBOOT.C65* loaded and run (set_ab_fn, dload_boot), as
         // DLOAD chains
