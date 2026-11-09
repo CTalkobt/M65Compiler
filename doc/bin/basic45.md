@@ -604,8 +604,9 @@ loop uses the stack as the interpreter does.
 5 bytes, integers 2, strings a pointer). As in BASIC 65, a subscript is 0..65535 (`?ILLEGAL QUANTITY` outside
 it), one past the `DIM` or a wrong number of subscripts is `?BAD SUBSCRIPT`, a second `DIM` of an array
 `?REDIMENSIONED ARRAY`, and an array used before a `DIM` gets 11 elements in each dimension. An element of a
-one-dimensional array is reached by `__bas_ael1` (inline with `--speed`) when the array exists and the
-subscript is in range; anything else (making the array, more subscripts, the errors) is `__bas_aref`
+one-dimensional array is reached by `__bas_aelf` / `__bas_aeli` / `__bas_aels` (`basic_ael.s45`: the
+subscript in A/X, the array's variable in a `.word` after the `jsr`, #486; inline with `--speed`) when the
+array exists and the subscript is in range; anything else (making the array, more subscripts, the errors) is `__bas_aref`
 (`basic_str.c`). Arrays and scalars of the same
 name are different variables; array elements are not narrowed (a float array holds floats).
 

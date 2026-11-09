@@ -410,6 +410,20 @@ private:
         ir::Inst in; in.op = ir::Op::CALL_VOID; in.resultType = ir::Type::VOID;
         in.src1 = ir::Operand::global(f); in.callConv = ir::CallConv::ZP; emit(in);
     }
+    // a run-time entry with its first argument in A/X and a second in $12
+    // (basic_ax.s45, __bas_prsa; #486), not stored to variables one by one
+    void callAX(const std::string& f, ir::Operand a, ir::Operand b = ir::Operand()) {
+        static const std::set<std::string> safe = {"__bas_prsa", "__bas_scmpa"};
+        if (!safe.count(f) || (cmdUsed_ && f.compare(0, 8, "__bas_pr") == 0)) raises();
+        externs_.insert(f);
+        fn_->originalCallees.insert(f);
+        ir::Inst in; in.op = ir::Op::CALL_VOID; in.resultType = ir::Type::VOID;
+        in.src1 = ir::Operand::global(f); in.callConv = ir::CallConv::ZP;
+        in.isRegparm = true;
+        in.args = {a};
+        if (b.kind != ir::OperandKind::NONE) in.args.push_back(b);
+        emit(in);
+    }
     // the error n (its block, shared: the line is in __bas_line)
     std::string errLabel(int n) { raises(); errBlocks_.insert(n); return "Err" + std::to_string(n); }
     // the error n where the statement runs (a constant out of range: the
@@ -604,7 +618,7 @@ private:
         return subs;
     }
     // The address of the element name(...) (the '(' next): PTR. One
-    // subscript: __bas_ael1 (with --speed: here) reaches the element when the
+    // subscript: __bas_aelf / aeli / aels (with --speed: here) reach the element when the
     // array exists with one dimension and the index is in it; else (and for
     // more) __bas_aref, which makes the array (11 elements a dimension) or
     // raises the error
@@ -615,15 +629,18 @@ private:
         int m = es | (kind == VK::S ? 0x40 : 0);
         auto r = vreg(ir::Type::PTR);
         if (subs.size() == 1 && !speed_) {
-            // (the reach of the fast path below in __bas_ael1: the code smaller)
-            store(ir::Type::I16, subs[0], global("__bas_n"));
-            store(ir::Type::I16, iconst(ir::Type::I16, m), global("__bas_m"));
-            store(ir::Type::PTR, addrGlobal(g), global("__bas_sa"));
-            externs_.insert("__bas_ael1");
-            fn_->originalCallees.insert("__bas_ael1");
+            // (the reach of the fast path below in basic_ael.s45: the code
+            // smaller): the subscript in A/X, the array's variable after the
+            // jsr, an entry for each element size (#486)
+            std::string ent = kind == VK::F ? "__bas_aelf" : kind == VK::S ? "__bas_aels" : "__bas_aeli";
+            externs_.insert(ent);
+            fn_->originalCallees.insert(ent);
             raises();
             ir::Inst in; in.op = ir::Op::CALL; in.dest = r; in.resultType = ir::Type::PTR;
-            in.src1 = ir::Operand::global("__bas_ael1"); in.callConv = ir::CallConv::ZP; emit(in);
+            in.src1 = ir::Operand::global(ent); in.callConv = ir::CallConv::ZP;
+            in.isRegparm = true; in.args = {subs[0]};
+            in.asmText = ".word " + g;    // (the data after the jsr: IRCodeGen)
+            emit(in);
         } else if (subs.size() == 1) {
             std::string slow = newLabel("aslow"), c1 = newLabel("achk"), c2 = newLabel("achk"),
                         fast = newLabel("afast"), done = newLabel("adone");
@@ -1054,10 +1071,8 @@ private:
         Val r; r.k = VK::B;
         if (a.k == VK::S || b.k == VK::S) {
             needS(a); needS(b);
-            store(ir::Type::PTR, a.op, global("__bas_sa"));
-            store(ir::Type::PTR, b.op, global("__bas_sb"));
             freeVal(b); freeVal(a);
-            call("__bas_scmp");
+            callAX("__bas_scmpa", a.op, b.op);
             auto c = trunc(load(ir::Type::I16, global("__bas_n")), ir::Type::I8);
             r.op = cmpResult(rel, c);
             return r;
@@ -2067,9 +2082,7 @@ void Compiler::finish() {
                 auto e = vreg(ir::Type::PTR);
                 ir::Inst in; in.op = ir::Op::ADDR_GLOBAL; in.dest = e; in.src1 = global("__bas_empty");
                 in.resultType = ir::Type::PTR; emit(in);
-                store(ir::Type::PTR, e, global("__bas_sa"));
-                store(ir::Type::PTR, addrGlobal(g), global("__bas_sr"));
-                call("__bas_sset");
+                callAX("__bas_sseta", e, addrGlobal(g));
             } else if (t == ir::Type::F32) store(t, fconst(0), ir::Operand::global(g));
             else store(t, iconst(t, 0), ir::Operand::global(g));
         }
@@ -2281,8 +2294,7 @@ void Compiler::statement() {
     case T_SCNCLR: {
         if (!stmtEnd()) { graphicsStmt(T_SCNCLR); return; }
         Val c = strLit(std::string(1, (char)147));
-        store(ir::Type::PTR, c.op, global("__bas_sa"));
-        call("__bas_prs");
+        callAX("__bas_prsa", c.op);
         return;
     }
     case T_SLEEP: {
@@ -2426,9 +2438,7 @@ Compiler::LV Compiler::parseLV(const std::string& name) {
 void Compiler::assignLV(const LV& lv, const Val& v) {
     if (lv.k == VK::S) {
         needS(v);
-        store(ir::Type::PTR, v.op, global("__bas_sa"));
-        store(ir::Type::PTR, lv.elem ? lv.addr : addrGlobal(lv.g), global("__bas_sr"));
-        call("__bas_sset");
+        callAX("__bas_sseta", v.op, lv.elem ? lv.addr : addrGlobal(lv.g));
         freeVal(v);
     } else if (lv.k == VK::F) {
         if (lv.elem) { store(ir::Type::F32, toF(v), lv.addr); return; }
@@ -3397,8 +3407,7 @@ void Compiler::screenGStmt() {
     if (acceptKw(T_CLR)) {
         if (stmtEnd()) {
             Val c = strLit(std::string(1, (char)147));
-            store(ir::Type::PTR, c.op, global("__bas_sa"));
-            call("__bas_prs");
+            callAX("__bas_prsa", c.op);
             return;
         }
         graphicsStmt(T_SCNCLR);
@@ -4120,8 +4129,7 @@ void Compiler::inputStmt(bool chan, bool lineIn) {
     if (!chan && t && t->k == TK::Str) {
         p_++;
         Val pr = strLit(t->text);
-        store(ir::Type::PTR, pr.op, global("__bas_sa"));
-        call("__bas_prs");
+        callAX("__bas_prsa", pr.op);
         if (acceptCh(',')) qmark = false;   // (BASIC 65: no "? " after a prompt and a comma)
         else expectCh(';');
     }
@@ -4334,9 +4342,8 @@ void Compiler::printStmt() {
         }
         Val v = expr();
         if (v.k == VK::S) {
-            store(ir::Type::PTR, v.op, global("__bas_sa"));
             freeVal(v);
-            call("__bas_prs");
+            callAX("__bas_prsa", v.op);
         } else {
             store(ir::Type::F32, toF(v), global("__float_a"));
             call("__bas_prn");

@@ -4,6 +4,19 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### basic45 --compile: run-time arguments in registers (#486)
+
+- An element of a one-dimensional array: the subscript in A/X, the array's
+  variable in a `.word` after the `jsr` (`__bas_aelf` / `__bas_aeli` /
+  `__bas_aels`, `lib/stdlib_asm/basic_ael.s45`; the fast path in assembly,
+  `_bas_aref` otherwise); about 12 bytes an access, not 40.
+- PRINT of a string, string assignment and comparison take their strings in
+  A/X and `$12` (`__bas_prsa`, `__bas_sseta`, `__bas_scmpa`;
+  `lib/stdlib_asm/basic_ax.s45`). cc45: a call's `asmText` is data emitted
+  after its `jsr`.
+- A sample game: 11148 to 10783 bytes; `examples/disk/games_menu.bas` 12312
+  to 12101.
+
 ### basic45 --compile: number conversion only for numbers read (#484)
 
 - `INPUT` and `READ` of a number call `_bas_iitemn` / `_bas_readn`

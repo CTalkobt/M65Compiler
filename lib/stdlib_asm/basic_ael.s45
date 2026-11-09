@@ -1,0 +1,142 @@
+; basic_ael.s45 — an element of a one-dimensional array of a BASIC 65 program
+; compiled by basic45 --compile (#369, #486)
+;
+;     (the subscript in A/X)
+;     jsr __bas_aelf       ; a float array (5 bytes an element); __bas_aeli an
+;     .word __ba_NAME      ; integer one (2), __bas_aels a string one (2: its
+;                          ; pointer); the array's variable after the jsr
+;
+; The element's address in A/X: computed here when the array exists with one
+; dimension and the subscript is in it; else basic_str.c's _bas_aref (which
+; makes the array, 11 elements, or raises the error). An access is about 12
+; bytes (with the subscript's load), not the 40 its arguments stored one by
+; one took.
+
+    .cpu 45gs02
+
+; no calls through pointers here (ln45's call graph, see O45Linker)
+.weak cc45.icallinfo
+cc45.icallinfo = 1
+
+idx     = $08       ; the subscript
+esz     = $0A       ; __bas_m: the element size (| $40: strings)
+p       = $0C       ; the list - 1 (the return address), then the array
+arr     = $0E       ; the array's variable, then the element's offset
+
+.extern __bas_aref
+.extern __bas_sub
+.extern __bas_sr
+.extern __bas_sa
+.extern __bas_n
+.extern __bas_m
+
+    .split "__bas_aelf"
+.global __bas_aelf
+.global __bas_aeli
+.global __bas_aels
+__bas_aelf:
+    ldy #5
+    bra bas_ael_go
+__bas_aeli:
+    ldy #2
+    bra bas_ael_go
+__bas_aels:
+    ldy #$42
+bas_ael_go:
+    sta idx
+    stx idx+1
+    sty esz
+    pla
+    sta p
+    pla
+    sta p+1
+    ldy #1
+    lda (p),y
+    sta arr
+    iny
+    lda (p),y
+    sta arr+1
+    clc                 ; return after the word: the list + 2 for rts
+    lda p
+    adc #2
+    tax
+    lda p+1
+    adc #0
+    pha
+    txa
+    pha
+    ldy #0              ; the array (0: none yet)
+    lda (arr),y
+    sta p
+    iny
+    lda (arr),y
+    sta p+1
+    ora p
+    beq @slow
+    dey
+    lda (p),y           ; one dimension
+    cmp #1
+    bne @slow
+    ldy #2              ; the subscript below its size (p+1, 16 bits)
+    lda idx+1
+    cmp (p),y
+    bcc @in
+    bne @slow
+    dey
+    lda idx
+    cmp (p),y
+    bcs @slow
+@in:
+    lda idx             ; offset: the subscript * 2
+    asl a
+    sta arr
+    lda idx+1
+    rol a
+    sta arr+1
+    lda esz
+    cmp #5
+    bne @add
+    asl arr             ; * 4, + the subscript: * 5
+    rol arr+1
+    clc
+    lda arr
+    adc idx
+    sta arr
+    lda arr+1
+    adc idx+1
+    sta arr+1
+@add:
+    clc                 ; the array + 3 + the offset
+    lda arr
+    adc p
+    sta arr
+    lda arr+1
+    adc p+1
+    tax
+    lda arr
+    clc
+    adc #3
+    bcc @done
+    inx
+@done:
+    rts
+@slow:                  ; _bas_aref: __bas_sa, one subscript, __bas_m
+    lda arr
+    sta __bas_sa
+    lda arr+1
+    sta __bas_sa+1
+    lda idx
+    sta __bas_sub
+    lda idx+1
+    sta __bas_sub+1
+    lda #1
+    sta __bas_n
+    lda esz
+    sta __bas_m
+    lda #0
+    sta __bas_n+1
+    sta __bas_m+1
+    jsr __bas_aref
+    lda __bas_sr
+    ldx __bas_sr+1
+    rts

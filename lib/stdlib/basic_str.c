@@ -250,18 +250,4 @@ void _bas_dopop(void) {
     raise(33);
 }
 
-/* An element of a one-dimensional array (basic45's code for one subscript):
- * __bas_sa the variable, __bas_n the subscript, __bas_m as _bas_aref's; its
- * address. The array there with one dimension and the subscript in it: the
- * address computed here; else _bas_aref (which makes the array or raises the
- * error). */
-unsigned char *_bas_ael1(void) {
-    unsigned char *a = *(unsigned char **)_bas_sa;
-    unsigned int i = (unsigned int)_bas_n;
-    if (a && a[0] == 1 && i < *(unsigned int *)(a + 1))
-        return a + 3 + i * (unsigned char)(_bas_m & 0x3F);
-    _bas_sub[0] = i;
-    _bas_n = 1;
-    _bas_aref();
-    return _bas_sr;
-}
+/* An element of a one-dimensional array: basic_ael.s45 (#486). */

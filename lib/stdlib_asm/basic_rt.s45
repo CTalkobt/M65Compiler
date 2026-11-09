@@ -87,9 +87,13 @@ __bas_outspc:
     bra __bas_out
 
 ; PRINT of a string: __bas_sa (through $F6/$F7, library temps of the
-; program's base page)
+; program's base page); __bas_prsa: the string in A/X (#486)
     .split "__bas_prs"
 .global __bas_prs
+.global __bas_prsa
+__bas_prsa:
+    sta __bas_sa
+    stx __bas_sa+1
 __bas_prs:
     lda __bas_sa
     sta $F6
