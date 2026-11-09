@@ -283,10 +283,12 @@ What a SAC function looks like:
   pointer parameter is dereferenced in place (`lda ($10),y`). The same holds
   with a stack frame. A parameter whose address is used (`&x`, a vector
   passed by value) is still copied to its storage. In a function that does make
-  calls, a parameter used only in the entry block before the first call
-  (or asm) stays there too: the block is untouched until that call stores its
-  own arguments. `CC45_NO_ZP_PARAMS=1`
-  turns this off (`test_zp_params_xemu.c`).
+  calls, a parameter used only where no call (or asm) can have run yet stays
+  there too: the block is untouched until a call stores its own arguments. A
+  pointer computed from the parameter (`p + 2`, a field's address, which the
+  code generator fuses into `lda ($10),y`) counts as a use of it where it is
+  used (#470). `CC45_NO_ZP_PARAMS=1`
+  turns this off (`test_zp_params_xemu.c`, `test_zp_param_derived_xemu.c`).
 - **SAC-to-SAC calls in stack mode.** A SAC caller in the same file stores
   the arguments straight into `<callee>__param_<name>` and does
   `jsr <callee>__sac`. Nothing is pushed or popped. In ZP mode, callers
