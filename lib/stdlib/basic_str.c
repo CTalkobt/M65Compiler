@@ -208,6 +208,25 @@ void _bas_aref(void) {
     _bas_sr = a + 1 + 2 * n + off * esize;
 }
 
+/* CLR's arrays: the array of the variable __bas_sa freed (a string array's
+ * strings too: __bas_m 1) and undimensioned */
+void _bas_afree(void) {
+    unsigned char **var = (unsigned char **)_bas_sa;
+    unsigned char *a = *var;
+    if (!a) return;
+    if (_bas_m) {
+        unsigned char n = a[0], k;
+        unsigned int *dims = (unsigned int *)(a + 1), i;
+        unsigned long count = 1;
+        unsigned char **e = (unsigned char **)(a + 1 + 2 * n);
+        for (k = 0; k < n; k++) count *= dims[k];
+        for (i = 0; i < (unsigned int)count; i++)
+            if (e[i] != _bas_empty && e[i]) free(e[i]);
+    }
+    free(a);
+    *var = 0;
+}
+
 /* DO: its entry (the DO's address __bas_n, then 0) */
 void _bas_dopush(void) {
     if (_bas_sp >= 127) raise(16);

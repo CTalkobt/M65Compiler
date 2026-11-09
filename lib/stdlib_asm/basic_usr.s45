@@ -1,0 +1,40 @@
+; basic_usr.s45 — basic45 --compile's USR(x) (#369): the routine at BASIC 65's
+; USR vector ($02F7: a JMP) called with the argument in the ROM's FAC and the
+; BASIC ROM mapped, as the interpreter calls it (b65.src fundsp's usrpok); its
+; FAC the result. A vector still at the ROM's default (V920413: errguf, $5C61)
+; is ?UNDEF'D FUNCTION.
+
+.weak cc45.icallinfo
+cc45.icallinfo = 1
+
+    .cpu 45gs02
+
+.extern __float_a, __float_load_fac, __float_store_fac, __jsrfar_basic
+.extern __bp_rom, __bp_prog, __bas_raise
+
+USRVEC = $02F7
+
+.segment "code"
+    .split "__bas_usr"
+.global __bas_usr
+__bas_usr:
+    lda USRVEC+1
+    cmp #$61
+    bne @go
+    lda USRVEC+2
+    cmp #$5C
+    bne @go
+    lda #27
+    jmp __bas_raise
+@go:
+    jsr __bp_rom
+    lda #<__float_a
+    ldx #>__float_a
+    jsr __float_load_fac
+    lda #<USRVEC
+    ldx #>USRVEC
+    jsr __jsrfar_basic
+    lda #<__float_a
+    ldx #>__float_a
+    jsr __float_store_fac
+    jmp __bp_prog

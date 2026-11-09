@@ -4,6 +4,16 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### basic45 --compile: SYS, RREG, USR, DMA, EDMA, FRE, CLR (#369)
+
+- SYS through the KERNAL's `_jsr_far` (its registers kept by the run time,
+  which RREG reads), USR at BASIC's vector with the ROM's FAC, DMA's job
+  lists and EDMA's enhanced job, FRE, and CLR (all of it, a variable, ERR$,
+  TI, ST, DS) as BASIC 65's (`lib/stdlib/basic_sys.c`, `basic_usr.s45`).
+- basic45's warnings no longer take a hex number's letters (`$2F8`) for a
+  variable.
+- Test `test_basic_compile15_xemu.bas` (four ways).
+
 ### basic45 --compile: graphics, part 3: LOADIFF, SAVEIFF (#369)
 
 - SAVEIFF and LOADIFF as BASIC 65's kernel (`kg65.saveiff`, `kg65.loadiff`

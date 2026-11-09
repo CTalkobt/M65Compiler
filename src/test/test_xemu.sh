@@ -947,6 +947,21 @@ else
     echo "FAIL: test_basic_compile14_xemu.bas (basic45 or basic45 --compile failed)"
     failed=$((failed + 1))
 fi
+# test_basic_compile15_xemu.bas: SYS, RREG, USR, FRE, DMA, EDMA, CLR (all of it, a
+# variable, ERR$, TI, ST; in a FOR loop); four ways
+BC15_EXP="01 01 01 01 01 01 01 AA"
+if ./bin/basic45 src/test-resources/test_basic_compile15_xemu.bas -o build/test/test_basic_compile15_i.prg >/dev/null 2>&1 &&
+   ./bin/basic45 --compile src/test-resources/test_basic_compile15_xemu.bas -o build/test/test_basic_compile15.prg >/dev/null 2>&1 &&
+   ./bin/basic45 --compile -O0 src/test-resources/test_basic_compile15_xemu.bas -o build/test/test_basic_compile15_O0.prg >/dev/null 2>&1 &&
+   ./bin/basic45 --compile --speed src/test-resources/test_basic_compile15_xemu.bas -o build/test/test_basic_compile15_speed.prg >/dev/null 2>&1; then
+    run_xemu_test "test_basic_compile15_interpreted" "build/test/test_basic_compile15_i.prg" "C0C0" 8 "$BC15_EXP"
+    run_xemu_test "test_basic_compile15" "build/test/test_basic_compile15.prg" "C0C0" 8 "$BC15_EXP"
+    run_xemu_test "test_basic_compile15_O0" "build/test/test_basic_compile15_O0.prg" "C0C0" 8 "$BC15_EXP"
+    run_xemu_test "test_basic_compile15_speed" "build/test/test_basic_compile15_speed.prg" "C0C0" 8 "$BC15_EXP"
+else
+    echo "FAIL: test_basic_compile15_xemu.bas (basic45 or basic45 --compile failed)"
+    failed=$((failed + 1))
+fi
 # test_basic_compile6_xemu.bas: chaining. It (REM PRAGMA EXPORT) DLOADs
 # test_basic_compile6b_xemu.bas ("BC6B" on its D81; REM PRAGMA IMPORT, the
 # map from --import-map), which checks the variables; LOAD of a missing file
@@ -1084,14 +1099,16 @@ else
     failed=$((failed + 1))
 fi
 # basic45 warnings: a variable read but never assigned (a typo), assigned but
-# never read, a line that can never run, a proc never called
-printf 'top: score = 1 : print scroe : unused = 5\n  goto top\n  print "never"\nproc lonely\nendproc\n' \
+# never read, a line that can never run, a proc never called; a hex number's
+# letters ($2F8) are not a variable
+printf 'top: score = 1 : print scroe : unused = 5 : poke $2f8, 1\n  goto top\n  print "never"\nproc lonely\nendproc\n' \
     > build/test/basic45_warn.bas
 ./bin/basic45 build/test/basic45_warn.bas -o build/test/basic45_warn.prg > build/test/basic45_warn.log 2>&1
 if grep -q "variable SCROE is read but never assigned" build/test/basic45_warn.log &&
    grep -q "variable UNUSED is assigned but never read" build/test/basic45_warn.log &&
    grep -q "basic45_warn.bas:3:1: warning: line 30 can never run" build/test/basic45_warn.log &&
    grep -q "proc lonely is never called" build/test/basic45_warn.log &&
+   ! grep -q "variable F8" build/test/basic45_warn.log &&
    ! ./bin/basic45 --strict build/test/basic45_warn.bas -o build/test/basic45_warn.prg >/dev/null 2>&1; then
     echo "PASS: basic45 warnings"
     passed=$((passed + 1))
