@@ -459,6 +459,7 @@ void BasicEmitter::checkVariables(const std::vector<std::vector<BasicToken>>& li
                 if (tok.type != BasicToken::IDENTIFIER) continue;
                 if (!std::isalpha((unsigned char)tok.value[0])) continue;
                 if (isDiskParameter(t, s, k)) continue;   // DOPEN ..., L20, U8
+                if (kw == "FONT" && k == s + 1) continue;  // FONT A-F: a letter, not a variable
                 if (k > s && t[k - 1].type == BasicToken::OPERATOR && (t[k - 1].value == "$" || t[k - 1].value == "%"))
                     continue;   // $FF
                 if (k > s + 1 && t[k - 1].type == BasicToken::NUMBER && t[k - 2].type == BasicToken::OPERATOR &&
@@ -531,6 +532,10 @@ void BasicEmitter::checkReachable(const std::vector<BasicLine>& lines, const std
         return !t.empty() && t[0].type == BasicToken::KEYWORD &&
                ((t[0].value == "RETURN" && t.size() == 1) || (t[0].value == "GOTO" && t.size() == 2));
     };
+    // (FGOTO / FGOSUB compute their line: any line may be run)
+    for (const auto& l : lines)
+        for (const auto& tk : l.tokens)
+            if (tk.type == BasicToken::KEYWORD && (tk.value == "FGOTO" || tk.value == "FGOSUB")) return;
     for (size_t i = 0; i + 1 < lines.size(); i++) {
         const auto& t = lines[i].tokens;
         // the last statement of the line, and whether an IF/ON comes first

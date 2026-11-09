@@ -271,6 +271,33 @@ void _bas_dos(void) {
         } else if (__jsr(0xFFC9, .X = dosla, .A -> e).Carry) kerr(e);
         break;
     }
+    case 20: {  /* KEY LOAD (GetLoadChannel, LoadBlock): the keys' table at $1000 */
+        unsigned char la = 0, k = 0, st;
+        volatile unsigned char *t = (volatile unsigned char *)0x1000;
+        dosprs(0);
+        dossa = 0;
+        do {
+            if (++la & 0x80) kerr(1);
+        } while (!__jsr(0xFF5F, .A = la).Carry);
+        dosla = la;
+        n = sendp(t_fopn, 4);
+        cbm_clrchn();
+        cbm_setbnk(0, 0);
+        cbm_setnam((char *)cmd, n);
+        cbm_setlfs(dosla, dosfa, dossa);
+        if (__jsr(0xFFC0, .A -> e).Carry) kerr(e);
+        if (__jsr(0xFFC6, .X = dosla, .A -> e).Carry) { _bas_iffclose(); kerr(e); }
+        cbm_k_basin();                      /* (the load address) */
+        cbm_k_basin();
+        if (cbm_readst()) { _bas_iffclose(); kerr(29); }
+        do {
+            t[k] = cbm_k_basin();
+            st = (unsigned char)cbm_readst();
+            if (st) break;
+        } while (++k);
+        _bas_iffclose();
+        break;
+    }
     case 19:    /* exit_GKI_disk_op: closed; STOP down: BREAK */
         _bas_iffclose();
         if (__jsr(0xFFE1).Zero) {
