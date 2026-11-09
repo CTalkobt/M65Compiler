@@ -468,8 +468,8 @@ after the window is set), `RWINDOW(0-3)` (the window's width, height, the screen
 red, green, blue ...]` (red 0-31, its bit 4 the foreground/background flag; green, blue 0-15), `PALETTE RESTORE`
 and `VSYNC line` (0-511, below the frame's last line) set the VIC-IV's registers and the editor's variables as BASIC
 65's (`lib/stdlib/basic_scr.c`), through the KERNAL's `PLOT` and the editor's `_set_window`, `_cursor` and
-`_palette_init`. An error message (and `BREAK`) is in `HIGHLIGHT`'s colour, as the interpreter's. Not compiled:
-`PALETTE` of a graphics screen (BASIC's graphics, through its jump table). Test: `test_basic_compile10_xemu.bas`.
+`_palette_init`. An error message (and `BREAK`) is in `HIGHLIGHT`'s colour, as the interpreter's. `PALETTE` of a graphics
+screen is with the graphics below. Test: `test_basic_compile10_xemu.bas`.
 
 **Graphics**: `SCREEN DEF / OPEN / SET / CLOSE / CLR` and the old `SCREEN [screen,] width, height, depth`,
 `PEN [pen,] colour`, `DMODE`, `DPAT`, `DOT`, `LINE` (a chain of points; a value left out is the last point's), `BOX`
@@ -491,9 +491,16 @@ Its quirks are kept: the clip's low edges one pixel off, a 640-wide screen's pal
 adds nothing (the ROM reads the constant from the wrong bank), `VIEWPORT CLR` going through the brush's copy,
 `PASTE` clamped to the screen, `PAINT` stopping when its stack is full. The ellipses' table and `PAINT`'s stack are in
 attic RAM (`$8710000`, 8 KB; `$8700000`, as long as the kernel's after a short program), the brush in the kernel's
-scratch pages (`$1800`-`$1BFF`). Not compiled yet: `CHAR DEF`, `LOADIFF` / `SAVEIFF`. The run time is about 19 KB
+scratch pages (`$1800`-`$1BFF`). `SAVEIFF "[@]name" [,U#] [,D#]` writes the draw screen as an IFF ILBM file
+(BMHD, CMAP from the screen's palette, a ByteRun1 BODY), `LOADIFF "name" [,U#] [,D#]` pastes one at (0, 0) of the
+draw screen (its CMAP into the palette), both as the kernel does, quirks too: the chunks' pad bytes counted in
+the lengths but not written, so an 8-plane screen's file (a one-colour CMAP) makes `LOADIFF` read past its end
+and never return, in the interpreter as well; a file of another depth than the screen's sets the area to
+pen 0 (a shallower file) or leaves it as it is (a deeper one); an error's number is what the kernel's A held (the I/O status, or
+a byte of a chunk id: `?FILE DATA` is not given). Not compiled yet: `CHAR DEF`. The run time is about 20 KB
 (a program using most of it at `-O0` or `--speed` can pass `$C000`); more of it is to become assembly. Tests:
-`test_basic_compile11_xemu.bas`, `test_basic_compile12_xemu.bas`, `test_basic_compile13_xemu.bas`.
+`test_basic_compile11_xemu.bas`, `test_basic_compile12_xemu.bas`, `test_basic_compile13_xemu.bas`,
+`test_basic_compile14_xemu.bas`.
 
 **TRAP**: with a trap set, an error (not `STOP`'s BREAK) sets `ER` and `EL`, turns the trap off and goes on at
 the trap's line with the CPU stack as at the start (BASIC's stack of `GOSUB`, `FOR` and `DO` as it was, as the ROM

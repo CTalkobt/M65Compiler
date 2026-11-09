@@ -23,6 +23,7 @@ KG_HEIGHT   = $1F4D
 KG_PLANES   = $1F50
 KG_BANKA    = $1F3E
 KG_DSBP     = $1F61
+odd         = $1F5D           ; (scanlineflag: calcadr's odd line, the kernel's own)
 
 KG_VPMAXX   = $1F57
 KG_VPMAXY   = $1F59
@@ -296,7 +297,6 @@ patrbits: .byte 8, 16, 24, 32
 .global __bas_gy
 __bas_gx: .res 2
 __bas_gy: .res 2
-odd:   .res 1
 line:  .res 1
 adr:   .res 2
 mask:  .res 1

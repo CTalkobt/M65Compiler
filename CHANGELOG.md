@@ -4,6 +4,16 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### basic45 --compile: graphics, part 3: LOADIFF, SAVEIFF (#369)
+
+- SAVEIFF and LOADIFF as BASIC 65's kernel (`kg65.saveiff`, `kg65.loadiff`
+  through PASTE's code): IFF ILBM files with BMHD, CMAP and a ByteRun1 BODY,
+  opened as DLOAD / DSAVE would. The files and the bitplanes compared with
+  the interpreter's on xemu: the same bytes, the same error numbers.
+- The draw routines keep the odd-line flag in the kernel's own variable
+  (`$1F5D`), as its `calcadr` does.
+- Test `test_basic_compile14_xemu.bas` (interpreted, -O2; an empty D81).
+
 ### basic45 --compile: graphics, part 2: PAINT, VIEWPORT, GCOPY, CUT, PASTE, CHAR (#369)
 
 - PAINT (modes 0-2; its stack in attic RAM), VIEWPORT and VIEWPORT CLR,

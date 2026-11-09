@@ -226,6 +226,12 @@ static void closeall(void) { __jsr(0xFF50, .A = dosfa); }
 #define CBDOS0 (*(volatile unsigned char __far *)0x10113UL)
 #define CBDOS1 (*(volatile unsigned char __far *)0x10114UL)
 
+/* LOADIFF / SAVEIFF's file closed (also before their errors) */
+void _bas_iffclose(void) {
+    cbm_clrchn();
+    __jsr(0xFFC3, .A = dosla, .Carry = 0);
+}
+
 void _bas_dos(void) {
     unsigned char e, sa, n;
     switch ((unsigned char)_bas_m) {
@@ -244,6 +250,33 @@ void _bas_dos(void) {
         cbm_clrchn();
         cbm_setbnk(0, 0);
         if (__jsr(0xFFC0, .A -> e).Carry) kerr(e);
+        break;
+    case 17:    /* LOADIFF, SAVEIFF: the file opened (as DLOAD / DSAVE: sa 0 / 1), the */
+    case 18: {  /* channel in / out; __bas_gloadiff / gsaveiff, then 19 */
+        unsigned char la = 0;
+        dosprs(0);
+        dossa = (unsigned char)(_bas_m - 17);
+        do {                                    /* find_la */
+            if (++la & 0x80) kerr(1);
+        } while (!__jsr(0xFF5F, .A = la).Carry);
+        dosla = la;
+        n = sendp(t_fopn, 4);
+        cbm_clrchn();
+        cbm_setbnk(0, 0);
+        cbm_setnam((char *)cmd, n);
+        cbm_setlfs(dosla, dosfa, dossa);
+        if (__jsr(0xFFC0, .A -> e).Carry) kerr(e);
+        if (_bas_m == 17) {
+            if (__jsr(0xFFC6, .X = dosla, .A -> e).Carry) kerr(e);
+        } else if (__jsr(0xFFC9, .X = dosla, .A -> e).Carry) kerr(e);
+        break;
+    }
+    case 19:    /* exit_GKI_disk_op: closed; STOP down: BREAK */
+        _bas_iffclose();
+        if (__jsr(0xFFE1).Zero) {
+            while (__jsr(0xFFE1).Zero) {}
+            kerr(0);
+        }
         break;
     case 3:     /* DCLOSE */
         dosprs(0);
