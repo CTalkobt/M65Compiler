@@ -41,6 +41,22 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
   compiled program's own addresses).
 - Test `test_basic_compile21_xemu.bas` (four ways, an empty D81).
 
+### cc45: fewer float copies (#485)
+
+- A float result the next float operation uses (once) stays in `__float_a`
+  (its first operand) or goes straight into `__float_b` (its second), not
+  through a temporary; a 5-byte copy into a place that holds the value
+  already (`__float_a` onto itself, a variable just stored read back) is
+  left out, also into a block only the one before reaches
+  (`CC45_NO_F32EQ=1` keeps them).
+- `-ffloat-copy-call` (on at `-O1`, `-O2`, `-Os`; off from `-O3` /
+  `-Ospeed`): a file with at least 14 copies between places outside the base
+  page calls `__f32cpy` (`lib/stdlib_asm/f32cpy.s45`) with the two addresses
+  after the `jsr` (7 bytes a copy, not 11; about 140 cycles more).
+- A sample BASIC game compiled by `basic45 --compile`: 13148 to 12840
+  bytes. Test `test_float_copy_xemu.c` (both conventions, and without the
+  calls).
+
 ### basic45 --compile: SOUND (#369)
 
 - SOUND and SOUND CLR as BASIC 65's: the voice set up on SID 2 / 4, the
@@ -94,6 +110,14 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 - basic45's warnings no longer take a hex number's letters (`$2F8`) for a
   variable.
 - Test `test_basic_compile15_xemu.bas` (four ways).
+
+### cc45: a pointer parameter's fields read after a call (#470)
+
+- In the ZP convention, a parameter used only before a call stays in the
+  parameter block. A field address computed from it (`p->x`, fused into
+  `lda ($10),y`) used after a call now counts as a use there, so the
+  parameter is copied at the entry; before, every access after the first
+  call read the call's arguments instead. Test `test_zp_param_derived_xemu.c`.
 
 ### basic45 --compile: graphics, part 3: LOADIFF, SAVEIFF (#369)
 

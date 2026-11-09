@@ -70,6 +70,10 @@ public:
 
     // Phase 91.3: Set functions to skip during code generation (dead code elimination)
     void setFunctionSections(bool on) { functionSections_ = on; }
+    // the float copy loops between places outside the base page as calls of
+    // __f32cpy with the addresses after the jsr, when there are enough of them
+    // to pay for it (#485)
+    static std::string callF32Copies(const std::string& text);
     void setDeadCodeFunctions(const std::set<std::string>& deadFuncs) {
         deadCodeFunctions_ = deadFuncs;
     }
@@ -513,6 +517,12 @@ private:
     // would leave them. emitSeq_ counts emitted instructions and labels;
     // flagReg_ is the register the N/Z flags reflect ('A', 'X', 'Y', 'Z' or 0).
     uint64_t emitSeq_ = 0;
+    // #485: the places known to hold the same float as each other (5-byte
+    // copies only), valid while emitSeq_ == f32EqSeq_ (nothing emitted since
+    // the last copy but directives, comments and a label only the block before
+    // reaches); a copy between two of them is left out
+    std::set<std::string> f32Eq_;
+    uint64_t f32EqSeq_ = ~0ull;
     char flagReg_ = 0;
     struct StoreCache { uint32_t vreg = UINT32_MAX; uint64_t seq = ~0ULL; bool xValid = true; } storeCache_;  // xValid: X holds the high byte (stored with stx)
     // A:X = A:X * c (16 bits) by shifts and adds when that is no bigger than

@@ -109,6 +109,14 @@ void OptimizationCatalog::initializeCatalog() {
     });
 
     catalog_.push_back({
+        "FloatCopyCall", "Float Copy Calls",
+        "A file with many copies of a float between places outside the base page makes them calls of "
+        "__f32cpy with the two addresses after the jsr (7 bytes, not an 11-byte loop; about 140 cycles "
+        "a copy more): on at -O1, -O2 and -Os, off from -O3 / -Ospeed (#485)",
+        OptimizationCategory::SPACE, 1, 3, "-ffloat-copy-call", false, 2
+    });
+
+    catalog_.push_back({
         "TailCallOptimization", "Tail Call Optimization",
         "Convert tail calls to jumps (JSR + RTS → JMP)",
         OptimizationCategory::BOTH, 2, -1, "-ftail-call-optimization", true, 4
@@ -300,6 +308,7 @@ void OptimizationCatalog::initializeCatalog() {
         {"Builtin",              OptimizationImpl::BUILDER,   "", 0},
         {"SacSlotSharing",       OptimizationImpl::BUILDER,   "", 1},
         {"ZpArgs",               OptimizationImpl::BUILDER,   "", 1},
+        {"FloatCopyCall",        OptimizationImpl::BUILDER,   "", 1},
         {"StrengthReduction",    OptimizationImpl::IR_PASS,   "", 1},
         {"AlgebraicSimplify",    OptimizationImpl::IR_PASS,   "", 1},
         {"ParamNarrowing",       OptimizationImpl::IR_PASS,   "", 1},
