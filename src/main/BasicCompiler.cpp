@@ -65,7 +65,7 @@ enum : int {
     T_MOVSPR = 0xFE06, T_SPRITE = 0xFE07, T_SPRCOLOR = 0xFE08, T_SPRSAV = 0xFE16, T_COLLISION = 0xFE17,
     T_BUMP = 0xCE03, T_RSPPOS = 0xCE05, T_RSPRITE = 0xCE06, T_RSPCOLOR = 0xCE07, T_CLR = 0x9C, T_SAVE = 0x94,
     T_SCREEN = 0xFE2E, T_SET = 0xFE2D, T_PEN = 0xFE33, T_DMODE = 0xFE35, T_DPAT = 0xFE36, T_DOT = 0xFE4C,
-    T_BOX = 0xE1, T_CIRCLE = 0xE2, T_ELLIPSE = 0xFE30, T_POLYGON = 0xFE2F, T_PAINT = 0xDF, T_VIEWPORT = 0xFE31, T_GCOPY = 0xFE32, T_CUT = 0xE4, T_PASTE = 0xE3, T_SYS = 0x9E, T_PLAY = 0xFE04, T_TEMPO = 0xFE05, T_VOL = 0xDB, T_FILTER = 0xFE03, T_ENVELOPE = 0xFE0A, T_RPLAY = 0xCE0F, T_JOY = 0xCF, T_POT = 0xCE02, T_LPEN = 0xCE04, T_MOUSE = 0xFE3E, T_RMOUSE = 0xFE3F, T_USR = 0xB7, T_FRE = 0xB8, T_RREG = 0xFE09, T_DMA = 0xFE1F, T_EDMA = 0xFE21, T_LOADIFF = 0xFE43, T_SAVEIFF = 0xFE44, T_CHAR = 0xE0, T_GRAPHIC = 0xDE, T_RGRAPHIC = 0xCC, T_RPEN = 0xD0, T_PIXEL = 0xCE0C, T_RPALETTE = 0xCE0D,
+    T_BOX = 0xE1, T_CIRCLE = 0xE2, T_ELLIPSE = 0xFE30, T_POLYGON = 0xFE2F, T_PAINT = 0xDF, T_VIEWPORT = 0xFE31, T_GCOPY = 0xFE32, T_CUT = 0xE4, T_PASTE = 0xE3, T_SYS = 0x9E, T_FONT = 0xFE46, T_DECBIN = 0xCE11, T_RUN = 0x8A, T_FGOTO = 0xFE47, T_FGOSUB = 0xFE48, T_USING = 0xFB, T_PLAY = 0xFE04, T_TEMPO = 0xFE05, T_VOL = 0xDB, T_FILTER = 0xFE03, T_ENVELOPE = 0xFE0A, T_RPLAY = 0xCE0F, T_JOY = 0xCF, T_POT = 0xCE02, T_LPEN = 0xCE04, T_MOUSE = 0xFE3E, T_RMOUSE = 0xFE3F, T_USR = 0xB7, T_FRE = 0xB8, T_RREG = 0xFE09, T_DMA = 0xFE1F, T_EDMA = 0xFE21, T_LOADIFF = 0xFE43, T_SAVEIFF = 0xFE44, T_CHAR = 0xE0, T_GRAPHIC = 0xDE, T_RGRAPHIC = 0xCC, T_RPEN = 0xD0, T_PIXEL = 0xCE0C, T_RPALETTE = 0xCE0D,
     T_COLOR = 0xE7, T_FOREGROUND = 0xFE39, T_BACKGROUND = 0xFE3B, T_BORDER = 0xFE3C, T_HIGHLIGHT = 0xFE3D,
     T_CURSOR = 0xFE41, T_RCURSOR = 0xFE42, T_WINDOW = 0xFE1A, T_FAST = 0xFE25, T_SPEED = 0xFE26,
     T_PALETTE = 0xFE34, T_VSYNC = 0xFE54, T_OFF = 0xFE24, T_RCOLOR = 0xCD, T_RWINDOW = 0xCE09, T_RSPEED = 0xCE0E,
@@ -1230,6 +1230,15 @@ private:
             Val r; r.k = VK::I; r.bound = 1; r.op = load(ir::Type::I16, global("__bas_n"));
             return r;
         }
+        case T_DECBIN: {
+            // DECBIN(s$): its binary digits as a number
+            Val a = needS(parenExpr());
+            store(ir::Type::PTR, a.op, global("__bas_sa"));
+            call("__bas_decbin");
+            freeVal(a);
+            Val r; r.k = VK::F; r.op = load(ir::Type::F32, global("__float_a"));
+            return r;
+        }
         case T_JOY: case T_POT: case T_LPEN: {
             // JOY(1-3), POT(1-4), LPEN(0-1): conint's byte (else ?ILLEGAL QUANTITY)
             Val a = parenExpr();
@@ -1454,6 +1463,11 @@ private:
     void soundStmt(int kw);
     int playTunes_ = 0;
     std::set<std::string> warned_;
+    void runStmt();
+    void fgotoStmt(bool sub);
+    bool fgoUsed_ = false;   // FGOTO / FGOSUB: the line dispatch emitted at the end
+    void keyStmt();
+    void fontStmt();
     void sysStmt();
     void rregStmt();
     void dmaStmt(bool enhanced);
@@ -1717,6 +1731,11 @@ Val Compiler::fnCall() {
 // no IF before the NEXT in its line (its false branch would skip it), and
 // only counted loops inside.
 void Compiler::countedLoops() {
+    // (FGOTO / FGOSUB may go to any line)
+    for (const auto& ln : lines_)
+        for (const auto& sg : ln.segs)
+            for (const auto& t : sg.toks)
+                if (t.k == TK::Kw && (t.kw == T_FGOTO || t.kw == T_FGOSUB)) return;
     // the lines jumps go to
     std::set<size_t> targets;
     for (size_t li = 0; li < lines_.size(); li++)
@@ -1998,15 +2017,17 @@ void Compiler::finish() {
         block(newLabel("dead"));
         br("Lend");
     }
-    // the errors' blocks
-    for (int n : errBlocks_) {
-        block("Err" + std::to_string(n));
-        store(ir::Type::I16, iconst(ir::Type::I16, n), global("__bas_n"));
-        call("__bas_error");
-        ir::Inst in; in.op = ir::Op::RET; in.resultType = ir::Type::I16;
-        in.src1 = ir::Operand::imm(n, ir::Type::I16); emit(in);
+    if (fgoUsed_) {
+        // FGOTO / FGOSUB: the line of the number in __bas_fgo
+        block("fgodisp");
+        auto v = load(ir::Type::I16, global("__bas_fgo"));
+        for (size_t l = 0; l < lines_.size(); l++) {
+            std::string no = newLabel("fgn");
+            brCond(bin(ir::Op::CMP_EQ, ir::Type::I16, v, ir::Operand::imm(lines_[l].num, ir::Type::I16)), lineLabel(l), no);
+            block(no);
+        }
+        raiseNow(17);
     }
-    // init: the string variables empty; then the program
     if (clrUsed_) {
         block("clrall");
         call("__bas_clall");
@@ -2039,6 +2060,15 @@ void Compiler::finish() {
         auto a = load(ir::Type::I16, global("__bas_clrret"));
         ir::Inst in; in.op = ir::Op::BR_INDIRECT; in.src1 = a; emit(in);
     }
+    // the errors' blocks
+    for (int n : errBlocks_) {
+        block("Err" + std::to_string(n));
+        store(ir::Type::I16, iconst(ir::Type::I16, n), global("__bas_n"));
+        call("__bas_error");
+        ir::Inst in; in.op = ir::Op::RET; in.resultType = ir::Type::I16;
+        in.src1 = ir::Operand::imm(n, ir::Type::I16); emit(in);
+    }
+    // init: the string variables empty; then the program
     block("init");
     store(ir::Type::I8, iconst(ir::Type::I8, 0), global("__bas_sp"));
     if (sprIrq_) call("__bas_sprirq");
@@ -2087,6 +2117,11 @@ void Compiler::finish() {
     if (clrUsed_) {
         ir::Module::GlobalVar gv;
         gv.name = "__bas_clrret"; gv.type = ir::Type::I16; gv.size = 2;
+        mod_->globals.push_back(gv);
+    }
+    if (fgoUsed_) {
+        ir::Module::GlobalVar gv;
+        gv.name = "__bas_fgo"; gv.type = ir::Type::I16; gv.size = 2;
         mod_->globals.push_back(gv);
     }
     for (const auto& g : arrays_) {
@@ -2198,6 +2233,10 @@ void Compiler::statement() {
         graphicsStmt(kw); return;
     case T_LOADIFF: case T_SAVEIFF: iffStmt(kw); return;
     case T_SYS: sysStmt(); return;
+    case T_KEY: keyStmt(); return;
+    case T_FONT: fontStmt(); return;
+    case T_RUN: runStmt(); return;
+    case T_FGOTO: case T_FGOSUB: fgotoStmt(kw == T_FGOSUB); return;
     case T_PLAY: playStmt(); return;
     case T_TEMPO: case T_VOL: case T_ENVELOPE: case T_FILTER: soundStmt(kw); return;
     case T_MOUSE: mouseStmt(); return;
@@ -2708,6 +2747,91 @@ void Compiler::soundStmt(int kw) {
     if (optByt(v)) { gByte(7, v); given |= 16; }
     gStore(1, iconst(ir::Type::I8, given), ir::Type::I8);
     call("__bas_filter");
+}
+
+// RUN (b65.src run): the program from the start, or from a line, CLR first;
+// RUN "name" [,D] [,U]: that program loaded and run (as DLOAD, the variables
+// not passed on)
+void Compiler::runStmt() {
+    auto t = peek();
+    if (stmtEnd() || (t && t->k == TK::Num)) {
+        size_t target = stmtEnd() ? 0 : lineTarget();
+        clrUsed_ = true;
+        auto r = vreg(ir::Type::I16);
+        ir::Inst in; in.op = ir::Op::ADDR_LABEL; in.dest = r; in.src1 = ir::Operand::label(lineLabel(target)); emit(in);
+        store(ir::Type::I16, r, global("__bas_clrret"));
+        br("clrall");
+        block(newLabel("dead"));
+        return;
+    }
+    std::vector<Val> names;
+    int par = dosArgs("RUN", 0xE6, names);
+    if (!(par & 1)) fail("RUN needs a file name or a line (?SYNTAX ERROR)");
+    store(ir::Type::I8, ir::Operand::imm(0, ir::Type::I8), global("__bas_dflg"));
+    call("__bas_chainprep");
+    call("__bas_chain");
+    for (auto it = names.rbegin(); it != names.rend(); ++it) freeVal(*it);
+}
+
+// FGOTO / FGOSUB expression (b65.src fgoto: getwrd's line number; no such
+// line: ?UNDEF'D STATEMENT): through the program's line dispatch
+void Compiler::fgotoStmt(bool sub) {
+    fgoUsed_ = true;
+    addr32(expr());         // (getwrd is getadr: 0 .. 2^32 - 1, its low 16 bits)
+    store(ir::Type::I16, load(ir::Type::I16, global("__bas_fa")), global("__bas_fgo"));
+    if (!sub) { br("fgodisp"); block(newLabel("dead")); return; }
+    std::string ret = newLabel("ret");
+    pushRet(ret);
+    br("fgodisp");
+    block(ret);
+    entry();
+}
+
+// KEY [ON | OFF | RESTORE | LOAD name | SAVE name | n, string] (b65.src
+// key): KEY alone lists the function keys
+void Compiler::keyStmt() {
+    if (stmtEnd()) { call("__bas_keylist"); return; }
+    int mode = acceptKw(T_ON) ? 0 : acceptKw(T_OFF) ? 1 : acceptKw(T_RESTORE) ? 2 : -1;
+    if (mode >= 0) {
+        store(ir::Type::I16, iconst(ir::Type::I16, mode), global("__bas_m"));
+        call("__bas_keymode");
+        return;
+    }
+    if (acceptKw(T_LOAD) || isKw(T_SAVE)) {
+        bool save = acceptKw(T_SAVE);
+        std::vector<Val> names;
+        int par = dosArgs(save ? "KEY SAVE" : "KEY LOAD", save ? 0x66 : 0xE6, names, 0);
+        if (!(par & 1)) fail("KEY LOAD / SAVE needs a file name (?SYNTAX ERROR)");
+        if (save) {
+            // (as BSAVE: $1000 to $1101 in bank 0)
+            store(ir::Type::I32, iconst(ir::Type::I32, 0x1000), global("__bas_dofl"));
+            store(ir::Type::I32, iconst(ir::Type::I32, 0x1101), global("__bas_dofh"));
+            store(ir::Type::I8, iconst(ir::Type::I8, 0), global("__bas_dbnk"));
+            store(ir::Type::I8, iconst(ir::Type::I8, 7), global("__bas_daux"));
+            store(ir::Type::I16, iconst(ir::Type::I16, 15), global("__bas_m"));
+        } else store(ir::Type::I16, iconst(ir::Type::I16, 20), global("__bas_m"));
+        call("__bas_dos");
+        for (auto it = names.rbegin(); it != names.rend(); ++it) freeVal(*it);
+        return;
+    }
+    // (the number kept until the string is made: CHR$ and others use __bas_n)
+    ir::Operand kn = zext(toByte(expr()), ir::Type::I8, ir::Type::I16);
+    expectCh(',');
+    Val str = needS(expr());
+    store(ir::Type::I16, kn, global("__bas_n"));
+    store(ir::Type::PTR, str.op, global("__bas_sa"));
+    call("__bas_keydef");
+    freeVal(str);
+}
+
+// FONT A-F (b65.src fontsub): A-C upper case, D-F lower; the font copied in
+void Compiler::fontStmt() {
+    auto t = peek();
+    if (!t || t->k != TK::Name || t->text.size() != 1 || t->text[0] < 'A' || t->text[0] > 'F')
+        fail("FONT takes A to F (?SYNTAX ERROR)");
+    p_++;
+    store(ir::Type::I16, iconst(ir::Type::I16, t->text[0] - 'A'), global("__bas_n"));
+    call("__bas_font");
 }
 
 // SYS address [, a, x, y, z, s] (b65.src sys: poke_sub's address, the
@@ -3294,7 +3418,20 @@ void Compiler::graphicsStmt(int kw) {
     }
     case T_CHAR: {
         // CHAR column, row, height, width, direction, string [, font address]
-        if (isKw(T_DEF)) fail("CHAR DEF is not supported by --compile yet");
+        if (acceptKw(T_DEF)) {
+            // CHAR DEF index, byte [, byte ...]: the character generator's
+            // bytes of character index (0-511) on (b65.src chardef)
+            Val i = expr();
+            addr32(i);
+            store(ir::Type::I16, load(ir::Type::I16, global("__bas_fa")), global("__bas_n"));
+            call("__bas_chrdefi");
+            expectCh(',');
+            do {
+                store(ir::Type::I16, toAddr(expr()), global("__bas_n"));
+                call("__bas_chrdefb");
+            } while (acceptCh(','));
+            return;
+        }
         call("__bas_gcheck");
         gByte(0, expr());
         expectCh(',');
@@ -3986,6 +4123,27 @@ void Compiler::printStmt() {
     while (!atEnd() && !isKw(T_ELSE)) {
         if (acceptCh(';')) { newline = false; continue; }
         if (acceptCh(',')) { call("__bas_prcomma"); newline = false; continue; }
+        if (acceptKw(T_USING)) {
+            // USING format; value: the value formatted (basic_using.c); a
+            // comma after it is passed over, as the ROM's pu_using does
+            Val f = needS(expr());
+            expectCh(';');
+            Val v = expr();
+            store(ir::Type::PTR, f.op, global("__bas_sa"));
+            if (v.k == VK::S) {
+                store(ir::Type::PTR, v.op, global("__bas_sb"));
+                store(ir::Type::I16, iconst(ir::Type::I16, 1), global("__bas_m"));
+            } else {
+                store(ir::Type::F32, toF(v), global("__float_a"));
+                store(ir::Type::I16, iconst(ir::Type::I16, 0), global("__bas_m"));
+            }
+            call("__bas_using");
+            freeVal(v);
+            freeVal(f);
+            acceptCh(',');
+            newline = true;
+            continue;
+        }
         if (isKw(T_TAB) || isKw(T_SPC)) {
             bool tab = isKw(T_TAB);
             p_++;

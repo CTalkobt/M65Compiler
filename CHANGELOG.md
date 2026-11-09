@@ -4,6 +4,16 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### basic45 --compile: PRINT USING, FGOTO, FGOSUB, RUN, KEY, FONT, CHAR DEF, DECBIN (#369)
+
+- PRINT USING as BASIC 65's own (`#`, `.`, `>`, `=`, the `%` fields, hex),
+  FGOTO / FGOSUB through a dispatch over the lines, RUN (a line, a program),
+  KEY (all its forms), FONT, CHAR DEF and DECBIN as the ROM's
+  (`lib/stdlib/basic_using.c`, `basic_key.c`).
+- basic45's warnings: no "can never run" in a program with FGOTO / FGOSUB,
+  FONT's letter is not a variable.
+- Test `test_basic_compile18_xemu.bas` (four ways).
+
 ### basic45 --compile: PLAY through the tune player, RPLAY, TEMPO, VOL, ENVELOPE, FILTER (#369)
 
 - PLAY's strings converted at compile time (`BasicPlay.cpp`, tune45's
