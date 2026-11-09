@@ -1,0 +1,272 @@
+; basic_play.s45 — a PLAY string read into a stream of the tune player's,
+; for basic45 --compile (#369; basic_snd.c's _bas_play calls it)
+;
+; __bas_plparse: voice __bas_n's string at __bas_sa (a length byte, the
+; characters) read as BASIC 65 reads it (b65.src V920413
+; play_one_character): A-G a note, # / $ before it sharp / flat, W H Q I S
+; its length from then on, . the next note or rest dotted, R a rest, O T X U
+; M P with a digit: octave, envelope, filter, volume, modulation,
+; portamento; L back to the start; anything else ignored. Into a stream on
+; the heap (__bas_sr; <audio_tune.h>: an envelope $81 e first, a note n d,
+; a rest $80 d, $8E-$90, $8D through BASIC's volume table; $FE at an L
+; after something to play, else $FF), each voice from its octave, length
+; (ticks: a 32nd note 1) and envelope of before (__bas_ploct, __bas_pllen,
+; __bas_plenv: BASIC's voctave, vntime; PLAY alone puts 4, 8, 0 back).
+; ?ILLEGAL QUANTITY for O7-O9, X2-X9; ?OUT OF MEMORY.
+
+    .cpu 45gs02
+
+; no calls through pointers here (ln45's call graph, see O45Linker)
+.weak cc45.icallinfo
+cc45.icallinfo = 1
+
+src     = $08       ; the string (from its length byte)
+dst     = $0A       ; the stream
+cnt     = $0C       ; characters left
+tmp     = $0D
+
+.extern __bas_n
+.extern __bas_sa
+.extern __bas_sr
+.extern __bas_raise
+.extern _malloc
+
+    .split "__bas_plparse"
+.global __bas_plparse
+__bas_plparse:
+    lda __bas_sa        ; malloc(2 * length + 4): two bytes a character at most
+    sta src
+    lda __bas_sa+1
+    sta src+1
+    ldy #0
+    lda (src),y
+    sta pl_n
+    asl a
+    sta $10
+    tya
+    rol a
+    sta $11
+    clc
+    lda $10
+    adc #4
+    sta $10
+    bcc @sz
+    inc $11
+@sz:
+    jsr _malloc
+    sta __bas_sr
+    stx __bas_sr+1
+    sta dst
+    stx dst+1
+    ora dst+1
+    bne @mem
+    lda #16             ; ?OUT OF MEMORY
+    jmp __bas_raise
+@mem:
+    lda __bas_sa        ; (malloc's base page used: again)
+    sta src
+    lda __bas_sa+1
+    sta src+1
+    ldx __bas_n
+    lda __bas_ploct,x
+    sta pl_oct
+    lda __bas_pllen,x
+    sta pl_len
+    lda __bas_plenv,x
+    sta pl_env
+    lda #0
+    sta pl_any
+    sta pl_loop
+    jsr @clear
+    lda #$81            ; its envelope
+    jsr @emit
+    lda pl_env
+    jsr @emit
+    lda pl_n
+    sta cnt
+@next:
+    lda cnt
+    bne @char
+    jmp @end
+@char:
+    dec cnt
+    inw src
+    ldy #0
+    lda (src),y
+    cmp #$4C            ; L
+    bne @nl
+    lda #1
+    sta pl_loop
+    jmp @end
+@nl:
+    cmp #$41            ; A-G: a note
+    bcc @nn
+    cmp #$48
+    bcs @nn
+    sbc #$40            ; (C clear: - $41)
+    tax
+    lda pl_oct          ; 12 * (octave + 1) + the scale's + sharp / flat
+    inc a
+    asl a
+    asl a
+    sta tmp
+    asl a
+    clc
+    adc tmp
+    clc
+    adc pl_scale,x
+    clc
+    adc pl_sharp
+    and #$7F
+    bra @timed
+@nn:
+    cmp #$52            ; R: a rest
+    bne @nr
+    lda #$80
+@timed:
+    jsr @emit
+    lda pl_len          ; its ticks (dotted: 1.5 times)
+    ldx pl_dot
+    beq @plain
+    lsr a
+    clc
+    adc pl_len
+@plain:
+    jsr @emit
+    lda #1
+    sta pl_any
+    jsr @clear
+    bra @next
+@nr:
+    ldx #1
+    cmp #$23            ; #
+    beq @sh
+    ldx #$FF
+    cmp #$24            ; $
+    bne @nf
+@sh:
+    stx pl_sharp
+    bra @next
+@nf:
+    cmp #$2E            ; .
+    bne @nd
+    sta pl_dot
+    bra @next
+@nd:
+    ldx #4              ; W H Q I S: the length
+@lc:
+    cmp pl_lchars,x
+    beq @len
+    dex
+    bpl @lc
+    ldx #5              ; O T X U M P: the next digit's
+@fc:
+    cmp pl_fchars,x
+    beq @flag
+    dex
+    bpl @fc
+    cmp #$30            ; a digit after one of them
+    bcc @other
+    cmp #$3A
+    bcs @other
+    ldx pl_flag
+    beq @other
+    sbc #$2F            ; (C clear: - $30)
+    sta tmp
+    dex
+    beq @oct
+    cpx #2
+    bne @nx
+    cmp #2              ; X0 / X1
+    bcs @bad
+@nx:
+    cpx #3
+    bne @nu
+    tay                 ; U: through BASIC's volume table
+    lda pl_voltab,y
+    sta tmp
+@nu:
+    cpx #1
+    bne @nt
+    sta pl_env          ; T
+@nt:
+    lda pl_ops-1,x
+    jsr @emit
+    lda tmp
+    jsr @emit
+    bra @other
+@oct:
+    cmp #7
+    bcs @bad
+    sta pl_oct
+    bra @other
+@bad:
+    lda #14             ; ?ILLEGAL QUANTITY
+    jmp __bas_raise
+@len:
+    lda pl_lengths,x
+    sta pl_len
+    jmp @next
+@flag:
+    inx
+    stx pl_flag
+    jmp @next
+@other:
+    lda #0
+    sta pl_flag
+    jmp @next
+@end:
+    lda pl_any          ; $FE: L after something to play
+    and pl_loop
+    beq @once
+    lda #$FE
+    bra @last
+@once:
+    lda #$FF
+@last:
+    jsr @emit
+    ldx __bas_n
+    lda pl_oct
+    sta __bas_ploct,x
+    lda pl_len
+    sta __bas_pllen,x
+    lda pl_env
+    sta __bas_plenv,x
+    rts
+@emit:
+    ldy #0
+    sta (dst),y
+    inw dst
+    rts
+@clear:
+    lda #0
+    sta pl_sharp
+    sta pl_dot
+    sta pl_flag
+    rts
+
+pl_scale:   .byte 9, 11, 0, 2, 4, 5, 7          ; A-G (scalen)
+pl_lchars:  .byte $57, $48, $51, $49, $53       ; W H Q I S
+pl_lengths: .byte 32, 16, 8, 4, 2
+pl_fchars:  .byte $4F, $54, $58, $55, $4D, $50  ; O T X U M P
+pl_ops:     .byte $81, $8E, $8D, $8F, $90       ; T X U M P's events
+pl_voltab:  .byte 0, 1, 3, 5, 7, 8, 10, 12, 14, 15
+
+.segment "data"
+.global __bas_ploct
+.global __bas_pllen
+.global __bas_plenv
+__bas_ploct: .byte 4, 4, 4, 4, 4, 4
+__bas_pllen: .byte 8, 8, 8, 8, 8, 8
+__bas_plenv: .byte 0, 0, 0, 0, 0, 0
+
+.segment "bss"
+pl_n:       .res 1
+pl_oct:     .res 1
+pl_len:     .res 1
+pl_env:     .res 1
+pl_sharp:   .res 1
+pl_dot:     .res 1
+pl_flag:    .res 1
+pl_any:     .res 1
+pl_loop:    .res 1

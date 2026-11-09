@@ -550,7 +550,7 @@ records the latch in BASIC's bytes, `$02E8`, as BASIC's IRQ does). `MOUSE ON [, 
 `MOVSPR`'s); `RMOUSE x, y, buttons` reads the pointer sprite and the buttons (-1 each without a mouse). Test:
 `test_basic_compile16_xemu.bas`.
 
-**PLAY** (`lib/stdlib/basic_snd.c`): each `PLAY`'s strings (any string expressions) are read when it runs as BASIC
+**PLAY** (`lib/stdlib/basic_snd.c`, `lib/stdlib_asm/basic_play.s45`): each `PLAY`'s strings (any string expressions) are read when it runs as BASIC
 65 reads them (notes A-G, `#` / `$`, the lengths W H Q I S, dots, `R`, `O` octave, `T` envelope, `X` `U` `M` `P`, `L`
 back to the start; each voice from its octave, length and envelope of before as BASIC's, octave 4, quarter notes
 and envelope 0 after `PLAY` alone) into streams of the program's tune for the library's tune player

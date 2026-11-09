@@ -7,7 +7,8 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 ### basic45 --compile: PLAY's strings read when it runs (#369)
 
 - `PLAY` takes any string expressions (a string built at run time was a
-  compile error): the run time (`basic_snd.c`) reads them as BASIC 65 does
+  compile error): the run time (`basic_snd.c`, its reader in assembly:
+  `basic_play.s45`) reads them as BASIC 65 does
   into the tune player's streams (a voice's on the heap), each voice from
   its octave, length and envelope of before as BASIC's (they began at
   octave 4, quarter notes, envelope 0 in each `PLAY`). `BasicPlay.cpp` is

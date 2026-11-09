@@ -55,9 +55,9 @@ static void speed(void) {
  * U M P with a digit: octave, envelope, filter, volume, modulation,
  * portamento; L back to the start; anything else ignored) into a stream of
  * the tune player's (<audio_tune.h>: a note n d, a rest $80 d, an envelope
- * $81 e, $8D-$90; $FE or $FF at the end; a tick a 32nd note), each voice
- * from its octave, length and envelope of before as BASIC's (voctave,
- * vntime; PLAY alone: octave 4, quarter notes, envelope 0). The streams are
+ * $81 e, $8D-$90; $FE or $FF at the end; a tick a 32nd note: basic_play.s45),
+ * each voice from its octave, length and envelope of before as BASIC's
+ * (voctave, vntime; PLAY alone: octave 4, quarter notes, envelope 0). The streams are
  * the program's tune's (_bas_ptune: nine voices, BASIC's 4-6 on SID 3, the
  * ten envelopes as instruments, their current values put in): a voice given
  * starts on its stream at the next tick (tune_voice_play), the others going
@@ -68,7 +68,9 @@ static void speed(void) {
 unsigned char _bas_ptune[PT_EMPTY + 1];
 static const unsigned char pthead[8] = {0, 9, 0x20, 0x03, 10, PT_ISIZE, PT_INS, 0};   /* once, 9 voices, 3.125 frames a tick */
 unsigned char *_bas_pls[6];
-static unsigned char voct[6] = {4, 4, 4, 4, 4, 4}, vlen[6] = {8, 8, 8, 8, 8, 8}, venv[6];
+extern unsigned char _bas_ploct[6], _bas_pllen[6], _bas_plenv[6];   /* (basic_play.s45) */
+extern unsigned char *_bas_sr;
+extern void _bas_plparse(void);
 static unsigned char *vbuf[6];          /* each voice's stream (malloc) */
 static unsigned char ptune;             /* (1 once a PLAY ran: ENVELOPE changes its instruments) */
 
@@ -83,67 +85,17 @@ static void envset(unsigned char k) {
     p[4] = PULSHI[k] & 0x0F;
 }
 
-static const unsigned char scalen[7] = {9, 11, 0, 2, 4, 5, 7};          /* A-G */
-static const unsigned char voltab[10] = {0, 1, 3, 5, 7, 8, 10, 12, 14, 15};
-static const unsigned char lchars[5] = {0x57, 0x48, 0x51, 0x49, 0x53};   /* W H Q I S */
-static const unsigned char lengths[5] = {32, 16, 8, 4, 2};
-
-/* voice v's string into a new stream */
-static unsigned char *parse(unsigned char v, const unsigned char *s) {
-    unsigned char n = s[0], i, c, d, oct = voct[v], len = vlen[v], env = venv[v];
-    unsigned char dot = 0, flag = 0, loop = 0, any = 0, k;
-    signed char sharp = 0;
-    unsigned char *buf = malloc((unsigned int)n * 2 + 4), *o;
-    if (!buf) raise(16);
-    o = buf;
-    *o++ = 0x81;
-    *o++ = env;
-    for (i = 1; i <= n; i++) {
-        c = s[i];
-        if (c == 0x4C) { loop = 1; break; }                 /* L */
-        if (c >= 0x41 && c <= 0x47) {                       /* A-G */
-            d = scalen[c - 0x41] + 12 * (oct + 1) + sharp;
-            *o++ = d & 0x7F;
-            *o++ = dot ? len + (len >> 1) : len;
-            any = 1; sharp = 0; dot = 0; flag = 0;
-            continue;
-        }
-        if (c == 0x52) {                                    /* R */
-            *o++ = 0x80;
-            *o++ = dot ? len + (len >> 1) : len;
-            any = 1; sharp = 0; dot = 0; flag = 0;
-            continue;
-        }
-        if (c == 0x2E) { dot = 1; continue; }               /* . */
-        if (c == 0x23) { sharp = 1; continue; }             /* # */
-        if (c == 0x24) { sharp = -1; continue; }            /* $ */
-        for (k = 0; k < 5; k++)
-            if (c == lchars[k]) break;
-        if (k < 5) { len = lengths[k]; continue; }
-        if (c == 0x4F || c == 0x54 || c == 0x58 || c == 0x55 || c == 0x4D || c == 0x50) { flag = c; continue; }
-        if (c >= 0x30 && c <= 0x39 && flag) {
-            d = c - 0x30;
-            switch (flag) {
-            case 0x4F: if (d >= 7) raise(14); oct = d; break;                   /* O */
-            case 0x54: env = d; *o++ = 0x81; *o++ = d; break;                  /* T */
-            case 0x58: if (d >= 2) raise(14); *o++ = 0x8E; *o++ = d; break;    /* X */
-            case 0x55: *o++ = 0x8D; *o++ = voltab[d]; break;                   /* U */
-            case 0x4D: *o++ = 0x8F; *o++ = d; break;                           /* M */
-            default: *o++ = 0x90; *o++ = d; break;                             /* P */
-            }
-        }
-        flag = 0;
-    }
-    *o = loop && any ? 0xFE : 0xFF;     /* (an L with nothing before it: the voice ends) */
-    voct[v] = oct;
-    vlen[v] = len;
-    venv[v] = env;
-    return buf;
-}
-
 void _bas_play(void) {
     unsigned char k, *b[6];
-    for (k = 0; k < 6; k++) b[k] = _bas_pls[k] ? parse(k, _bas_pls[k]) : 0;
+    for (k = 0; k < 6; k++) {
+        b[k] = 0;
+        if (_bas_pls[k]) {
+            _bas_n = k;
+            _bas_sa = _bas_pls[k];
+            _bas_plparse();
+            b[k] = _bas_sr;
+        }
+    }
     if (!ptune) {
         for (k = 0; k < 8; k++) _bas_ptune[k] = pthead[k];
         for (k = 0; k < 9; k++) _bas_ptune[8 + k * 2] = PT_EMPTY;   /* (each voice empty at first) */
@@ -184,9 +136,9 @@ void _bas_snddef(void) {
     unsigned char k, c;
     if (_bas_musv) tune_stop();
     for (k = 0; k < 6; k++) {
-        voct[k] = 4;
-        vlen[k] = 8;
-        venv[k] = 0;
+        _bas_ploct[k] = 4;
+        _bas_pllen[k] = 8;
+        _bas_plenv[k] = 0;
     }
     __asm__("php\n sei");
     for (c = 0; c < 4; c++) {
