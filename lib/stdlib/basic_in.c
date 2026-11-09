@@ -200,6 +200,19 @@ void _bas_ti(void) {
     for (k = 0; k < 5; k++) _float_a[k] = ((unsigned char *)&f)[k];
 }
 
+/* CLR TI (b65.src Clear_TI): timers A and B stopped, loaded with $FFFF each,
+ * started again */
+void _bas_ticlr(void) {
+    unsigned char k;
+    CIA2[0x0E] = ((VIC_PAL & 0x80) ^ 0x80) | 0x40;
+    CIA2[0x0F] = 0x40;
+    for (k = 0; k < 4; k++) CIA2[4 + k] = 0xFF;
+    CIA2[0x0E] |= 0x10;
+    CIA2[0x0F] |= 0x10;
+    CIA2[0x0E] = ((VIC_PAL & 0x80) ^ 0x80) | 0x41;
+    CIA2[0x0F] = 0x41;
+}
+
 void _bas_tis(void) {
     unsigned char __far *rtc = (unsigned char __far *)0xFFD7110UL;
     unsigned char b[3], k, i;

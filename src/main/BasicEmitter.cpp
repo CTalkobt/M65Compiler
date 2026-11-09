@@ -461,6 +461,10 @@ void BasicEmitter::checkVariables(const std::vector<std::vector<BasicToken>>& li
                 if (isDiskParameter(t, s, k)) continue;   // DOPEN ..., L20, U8
                 if (k > s && t[k - 1].type == BasicToken::OPERATOR && (t[k - 1].value == "$" || t[k - 1].value == "%"))
                     continue;   // $FF
+                if (k > s + 1 && t[k - 1].type == BasicToken::NUMBER && t[k - 2].type == BasicToken::OPERATOR &&
+                    t[k - 2].value == "$" &&
+                    tok.value.find_first_not_of("0123456789abcdefABCDEF") == std::string::npos)
+                    continue;   // $2F8: the hex number's letters after its first digit
                 if (k > s && t[k - 1].type == BasicToken::KEYWORD && t[k - 1].value == "FN") continue;   // FN name
                 std::string name = up(tok.value);
                 if (k + 1 < end && t[k + 1].type == BasicToken::OPERATOR &&

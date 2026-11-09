@@ -64,7 +64,7 @@ enum : int {
     T_MOVSPR = 0xFE06, T_SPRITE = 0xFE07, T_SPRCOLOR = 0xFE08, T_SPRSAV = 0xFE16, T_COLLISION = 0xFE17,
     T_BUMP = 0xCE03, T_RSPPOS = 0xCE05, T_RSPRITE = 0xCE06, T_RSPCOLOR = 0xCE07, T_CLR = 0x9C, T_SAVE = 0x94,
     T_SCREEN = 0xFE2E, T_SET = 0xFE2D, T_PEN = 0xFE33, T_DMODE = 0xFE35, T_DPAT = 0xFE36, T_DOT = 0xFE4C,
-    T_BOX = 0xE1, T_CIRCLE = 0xE2, T_ELLIPSE = 0xFE30, T_POLYGON = 0xFE2F, T_PAINT = 0xDF, T_VIEWPORT = 0xFE31, T_GCOPY = 0xFE32, T_CUT = 0xE4, T_PASTE = 0xE3, T_LOADIFF = 0xFE43, T_SAVEIFF = 0xFE44, T_CHAR = 0xE0, T_GRAPHIC = 0xDE, T_RGRAPHIC = 0xCC, T_RPEN = 0xD0, T_PIXEL = 0xCE0C, T_RPALETTE = 0xCE0D,
+    T_BOX = 0xE1, T_CIRCLE = 0xE2, T_ELLIPSE = 0xFE30, T_POLYGON = 0xFE2F, T_PAINT = 0xDF, T_VIEWPORT = 0xFE31, T_GCOPY = 0xFE32, T_CUT = 0xE4, T_PASTE = 0xE3, T_SYS = 0x9E, T_USR = 0xB7, T_FRE = 0xB8, T_RREG = 0xFE09, T_DMA = 0xFE1F, T_EDMA = 0xFE21, T_LOADIFF = 0xFE43, T_SAVEIFF = 0xFE44, T_CHAR = 0xE0, T_GRAPHIC = 0xDE, T_RGRAPHIC = 0xCC, T_RPEN = 0xD0, T_PIXEL = 0xCE0C, T_RPALETTE = 0xCE0D,
     T_COLOR = 0xE7, T_FOREGROUND = 0xFE39, T_BACKGROUND = 0xFE3B, T_BORDER = 0xFE3C, T_HIGHLIGHT = 0xFE3D,
     T_CURSOR = 0xFE41, T_RCURSOR = 0xFE42, T_WINDOW = 0xFE1A, T_FAST = 0xFE25, T_SPEED = 0xFE26,
     T_PALETTE = 0xFE34, T_VSYNC = 0xFE54, T_OFF = 0xFE24, T_RCOLOR = 0xCD, T_RWINDOW = 0xCE09, T_RSPEED = 0xCE0E,
@@ -1211,6 +1211,8 @@ private:
         p_++;
         switch (kw) {
         case T_SQR: return floatFn("__bas_sqr");
+        case T_USR: return floatFn("__bas_usr");
+        case T_FRE: return floatFn("__bas_fre");
         case T_LOG: return floatFn("__bas_log");
         case T_EXP: return floatFn("__bas_exp");
         case T_SIN: return floatFn("__float_sin");
@@ -1425,6 +1427,37 @@ private:
     void dosStmt(int kw);
     int dosArgs(const char* what, int errflags, std::vector<Val>& names, int auxAllowed = 0);
     void iffStmt(int kw);
+    void clrStmt();
+    bool clrUsed_ = false;   // CLR: its block (every variable cleared) emitted at the end
+    bool gfxUsed_ = false;   // a graphics statement: CLR clears the graphics kernel too
+    void sysStmt();
+    void rregStmt();
+    void dmaStmt(bool enhanced);
+    bool sysUsed_ = false;   // SYS or RREG: the registers taken from the ROM's at the start
+    // a byte / word of the global array g at off
+    void storeAt(const char* g, int off, ir::Operand v, ir::Type t) {
+        auto a = vreg(ir::Type::PTR);
+        ir::Inst in; in.op = ir::Op::ADDR_ELEM; in.dest = a; in.src1 = global(g);
+        in.src2 = ir::Operand::imm(off, ir::Type::I16); in.args.push_back(ir::Operand::imm(1, ir::Type::I16));
+        in.resultType = ir::Type::PTR; emit(in);
+        store(t, v, a);
+    }
+    // a 32-bit address (getadr: 0 .. 2^32 - 1) into __bas_fa
+    void addr32(const Val& v) {
+        if (v.k == VK::S) fail("a number expected, not a string (?TYPE MISMATCH)");
+        if (v.isConst) {
+            double f = std::floor(v.cval);
+            if (f < 0 || f >= 4294967296.0) { raiseNow(14); f = 0; }
+            store(ir::Type::I32, iconst(ir::Type::I32, (int64_t)(uint32_t)(uint64_t)f), global("__bas_fa"));
+        } else if (v.k == VK::I || v.k == VK::B) {
+            Val x = v.k == VK::B ? toI16(v) : v;
+            checkRange(x, 0, INT32_MAX);
+            store(ir::Type::I32, asType(x, ir::Type::I32), global("__bas_fa"));
+        } else {
+            store(ir::Type::F32, toF(v), global("__float_a"));
+            call("__bas_getadr32");
+        }
+    }
     int lastAux_ = 0;
     void recordStmt();
     bool stmtEnd() const { return atEnd() || isKw(T_ELSE); }
@@ -1654,7 +1687,7 @@ Val Compiler::fnCall() {
 // the stack's view of it: the FOR and its NEXT statements of their own
 // (not after THEN), the NEXT the first one matching it in the text (nested
 // loops' NEXTs before it), and in between no way out of the loop or into it:
-// no GOTO, GOSUB, ON, RETURN, DO / LOOP / EXIT, BEGIN / BEND, THEN / ELSE
+// no GOTO, GOSUB, ON, RETURN, DO / LOOP / EXIT, BEGIN / BEND, CLR, THEN / ELSE
 // with a line number, no FOR of the same variable, no line a jump goes to,
 // no IF before the NEXT in its line (its false branch would skip it), and
 // only counted loops inside.
@@ -1704,6 +1737,10 @@ void Compiler::countedLoops() {
                         if (t[k].kw == T_THEN) ifSeen = true;
                         break;
                     case T_IF: ifSeen = true; break;
+                    case T_CLR:
+                        // (CLR empties BASIC's stack: its NEXT must find the loop gone)
+                        if (k + 1 >= t.size() || (t[k + 1].k == TK::Kw && t[k + 1].kw == T_ELSE)) ok = false;
+                        break;
                     case T_FOR:
                         if (k != 0 || k + 1 >= t.size() || t[k + 1].k != TK::Name || key(t[k + 1].text) == f.var) ok = false;
                         else {
@@ -1945,9 +1982,42 @@ void Compiler::finish() {
         in.src1 = ir::Operand::imm(n, ir::Type::I16); emit(in);
     }
     // init: the string variables empty; then the program
+    if (clrUsed_) {
+        block("clrall");
+        call("__bas_clall");
+        store(ir::Type::I16, iconst(ir::Type::I16, -1), global("__bas_er"));
+        store(ir::Type::I16, iconst(ir::Type::I16, -1), global("__bas_el"));
+        store(ir::Type::I8, iconst(ir::Type::I8, 0), global("__bas_trapon"));
+        for (const auto& [g, t] : vars_) {
+            if (t == ir::Type::PTR) {
+                auto e = vreg(ir::Type::PTR);
+                ir::Inst in; in.op = ir::Op::ADDR_GLOBAL; in.dest = e; in.src1 = global("__bas_empty");
+                in.resultType = ir::Type::PTR; emit(in);
+                store(ir::Type::PTR, e, global("__bas_sa"));
+                store(ir::Type::PTR, addrGlobal(g), global("__bas_sr"));
+                call("__bas_sset");
+            } else if (t == ir::Type::F32) store(t, fconst(0), ir::Operand::global(g));
+            else store(t, iconst(t, 0), ir::Operand::global(g));
+        }
+        for (const auto& g : arrays_) {
+            store(ir::Type::PTR, addrGlobal(g), global("__bas_sa"));
+            bool str = g.size() > 2 && g.compare(g.size() - 2, 2, "_s") == 0;
+            store(ir::Type::I16, iconst(ir::Type::I16, str ? 1 : 0), global("__bas_m"));
+            call("__bas_afree");
+        }
+        for (const auto& [k, d] : defFns_)
+            store(ir::Type::I8, iconst(ir::Type::I8, 0), global("__bas_fn" + std::to_string(d.id)));
+        store(ir::Type::I8, iconst(ir::Type::I8, 0), global("__bas_sp"));
+        if (gfxUsed_) call("__bas_ginit");
+        store(ir::Type::I16, iconst(ir::Type::I16, 0), global("__bas_n"));
+        call("__bas_restore");
+        auto a = load(ir::Type::I16, global("__bas_clrret"));
+        ir::Inst in; in.op = ir::Op::BR_INDIRECT; in.src1 = a; emit(in);
+    }
     block("init");
     store(ir::Type::I8, iconst(ir::Type::I8, 0), global("__bas_sp"));
     if (sprIrq_) call("__bas_sprirq");
+    if (sysUsed_) call("__bas_sysinit");
     if (usesTrap_ || erVars_) {
         store(ir::Type::I16, iconst(ir::Type::I16, -1), global("__bas_er"));
         store(ir::Type::I16, iconst(ir::Type::I16, -1), global("__bas_el"));
@@ -1987,6 +2057,11 @@ void Compiler::finish() {
     for (const auto& [k, d] : defFns_) {
         ir::Module::GlobalVar gv;
         gv.name = "__bas_fn" + std::to_string(d.id); gv.type = ir::Type::I8; gv.size = 1;
+        mod_->globals.push_back(gv);
+    }
+    if (clrUsed_) {
+        ir::Module::GlobalVar gv;
+        gv.name = "__bas_clrret"; gv.type = ir::Type::I16; gv.size = 2;
         mod_->globals.push_back(gv);
     }
     for (const auto& g : arrays_) {
@@ -2097,6 +2172,10 @@ void Compiler::statement() {
     case T_VIEWPORT: case T_GCOPY: case T_CUT: case T_PASTE: case T_CHAR:
         graphicsStmt(kw); return;
     case T_LOADIFF: case T_SAVEIFF: iffStmt(kw); return;
+    case T_SYS: sysStmt(); return;
+    case T_CLR: clrStmt(); return;
+    case T_RREG: rregStmt(); return;
+    case T_DMA: case T_EDMA: dmaStmt(kw == T_EDMA); return;
     case T_SCNCLR: {
         if (!stmtEnd()) { graphicsStmt(T_SCNCLR); return; }
         Val c = strLit(std::string(1, (char)147));
@@ -2436,6 +2515,121 @@ int Compiler::dosArgs(const char* what, int errflags, std::vector<Val>& names, i
     return par;
 }
 
+// CLR (b65.src clear / clearc): files closed, ER / EL and the trap cleared,
+// every variable 0 or "", arrays and DEF FNs forgotten, the GOSUB / FOR / DO
+// stack emptied, the graphics kernel set up again, DATA from the start.
+// CLR ERR$: ER and EL cleared. CLR variable: a scalar 0 or "" (TI: the clock
+// restarted, ST: 0, DS / DS$: the drive's status forgotten; ER, EL, TI$: no
+// effect, as the ROM's)
+void Compiler::clrStmt() {
+    if (stmtEnd()) {
+        clrUsed_ = true;
+        std::string back = newLabel("clrback");
+        auto r = vreg(ir::Type::I16);
+        ir::Inst in; in.op = ir::Op::ADDR_LABEL; in.dest = r; in.src1 = ir::Operand::label(back); emit(in);
+        store(ir::Type::I16, r, global("__bas_clrret"));
+        br("clrall");
+        block(back);
+        return;
+    }
+    if (acceptKw(T_ERRS)) {
+        store(ir::Type::I16, iconst(ir::Type::I16, -1), global("__bas_er"));
+        store(ir::Type::I16, iconst(ir::Type::I16, -1), global("__bas_el"));
+        erVars_ = true;
+        return;
+    }
+    auto t = peek();
+    if (!t || t->k != TK::Name) fail("CLR takes a variable, ERR$ or nothing (?SYNTAX ERROR)");
+    std::string name = t->text;
+    if (name == "TI") { p_++; call("__bas_ticlr"); return; }
+    if (name == "ST") { p_++; call("__bas_stclr"); return; }
+    if (name == "DS" || name == "DS$") { p_++; call("__bas_dsclr"); return; }
+    if (name == "ER" || name == "EL" || name == "TI$") { p_++; return; }
+    p_++;
+    if (isCh('(')) fail("CLR clears scalars only (?SYNTAX ERROR)");
+    LV lv = parseLV(name);
+    Val z;
+    if (lv.k == VK::S) z = strLit("");
+    else { z.k = VK::I; z.isConst = true; z.cval = 0; z.bound = 0; z.op = iconst(ir::Type::I16, 0); }
+    assignLV(lv, z);
+}
+
+// SYS address [, a, x, y, z, s] (b65.src sys: poke_sub's address, the
+// registers given passed, the others as the last SYS left them; the KERNAL's
+// _jsr_far)
+void Compiler::sysStmt() {
+    sysUsed_ = true;
+    addr32(expr());
+    int mask = 0;
+    for (int k = 0; k < 5; k++) {
+        Val v;
+        if (!optByt(v)) continue;
+        storeAt("__bas_sysv", k, toByte(v), ir::Type::I8);
+        mask |= 1 << k;
+    }
+    store(ir::Type::I8, iconst(ir::Type::I8, mask), global("__bas_sysm"));
+    call("__bas_sys");
+}
+
+// RREG [a] [, x] [, y] [, z] [, s]: the registers the last SYS returned, into
+// numeric variables (an empty place skipped)
+void Compiler::rregStmt() {
+    sysUsed_ = true;
+    for (int k = 0; k < 5 && !stmtEnd(); k++) {
+        if (acceptCh(',')) continue;
+        LV lv = listVar("RREG");
+        if (lv.k == VK::S) fail("RREG takes numeric variables (?TYPE MISMATCH)");
+        store(ir::Type::I16, iconst(ir::Type::I16, k), global("__bas_m"));
+        call("__bas_rreg");
+        Val r; r.k = VK::I; r.bound = 255; r.op = load(ir::Type::I16, global("__bas_n"));
+        assignLV(lv, r);
+        if (stmtEnd()) break;
+        expectCh(',');
+    }
+}
+
+// DMA cmd, length, source, bank, target, bank [, sub, mod lo, mod hi] [, cmd, ...]
+// (each job run in turn; a chained one ?ILLEGAL QUANTITY) / EDMA cmd, length,
+// source, target [, sub, mod lo, mod hi] (28-bit addresses: the enhanced job)
+void Compiler::dmaStmt(bool enhanced) {
+    Val c = expr();
+    for (;;) {
+        storeAt("__bas_dl", 0, toByte(c), ir::Type::I8);
+        expectCh(',');
+        storeAt("__bas_dl", 1, toAddr(expr()), ir::Type::I16);
+        for (int side = 0; side < 2; side++) {
+            expectCh(',');
+            if (enhanced) {
+                addr32(expr());
+                store(ir::Type::I16, iconst(ir::Type::I16, side * 3), global("__bas_m"));
+                call("__bas_edaddr");
+            } else {
+                storeAt("__bas_dl", 3 + side * 3, toAddr(expr()), ir::Type::I16);
+                expectCh(',');
+                storeAt("__bas_dl", 5 + side * 3, toByte(expr()), ir::Type::I8);
+            }
+        }
+        for (int k = 0; k < 3; k++) {
+            Val v;
+            ir::Operand b = iconst(ir::Type::I8, 0);
+            if (optByt(v)) b = toByte(v);
+            storeAt("__bas_dl", 9 + k, b, ir::Type::I8);
+        }
+        call(enhanced ? "__bas_edma" : "__bas_dma");
+        if (enhanced || stmtEnd()) return;
+        if (!optByt(c)) {
+            // (no command: the last one again)
+            Val keep;
+            keep.k = VK::I; keep.bound = 255;
+            auto a = vreg(ir::Type::PTR);
+            ir::Inst in; in.op = ir::Op::ADDR_GLOBAL; in.dest = a; in.src1 = global("__bas_dl");
+            in.resultType = ir::Type::PTR; emit(in);
+            keep.op = zext(load(ir::Type::I8, a), ir::Type::I8, ir::Type::I16);
+            c = keep;
+        }
+    }
+}
+
 // LOADIFF "name" [,U#] [,D#] / SAVEIFF "[@]name" [,U#] [,D#] (b65.src loadiff /
 // saveiff): a graphics screen first, the file opened as DLOAD / DSAVE would, the
 // kernel's kg65.loadiff / saveiff, then exit_GKI_disk_op (closed, STOP)
@@ -2718,6 +2912,7 @@ Val Compiler::sprFn(int kw) {
 
 // SCREEN DEF / OPEN / CLOSE / SET / CLR, or SCREEN [n,] width, height, depth
 void Compiler::screenGStmt() {
+    gfxUsed_ = true;
     auto flag = [&](int off) {          // BASIC's comflag: , 0 / 1
         expectCh(',');
         ir::Operand b = toByte(expr());
@@ -2814,6 +3009,7 @@ void Compiler::screenGStmt() {
 }
 
 void Compiler::graphicsStmt(int kw) {
+    gfxUsed_ = true;
     auto comByte = [&](int off) { expectCh(','); gByte(off, expr()); };
     switch (kw) {
     case T_GRAPHIC:

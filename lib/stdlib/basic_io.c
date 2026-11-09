@@ -520,6 +520,15 @@ static void dsread(void) {
     __jsr(0xFFC3, .A = 0, .Carry = 1);     /* (not a real close) */
 }
 
+/* CLR DS (Clear_DS): DS$ forgotten (the drive's status read again) */
+void _bas_dsclr(void) { ds[0] = 0; }
+
+/* CLR ST (Clear_ST): the KERNAL's I/O status ($90) 0 */
+void _bas_stclr(void) { *(volatile unsigned char __far *)0x90UL = 0; }
+
+/* CLR's files: all closed (the KERNAL's CLALL) */
+void _bas_clall(void) { clall(); }
+
 void _bas_ds(void) {
     if (!ds[0]) dsread();
     _bas_n = (ds[1] & 15) * 10 + (ds[2] & 15);
