@@ -1,0 +1,316 @@
+; basic_aref.s45 — arrays of BASIC 65 programs compiled by basic45 --compile
+; (#369; in assembly, #487: the C version was 1185 bytes)
+;
+; A variable holds 0 (no array yet) or a block: the number of dimensions
+; (1 byte), each dimension's size (its DIM + 1, 2 bytes), then the elements
+; (floats 5 bytes, integers 2, strings a 2-byte pointer). The first
+; subscript varies fastest.
+;
+; __bas_aref: __bas_sa the variable, __bas_n the number of subscripts (in
+; __bas_sub), __bas_m the element size | $80 (a DIM statement's) | $40 (string
+; elements, __bas_empty at first). __bas_sr := the element's address; DIM: the
+; array made. An array used before a DIM gets 11 elements in each dimension,
+; as BASIC's. ?REDIMENSIONED ARRAY, ?BAD SUBSCRIPT, ?OUT OF MEMORY as the
+; ROM's. Sizes and offsets by the MEGA65's multiplier ($D770).
+
+    .cpu 45gs02
+
+; no calls through pointers here (ln45's call graph, see O45Linker)
+.weak cc45.icallinfo
+cc45.icallinfo = 1
+
+MULTINA = $D770
+MULTINB = $D774
+MULTOUT = $D778
+
+ptr     = $F6       ; the array (library temps of the program's base page)
+vp      = $F8       ; the variable, then the elements being cleared
+
+.extern __bas_sa
+.extern __bas_n
+.extern __bas_m
+.extern __bas_sr
+.extern __bas_empty
+.extern __bas_raise
+.extern _malloc
+
+    .split "__bas_aref"
+.global __bas_aref
+__bas_aref:
+    lda __bas_sa
+    sta vp
+    lda __bas_sa+1
+    sta vp+1
+    lda __bas_n
+    sta nsub
+    asl a
+    sta dim2            ; 2 * the subscripts
+    inc a
+    sta hdr             ; the header's bytes: 1 + 2n
+    lda __bas_m
+    and #$3F
+    sta esz
+    lda #0              ; (the multiplier's upper input bytes)
+    sta MULTINA+2
+    sta MULTINA+3
+    sta MULTINB+2
+    sta MULTINB+3
+    ldy #0
+    lda (vp),y
+    sta ptr
+    iny
+    lda (vp),y
+    sta ptr+1
+    ora ptr
+    beq @make
+    bit __bas_m
+    bpl @look
+    lda #19             ; ?REDIMENSIONED ARRAY
+    jmp __bas_raise
+
+; the array made: count := the product of the sizes (16 bits)
+@make:
+    lda #1
+    sta cnt
+    lda #0
+    sta cnt+1
+    ldx #0
+@count:
+    cpx dim2
+    beq @counted
+    jsr @dimk
+    sta MULTINB
+    ora tmp
+    beq @oom            ; (DIM 65535)
+    lda tmp
+    sta MULTINB+1
+    lda cnt
+    sta MULTINA
+    lda cnt+1
+    sta MULTINA+1
+    lda MULTOUT+2
+    ora MULTOUT+3
+    bne @oom
+    lda MULTOUT
+    sta cnt
+    lda MULTOUT+1
+    sta cnt+1
+    inx
+    inx
+    bra @count
+@counted:
+    lda cnt             ; the elements' bytes: count * the size
+    sta MULTINA
+    lda cnt+1
+    sta MULTINA+1
+    lda esz
+    sta MULTINB
+    lda #0
+    sta MULTINB+1
+    lda MULTOUT+2
+    bne @oom
+    lda MULTOUT
+    sta ebytes
+    lda MULTOUT+1
+    sta ebytes+1
+    clc                 ; malloc(the header + the elements)
+    lda ebytes
+    adc hdr
+    sta $10
+    lda ebytes+1
+    adc #0
+    sta $11
+    bcs @oom
+    jsr _malloc
+    sta ptr
+    stx ptr+1
+    ora ptr+1
+    beq @oom
+    ldy #0              ; the header
+    lda nsub
+    sta (ptr),y
+    iny
+    ldx #0
+@head:
+    cpx dim2
+    beq @headed
+    jsr @dimk
+    sta (ptr),y
+    iny
+    lda tmp
+    sta (ptr),y
+    iny
+    inx
+    inx
+    bra @head
+@headed:
+    ldy #0              ; the variable := the array
+    lda ptr
+    sta (vp),y
+    iny
+    lda ptr+1
+    sta (vp),y
+    clc                 ; vp := its elements
+    lda ptr
+    adc hdr
+    sta vp
+    lda ptr+1
+    adc #0
+    sta vp+1
+    bit __bas_m
+    bvs @strings
+    lda #0              ; numbers: 0
+    ldy #0
+    ldx ebytes+1
+    beq @zrest
+@zpage:
+    sta (vp),y
+    iny
+    bne @zpage
+    inc vp+1
+    dex
+    bne @zpage
+@zrest:
+    ldx ebytes
+    beq @made
+@zbyte:
+    sta (vp),y
+    iny
+    dex
+    bne @zbyte
+    bra @made
+@strings:               ; strings: each the empty one
+    ldy #0
+@sloop:
+    lda cnt
+    ora cnt+1
+    beq @made
+    lda #<__bas_empty
+    sta (vp),y
+    iny
+    lda #>__bas_empty
+    sta (vp),y
+    iny
+    bne @snext
+    inc vp+1
+@snext:
+    lda cnt
+    bne @sdec
+    dec cnt+1
+@sdec:
+    dec cnt
+    bra @sloop
+@made:
+    bit __bas_m         ; DIM: done
+    bpl @look
+    rts
+
+; the element: offset = ((sub[n-1]) * dim[n-2] + ...) + sub[0], each subscript
+; below its dimension's size
+@look:
+    ldy #0
+    lda (ptr),y
+    cmp nsub
+    bne @bad
+    lda #0
+    sta off
+    sta off+1
+    ldx dim2
+@dim:
+    cpx #0
+    beq @found
+    dex
+    dex
+    txa
+    tay
+    iny
+    lda (ptr),y
+    sta MULTINB
+    sta dlo
+    iny
+    lda (ptr),y
+    sta MULTINB+1
+    sta dhi
+    lda __bas_sub+1,x
+    cmp dhi
+    bcc @in
+    bne @bad
+    lda __bas_sub,x
+    cmp dlo
+    bcs @bad
+@in:
+    lda off
+    sta MULTINA
+    lda off+1
+    sta MULTINA+1
+    clc
+    lda MULTOUT
+    adc __bas_sub,x
+    sta off
+    lda MULTOUT+1
+    adc __bas_sub+1,x
+    sta off+1
+    bra @dim
+@found:
+    lda off             ; __bas_sr := the array + the header + offset * size
+    sta MULTINA
+    lda off+1
+    sta MULTINA+1
+    lda esz
+    sta MULTINB
+    lda #0
+    sta MULTINB+1
+    clc
+    lda MULTOUT
+    adc hdr
+    sta off
+    lda MULTOUT+1
+    adc #0
+    sta off+1
+    clc
+    lda off
+    adc ptr
+    sta __bas_sr
+    lda off+1
+    adc ptr+1
+    sta __bas_sr+1
+    rts
+@bad:
+    lda #18             ; ?BAD SUBSCRIPT
+    jmp __bas_raise
+@oom:
+    lda #16             ; ?OUT OF MEMORY
+    jmp __bas_raise
+
+; X = 2k: A := dimension k's size, low byte (tmp the high one); Y kept
+@dimk:
+    bit __bas_m
+    bmi @dimd
+    lda #0
+    sta tmp
+    lda #11
+    rts
+@dimd:
+    lda __bas_sub+1,x
+    sta tmp
+    lda __bas_sub,x
+    clc
+    adc #1
+    bcc @dimr
+    inc tmp
+@dimr:
+    rts
+
+.segment "bss"
+.global __bas_sub
+__bas_sub: .res 16      ; the subscripts (0..65535)
+nsub:   .res 1
+dim2:   .res 1
+hdr:    .res 1
+esz:    .res 1
+tmp:    .res 1
+dlo:    .res 1
+dhi:    .res 1
+cnt:    .res 2
+ebytes: .res 2
+off:    .res 2

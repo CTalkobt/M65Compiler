@@ -560,8 +560,10 @@ __bas_error:
     ldy #0
 @msg:
     lda ($F6),y
-    beq @print
+    and #$7F
     jsr __bas_out
+    lda ($F6),y             ; (bit 7: the last character)
+    bmi @print
     iny
     bne @msg
 @print:
@@ -608,7 +610,8 @@ __bas_error:
     ldx #0
     jmp __exit
 
-; $F6/$F7 := message A's text in __bas_msgs (C clear), C set for none
+; $F6/$F7 := message A's text in __bas_msgs (C clear), C set for none; its last
+; character has bit 7 set (the ROM's form: no number, no terminator)
 ; the graphics run time's (basic_gfx.c); none linked: nothing to do
     .split "__bas_gtext"
 .weak __bas_gtext
@@ -618,27 +621,25 @@ __bas_gtext:
     .split "__bas_msgptr"
 .global __bas_msgptr
 __bas_msgptr:
+    cmp #44+1               ; (1-44)
+    bcs @none
     tax
+    beq @none
     lda #<__bas_msgs
     sta $F6
     lda #>__bas_msgs
     sta $F7
-    txa
-    sta __bas_m             ; (the number sought)
     ldy #0
-@find:
-    lda ($F6),y
-    beq @none
-    cmp __bas_m
+@next:
+    dex
     beq @found
 @skip:
+    lda ($F6),y             ; (a message's last character has bit 7 set)
     inw $F6
-    lda ($F6),y
-    bne @skip
-    inw $F6
-    bra @find
+    ora #0
+    bpl @skip
+    bra @next
 @found:
-    inw $F6
     clc
     rts
 @none:
@@ -662,11 +663,12 @@ __bas_errs:
     ldy #0
 @copy:
     lda ($F6),y
-    beq @len
+    pha
+    and #$7F
     iny
     sta ($F8),y
-    bra @copy
-@len:
+    pla
+    bpl @copy               ; (bit 7: the last character)
     tya
     ldy #0
     sta ($F8),y
@@ -1091,139 +1093,94 @@ __bas_getbyt:
     .split "__bas_msgs"
 ; the messages of the errors compiled code can raise: the number, the text
 __bas_msgs:
-    .byte 1
-    .text "too many files"
-    .byte 0
-    .byte 2
-    .text "file open"
-    .byte 0
-    .byte 3
-    .text "file not open"
-    .byte 0
-    .byte 4
-    .text "file not found"
-    .byte 0
-    .byte 5
-    .text "device not present"
-    .byte 0
-    .byte 6
-    .text "not input file"
-    .byte 0
-    .byte 7
-    .text "not output file"
-    .byte 0
-    .byte 8
-    .text "missing file name"
-    .byte 0
-    .byte 9
-    .text "illegal device number"
-    .byte 0
-    .byte 10
-    .text "next without for"
-    .byte 0
-    .byte 11
-    .text "syntax"
-    .byte 0
-    .byte 12
-    .text "return without gosub"
-    .byte 0
-    .byte 13
-    .text "out of data"
-    .byte 0
-    .byte 14
-    .text "illegal quantity"
-    .byte 0
-    .byte 15
-    .text "overflow"
-    .byte 0
-    .byte 16
-    .text "out of memory"
-    .byte 0
-    .byte 17
-    .text "undefined statement"
-    .byte 0
-    .byte 18
-    .text "bad subscript"
-    .byte 0
-    .byte 19
-    .text "redimensioned array"
-    .byte 0
-    .byte 20
-    .text "division by zero"
-    .byte 0
-    .byte 21
-    .text "illegal direct"
-    .byte 0
-    .byte 22
-    .text "type mismatch"
-    .byte 0
-    .byte 23
-    .text "string too long"
-    .byte 0
-    .byte 24
-    .text "file data"
-    .byte 0
-    .byte 25
-    .text "formula too complex"
-    .byte 0
-    .byte 26
-    .text "can't continue"
-    .byte 0
-    .byte 27
-    .text "undefined function"
-    .byte 0
-    .byte 28
-    .text "verify"
-    .byte 0
-    .byte 29
-    .text "load"
-    .byte 0
-    .byte 30
-    .text "break"
-    .byte 0
-    .byte 31
-    .text "can't resume"
-    .byte 0
-    .byte 32
-    .text "loop not found"
-    .byte 0
-    .byte 33
-    .text "loop without do"
-    .byte 0
-    .byte 34
-    .text "direct mode only"
-    .byte 0
-    .byte 35
-    .text "screen not open"
-    .byte 0
-    .byte 36
-    .text "bad disk"
-    .byte 0
-    .byte 37
-    .text "bend not found"
-    .byte 0
-    .byte 38
-    .text "line number too large"
-    .byte 0
-    .byte 39
-    .text "unresolved reference"
-    .byte 0
-    .byte 40
-    .text "unimplemented command"
-    .byte 0
-    .byte 41
-    .text "file read"
-    .byte 0
-    .byte 42
-    .text "edit mode"
-    .byte 0
-    .byte 43
-    .text "reserved name"
-    .byte 0
-    .byte 44
-    .text "cbdos drives only"
-    .byte 0
-    .byte 0
+    .text "too many file"
+    .byte 's'|$80          ; 1
+    .text "file ope"
+    .byte 'n'|$80          ; 2
+    .text "file not ope"
+    .byte 'n'|$80          ; 3
+    .text "file not foun"
+    .byte 'd'|$80          ; 4
+    .text "device not presen"
+    .byte 't'|$80          ; 5
+    .text "not input fil"
+    .byte 'e'|$80          ; 6
+    .text "not output fil"
+    .byte 'e'|$80          ; 7
+    .text "missing file nam"
+    .byte 'e'|$80          ; 8
+    .text "illegal device numbe"
+    .byte 'r'|$80          ; 9
+    .text "next without fo"
+    .byte 'r'|$80          ; 10
+    .text "synta"
+    .byte 'x'|$80          ; 11
+    .text "return without gosu"
+    .byte 'b'|$80          ; 12
+    .text "out of dat"
+    .byte 'a'|$80          ; 13
+    .text "illegal quantit"
+    .byte 'y'|$80          ; 14
+    .text "overflo"
+    .byte 'w'|$80          ; 15
+    .text "out of memor"
+    .byte 'y'|$80          ; 16
+    .text "undefined statemen"
+    .byte 't'|$80          ; 17
+    .text "bad subscrip"
+    .byte 't'|$80          ; 18
+    .text "redimensioned arra"
+    .byte 'y'|$80          ; 19
+    .text "division by zer"
+    .byte 'o'|$80          ; 20
+    .text "illegal direc"
+    .byte 't'|$80          ; 21
+    .text "type mismatc"
+    .byte 'h'|$80          ; 22
+    .text "string too lon"
+    .byte 'g'|$80          ; 23
+    .text "file dat"
+    .byte 'a'|$80          ; 24
+    .text "formula too comple"
+    .byte 'x'|$80          ; 25
+    .text "can't continu"
+    .byte 'e'|$80          ; 26
+    .text "undefined functio"
+    .byte 'n'|$80          ; 27
+    .text "verif"
+    .byte 'y'|$80          ; 28
+    .text "loa"
+    .byte 'd'|$80          ; 29
+    .text "brea"
+    .byte 'k'|$80          ; 30
+    .text "can't resum"
+    .byte 'e'|$80          ; 31
+    .text "loop not foun"
+    .byte 'd'|$80          ; 32
+    .text "loop without d"
+    .byte 'o'|$80          ; 33
+    .text "direct mode onl"
+    .byte 'y'|$80          ; 34
+    .text "screen not ope"
+    .byte 'n'|$80          ; 35
+    .text "bad dis"
+    .byte 'k'|$80          ; 36
+    .text "bend not foun"
+    .byte 'd'|$80          ; 37
+    .text "line number too larg"
+    .byte 'e'|$80          ; 38
+    .text "unresolved referenc"
+    .byte 'e'|$80          ; 39
+    .text "unimplemented comman"
+    .byte 'd'|$80          ; 40
+    .text "file rea"
+    .byte 'd'|$80          ; 41
+    .text "edit mod"
+    .byte 'e'|$80          ; 42
+    .text "reserved nam"
+    .byte 'e'|$80          ; 43
+    .text "cbdos drives onl"
+    .byte 'y'|$80          ; 44
 __bas_errtxt:
     .text " error"
     .byte 0
