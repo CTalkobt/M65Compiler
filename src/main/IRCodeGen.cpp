@@ -576,16 +576,54 @@ void IRCodeGen::planF32Aliases(const ir::Function& fn) {
                 f32Skip_.insert(&in);
                 continue;
             }
-            // (not __float_a / __float_b: the float operation writes them with its
-            // operands, a value read from one in place would be overwritten first)
+            // __float_a / __float_b (a runtime routine's result) only for a store, or
+            // the float operand copied into the same register (the float operation
+            // writes them with its operands: a value read from one in place would be
+            // overwritten first), #485
             if (in.op == ir::Op::LOAD && in.resultType == ir::Type::F32 && in.src1.kind == ir::OperandKind::GLOBAL &&
-                in.args.empty() && uses[v] == 1 && in.src1.name != "__float_a" && in.src1.name != "__float_b") {
+                in.args.empty() && uses[v] == 1) {
+                bool fa = in.src1.name == "__float_a", fb = in.src1.name == "__float_b";
                 // its one use later in the block, with only loads and constants between
                 for (size_t j = k + 1; j < is.size(); j++) {
                     const ir::Inst& u = is[j];
-                    bool uses_v = (u.src1.isVreg() && u.src1.vregId == v) || (u.src2.isVreg() && u.src2.vregId == v);
-                    if (uses_v) {
-                        if (readsInPlace(&u, v)) { f32Alias_[v] = in.src1.name; f32Skip_.insert(&in); }
+                    bool s1 = u.src1.isVreg() && u.src1.vregId == v, s2 = u.src2.isVreg() && u.src2.vregId == v;
+                    if (s1 || s2) {
+                        bool ok = readsInPlace(&u, v);
+                        if (ok && (fa || fb) && u.op != ir::Op::STORE) {
+                            bool two = u.op == ir::Op::FADD || u.op == ir::Op::FSUB || u.op == ir::Op::FMUL ||
+                                       u.op == ir::Op::FDIV || u.op == ir::Op::FCMP;
+                            ok = two ? (s1 != s2 && (fa ? s1 : s2)) : (fa && s1);
+                        }
+                        if (ok) { f32Alias_[v] = in.src1.name; f32Skip_.insert(&in); }
+                        break;
+                    }
+                    if (u.op != ir::Op::LOAD && u.op != ir::Op::FCONST && u.op != ir::Op::CONST &&
+                        u.op != ir::Op::ADDR_GLOBAL && u.op != ir::Op::NOP) break;
+                }
+                continue;
+            }
+            // a float read through a pointer straight into __float_a (the next
+            // float operation's first operand, FNEG's or FTOI's) or __float_b (its
+            // second), or into the variable the next instruction stores it to, #485
+            if (in.op == ir::Op::LOAD && in.resultType == ir::Type::F32 && in.src1.isVreg() && in.args.empty() &&
+                uses[v] == 1) {
+                if (k + 1 < is.size()) {
+                    const ir::Inst& st = is[k + 1];
+                    if (st.op == ir::Op::STORE && st.resultType == ir::Type::F32 && st.src1.isVreg() &&
+                        st.src1.vregId == v && st.src2.kind == ir::OperandKind::GLOBAL && st.args.empty()) {
+                        f32Alias_[v] = st.src2.name;
+                        f32Skip_.insert(&st);
+                        continue;
+                    }
+                }
+                for (size_t j = k + 1; j < is.size(); j++) {
+                    const ir::Inst& u = is[j];
+                    bool s1 = u.src1.isVreg() && u.src1.vregId == v, s2 = u.src2.isVreg() && u.src2.vregId == v;
+                    if (s1 || s2) {
+                        bool two = u.op == ir::Op::FADD || u.op == ir::Op::FSUB || u.op == ir::Op::FMUL ||
+                                   u.op == ir::Op::FDIV || u.op == ir::Op::FCMP;
+                        if (two && s1 != s2) f32Alias_[v] = s1 ? "__float_a" : "__float_b";
+                        else if ((u.op == ir::Op::FNEG || u.op == ir::Op::FTOI) && s1) f32Alias_[v] = "__float_a";
                         break;
                     }
                     if (u.op != ir::Op::LOAD && u.op != ir::Op::FCONST && u.op != ir::Op::CONST &&
@@ -594,7 +632,8 @@ void IRCodeGen::planF32Aliases(const ir::Function& fn) {
                 continue;
             }
             if ((in.op == ir::Op::FADD || in.op == ir::Op::FSUB || in.op == ir::Op::FMUL || in.op == ir::Op::FDIV ||
-                 in.op == ir::Op::FNEG) && uses[v] == 1 && k + 1 < is.size()) {
+                 in.op == ir::Op::FNEG || (in.op == ir::Op::ITOF && in.resultType == ir::Type::F32)) &&
+                uses[v] == 1 && k + 1 < is.size()) {
                 // the result straight into the variable the next instruction stores it to
                 const ir::Inst& st = is[k + 1];
                 if (st.op == ir::Op::STORE && st.resultType == ir::Type::F32 && st.src1.isVreg() && st.src1.vregId == v &&
@@ -660,6 +699,41 @@ void IRCodeGen::emitF32CopyAbs(const std::string& src, const std::string& dst) {
     emit("bpl " + lbl);
     f32Eq_.insert(dst);
     f32EqSeq_ = emitSeq_;
+}
+
+// A 5-byte float through the pointer at zpPair: loaded into (load) or stored
+// from the vreg's place, one loop (10 bytes, 12 for a base-page place; five
+// unrolled ldy/lda/sta are 25), #485
+void IRCodeGen::emitF32Indirect(bool load, const std::string& zpPair, uint32_t vregId) {
+    std::string base;
+    if (!f32AbsBase(vregId, base)) {
+        for (int i = 0; i < 5; i++) {
+            if (load) {
+                emit("ldy #" + std::to_string(i));
+                emit("lda (" + zpPair + "),y");
+                emitF32Byte("sta", vregId, i);
+            } else {
+                emitF32Byte("lda", vregId, i);
+                emit("ldy #" + std::to_string(i));
+                emit("sta (" + zpPair + "),y");
+            }
+        }
+        return;
+    }
+    ms_.invalidateAll();
+    // (lda/sta have no base-page,y mode: a base-page place is X-indexed)
+    bool bp = base[0] == '$';
+    std::string lbl = "@__find_" + std::to_string(labelCounter_++);
+    std::string ix = bp ? ",x" : ",y";
+    if (bp) emit("ldx #4");
+    emit("ldy #4");
+    emit(lbl + ":");
+    if (bp) emit(".bpindex 5", "(the base-page bytes the copy reaches: ln45's cc45.bptop)");
+    if (load) { emit("lda (" + zpPair + "),y"); emit("sta " + base + ix); }
+    else      { emit("lda " + base + ix); emit("sta (" + zpPair + "),y"); }
+    if (bp) { emit(".bpindex 0"); emit("dex"); }
+    emit("dey");
+    emit("bpl " + lbl);
 }
 
 std::string IRCodeGen::callF32Copies(const std::string& text) {
@@ -7369,11 +7443,7 @@ void IRCodeGen::emitInstBody(const ir::Inst& inst) {
                             zpPair = "$" + hex8((uint8_t)addrAlloc.offset);
                         else { loadVreg(inst.src1.vregId); emit("sta __zp_scratch"); emit("stx __zp_scratch+1"); zpPair = "__zp_scratch"; }
                     } else { loadOperand(inst.src1); emit("sta __zp_scratch"); emit("stx __zp_scratch+1"); zpPair = "__zp_scratch"; }
-                    for (int i = 0; i < 5; i++) {
-                        emit("ldy #" + std::to_string(i));
-                        emit("lda (" + zpPair + "),y");
-                        emitF32Byte("sta", inst.dest.vregId, i);
-                    }
+                    emitF32Indirect(true, zpPair, inst.dest.vregId);
                 }
                 break;
             }
@@ -7869,11 +7939,7 @@ void IRCodeGen::emitInstBody(const ir::Inst& inst) {
                         if (addrAlloc.loc == VRegAllocator::IN_ZP)
                             zpPair = "$" + hex8((uint8_t)addrAlloc.offset);
                         else { loadVreg(inst.src2.vregId); emit("sta __zp_scratch"); emit("stx __zp_scratch+1"); zpPair = "__zp_scratch"; }
-                        for (int i = 0; i < 5; i++) {
-                            emitF32Byte("lda", inst.src1.vregId, i);
-                            emit("ldy #" + std::to_string(i));
-                            emit("sta (" + zpPair + "),y");
-                        }
+                        emitF32Indirect(false, zpPair, inst.src1.vregId);
                     }
                 }
                 break;

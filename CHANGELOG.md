@@ -4,6 +4,19 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### cc45: fewer float copies through temporaries (#485, #369)
+
+- A float read through a pointer (an array element in `basic45 --compile`)
+  is one loop instead of five unrolled `ldy`/`lda`/`sta` (10 bytes, 25), and
+  goes straight into `__float_a` / `__float_b` when the next float operation
+  uses it, or into the variable stored next; a float stored through a
+  pointer likewise.
+- An int converted to a float (`ITOF`) and a runtime routine's result in
+  `__float_a` go straight into the variable they are stored to (or stay in
+  `__float_a` for the next operation), not through a base-page temporary.
+- `basic45 --compile`'s tests: up to 1560 bytes (7%) smaller.
+- Test: `test_float_copy_xemu.c` [13]-[20].
+
 ### basic45 --compile: PLAY's strings read when it runs (#369)
 
 - `PLAY` takes any string expressions (a string built at run time was a
