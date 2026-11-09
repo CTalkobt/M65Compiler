@@ -614,6 +614,7 @@ private:
     std::map<std::string, std::string> f32Konst_;            // the 5 bytes (hex) -> label
     std::vector<std::pair<std::string, std::string>> f32KonstList_;   // label, the 5 bytes (hex)
     void planF32Aliases(const ir::Function& fn);
+    void emitF32Indirect(bool load, const std::string& zpPair, uint32_t vregId);
     void emitF32Konsts();
     // the float routine name: __float_<op>, or __ffast_<op> (Module::fastFloat)
     bool fastFloat_ = false;

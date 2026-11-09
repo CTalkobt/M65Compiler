@@ -5,15 +5,25 @@
  * a copy into a place that holds the value already is left out (also into
  * the next block, reached only from the one before); a file with many
  * copies between places outside the base page calls __f32cpy for them.
+ * A float read or written through a pointer is one loop, straight into
+ * __float_a / __float_b or the variable stored next; an int converted to a
+ * float goes straight into the variable it is stored to.
  * Each check writes its number at $C0C0 + i; $AA after the last.
  *
- * Expected at $C0C0: 01 02 03 04 05 06 07 08 09 0A 0B 0C AA
+ * Expected at $C0C0: 01 02 03 04 05 06 07 08 09 0A 0B 0C 0D 0E 0F 10 11 12 13 14 AA
  */
+
+#include <stdlib.h>
 
 #define RESULT(i) (*(volatile unsigned char *)(0xC0C0 + (i)))
 
 float a, b, c, d, e, r, s, t;
 volatile int pick;
+float arr[6] = { 1.0, 2.5, 4.0, 8.0, -3.0, 0.0 };
+float *fp;
+volatile int ix;
+signed int iv;
+long lv;
 
 static void set(void) {
     a = 3.0; b = 4.0; c = 10.0; d = 0.5; e = 2.0;
@@ -66,6 +76,43 @@ int main(void) {
     a = a;
     r = a - b;                           /* 1 */
     if (r == 1.0) RESULT(11) = 0x0C;
-    RESULT(12) = 0xAA;
+    /* 13: an element the first operand, a variable the second */
+    ix = 2;
+    r = arr[ix] - b;                     /* 4 - 3 = 1 */
+    if (r == 1.0) RESULT(12) = 0x0D;
+    /* 14: an element the second operand (not commutative) */
+    r = c - arr[ix];                     /* 0.5 - 4 = -3.5 */
+    if (r == -3.5) RESULT(13) = 0x0E;
+    /* 15: two elements, then a comparison with an element */
+    ix = 3;
+    r = arr[ix] / arr[ix - 2];           /* 8 / 2.5 = 3.2 */
+    if (arr[ix - 3] < arr[ix]) s = 1.0; else s = 0.0;
+    if (r > 3.19 && r < 3.21 && s == 1.0) RESULT(14) = 0x0F;
+    /* 16: an element negated, converted, stored to a variable */
+    ix = 4;
+    r = -arr[ix];                        /* 3 */
+    iv = (int)arr[ix + -3];              /* (int)2.5 = 2 */
+    s = arr[ix];                         /* -3 */
+    if (r == 3.0 && iv == 2 && s == -3.0) RESULT(15) = 0x10;
+    /* 17: results and variables stored through a pointer, read back */
+    fp = &arr[5];
+    *fp = a * e;                         /* 4 * 4 = 16 */
+    fp[-5] = d;                          /* arr[0] = 10 */
+    if (arr[5] == 16.0 && arr[0] == 10.0 && *fp + fp[-5] == 26.0) RESULT(16) = 0x11;
+    /* 18: an int converted into a variable, and into an operation */
+    iv = -7; lv = 100000;
+    r = iv;
+    s = lv;
+    t = iv * 1.0 + lv;                   /* 99993 */
+    if (r == -7.0 && s == 100000.0 && t == 99993.0) RESULT(17) = 0x12;
+    /* 19: a converted int the second operand */
+    iv = 3;
+    r = c - iv;                          /* 0.5 - 3 = -2.5 */
+    if (r == -2.5) RESULT(18) = 0x13;
+    /* 20: an element a function's result is added to (a call between) */
+    ix = 1;
+    r = arr[ix] + (float)abs(-2);        /* 2.5 + 2 */
+    if (r == 4.5) RESULT(19) = 0x14;
+    RESULT(20) = 0xAA;
     return 0;
 }
