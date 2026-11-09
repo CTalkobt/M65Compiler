@@ -4,6 +4,17 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### basic45 --compile: the program's checks only with --checks (#489)
+
+- Without `--checks` (the default) the compiler emits no check of the
+  program's own values and flow (`?ILLEGAL QUANTITY`, a negative subscript,
+  `?SYNTAX ERROR` when run, `NEXT` / `RETURN` / `RESUME` without their
+  match, the `GOSUB` stack, `DEF FN` not defined): undefined behaviour, the
+  program goes on. Errors of files, the disk and memory, and the run time's
+  own checks, stay. `TRAP` without `--checks` warns.
+- A sample game: 10783 to 10561 bytes. The runtime tests are built with
+  `--checks`; `test_basic_compile_nochk` shows the difference.
+
 ### basic45 --compile: run-time arguments in registers (#486)
 
 - An element of a one-dimensional array: the subscript in A/X, the array's
