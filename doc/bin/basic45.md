@@ -366,7 +366,8 @@ going back to the `DO` on top); `EXIT` and a false `DO WHILE` go on after the ma
 nested ones passed; none: `?LOOP NOT FOUND`). `READ` takes the items of the `DATA` statements in program order
 (the same rules as `INPUT`'s: `?OUT OF DATA`, `?TYPE MISMATCH`), `RESTORE n` from the first `DATA` at or after
 line `n`. `RND` is the ROM's (the interpreter's seed and sequence), `TI` CIA 2's timers as BASIC 65 reads them,
-`TI$` the clock (`"hh:mm:ss"`). The run time of these is `lib/stdlib/basic_in.c`.
+`TI$` the clock (`"hh:mm:ss"`). The run time of these is `lib/stdlib/basic_in.c`; reading a number,
+`lib/stdlib/basic_innum.c` (with `strtof`, linked only by a program that `INPUT`s or `READ`s a number).
 
 **Files**: `OPEN lf [, device [, secondary [, name]]]` (no device: the default drive, secondary 0; a device
 without one: 0 below device 4, else none, as the ROM's `paoc`), `CLOSE lf`, and the channels through the KERNAL's
@@ -621,8 +622,8 @@ The run-time support is `lib/stdlib_asm/basic_rt.s45` (PRINT, the errors, BASIC'
 - `PEEK` of `$C000`-`$CFFF` reads RAM; the interpreter reads the ROM there.
 - Sprites still moving when the program ends stop there (the interpreter's interrupt goes on moving them); a
   `COLLISION` trap turned off forgets a collision not yet taken.
-- A number typed at `INPUT` or read from `DATA` is converted by the library's `strtof` (correctly rounded); the
-  interpreter's own conversion can differ in the last bit, as for numbers in the program.
+- A number typed at `INPUT` or read from `DATA` is converted by the library's `strtof` (correctly rounded; its first
+  80 characters); the interpreter's own conversion can differ in the last bit, as for numbers in the program.
 - Arrays and strings share the program's heap, from the end of the program to the stack's 1 KB share below `$BC00`
   (some 15–30 KB, as large as the program is not); the interpreter keeps them in bank 1 (about 60 KB). A `DIM` that does not fit is
   `?OUT OF MEMORY`.

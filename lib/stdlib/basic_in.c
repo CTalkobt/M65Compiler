@@ -4,8 +4,11 @@
  *   _bas_iline: a line from the keyboard (KERNAL BASIN: the screen editor),
  *     "? " first when __bas_n is 1, a carriage return after it. __bas_n := 1
  *     for an empty line (the INPUT ends, its variables unchanged), else 0.
- *   _bas_iitem: the next item of the line for a variable (__bas_m: 0 a number
- *     into __float_a, 1 a string into __bas_sr's buffer). Leading spaces are
+ *   _bas_iitem: the next item of the line for a string variable, into
+ *     __bas_sr's buffer (__bas_m bit 0; bit 1: a number's text, no quotes,
+ *     trailing spaces cut: _bas_iitemn of basic_innum.c, which converts it
+ *     into __float_a, so strtof is linked only by a program reading numbers,
+ *     #484). Leading spaces are
  *     skipped; the line used up (its end or a ':') asks for another with
  *     "?? ". A string in quotes runs to the next quote, one without to the next
  *     ',' or ':'. After the item only spaces, then ',', ':' or the end may
@@ -29,11 +32,10 @@
  * echoed carriage return, a line as BASIC's InputBuffer, bad data ?FILE DATA
  * instead of ?REDO FROM START, a bad status (ST AND $87) ends the INPUT#;
  * GET# never waits, a 0 is CHR$(0).
- * Numbers are read by strtof (correctly rounded; the ROM's own conversion can
- * differ in the last bit).
+ * Numbers are read by strtof (basic_innum.c; correctly rounded: the ROM's own
+ * conversion can differ in the last bit).
  */
 #include <cbm.h>
-#include <stdlib.h>
 
 extern unsigned char *_bas_sr;
 extern int _bas_n, _bas_m;
@@ -48,6 +50,7 @@ static void raise(int n) {
 }
 
 #define LINE 160
+#define NUMLEN 80     /* a number item: its first 80 characters (basic_innum.c) */
 static unsigned char line[LINE + 1];
 static unsigned char pos;
 
@@ -133,9 +136,9 @@ void _bas_iitem(void) {
         readline();
         skipsp();
     }
-    if (_bas_m) {
+    {
         unsigned char *r = _bas_sr;
-        if (line[pos] == '"') {
+        if (!(_bas_m & 2) && line[pos] == '"') {
             start = ++pos;
             while (line[pos] && line[pos] != '"') pos++;
             n = pos - start;
@@ -147,23 +150,23 @@ void _bas_iitem(void) {
             start = pos;
             while (line[pos] && line[pos] != ',' && line[pos] != ':') pos++;
             n = pos - start;
+            if (_bas_m & 2) {
+                while (n && line[start + n - 1] == ' ') n--;
+                if (n > NUMLEN) n = NUMLEN;
+            }
         }
         r[0] = n;
         for (c = 0; c < n; c++) r[c + 1] = line[start + c];
-    } else {
-        char *end;
-        float f = strtof((char *)line + pos, &end);
-        unsigned char k;
-        pos = (unsigned char)((unsigned char *)end - line);
-        skipsp();
-        c = line[pos];
-        if (c && c != ',' && c != ':') goto redo;
-        for (k = 0; k < 5; k++) _float_a[k] = ((unsigned char *)&f)[k];
     }
     if (line[pos] == ',') pos++;
     _bas_n = 0;
     return;
 redo:
+    _bas_iredo();
+}
+
+/* bad data for an INPUT item: ?REDO FROM START (__bas_n 1: the INPUT again) */
+void _bas_iredo(void) {
     if (_bas_chan) raise(24);    /* INPUT#: ?FILE DATA */
     out("?redo from start");     /* (lower case: PETSCII's unshifted letters) */
     cbm_k_bsout(13);
@@ -250,9 +253,9 @@ void _bas_read(void) {
     len = drec[0];
     t = drec + 1;
     while (dpos < len && t[dpos] == ' ') dpos++;
-    if (_bas_m) {
+    {
         unsigned char *r = _bas_sr;
-        if (dpos < len && t[dpos] == '"') {
+        if (!(_bas_m & 2) && dpos < len && t[dpos] == '"') {
             start = ++dpos;
             while (dpos < len && t[dpos] != '"') dpos++;
             n = dpos - start;
@@ -263,20 +266,13 @@ void _bas_read(void) {
             start = dpos;
             while (dpos < len && t[dpos] != ',') dpos++;
             n = dpos - start;
+            if (_bas_m & 2) {
+                while (n && t[start + n - 1] == ' ') n--;
+                if (n > NUMLEN) n = NUMLEN;
+            }
         }
         r[0] = n;
         for (c = 0; c < n; c++) r[c + 1] = t[start + c];
-    } else {
-        char item[40], *end;
-        float f;
-        unsigned char k = 0;
-        while (dpos < len && t[dpos] != ',' && k < sizeof item - 1) item[k++] = (char)t[dpos++];
-        while (k && item[k - 1] == ' ') k--;
-        item[k] = 0;
-        f = strtof(item, &end);
-        if (*end) raise(22);
-        for (k = 0; k < 5; k++) _float_a[k] = ((unsigned char *)&f)[k];
-        while (dpos < len && t[dpos] != ',') dpos++;
     }
     if (dpos < len) dpos++;          /* the ',' */
     else dneed = 1;

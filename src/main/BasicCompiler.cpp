@@ -399,7 +399,7 @@ private:
         // the run time's routines that never raise an error
         static const std::set<std::string> safe = {
             "__bas_prs", "__bas_prn", "__bas_prcr", "__bas_prcomma", "__bas_prspc", "__bas_prtab", "__bas_scmp",
-            "__bas_left", "__bas_right", "__bas_chr", "__bas_str", "__bas_iline", "__bas_iitem", "__bas_get", "__bas_st", "__bas_clrch",
+            "__bas_left", "__bas_right", "__bas_chr", "__bas_str", "__bas_iline", "__bas_iitem", "__bas_iitemn", "__bas_get", "__bas_st", "__bas_clrch",
             "__bas_ti", "__bas_tis", "__bas_restore", "__bas_rnd", "__bas_int", "__float_sin", "__float_cos",
             "__float_tan", "__float_atn", "__float_abs", "__bas_mvget", "__bas_mvput", "__bas_mvarg",
             "__bas_sprcol", "__bas_sprclr", "__bas_sprgs", "__bas_sprcp", "__bas_sprirq"};
@@ -4141,9 +4141,13 @@ void Compiler::inputStmt(bool chan, bool lineIn) {
             v.op = slotAddr(v.slot);
             store(ir::Type::PTR, v.op, global("__bas_sr"));
         }
-        // (__bas_m: 1 a string, 4 the line's rest: LINE INPUT)
-        store(ir::Type::I16, iconst(ir::Type::I16, lv.k == VK::S ? (lineIn ? 5 : 1) : 0), global("__bas_m"));
-        call("__bas_iitem");
+        // (__bas_m: 1 a string, 4 the line's rest: LINE INPUT; a number: __bas_iitemn, #484)
+        if (lv.k == VK::S) {
+            store(ir::Type::I16, iconst(ir::Type::I16, lineIn ? 5 : 1), global("__bas_m"));
+            call("__bas_iitem");
+        } else {
+            call("__bas_iitemn");
+        }
         std::string ok = newLabel("inok");
         brCond(bin(ir::Op::CMP_NE, ir::Type::I8, trunc(load(ir::Type::I16, global("__bas_n")), ir::Type::I8),
                    ir::Operand::imm(0, ir::Type::I8)), again, ok);
@@ -4244,8 +4248,12 @@ void Compiler::readStmt() {
             v.op = slotAddr(v.slot);
             store(ir::Type::PTR, v.op, global("__bas_sr"));
         }
-        store(ir::Type::I16, iconst(ir::Type::I16, lv.k == VK::S ? 1 : 0), global("__bas_m"));
-        call("__bas_read");
+        if (lv.k == VK::S) {
+            store(ir::Type::I16, iconst(ir::Type::I16, 1), global("__bas_m"));
+            call("__bas_read");
+        } else {
+            call("__bas_readn");     // (the number conversion linked only here, #484)
+        }
         if (lv.k != VK::S) { v.k = VK::F; v.op = load(ir::Type::F32, global("__float_a")); }
         assignLV(lv, v);
     } while (acceptCh(','));
