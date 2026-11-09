@@ -11,6 +11,7 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
   `lda ($10),y`) used after a call now counts as a use there, so the
   parameter is copied at the entry; before, every access after the first
   call read the call's arguments instead. Test `test_zp_param_derived_xemu.c`.
+
 ### basic45 --compile: graphics, part 3: LOADIFF, SAVEIFF (#369)
 
 - SAVEIFF and LOADIFF as BASIC 65's kernel (`kg65.saveiff`, `kg65.loadiff`
