@@ -2819,8 +2819,8 @@ void Compiler::keyStmt() {
             store(ir::Type::I8, iconst(ir::Type::I8, 0), global("__bas_dbnk"));
             store(ir::Type::I8, iconst(ir::Type::I8, 7), global("__bas_daux"));
             store(ir::Type::I16, iconst(ir::Type::I16, 15), global("__bas_m"));
-        } else store(ir::Type::I16, iconst(ir::Type::I16, 20), global("__bas_m"));
-        call("__bas_dos");
+            call("__bas_dos");
+        } else call("__bas_dos20");
         for (auto it = names.rbegin(); it != names.rend(); ++it) freeVal(*it);
         return;
     }
@@ -2873,22 +2873,19 @@ void Compiler::setStmt() {
     if (acceptKw(T_VERIFY)) {
         int on = acceptKw(T_ON) ? 1 : (expectKw(T_OFF), 0);
         store(ir::Type::I16, iconst(ir::Type::I16, on), global("__bas_n"));
-        store(ir::Type::I16, iconst(ir::Type::I16, 29), global("__bas_m"));
-        call("__bas_dos");
+        call("__bas_dos29");
         return;
     }
     if (acceptKw(T_DEF)) {
         store(ir::Type::I16, unit(), global("__bas_n"));
-        store(ir::Type::I16, iconst(ir::Type::I16, 27), global("__bas_m"));
-        call("__bas_dos");
+        call("__bas_dos27");
         return;
     }
     if (!acceptKw(T_DISK)) fail("SET DEF, SET DISK, SET VERIFY or SET BIT (?SYNTAX ERROR)");
     ir::Operand u = unit(), nu = iconst(ir::Type::I16, 0);
     if (acceptCh(',') || acceptKw(T_TO)) nu = bin(ir::Op::SHL, ir::Type::I16, unit(), iconst(ir::Type::I16, 8));
     store(ir::Type::I16, bin(ir::Op::OR, ir::Type::I16, u, nu), global("__bas_n"));
-    store(ir::Type::I16, iconst(ir::Type::I16, 28), global("__bas_m"));
-    call("__bas_dos");
+    call("__bas_dos28");
 }
 
 // BOOT "name" [, B bank] [, P address] [, U unit] [, D drive] (b65.src boot:
@@ -3061,7 +3058,8 @@ void Compiler::dosStmt(int kw) {
     if (kw == T_COPY && (par & 0xC7) && ((par & 0xC4) || !(par & 1)))
         fail("COPY: a parameter it does not take, or no source file (?SYNTAX ERROR)");
     store(ir::Type::I16, iconst(ir::Type::I16, d->cmd), global("__bas_m"));
-    call("__bas_dos");
+    // (commands from 20 on are functions of their own: a program links those it uses)
+    call(d->cmd >= 20 ? "__bas_dos" + std::to_string(d->cmd == 24 ? 23 : d->cmd) : std::string("__bas_dos"));
     for (auto it = names.rbegin(); it != names.rend(); ++it) freeVal(*it);
 }
 
