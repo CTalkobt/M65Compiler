@@ -4,6 +4,13 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### basic45 --compile: SOUND (#369)
+
+- SOUND and SOUND CLR as BASIC 65's: the voice set up on SID 2 / 4, the
+  sweep and duration run each frame in the interrupt hook (the ROM's
+  `sound_irq` in `basic_spr.s45`), on BASIC's own variables.
+- Test `test_basic_compile20_xemu.bas` (four ways).
+
 ### basic45 --compile: TYPE, DISK, LOCK, UNLOCK, MKDIR, CHDIR, SET, CLR BIT, BOOT (#369)
 
 - TYPE (page mode too), DISK, LOCK / UNLOCK, MKDIR, CHDIR, SET DEF / DISK /
