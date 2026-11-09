@@ -21,6 +21,9 @@ namespace ir { struct Module; }
 struct BasicChainOptions {
     std::string importMap;
     std::string sourceDir;
+    // --line-numbers: each line that can raise an error records its number
+    // (the messages' " IN line", EL); off: neither (#483)
+    bool lineNumbers = false;
 };
 
 struct BasicCompileResult {

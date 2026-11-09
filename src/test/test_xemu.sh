@@ -758,11 +758,12 @@ for ln in ln1 ln2; do
 done
 # test_basic_compile3_xemu.bas: TRAP / RESUME (NEXT, a line, the statement
 # again), ER / EL / ERR$; the same four ways
+# (EL: built --line-numbers, #483)
 BC3_EXP="01 01 01 01 01 AA"
 if ./bin/basic45 src/test-resources/test_basic_compile3_xemu.bas -o build/test/test_basic_compile3_i.prg >/dev/null 2>&1 &&
-   ./bin/basic45 --compile src/test-resources/test_basic_compile3_xemu.bas -o build/test/test_basic_compile3.prg >/dev/null 2>&1 &&
-   ./bin/basic45 --compile -O0 src/test-resources/test_basic_compile3_xemu.bas -o build/test/test_basic_compile3_O0.prg >/dev/null 2>&1 &&
-   ./bin/basic45 --compile --speed src/test-resources/test_basic_compile3_xemu.bas -o build/test/test_basic_compile3_speed.prg >/dev/null 2>&1; then
+   ./bin/basic45 --compile --line-numbers src/test-resources/test_basic_compile3_xemu.bas -o build/test/test_basic_compile3.prg >/dev/null 2>&1 &&
+   ./bin/basic45 --compile --line-numbers -O0 src/test-resources/test_basic_compile3_xemu.bas -o build/test/test_basic_compile3_O0.prg >/dev/null 2>&1 &&
+   ./bin/basic45 --compile --line-numbers --speed src/test-resources/test_basic_compile3_xemu.bas -o build/test/test_basic_compile3_speed.prg >/dev/null 2>&1; then
     run_xemu_test "test_basic_compile3_interpreted" "build/test/test_basic_compile3_i.prg" "C0C0" 6 "$BC3_EXP"
     run_xemu_test "test_basic_compile3" "build/test/test_basic_compile3.prg" "C0C0" 6 "$BC3_EXP"
     run_xemu_test "test_basic_compile3_O0" "build/test/test_basic_compile3_O0.prg" "C0C0" 6 "$BC3_EXP"
@@ -1062,6 +1063,15 @@ if ./bin/basic45 src/test-resources/test_basic_compile21_xemu.bas -o build/test/
     done
 else
     echo "FAIL: test_basic_compile21_xemu.bas (basic45 or basic45 --compile failed)"
+    failed=$((failed + 1))
+fi
+# test_basic_compile22_xemu.bas: without --line-numbers (the default, #483) EL
+# stays 65535 after an error, ER and the trap as with them; compiled only
+BC22_EXP="01 01 01 AA"
+if ./bin/basic45 --compile src/test-resources/test_basic_compile22_xemu.bas -o build/test/test_basic_compile22.prg >/dev/null 2>&1; then
+    run_xemu_test "test_basic_compile22" "build/test/test_basic_compile22.prg" "C0C0" 4 "$BC22_EXP"
+else
+    echo "FAIL: test_basic_compile22_xemu.bas (basic45 --compile failed)"
     failed=$((failed + 1))
 fi
 # test_basic_compile6_xemu.bas: chaining. It (REM PRAGMA EXPORT) DLOADs

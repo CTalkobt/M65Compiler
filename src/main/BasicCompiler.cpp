@@ -1978,8 +1978,10 @@ void Compiler::stepBlock(const ForInfo& f) {
 }
 
 void Compiler::finish() {
-    // __bas_line at the entries of the lines that can raise an error
-    for (size_t li = 0; li < lines_.size(); li++) {
+    // __bas_line at the entries of the lines that can raise an error (with
+    // --line-numbers only: else it stays 65535, set at the start)
+    bool lineNumbers = chainOpt_ && chainOpt_->lineNumbers;
+    for (size_t li = 0; li < lines_.size() && lineNumbers; li++) {
         if (!lineRaises_[li]) continue;
         for (size_t bi : lineEntries_[li]) {
             auto& insts = fn_->blocks[bi].insts;
@@ -2097,6 +2099,7 @@ void Compiler::finish() {
     // init: the string variables empty; then the program
     block("init");
     store(ir::Type::I8, iconst(ir::Type::I8, 0), global("__bas_sp"));
+    if (!(chainOpt_ && chainOpt_->lineNumbers)) store(ir::Type::I16, iconst(ir::Type::I16, -1), global("__bas_line"));
     if (sprIrq_) call("__bas_sprirq");
     if (sysUsed_) call("__bas_sysinit");
     if (usesTrap_ || erVars_) {
