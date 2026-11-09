@@ -3563,8 +3563,25 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
             bool ok = !fn.memoryVregs.count(i) && !fn.vregSizes.count(i) && !addressed.count(i) &&
                       !fn.registerVregs.count(i);
             bool used = false;
+            // the pointers computed from it (p + 2: an address the code
+            // generator fuses into ($10),y, so a load through it after a call
+            // reads the parameter block too, #470) are uses of it
+            std::set<uint32_t> derived{i};
+            for (bool grew = true; grew;) {
+                grew = false;
+                for (const auto& blk : fn.blocks)
+                    for (const auto& in : blk.insts) {
+                        if (in.op == ir::Op::STORE || !in.dest.isVreg() || in.resultType != ir::Type::PTR ||
+                            derived.count(in.dest.vregId))
+                            continue;
+                        bool from = (in.src1.isVreg() && derived.count(in.src1.vregId)) ||
+                                    (in.src2.isVreg() && derived.count(in.src2.vregId));
+                        for (const auto& a : in.args) if (a.isVreg() && derived.count(a.vregId)) from = true;
+                        if (from) { derived.insert(in.dest.vregId); grew = true; }
+                    }
+            }
             auto uses = [&](const ir::Inst& in) {
-                auto is = [i](const ir::Operand& o) { return o.isVreg() && o.vregId == i; };
+                auto is = [&derived](const ir::Operand& o) { return o.isVreg() && derived.count(o.vregId); };
                 if (is(in.src1) || is(in.src2) || is(in.dest)) return true;
                 for (const auto& a : in.args) if (is(a)) return true;
                 for (const auto& ph : in.phiIncoming) if (is(ph.first)) return true;
