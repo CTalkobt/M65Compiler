@@ -4,6 +4,14 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### basic45 --compile: BOOT SYS (#369)
+
+- `BOOT SYS` calls the KERNAL's `bootsys` ($FF59) through `_jsr_far`
+  (`_bas_bootsys`, `lib/stdlib/basic_sys.c`): the internal drive's home
+  sector run, `?BAD DISK` when it fails. A direct call cannot return:
+  bootsys maps BASIC's ROM over `$2000`-`$7FFF` before its `rts`. Test
+  `test_basic_compile23_xemu.bas` (a D81 with a boot sector, an empty one).
+
 ### basic45 --compile: arrays' __bas_aref in assembly (#487)
 
 - `__bas_aref` (making an array, several subscripts, the errors) is
