@@ -226,6 +226,16 @@ static void trans(const unsigned char *t, unsigned char count) {
 }
 
 static void dsread(void);
+extern void _bas_hyv(void);
+/* the file name for the hypervisor (setnam_hdos): at $0400 (BASIC's hdosfn),
+ * 0 after it */
+static void hdosname(void) {
+    volatile unsigned char *h = (volatile unsigned char *)0x0400;
+    unsigned char k;
+    for (k = 0; k < fn1l; k++) h[k] = fn1[k];
+    h[k] = 0;
+    __jsr_raw(_bas_hyv, .A = 0x2E, .X = 0x00, .Y = 0x04);
+}
 static void clall(void) { __jsr(0xFFE7); }
 static void closeall(void) { __jsr(0xFF50, .A = dosfa); }
 
@@ -278,9 +288,11 @@ void _bas_dos(void) {
         } else if (__jsr(0xFFC9, .X = dosla, .A -> e).Carry) kerr(e);
         break;
     }
-    case 20: {  /* KEY LOAD (GetLoadChannel, LoadBlock): the keys' table at $1000 */
-        unsigned char la = 0, k = 0, st;
-        volatile unsigned char *t = (volatile unsigned char *)0x1000;
+    case 20: {  /* KEY LOAD / SPRITE LOAD (GetLoadChannel, LoadBlock): pages of
+                 * the file at page _bas_n (the keys' $10, the sprites' $06), _bas_n
+                 * >> 8 of them (the next only after a full one) */
+        unsigned char la = 0, k = 0, st = 0, pages = (unsigned char)((unsigned int)_bas_n >> 8);
+        volatile unsigned char *t = (volatile unsigned char *)((unsigned int)(unsigned char)_bas_n << 8);
         dosprs(0);
         dossa = 0;
         do {
@@ -297,11 +309,14 @@ void _bas_dos(void) {
         cbm_k_basin();                      /* (the load address) */
         cbm_k_basin();
         if (cbm_readst()) { _bas_iffclose(); kerr(29); }
-        do {
-            t[k] = cbm_k_basin();
-            st = (unsigned char)cbm_readst();
-            if (st) break;
-        } while (++k);
+        while (pages-- && !st) {
+            do {
+                t[k] = cbm_k_basin();
+                st = (unsigned char)cbm_readst();
+                if (st) break;
+            } while (++k);
+            t += 256;
+        }
         _bas_iffclose();
         break;
     }
@@ -384,8 +399,16 @@ void _bas_dos(void) {
         if (_bas_drcl <= 3) _bas_drcl = 3;
         trans(t_fmkdir, 6);
         break;
-    case 26:    /* CHDIR name ("/" alone: up to the root) */
+    case 26:    /* CHDIR name ("/" alone: up to the root); on the SD card (unit
+                 * 12) through the hypervisor */
         dosprs(0);
+        if (dosfa == 12) {
+            ds[0] = 0;
+            hdosname();
+            if (!__jsr_raw(_bas_hyv, .A = 0x34).Carry) kerr(4);
+            __jsr_raw(_bas_hyv, .A = 0x0C);
+            break;
+        }
         trans(t_fchdir, fn1l == 1 && fn1[0] == '/' ? 1 : 4);
         break;
     case 27:    /* SET DEF unit: the default drive and the DOS unit */
@@ -425,6 +448,36 @@ void _bas_dos(void) {
         cbm_open();
         __jsr(0xFFC3, .A = 0, .Carry = 1);
         ds[0] = 0;
+        break;
+    }
+    case 30: {  /* MOUNT name [, U unit] (the hypervisor: the image on the SD
+                 * card as unit 8 or 9; not found: ?FILE NOT FOUND); MOUNT
+                 * alone: the real drive selected, its head stepped home and
+                 * back (the freezer's disk select) */
+        volatile unsigned char *fdc = (volatile unsigned char *)0xD080;
+        dosprs(0);
+        if (!(par & 1)) {
+            unsigned char tr;
+            *(volatile unsigned char *)0xD68B &= ~1;
+            *(volatile unsigned char *)0xD6A1 |= 1;
+            fdc[0] = 0x60;
+            fdc[1] = 0x20;
+            while (!(fdc[2] & 1)) {
+                fdc[1] = 0x10;
+                while (fdc[2] & 0x80) {}
+            }
+            tr = fdc[4];
+            while (tr) {
+                fdc[1] = 0x18;
+                while (fdc[2] & 0x80) {}
+                tr--;
+            }
+            fdc[0] = 0;
+            *(volatile unsigned char *)0xD6A1 |= 1;
+            break;
+        }
+        hdosname();
+        if (!__jsr_raw(_bas_hyv, .A = dosfa == 9 ? 0x46 : 0x40, .X = dosfa).Carry) kerr(4);
         break;
     }
     case 19:    /* exit_GKI_disk_op: closed; STOP down: BREAK */
