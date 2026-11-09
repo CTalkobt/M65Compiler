@@ -4,6 +4,22 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### cc45: fewer float copies (#485)
+
+- A float result the next float operation uses (once) stays in `__float_a`
+  (its first operand) or goes straight into `__float_b` (its second), not
+  through a temporary; a 5-byte copy into a place that holds the value
+  already (`__float_a` onto itself, a variable just stored read back) is
+  left out, also into a block only the one before reaches
+  (`CC45_NO_F32EQ=1` keeps them).
+- `-ffloat-copy-call` (on at `-O1`, `-O2`, `-Os`; off from `-O3` /
+  `-Ospeed`): a file with at least 14 copies between places outside the base
+  page calls `__f32cpy` (`lib/stdlib_asm/f32cpy.s45`) with the two addresses
+  after the `jsr` (7 bytes a copy, not 11; about 140 cycles more).
+- A sample BASIC game compiled by `basic45 --compile`: 13148 to 12840
+  bytes. Test `test_float_copy_xemu.c` (both conventions, and without the
+  calls).
+
 ### basic45 --compile: PRINT USING, FGOTO, FGOSUB, RUN, KEY, FONT, CHAR DEF, DECBIN (#369)
 
 - PRINT USING as BASIC 65's own (`#`, `.`, `>`, `=`, the `%` fields, hex),

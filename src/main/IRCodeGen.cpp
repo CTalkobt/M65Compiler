@@ -601,6 +601,24 @@ void IRCodeGen::planF32Aliases(const ir::Function& fn) {
                     st.src2.kind == ir::OperandKind::GLOBAL && st.args.empty()) {
                     f32Alias_[v] = st.src2.name;
                     f32Skip_.insert(&st);
+                    continue;
+                }
+                // the result an operand of the next float operation: left in
+                // __float_a (the first operand, or FNEG's) or copied straight
+                // into __float_b (the second), #485; only loads and constants
+                // between, which write neither
+                for (size_t j = k + 1; j < is.size(); j++) {
+                    const ir::Inst& u = is[j];
+                    bool s1 = u.src1.isVreg() && u.src1.vregId == v, s2 = u.src2.isVreg() && u.src2.vregId == v;
+                    if (s1 || s2) {
+                        bool two = u.op == ir::Op::FADD || u.op == ir::Op::FSUB || u.op == ir::Op::FMUL ||
+                                   u.op == ir::Op::FDIV || u.op == ir::Op::FCMP;
+                        if (two && s1 != s2) f32Alias_[v] = s1 ? "__float_a" : "__float_b";
+                        else if (u.op == ir::Op::FNEG && s1) f32Alias_[v] = "__float_a";
+                        break;
+                    }
+                    if (u.op != ir::Op::LOAD && u.op != ir::Op::FCONST && u.op != ir::Op::CONST &&
+                        u.op != ir::Op::ADDR_GLOBAL && u.op != ir::Op::NOP) break;
                 }
             }
         }
@@ -621,6 +639,13 @@ void IRCodeGen::emitF32Konsts() {
 }
 
 void IRCodeGen::emitF32CopyAbs(const std::string& src, const std::string& dst) {
+    static const bool off = getenv("CC45_NO_F32EQ") != nullptr;
+    if (f32EqSeq_ != emitSeq_ || off) f32Eq_.clear();
+    if (src == dst || (f32Eq_.count(src) && f32Eq_.count(dst))) {
+        emitComment("(" + dst + " holds " + src + "'s float already)");
+        return;
+    }
+    if (!f32Eq_.count(src)) f32Eq_ = {src};
     ms_.invalidateAll();
     std::string lbl = "@__fcpy_" + std::to_string(labelCounter_++);
     // X-indexed: LDA/STA have no base-page,Y mode, so "$20,y" would assemble
@@ -633,6 +658,63 @@ void IRCodeGen::emitF32CopyAbs(const std::string& src, const std::string& dst) {
     emit(".bpindex 0");
     emit("dex");
     emit("bpl " + lbl);
+    f32Eq_.insert(dst);
+    f32EqSeq_ = emitSeq_;
+}
+
+std::string IRCodeGen::callF32Copies(const std::string& text) {
+    // the loop emitF32CopyAbs writes, line by line (each "    " indented)
+    std::vector<std::string> ln;
+    for (size_t at = 0; at < text.size();) {
+        size_t e = text.find('\n', at);
+        if (e == std::string::npos) e = text.size();
+        ln.push_back(text.substr(at, e - at));
+        at = e + 1;
+    }
+    auto body = [](const std::string& l) {
+        std::string t = l.substr(l.find_first_not_of(" \t") == std::string::npos ? l.size() : l.find_first_not_of(" \t"));
+        size_t c = t.find("  ;");
+        return c == std::string::npos ? t : t.substr(0, c);
+    };
+    // an absolute operand "name,x": not the base page ($xx, a .zar block)
+    auto absOp = [](const std::string& op, std::string& base) {
+        if (op.size() < 3 || op.compare(op.size() - 2, 2, ",x") != 0) return false;
+        base = op.substr(0, op.size() - 2);
+        return !base.empty() && base[0] != '$' && base.find("zar") == std::string::npos &&
+               base.find_first_of(" ()[]#") == std::string::npos;
+    };
+    struct Site { size_t at; std::string src, dst; };
+    std::vector<Site> sites;
+    for (size_t i = 0; i + 7 < ln.size(); i++) {
+        if (body(ln[i]) != "ldx #4") continue;
+        std::string lbl = body(ln[i + 1]);
+        if (lbl.rfind("@__fcpy_", 0) != 0 || lbl.back() != ':') continue;
+        std::string a = body(ln[i + 3]), b = body(ln[i + 4]), src, dst;
+        if (body(ln[i + 2]) != ".bpindex 5" || a.rfind("lda ", 0) != 0 || b.rfind("sta ", 0) != 0 ||
+            body(ln[i + 5]) != ".bpindex 0" || body(ln[i + 6]) != "dex" ||
+            body(ln[i + 7]) != "bpl " + lbl.substr(0, lbl.size() - 1))
+            continue;
+        if (!absOp(a.substr(4), src) || !absOp(b.substr(4), dst)) continue;
+        sites.push_back({i, src, dst});
+        i += 7;
+    }
+    // (__f32cpy is 54 bytes; a call saves 4: 7 bytes, the loop 11)
+    if (sites.size() < 14) return text;
+    std::string out;
+    size_t next = 0;
+    bool ext = false;
+    for (size_t i = 0; i < ln.size(); i++) {
+        if (next < sites.size() && sites[next].at == i) {
+            if (!ext) { out += "    .extern __f32cpy\n"; ext = true; }
+            out += "    jsr __f32cpy\n    .word " + sites[next].src + ", " + sites[next].dst + "\n";
+            i += 7;
+            next++;
+            continue;
+        }
+        out += ln[i];
+        if (i + 1 < ln.size() || (!text.empty() && text.back() == '\n')) out += "\n";
+    }
+    return out;
 }
 
 void IRCodeGen::emitF32VregToAbs(uint32_t vregId, const std::string& dst) {
@@ -5322,11 +5404,25 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
                        last.src2.name == block.label &&
                        !(last.dest.kind == ir::OperandKind::LABEL && last.dest.name == block.label);
         }
+        // the floats known equal carry into a block only the one before
+        // reaches, by falling into it (or a branch to it, left out), #485
+        bool f32Carry = f32EqSeq_ == emitSeq_ && bi > 0 && bi != coldStart && !anyAsm &&
+                        !fn.addressTakenLabels.count(block.label) && !emittedLabelRefs_.count(block.label) &&
+                        !fn.blocks[bi - 1].insts.empty();
+        if (f32Carry) {
+            const auto& last = fn.blocks[bi - 1].insts.back();
+            int refs = labelRefs_.count(block.label) ? labelRefs_[block.label] : 0;
+            bool brHere = last.op == ir::Op::BR && last.src1.kind == ir::OperandKind::LABEL && last.src1.name == block.label;
+            bool ends = last.op == ir::Op::BR || last.op == ir::Op::BR_COND || last.op == ir::Op::RET ||
+                        last.op == ir::Op::RET_VOID || last.op == ir::Op::SWITCH || last.op == ir::Op::BR_INDIRECT;
+            f32Carry = brHere ? refs == 1 : (refs == 0 && !ends);
+        }
         if (fallOnly) {
             emitComment("@" + block.label + " (reached by falling through only)");
             carried = ElemCache();
         } else
         emitLabel("@" + block.label);
+        if (f32Carry) f32EqSeq_ = emitSeq_;
         if (carried.valid) {
             elemCache_ = carried;
             emitComment("address of " + carried.base + "[...] still in __zp_scratch (single predecessor)");

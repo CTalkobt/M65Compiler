@@ -1,0 +1,59 @@
+; f32cpy.s45 — a float's 5 bytes copied by a call (#485)
+;
+; cc45 copies a float between two places outside the base page (__float_a,
+; __float_b, a variable, a constant) with a loop (11 bytes); a file with at
+; least 14 such copies calls this instead (7 bytes; about 140 cycles more):
+;
+;     jsr __f32cpy
+;     .word src, dst
+;
+; __f32cpy returns after the list. A and X are clobbered (as by the loop),
+; Y and Z kept; $F6-$F9 used (library temps).
+
+    .cpu 45gs02
+
+; no calls through pointers here (ln45's call graph, see O45Linker)
+.weak cc45.icallinfo
+cc45.icallinfo = 1
+
+list    = $F6       ; the list - 1 (the return address), then src
+dst     = $F8
+
+    .split "__f32cpy"
+.global __f32cpy
+__f32cpy:
+    pla
+    sta list
+    pla
+    sta list+1
+    clc                 ; return after the list: list + 4 for rts
+    lda list
+    adc #4
+    tax
+    lda list+1
+    adc #0
+    pha
+    txa
+    pha
+    phy
+    ldy #3
+    lda (list),y
+    sta dst
+    iny
+    lda (list),y
+    sta dst+1
+    ldy #1
+    lda (list),y
+    tax
+    iny
+    lda (list),y
+    sta list+1
+    stx list
+    ldy #4
+@byte:
+    lda (list),y
+    sta (dst),y
+    dey
+    bpl @byte
+    ply
+    rts
