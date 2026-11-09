@@ -59,6 +59,14 @@
  *   $88 n d       a legato note: the pitch n for d ticks, the note going on
  *   $89 lo hi s   the pulse width and its sweep a frame (signed)
  *   $8A lo hi s   the voice's chip's cutoff (11 bits) and its sweep a frame
+ *   $8D v         the voice's chip's volume (0-15; $18's mode bits kept)
+ *   $8E f         the voice's filter routing on (1) or off (0), nothing else;
+ *                 notes of unfiltered instruments keep it from then on
+ *   $8F n         modulation (BASIC 65's PLAY M): from each note or rest a
+ *                 frequency offset $20 a frame up for n frames, down for 2n,
+ *                 up for 2n, ... (0 off)
+ *   $90 n         portamento (PLAY P): each note from the last one's
+ *                 frequency, n * $50 a frame towards its own (0 off)
  * ($83 a $80: a two-note arpeggio, the note and +a. An instrument's hr byte's
  * bit 7: its effects go on through the release; bit 6: its pulse-width
  * sweep free (no bounce; stopped at 0 and $FFF, as pw:'s); bit 5: a note
@@ -108,6 +116,12 @@ __fastcall__ void tune_tempo(unsigned int scale);
 __fastcall__ void tune_vibrato(unsigned char extra);
 __fastcall__ void tune_transpose(unsigned char voice, signed char semitones);
 __fastcall__ void tune_detune(unsigned char voice, signed char amount);
+
+/* Chip 0-3's filter at once, while a tune plays: the cutoff (11 bits; its
+ * sweep stopped), the resonance (0-15; the voices' routing kept) and the
+ * mode (bit 0 low, 1 band, 2 high pass; the volume kept). A filtered
+ * instrument's note sets them again. */
+__fastcall__ void tune_filter(unsigned char chip, unsigned int cutoff, unsigned char resonance, unsigned char mode);
 
 /* The tune's position: ticks played since tune_play */
 __fastcall__ unsigned int tune_ticks(void);

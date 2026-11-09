@@ -4,6 +4,25 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### Tune player: BASIC 65's PLAY U, X, M, P; basic45 --compile plays them (#474-#477, #369)
+
+- Four stream events and tune45 tokens: `vol:n` ($8D: the voice's chip's
+  volume, the mode kept), `filt:on` / `filt:off` ($8E: the voice's filter
+  routing alone, kept through unfiltered instruments' notes), `mod:n` ($8F:
+  BASIC 65's modulation, an offset $20 a frame in a triangle of 4n frames
+  from each note and rest), `port:n` ($90: BASIC 65's portamento, each note
+  from the last one's frequency, n * $50 a frame towards its own). In the
+  player (plain and coded data), its model and the packer. With either of
+  the last two the effects run on through the release, as BASIC's.
+- `tune_filter(chip, cutoff, resonance, mode)`: a chip's filter at once
+  while a tune plays (the routing and volume kept).
+- basic45 --compile: `PLAY`'s `U`, `X`, `M`, `P` are played (no longer
+  warned); `FILTER` sets the chip's filter at once through `tune_filter`
+  (the ROM's at the next `X1`).
+- Tests: the model against the player in xemu on a tune of the four (plain
+  and coded, both conventions); `test_tune45.sh` the tokens;
+  `test_basic_compile17_xemu.bas` [7].
+
 ### basic45 --compile: DEF FN defined more than once (#369)
 
 - A function defined by several `DEF FN` statements is compiled: `FN`

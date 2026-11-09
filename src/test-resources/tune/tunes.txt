@@ -52,3 +52,13 @@ pattern pl: eb2:1 ~f2:1
 v1: @bass *pb*2 |: tempo:2 ~:2 *pl+2 r:2 g1:2 @cr cut:300,5 c3:2 c3:2 @bass *pb
 v2: @snare c5:2 r:2 *ps *ps-5 r:2 |: arp:3,7 c5:4 arp:off @cy e5:2 r:1 @cs e5:1 @snare c5:2 r:2 c5:4
 v3: *pv |: @tl arp2:12 c5:1 pw:600,20 r:1 cut:300,-9 r:2 arp:off @slead g4^5,2:4 r:4 tempo:3.25 c4:4
+
+; BASIC 65's PLAY events (#474-#477): the chip's volume (vol:), a voice's
+; filter routing (filt:) kept through unfiltered instruments' notes and
+; changed by a filtered one's, modulation (mod:: from each note and rest,
+; on through the release), portamento (port:: up, down, after a rest, at
+; the target, two together)
+tune basic 2.5 once
+v1: @chip vol:9 port:3 c4:8 g4:8 r:4 c4:12 port:0 e4:6 vol:15 r:4 port:9 c4:6 c4:6 c6:4 port:0 c4:80
+v2: @plain mod:2 c3:10 r:2 e3:10 mod:0 g3:8 mod:9 c3:20 r:10 mod:1 port:2 g3:8 c3:70
+v3: @bass filt:on c5:4 @chip c5:4 filt:off c5:4 filt:on c5:8 @plain mod:1 port:9 c6:6 c3:6 filt:off r:106

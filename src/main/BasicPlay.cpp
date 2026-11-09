@@ -11,8 +11,8 @@
 // seconds); the run time scales it for the TEMPO in force and puts the
 // envelopes' current values (ENVELOPE) into the instruments.
 //
-// Not played yet (the tune player has no matching events: #474-#477): U, X,
-// M, P (warned). Voices 4-6 are tune voices 7-9: SID 3, as BASIC's.
+// U, X, M, P are the player's events vol: (through BASIC's voltab), filt:,
+// mod:, port: (#474-#477). Voices 4-6 are tune voices 7-9: SID 3, as BASIC's.
 
 #include "BasicPlay.hpp"
 #include "TuneCompiler.hpp"
@@ -31,6 +31,7 @@ const uint8_t kWav[10] = {0x41, 0x21, 0x11, 0x81, 0x11, 0x21, 0x41, 0x41, 0x41, 
 const uint8_t kPwh[10] = {0x06, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0x08, 0x02, 0x00};
 
 const int kScale[7] = {9, 11, 0, 2, 4, 5, 7};   // A B C D E F G (scalen)
+const int kVol[10] = {0, 1, 3, 5, 7, 8, 10, 12, 14, 15};   // U's volumes (voltab)
 
 std::string hex(unsigned v, int digits) {
     static const char* d = "0123456789abcdef";
@@ -48,7 +49,6 @@ PlayTune convertPlay(const std::vector<std::optional<std::string>>& voices) {
         t << "instrument e" << e << " " << hex(kWav[e] & 0xFE, 2) << " " << hex(kAtk[e], 2) << " "
           << hex(kSus[e], 2) << " " << hex(kPwh[e] << 8, 3) << " 0 0\n";
     bool anyLoop = false, allLoop = true;
-    std::set<char> unplayed;
     std::vector<std::string> lines(9);
     std::vector<int> lens(6, 0);           // each voice's ticks
     int looped = 0;                        // the voices with an L (RPLAY: on while the tune plays)
@@ -91,8 +91,10 @@ PlayTune convertPlay(const std::vector<std::optional<std::string>>& voices) {
                 switch (flag) {
                 case 'O': if (d >= 7) r.badValue = true; else octave = d; break;
                 case 'T': if (d != env) { env = d; o << " @e" << d; } break;
-                case 'X': if (d >= 2) r.badValue = true; else unplayed.insert('X'); break;
-                default: unplayed.insert(flag); break;
+                case 'X': if (d >= 2) r.badValue = true; else o << " filt:" << (d ? "on" : "off"); break;
+                case 'U': o << " vol:" << kVol[d]; break;
+                case 'M': o << " mod:" << d; break;
+                case 'P': o << " port:" << d; break;
                 }
             }
             flag = 0;
@@ -117,11 +119,6 @@ PlayTune convertPlay(const std::vector<std::optional<std::string>>& voices) {
     if (anyLoop) {
         for (int l : lens)
             if (l && l != most) { r.warnings.push_back("PLAY: looping voices of different lengths loop together"); break; }
-    }
-    for (char c : unplayed) {
-        const char* what = c == 'U' ? "U (volume, #474)" : c == 'X' ? "X (filter, #475)"
-                         : c == 'M' ? "M (modulation, #476)" : "P (portamento, #477)";
-        r.warnings.push_back(std::string("PLAY's ") + what + " is not played yet");
     }
     if (anyLoop && !allLoop) r.warnings.push_back("PLAY: L on some voices only: all of them loop");
     TuneCompiler tc;

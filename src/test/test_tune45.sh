@@ -360,6 +360,15 @@ err $'instrument a pulse 09 a6 0600 1 1\ntune t 5 once\nv1: pw:1000 c4:1' "pw:he
 err $'instrument a pulse 09 a6 0600 1 1\ntune t 5 once\nv1: cut:200,200 c4:1' "cut:hex 0-7ff"
 err $'instrument a pulse 09 a6 0600 1 1\ntune t 5 once\nv1: arp2:30 c4:1' "arp2:a"
 
+# BASIC 65's PLAY events (#474-#477): vol: ($8D v), filt: ($8E 1 / 0),
+# mod: ($8F n), port: ($90 n)
+printf 'instrument a pulse 09 a6 0600 0 0\ntune t 1 once\nv1: vol:9 filt:on mod:3 port:2 c4:2 filt:off r:1\n' > $T/pe.txt
+$TUNE convert $T/pe.txt -o $T/pe.c >/dev/null 2>&1 && sed -n '/tune_t\[/,/};/p' $T/pe.c | tr -d ' \n' |
+    grep -q '141,9,142,1,143,3,144,2,60,2,142,0,128,1,255,}' && pass || fail "vol:, filt:, mod:, port:"
+err $'instrument a pulse 09 a6 0600 1 1\ntune t 5 once\nv1: vol:16 c4:1' "vol:0-15"
+err $'instrument a pulse 09 a6 0600 1 1\ntune t 5 once\nv1: filt:1 c4:1' "filt:on or filt:off"
+err $'instrument a pulse 09 a6 0600 1 1\ntune t 5 once\nv1: port:256 c4:1' "port:0-255"
+
 # free (the hr byte's bit 6) and vspeed (the vibrato byte's high nibble + 1)
 printf 'instrument a pulse 09 a6 0600 5 0 vspeed=3 free hr=1\ntune t 1 once\nv1: c4:2\n' > $T/fr.txt
 $TUNE convert $T/fr.txt -o $T/fr.c >/dev/null 2>&1 && sed -n '/tune_t\[/,/};/p' $T/fr.c | tr -d ' \n' | grep -q '64,9,166,0,6,37,0,0,0,0,65,' &&

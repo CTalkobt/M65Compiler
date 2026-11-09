@@ -39,6 +39,7 @@ C_PAT = 16
 C_REP = 17
 C_TR = 18
 C_DOP = 19
+C_DVOL = 21
 NCTX = 22
 
 .segment "bss"
@@ -587,6 +588,12 @@ proc __tune_cpeek
     ldy #C_INST
     cmp #$81
     beq @one
+    ldy #C_DVOL         ; $8D-$90: a byte (volume, routing, modulation, portamento)
+    cmp #$8D
+    bcc @pk
+    cmp #$91
+    bcc @one
+@pk:
     ldy #C_ARPA
     cmp #$83
     beq @two

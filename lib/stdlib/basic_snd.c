@@ -182,8 +182,10 @@ void _bas_envelope(void) {
 
 /* FILTER sid, freq, lp, bp, hp, res: _bas_g[0] the SID (1-2), [1] the given
  * ones (bit 0 freq, 1-3 lp bp hp, 4 res), [2-3] freq (0-2047), [4-6] the
- * types (0-1), [7] res (0-15): PLAY's copy of that SID's filter (as the
- * ROM's FILTER: the chips get it from a voice's X) */
+ * types (0-1), [7] res (0-15): PLAY's copy of that SID's filter, as the
+ * ROM's FILTER, and the chip's filter at once (tune_filter: the routing and
+ * volume kept; the ROM's chips get it at a voice's X1, which here routes the
+ * voice only: #475). SID 2 is chip 2, where PLAY's voices 4-6 play. */
 void _bas_filter(void) {
     unsigned char s = (unsigned char)(_bas_g[0] - 1), f = _bas_g[1], k, fl = 0x10;
     volatile unsigned char *p;
@@ -207,6 +209,7 @@ void _bas_filter(void) {
         sv[2] = (unsigned char)((sv[2] & 0x0F) | (_bas_g[7] << 4));
     }
     for (k = 0; k < 4; k++) p[k] = sv[k];
+    tune_filter(s ? 2 : 0, (sv[0] & 7) | (unsigned int)sv[1] << 3, sv[2] >> 4, (sv[3] >> 4) & 7);
 }
 
 /* SOUND voice, freq, duration [, dir [, min [, step [, waveform [, pulse]]]]]
