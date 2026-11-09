@@ -6,7 +6,7 @@
 ;   __bas_sprirq   the interrupt hook in the KERNAL's IRQ vector ($0314), once:
 ;                  each interrupt (before the KERNAL's handler, as BASIC's runs
 ;                  in it) moves the sprites with a speed (MOVSPR ... TO, #) and
-;                  records collisions (BUMP) and COLLISION's trap flags. The
+;                  records collisions (BUMP), the light pen (LPEN) and COLLISION's trap flags. The
 ;                  vector leads to a stub at $0500 (BASIC's run-time stack, not
 ;                  a compiled program's): while a ROM routine runs (JSRFAR),
 ;                  BASIC's ROM hides the program, and the stub only counts the
@@ -144,8 +144,16 @@ __bas_sirq:
 @cnext:
     dey
     bpl @coll
-    lsr irqf                ; the light pen
-    bcc @move
+    lsr irqf                ; the light pen: its latches into BASIC's
+    bcc @move               ; lightpen_xpos / ypos (read in slow mode)
+    ldx $D031
+    lda #%01000000
+    trb $D031
+    ldy $D013
+    sty $02E8
+    ldy $D014
+    sty $02E9
+    stx $D031
     lda __bas_intv
     and #4
     beq @move

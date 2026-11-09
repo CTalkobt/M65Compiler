@@ -4,6 +4,15 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### basic45 --compile: JOY, POT, LPEN, MOUSE, RMOUSE (#369)
+
+- JOY (both ports too, buttons 2-5), POT and LPEN read the hardware as
+  BASIC 65 does; the interrupt hook records the light pen's latch in BASIC's
+  bytes. MOUSE ON / OFF through the KERNAL's mouse driver (hotspot,
+  position), RMOUSE (`lib/stdlib/basic_dev.c`).
+- basic45's warnings know RMOUSE assigns its variables.
+- Test `test_basic_compile16_xemu.bas` (four ways).
+
 ### basic45 --compile: SYS, RREG, USR, DMA, EDMA, FRE, CLR (#369)
 
 - SYS through the KERNAL's `_jsr_far` (its registers kept by the run time,

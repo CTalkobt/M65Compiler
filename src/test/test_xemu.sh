@@ -962,6 +962,21 @@ else
     echo "FAIL: test_basic_compile15_xemu.bas (basic45 or basic45 --compile failed)"
     failed=$((failed + 1))
 fi
+# test_basic_compile16_xemu.bas: JOY, POT, LPEN (idle: headless xemu has no
+# stick, paddle or pen), their ranges, MOUSE ON / OFF, RMOUSE; four ways
+BC16_EXP="01 01 01 01 01 01 01 AA"
+if ./bin/basic45 src/test-resources/test_basic_compile16_xemu.bas -o build/test/test_basic_compile16_i.prg >/dev/null 2>&1 &&
+   ./bin/basic45 --compile src/test-resources/test_basic_compile16_xemu.bas -o build/test/test_basic_compile16.prg >/dev/null 2>&1 &&
+   ./bin/basic45 --compile -O0 src/test-resources/test_basic_compile16_xemu.bas -o build/test/test_basic_compile16_O0.prg >/dev/null 2>&1 &&
+   ./bin/basic45 --compile --speed src/test-resources/test_basic_compile16_xemu.bas -o build/test/test_basic_compile16_speed.prg >/dev/null 2>&1; then
+    run_xemu_test "test_basic_compile16_interpreted" "build/test/test_basic_compile16_i.prg" "C0C0" 8 "$BC16_EXP"
+    run_xemu_test "test_basic_compile16" "build/test/test_basic_compile16.prg" "C0C0" 8 "$BC16_EXP"
+    run_xemu_test "test_basic_compile16_O0" "build/test/test_basic_compile16_O0.prg" "C0C0" 8 "$BC16_EXP"
+    run_xemu_test "test_basic_compile16_speed" "build/test/test_basic_compile16_speed.prg" "C0C0" 8 "$BC16_EXP"
+else
+    echo "FAIL: test_basic_compile16_xemu.bas (basic45 or basic45 --compile failed)"
+    failed=$((failed + 1))
+fi
 # test_basic_compile6_xemu.bas: chaining. It (REM PRAGMA EXPORT) DLOADs
 # test_basic_compile6b_xemu.bas ("BC6B" on its D81; REM PRAGMA IMPORT, the
 # map from --import-map), which checks the variables; LOAD of a missing file
