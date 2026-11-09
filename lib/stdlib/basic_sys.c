@@ -82,6 +82,25 @@ void _bas_boot(void) {
     }
 }
 
+/* BOOT SYS: the KERNAL's bootsys ($FF59: the home sector of the internal
+ * drive's disk loaded to $0400 and called when it starts with a JMP), called
+ * through _jsr_far: bootsys returns with the system's map (BASIC's ROM at
+ * $2000), which only _jsr_far's code below $2000 survives; ?BAD DISK when it
+ * fails (carry set; b65.src boot) */
+void _bas_bootsys(void) {
+    unsigned char st;
+    ROMBP(2) = 0;
+    ROMBP(3) = 0xFF;
+    ROMBP(4) = 0x59;
+    ROMBP(5) = _bas_sregs[4];
+    st = INIT_STATUS;
+    INIT_STATUS = st & 0xFE;
+    __jsr(0xFF6E);
+    INIT_STATUS = st;
+    __asm__("cli");
+    if (ROMBP(5) & 1) raise(36);
+}
+
 /* RREG's register _bas_m (0-3 A X Y Z, 4 S) */
 void _bas_rreg(void) {
     _bas_n = _bas_sregs[(unsigned char)_bas_m];

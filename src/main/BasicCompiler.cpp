@@ -1582,7 +1582,10 @@ private:
     // DEF FN name(x) = expr: each FN name(...) is the expression compiled where
     // it is used, x bound to the argument; a flag set when the DEF runs
     // (FN before it: ?UNDEFINED FUNCTION, as BASIC 65's)
-    struct DefFn { int id; size_t li, si, body; std::string param; bool twice = false; };
+    // (a function defined more than once: the global holds which definition
+    // ran last, 1..n, and FN chooses its expression by it)
+    struct FnSite { size_t li, si; std::string param; };
+    struct DefFn { int id; size_t body; std::vector<FnSite> sites; };
     std::map<std::string, DefFn> defFns_;
     std::map<std::string, Val> fnBind_;     // a parameter's global -> the argument
     int fnDepth_ = 0;
@@ -1711,12 +1714,13 @@ void Compiler::prescan() {
                 !(t[5].k == TK::Ch && t[5].ch == ')') || t[6].k != TK::Kw || t[6].kw != T_EQ)
                 continue;
             std::string key = t[2].text.substr(0, 2);
+            FnSite site{li, si, "__bv_" + t[4].text.substr(0, 2)};
             auto it = defFns_.find(key);
-            if (it != defFns_.end()) { it->second.twice = true; continue; }
+            if (it != defFns_.end()) { it->second.sites.push_back(site); continue; }
             DefFn d;
             d.id = (int)defFns_.size();
-            d.li = li; d.si = si; d.body = 7;
-            d.param = "__bv_" + t[4].text.substr(0, 2);
+            d.body = 7;
+            d.sites.push_back(site);
             defFns_[key] = d;
         }
 }
@@ -1729,8 +1733,10 @@ void Compiler::defStmt() {
     if ((*t)[2].text.back() == '$' || (*t)[4].text.back() == '$' || (*t)[4].text.back() == '%')
         fail("DEF FN of a string or with an integer parameter is not supported by --compile yet");
     const DefFn& d = defFns_.at(key);
-    if (d.twice) fail("FN " + (*t)[2].text + " is defined more than once: not supported by --compile");
-    store(ir::Type::I8, iconst(ir::Type::I8, 1), global("__bas_fn" + std::to_string(d.id)));
+    size_t k = 0;
+    while (k < d.sites.size() && &lines_[d.sites[k].li].segs[d.sites[k].si].toks != t) k++;
+    if (k == d.sites.size()) fail("DEF FN name(variable) = expression expected (?SYNTAX ERROR)");
+    store(ir::Type::I8, iconst(ir::Type::I8, (int64_t)k + 1), global("__bas_fn" + std::to_string(d.id)));
     p_ = t->size();
 }
 
@@ -1745,24 +1751,52 @@ Val Compiler::fnCall() {
     auto it = defFns_.find(key);
     if (it == defFns_.end()) { raiseNow(27); return constI(0); }
     const DefFn& d = it->second;
-    if (d.twice) fail("FN " + t->text + " is defined more than once: not supported by --compile");
     if (arg.k == VK::S) fail("FN needs a number (?TYPE MISMATCH)");
     if (++fnDepth_ > 16) fail("FN " + t->text + " calls itself");
     // (DEF not run yet: ?UNDEFINED FUNCTION)
-    raiseIf(bin(ir::Op::CMP_EQ, ir::Type::I8, load(ir::Type::I8, global("__bas_fn" + std::to_string(d.id))),
-                ir::Operand::imm(0, ir::Type::I8)), 27);
+    auto sel = load(ir::Type::I8, global("__bas_fn" + std::to_string(d.id)));
+    raiseIf(bin(ir::Op::CMP_EQ, ir::Type::I8, sel, ir::Operand::imm(0, ir::Type::I8)), 27);
     // the expression, its parameter the argument
     auto savedToks = toks_;
     size_t savedP = p_;
-    auto savedBind = fnBind_.find(d.param) != fnBind_.end() ? std::optional<Val>(fnBind_[d.param]) : std::nullopt;
-    fnBind_[d.param] = arg;
-    toks_ = &lines_[d.li].segs[d.si].toks;
-    p_ = d.body;
-    Val r = expr();
-    if (!atEnd()) fail("unexpected" + near() + " in DEF FN's expression (?SYNTAX ERROR)");
+    auto body = [&](const FnSite& s) {
+        auto savedBind = fnBind_.find(s.param) != fnBind_.end() ? std::optional<Val>(fnBind_[s.param]) : std::nullopt;
+        fnBind_[s.param] = arg;
+        toks_ = &lines_[s.li].segs[s.si].toks;
+        p_ = d.body;
+        Val v = expr();
+        if (!atEnd()) fail("unexpected" + near() + " in DEF FN's expression (?SYNTAX ERROR)");
+        if (v.k == VK::S) fail("DEF FN's expression is a string (?TYPE MISMATCH)");
+        if (savedBind) fnBind_[s.param] = *savedBind; else fnBind_.erase(s.param);
+        return v;
+    };
+    Val r;
+    if (d.sites.size() == 1) {
+        r = body(d.sites[0]);
+    } else {
+        // defined more than once: the expression of the DEF run last
+        r.k = VK::F;
+        r.op = vreg(ir::Type::F32);
+        std::string done = newLabel("fnd");
+        for (size_t k = 0; k < d.sites.size(); k++) {
+            if (k + 1 < d.sites.size()) {
+                std::string here = newLabel("fn"), next = newLabel("fnn");
+                brCond(bin(ir::Op::CMP_EQ, ir::Type::I8, sel, ir::Operand::imm((int64_t)k + 1, ir::Type::I8)),
+                       here, next);
+                block(here);
+                Val v = body(d.sites[k]);
+                { ir::Inst in; in.op = ir::Op::COPY; in.dest = r.op; in.src1 = toF(v); in.resultType = ir::Type::F32; emit(in); }
+                br(done);
+                block(next);
+            } else {
+                Val v = body(d.sites[k]);
+                { ir::Inst in; in.op = ir::Op::COPY; in.dest = r.op; in.src1 = toF(v); in.resultType = ir::Type::F32; emit(in); }
+            }
+        }
+        block(done);
+    }
     toks_ = savedToks;
     p_ = savedP;
-    if (savedBind) fnBind_[d.param] = *savedBind; else fnBind_.erase(d.param);
     fnDepth_--;
     return r;
 }
@@ -2938,7 +2972,11 @@ void Compiler::setStmt() {
 // BOOT "name" [, B bank] [, P address] [, U unit] [, D drive] (b65.src boot:
 // BLOAD's parsing and load, then the code at its start called)
 void Compiler::bootStmt() {
-    if (acceptKw(T_SYS)) fail("BOOT SYS is not supported by --compile");
+    if (acceptKw(T_SYS)) {
+        // BOOT SYS: the KERNAL's bootsys ($FF59), ?BAD DISK when it fails
+        call("__bas_bootsys");
+        return;
+    }
     if (stmtEnd()) {
         // BOOT alone: AUTOBOOT.C65* loaded and run (set_ab_fn, dload_boot), as
         // DLOAD chains
