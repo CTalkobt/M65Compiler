@@ -1260,6 +1260,8 @@ static void cdraw(void) {
             cliprow++;
         }
     }
+    /* (charaaa: each row, clipped or not, leaves the next row's odd flag) */
+    KG.scanlineflag = KG.drawscrheight ? (unsigned char)(cliprow & 1) : 0;
 }
 
 void _bas_gchar(void) {

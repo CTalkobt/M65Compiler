@@ -468,8 +468,8 @@ after the window is set), `RWINDOW(0-3)` (the window's width, height, the screen
 red, green, blue ...]` (red 0-31, its bit 4 the foreground/background flag; green, blue 0-15), `PALETTE RESTORE`
 and `VSYNC line` (0-511, below the frame's last line) set the VIC-IV's registers and the editor's variables as BASIC
 65's (`lib/stdlib/basic_scr.c`), through the KERNAL's `PLOT` and the editor's `_set_window`, `_cursor` and
-`_palette_init`. An error message (and `BREAK`) is in `HIGHLIGHT`'s colour, as the interpreter's. Not compiled:
-`PALETTE` of a graphics screen (BASIC's graphics, through its jump table). Test: `test_basic_compile10_xemu.bas`.
+`_palette_init`. An error message (and `BREAK`) is in `HIGHLIGHT`'s colour, as the interpreter's. `PALETTE` of a graphics
+screen is with the graphics below. Test: `test_basic_compile10_xemu.bas`.
 
 **Graphics**: `SCREEN DEF / OPEN / SET / CLOSE / CLR` and the old `SCREEN [screen,] width, height, depth`,
 `PEN [pen,] colour`, `DMODE`, `DPAT`, `DOT`, `LINE` (a chain of points; a value left out is the last point's), `BOX`
