@@ -977,6 +977,21 @@ else
     echo "FAIL: test_basic_compile16_xemu.bas (basic45 or basic45 --compile failed)"
     failed=$((failed + 1))
 fi
+# test_basic_compile17_xemu.bas: PLAY (through the tune player: lengths, voices,
+# dots, sharps, L), RPLAY, TEMPO, ENVELOPE, VOL, FILTER, PLAY alone; four ways
+BC17_EXP="01 01 01 01 01 01 01 AA"
+if ./bin/basic45 src/test-resources/test_basic_compile17_xemu.bas -o build/test/test_basic_compile17_i.prg >/dev/null 2>&1 &&
+   ./bin/basic45 --compile src/test-resources/test_basic_compile17_xemu.bas -o build/test/test_basic_compile17.prg >/dev/null 2>&1 &&
+   ./bin/basic45 --compile -O0 src/test-resources/test_basic_compile17_xemu.bas -o build/test/test_basic_compile17_O0.prg >/dev/null 2>&1 &&
+   ./bin/basic45 --compile --speed src/test-resources/test_basic_compile17_xemu.bas -o build/test/test_basic_compile17_speed.prg >/dev/null 2>&1; then
+    run_xemu_test "test_basic_compile17_interpreted" "build/test/test_basic_compile17_i.prg" "C0C0" 8 "$BC17_EXP"
+    run_xemu_test "test_basic_compile17" "build/test/test_basic_compile17.prg" "C0C0" 8 "$BC17_EXP"
+    run_xemu_test "test_basic_compile17_O0" "build/test/test_basic_compile17_O0.prg" "C0C0" 8 "$BC17_EXP"
+    run_xemu_test "test_basic_compile17_speed" "build/test/test_basic_compile17_speed.prg" "C0C0" 8 "$BC17_EXP"
+else
+    echo "FAIL: test_basic_compile17_xemu.bas (basic45 or basic45 --compile failed)"
+    failed=$((failed + 1))
+fi
 # test_basic_compile6_xemu.bas: chaining. It (REM PRAGMA EXPORT) DLOADs
 # test_basic_compile6b_xemu.bas ("BC6B" on its D81; REM PRAGMA IMPORT, the
 # map from --import-map), which checks the variables; LOAD of a missing file

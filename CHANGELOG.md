@@ -4,6 +4,18 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### basic45 --compile: PLAY through the tune player, RPLAY, TEMPO, VOL, ENVELOPE, FILTER (#369)
+
+- PLAY's strings converted at compile time (`BasicPlay.cpp`, tune45's
+  `TuneCompiler`) into tunes for `<audio_tune.h>`, played by the interrupt
+  hook; envelopes and tempo applied at each PLAY; lengths as the
+  interpreter's to a frame. RPLAY per voice; TEMPO, VOL, ENVELOPE, FILTER
+  and PLAY alone on BASIC 65's own variables (`lib/stdlib/basic_snd.c`).
+- Not played yet: U, X, M, P (warned; #474-#477), voices left playing across
+  PLAYs (#478), strings built at run time, SOUND.
+- `basic45 --compile` prints the compiler's warnings.
+- Test `test_basic_compile17_xemu.bas` (four ways).
+
 ### basic45 --compile: JOY, POT, LPEN, MOUSE, RMOUSE (#369)
 
 - JOY (both ports too, buttons 2-5), POT and LPEN read the hardware as

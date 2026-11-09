@@ -526,6 +526,7 @@ static bool compileToMachineCode(const Options& opts, const char* argv0, std::ve
     chain.importMap = opts.importMap;
     chain.sourceDir = fs::path(opts.inputFile).parent_path().string();
     auto ir = compileBasicToIR(binary, name, opts.speed, &chain);
+    for (const auto& [line, msg] : ir.warnings) std::cerr << where(line) << ": warning: " << msg << std::endl;
     if (!ir.ok) {
         for (const auto& [line, msg] : ir.errors)
             std::cerr << where(line) << ": error: " << msg << std::endl;

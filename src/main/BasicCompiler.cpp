@@ -21,6 +21,7 @@
 // messages are the runtime's (basic_rt.s45, basic_str.c).
 
 #include "BasicCompiler.hpp"
+#include "BasicPlay.hpp"
 #include "IR.hpp"
 #include "CodegenStage.hpp"
 #include "BasicTokenizer.hpp"
@@ -64,7 +65,7 @@ enum : int {
     T_MOVSPR = 0xFE06, T_SPRITE = 0xFE07, T_SPRCOLOR = 0xFE08, T_SPRSAV = 0xFE16, T_COLLISION = 0xFE17,
     T_BUMP = 0xCE03, T_RSPPOS = 0xCE05, T_RSPRITE = 0xCE06, T_RSPCOLOR = 0xCE07, T_CLR = 0x9C, T_SAVE = 0x94,
     T_SCREEN = 0xFE2E, T_SET = 0xFE2D, T_PEN = 0xFE33, T_DMODE = 0xFE35, T_DPAT = 0xFE36, T_DOT = 0xFE4C,
-    T_BOX = 0xE1, T_CIRCLE = 0xE2, T_ELLIPSE = 0xFE30, T_POLYGON = 0xFE2F, T_PAINT = 0xDF, T_VIEWPORT = 0xFE31, T_GCOPY = 0xFE32, T_CUT = 0xE4, T_PASTE = 0xE3, T_SYS = 0x9E, T_JOY = 0xCF, T_POT = 0xCE02, T_LPEN = 0xCE04, T_MOUSE = 0xFE3E, T_RMOUSE = 0xFE3F, T_USR = 0xB7, T_FRE = 0xB8, T_RREG = 0xFE09, T_DMA = 0xFE1F, T_EDMA = 0xFE21, T_LOADIFF = 0xFE43, T_SAVEIFF = 0xFE44, T_CHAR = 0xE0, T_GRAPHIC = 0xDE, T_RGRAPHIC = 0xCC, T_RPEN = 0xD0, T_PIXEL = 0xCE0C, T_RPALETTE = 0xCE0D,
+    T_BOX = 0xE1, T_CIRCLE = 0xE2, T_ELLIPSE = 0xFE30, T_POLYGON = 0xFE2F, T_PAINT = 0xDF, T_VIEWPORT = 0xFE31, T_GCOPY = 0xFE32, T_CUT = 0xE4, T_PASTE = 0xE3, T_SYS = 0x9E, T_PLAY = 0xFE04, T_TEMPO = 0xFE05, T_VOL = 0xDB, T_FILTER = 0xFE03, T_ENVELOPE = 0xFE0A, T_RPLAY = 0xCE0F, T_JOY = 0xCF, T_POT = 0xCE02, T_LPEN = 0xCE04, T_MOUSE = 0xFE3E, T_RMOUSE = 0xFE3F, T_USR = 0xB7, T_FRE = 0xB8, T_RREG = 0xFE09, T_DMA = 0xFE1F, T_EDMA = 0xFE21, T_LOADIFF = 0xFE43, T_SAVEIFF = 0xFE44, T_CHAR = 0xE0, T_GRAPHIC = 0xDE, T_RGRAPHIC = 0xCC, T_RPEN = 0xD0, T_PIXEL = 0xCE0C, T_RPALETTE = 0xCE0D,
     T_COLOR = 0xE7, T_FOREGROUND = 0xFE39, T_BACKGROUND = 0xFE3B, T_BORDER = 0xFE3C, T_HIGHLIGHT = 0xFE3D,
     T_CURSOR = 0xFE41, T_RCURSOR = 0xFE42, T_WINDOW = 0xFE1A, T_FAST = 0xFE25, T_SPEED = 0xFE26,
     T_PALETTE = 0xFE34, T_VSYNC = 0xFE54, T_OFF = 0xFE24, T_RCOLOR = 0xCD, T_RWINDOW = 0xCE09, T_RSPEED = 0xCE0E,
@@ -269,6 +270,7 @@ public:
 
     std::shared_ptr<ir::Module> run();
     std::vector<std::pair<int, std::string>> errors;
+    std::vector<std::pair<int, std::string>> warnings;
     // the float variables' values seen (an analysis compile)
     std::map<std::string, VarObs> obs;
 
@@ -1220,6 +1222,14 @@ private:
         case T_TAN: return floatFn("__float_tan");
         case T_ATN: return floatFn("__float_atn");
         case T_RND: return floatFn("__bas_rnd");
+        case T_RPLAY: {
+            // RPLAY(v): 1 while voice v (1-6) plays
+            Val a = parenExpr();
+            store(ir::Type::I16, zext(toByte(a), ir::Type::I8, ir::Type::I16), global("__bas_n"));
+            call("__bas_rplay");
+            Val r; r.k = VK::I; r.bound = 1; r.op = load(ir::Type::I16, global("__bas_n"));
+            return r;
+        }
         case T_JOY: case T_POT: case T_LPEN: {
             // JOY(1-3), POT(1-4), LPEN(0-1): conint's byte (else ?ILLEGAL QUANTITY)
             Val a = parenExpr();
@@ -1440,6 +1450,10 @@ private:
     bool gfxUsed_ = false;   // a graphics statement: CLR clears the graphics kernel too
     void mouseStmt();
     void rmouseStmt();
+    void playStmt();
+    void soundStmt(int kw);
+    int playTunes_ = 0;
+    std::set<std::string> warned_;
     void sysStmt();
     void rregStmt();
     void dmaStmt(bool enhanced);
@@ -1572,7 +1586,8 @@ void Compiler::prescan() {
                 if (t.k != TK::Kw) continue;
                 if (t.kw == T_TRAP) usesTrap_ = true;
                 if (t.kw == T_CMD) cmdUsed_ = true;
-                if (t.kw == T_MOVSPR || t.kw == T_BUMP || t.kw == T_COLLISION || t.kw == T_LPEN) sprIrq_ = true;
+                if (t.kw == T_MOVSPR || t.kw == T_BUMP || t.kw == T_COLLISION || t.kw == T_LPEN || t.kw == T_PLAY)
+                    sprIrq_ = true;
                 if (t.kw == T_COLLISION) collision_ = true;
                 if (t.kw == T_RESUME && !(k + 1 < sg.toks.size() && sg.toks[k + 1].k == TK::Num)) resumeStmt_ = true;
             }
@@ -2183,6 +2198,8 @@ void Compiler::statement() {
         graphicsStmt(kw); return;
     case T_LOADIFF: case T_SAVEIFF: iffStmt(kw); return;
     case T_SYS: sysStmt(); return;
+    case T_PLAY: playStmt(); return;
+    case T_TEMPO: case T_VOL: case T_ENVELOPE: case T_FILTER: soundStmt(kw); return;
     case T_MOUSE: mouseStmt(); return;
     case T_RMOUSE: rmouseStmt(); return;
     case T_CLR: clrStmt(); return;
@@ -2612,6 +2629,85 @@ void Compiler::rmouseStmt() {
         if (stmtEnd()) break;
         expectCh(',');
     }
+}
+
+// PLAY "voice 1" [, "voice 2" ... "voice 6"] / PLAY alone (the defaults): the
+// strings, constants, converted to a tune for the tune player (BasicPlay.cpp)
+void Compiler::playStmt() {
+    if (stmtEnd()) { call("__bas_snddef"); return; }
+    std::vector<std::optional<std::string>> voices;
+    for (;;) {
+        if (voices.size() == 6) fail("PLAY takes 6 voices at most (?SYNTAX ERROR)");
+        if (isCh(',')) voices.push_back(std::nullopt);
+        else {
+            auto t = peek();
+            if (!t || t->k != TK::Str)
+                fail("PLAY with a string built at run time is not supported by --compile yet (only string constants)");
+            p_++;
+            if (!stmtEnd() && !isCh(','))
+                fail("PLAY with a string built at run time is not supported by --compile yet (only string constants)");
+            voices.push_back(t->text);
+        }
+        if (stmtEnd()) break;
+        expectCh(',');
+        if (stmtEnd()) { voices.push_back(std::nullopt); break; }
+    }
+    PlayTune pt = convertPlay(voices);
+    if (!pt.error.empty()) fail(pt.error);
+    for (const auto& w : pt.warnings)
+        if (warned_.insert(w).second) warnings.push_back({lines_[li_].num, w});
+    if (pt.badValue) raiseNow(14);
+    ir::Module::GlobalVar gv;
+    gv.name = "__bas_tune" + std::to_string(playTunes_++);
+    gv.type = ir::Type::I8;
+    gv.size = (int)pt.data.size();
+    gv.hasInitValue = true; gv.hasImage = true; gv.initBytes = pt.data;
+    mod_->globals.push_back(gv);
+    auto a = vreg(ir::Type::PTR);
+    ir::Inst in; in.op = ir::Op::ADDR_GLOBAL; in.dest = a; in.src1 = global(gv.name);
+    in.resultType = ir::Type::PTR; emit(in);
+    store(ir::Type::PTR, a, global("__bas_sa"));
+    call("__bas_play");
+}
+
+// TEMPO n; VOL [right] [, left]; ENVELOPE n [, a, d, s, r, waveform, pulse
+// width]; FILTER sid [, freq, lp, bp, hp, res] (b65.src tempo, volume,
+// envelope, filter: the values given, as optbyt / optwrd read them)
+void Compiler::soundStmt(int kw) {
+    Val v;
+    if (kw == T_TEMPO) {
+        store(ir::Type::I16, zext(toByte(expr()), ir::Type::I8, ir::Type::I16), global("__bas_n"));
+        call("__bas_tempo");
+        return;
+    }
+    int given = 0;
+    if (kw == T_VOL) {
+        if (stmtEnd()) fail("VOL needs a volume (?SYNTAX ERROR)");
+        if (!isCh(',')) { gByte(1, expr()); given |= 1; }
+        if (!stmtEnd()) {
+            if (!optByt(v)) fail("VOL: a left volume after the comma (?SYNTAX ERROR)");
+            gByte(2, v);
+            given |= 2;
+        }
+        gStore(0, iconst(ir::Type::I8, given), ir::Type::I8);
+        call("__bas_vol");
+        return;
+    }
+    gByte(0, expr());
+    if (kw == T_ENVELOPE) {
+        for (int k = 0; k < 5; k++)
+            if (optByt(v)) { gByte(2 + k, v); given |= 1 << k; }
+        if (optByt(v)) { gWord(7, v); given |= 32; }
+        gStore(1, iconst(ir::Type::I8, given), ir::Type::I8);
+        call("__bas_envelope");
+        return;
+    }
+    if (optByt(v)) { gWord(2, v); given |= 1; }
+    for (int k = 0; k < 3; k++)
+        if (optByt(v)) { gByte(4 + k, v); given |= 2 << k; }
+    if (optByt(v)) { gByte(7, v); given |= 16; }
+    gStore(1, iconst(ir::Type::I8, given), ir::Type::I8);
+    call("__bas_filter");
 }
 
 // SYS address [, a, x, y, z, s] (b65.src sys: poke_sub's address, the
@@ -4306,6 +4402,7 @@ BasicCompileResult compileBasicToIR(const std::vector<uint8_t>& prg, const std::
     Compiler c(lines, sourceName, narrow, true, speed, chain);
     r.module = c.run();
     r.errors = c.errors;
+    r.warnings = c.warnings;
     r.exportMap = c.exportMap;
     r.ok = r.errors.empty() && r.module;
     return r;
