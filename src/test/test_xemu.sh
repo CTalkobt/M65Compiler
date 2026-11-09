@@ -2069,6 +2069,14 @@ for bfmode in "zp|" "stack|-fno-zpcall"; do
     xemu_case "FAIL: test_bnot_fold_xemu.c $bfname (compilation/linking failed)" "src/test-resources/test_bnot_fold_xemu.c" "build/test/test_bnot_fold_${bfname}_xemu.prg" "$bfflags" -- "test_bnot_fold_$bfname" "build/test/test_bnot_fold_${bfname}_xemu.prg" "C0C0" 6 "01 01 01 01 01 AA"
 done
 
+# Test: a pointer parameter whose fields are read after calls is copied at
+# the entry, not used in the parameter block (#470)
+for zdmode in "zp|" "stack|-fno-zpcall"; do
+    IFS='|' read -r zdname zdflags <<< "$zdmode"
+    echo "Testing test_zp_param_derived_xemu.c ($zdname)..."
+    xemu_case "FAIL: test_zp_param_derived_xemu.c $zdname (compilation/linking failed)" "src/test-resources/test_zp_param_derived_xemu.c" "build/test/test_zp_param_derived_${zdname}_xemu.prg" "$zdflags" -- "test_zp_param_derived_$zdname" "build/test/test_zp_param_derived_${zdname}_xemu.prg" "C0C0" 5 "01 01 01 01 AA"
+done
+
 # Test: the code-size changes: constant arguments into the parameter block,
 # ternaries computed into their result, dead pool stores, known tests,
 # parameters used in place, wide zero tests (#290 #292 #293 #295)
