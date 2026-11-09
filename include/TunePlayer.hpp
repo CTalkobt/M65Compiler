@@ -73,6 +73,11 @@ private:
         // the hard restart done, its bit in the filter routing ($17)
         uint8_t cw = 0, wti = 0, hrdone = 0, fbit = 0;
         int8_t wsemi = 0;
+        // the stream's filter routing ($8E: kept through unfiltered
+        // instruments' notes), portamento ($90: n, the note's frequency),
+        // modulation ($8F: n, frames into the quarter, the quarter, the offset)
+        uint8_t xf = 0, port = 0, mod = 0, midx = 0, mdir = 1;
+        uint16_t ptgt = 0, moff = 0;
     };
     Write write_, dwrite_;
     std::vector<uint8_t> tune_;
@@ -101,7 +106,13 @@ private:
     void put(uint8_t idx, uint8_t val);
     void w(const Voice& v, uint8_t reg, uint8_t val) { put((uint8_t)(v.base + reg), val); }
     void ctrl(const Voice& v) { w(v, 4, (uint8_t)((v.cw & 0xFE) | v.gated)); }
-    void wf(const Voice& v, uint16_t f) { w(v, 0, (uint8_t)f); w(v, 1, (uint8_t)(f >> 8)); }
+    void wf(const Voice& v, uint16_t f) {   // (and the modulation's offset)
+        if (v.mod) f = (uint16_t)(f + v.moff);
+        w(v, 0, (uint8_t)f);
+        w(v, 1, (uint8_t)(f >> 8));
+    }
+    static void mreset(Voice& v) { v.moff = 0; v.midx = 0; v.mdir = 1; }
+    void pmstep(Voice& v);
     void wpw(const Voice& v) { w(v, 2, (uint8_t)v.pw); w(v, 3, (uint8_t)(v.pw >> 8)); }
     void inst(Voice& v, uint8_t i);
     void filter(Voice& v);

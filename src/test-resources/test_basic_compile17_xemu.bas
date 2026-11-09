@@ -3,7 +3,8 @@
 3 rem [0] play's length (four quarter notes: 2 s), rplay; [1] voices of different lengths,
 4 rem tempo; [2] envelope (the rom's tables); [3] vol, filter (play's copies); [4] l: rplay
 5 rem stays 1, play alone stops it and puts the defaults back; [5] the ranges (?illegal
-6 rem quantity); [6] dots, sharps, flats, rests, octaves, an empty voice; [7] $aa
+6 rem quantity); [6] dots, sharps, flats, rests, octaves, an empty voice; [7] u, x, m, p
+7 rem (volume, filter routing, modulation, portamento: the length kept); [8] $aa
 10 trap 900
 20 t=ti:play "t0o4qcdef":do while rplay(1):loop:d=ti-t:if d>1.98 and d<2.05 then poke 49344,1
 30 tempo 24:t=ti:play "icdef","o5wc":do while rplay(1):loop:a=ti-t:b=rplay(2):do while rplay(2):loop:c=ti-t
@@ -15,5 +16,6 @@
 60 play "o4scdel":sleep 1:a=rplay(1):play:if a=1 and rplay(1)=0 and peek($1273)=12 and peek($128c)=5 then poke 49348,1
 70 e=0:x=rplay(0):x=rplay(7):tempo 0:envelope 10:filter 3:vol 16:if e=6 and ee=14 then poke 49349,1
 80 tempo 48:t=ti:play "o2i.c#d$e.rro6b","","q.o1c$c#b":do while rplay(3):loop:d=ti-t:if d>0.4 and d<0.48 then poke 49350,1
-90 poke 49351,170:end
+85 t=ti:play "u5x1m3p2o4icdeu9x0m0p0f":do while rplay(1):loop:d=ti-t:if d>0.22 and d<0.29 then poke 49351,1
+90 poke 49352,170:end
 900 e=e+1:ee=er:resume next

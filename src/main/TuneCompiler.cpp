@@ -537,6 +537,28 @@ bool TuneCompiler::parse(const std::string& text, const std::string& file, TuneF
                     t.tempos.push_back({v.ticks, q});
                     continue;
                 }
+                // the voice's chip's volume (vol:0-15), its filter routing
+                // (filt:on / off), modulation (mod:n) and portamento (port:n),
+                // as BASIC 65's PLAY U, X, M, P (#474-#477)
+                if (lt.rfind("vol:", 0) == 0 || lt.rfind("mod:", 0) == 0 || lt.rfind("port:", 0) == 0) {
+                    size_t c = lt.find(':');
+                    std::string what = lt.substr(0, c);
+                    long x;
+                    long max = what == "vol" ? 15 : 255;
+                    if (!parseInt(lt.substr(c + 1), x) || x < 0 || x > max) {
+                        error(file, ln, what + ":0-" + std::to_string(max) + ", not " + tok); continue;
+                    }
+                    v.stream.push_back(what == "vol" ? 0x8D : what == "mod" ? 0x8F : 0x90);
+                    v.stream.push_back((uint8_t)x);
+                    continue;
+                }
+                if (lt.rfind("filt:", 0) == 0) {
+                    std::string a = lt.substr(5);
+                    if (a != "on" && a != "off") { error(file, ln, "filt:on or filt:off, not " + tok); continue; }
+                    v.stream.push_back(0x8E);
+                    v.stream.push_back(a == "on" ? 1 : 0);
+                    continue;
+                }
                 if (lt.rfind("arp2:", 0) == 0) {   // two notes in turn: the note, +a
                     long x;
                     if (!parseInt(lt.substr(5), x) || x < 0 || x > 24) { error(file, ln, "arp2:a (semitones 0-24), not " + tok); continue; }
@@ -912,6 +934,7 @@ std::vector<uint8_t> TuneCompiler::plainBlob(const TuneFile& f, const Tune& t) {
             if (c == 0x8C && tempo) { b.push_back(0x85); b.push_back((uint8_t)(tempo & 0xFF)); b.push_back((uint8_t)(tempo >> 8)); }
             if (c < 0x80 || c == 0x80 || c == 0x82) { b.push_back(s[++k]); }
             else if (c == 0x81) { b.push_back((uint8_t)renum[s[++k]]); }
+            else if (c >= 0x8D && c <= 0x90) { b.push_back(s[++k]); }
             else if (c == 0x83 || c == 0x84 || c == 0x85 || c == 0x88) { b.push_back(s[k + 1]); b.push_back(s[k + 2]); k += 2; }
             else if (c == 0x89 || c == 0x8A) { b.push_back(s[k + 1]); b.push_back(s[k + 2]); b.push_back(s[k + 3]); k += 3; }
             else if (c == 0x86 || c == 0x8B) {

@@ -996,15 +996,15 @@ else
 fi
 # test_basic_compile17_xemu.bas: PLAY (through the tune player: lengths, voices,
 # dots, sharps, L), RPLAY, TEMPO, ENVELOPE, VOL, FILTER, PLAY alone; four ways
-BC17_EXP="01 01 01 01 01 01 01 AA"
+BC17_EXP="01 01 01 01 01 01 01 01 AA"
 if ./bin/basic45 src/test-resources/test_basic_compile17_xemu.bas -o build/test/test_basic_compile17_i.prg >/dev/null 2>&1 &&
    ./bin/basic45 --compile --checks src/test-resources/test_basic_compile17_xemu.bas -o build/test/test_basic_compile17.prg >/dev/null 2>&1 &&
    ./bin/basic45 --compile --checks -O0 src/test-resources/test_basic_compile17_xemu.bas -o build/test/test_basic_compile17_O0.prg >/dev/null 2>&1 &&
    ./bin/basic45 --compile --checks --speed src/test-resources/test_basic_compile17_xemu.bas -o build/test/test_basic_compile17_speed.prg >/dev/null 2>&1; then
-    run_xemu_test "test_basic_compile17_interpreted" "build/test/test_basic_compile17_i.prg" "C0C0" 8 "$BC17_EXP"
-    run_xemu_test "test_basic_compile17" "build/test/test_basic_compile17.prg" "C0C0" 8 "$BC17_EXP"
-    run_xemu_test "test_basic_compile17_O0" "build/test/test_basic_compile17_O0.prg" "C0C0" 8 "$BC17_EXP"
-    run_xemu_test "test_basic_compile17_speed" "build/test/test_basic_compile17_speed.prg" "C0C0" 8 "$BC17_EXP"
+    run_xemu_test "test_basic_compile17_interpreted" "build/test/test_basic_compile17_i.prg" "C0C0" 9 "$BC17_EXP"
+    run_xemu_test "test_basic_compile17" "build/test/test_basic_compile17.prg" "C0C0" 9 "$BC17_EXP"
+    run_xemu_test "test_basic_compile17_O0" "build/test/test_basic_compile17_O0.prg" "C0C0" 9 "$BC17_EXP"
+    run_xemu_test "test_basic_compile17_speed" "build/test/test_basic_compile17_speed.prg" "C0C0" 9 "$BC17_EXP"
 else
     echo "FAIL: test_basic_compile17_xemu.bas (basic45 or basic45 --compile --checks failed)"
     failed=$((failed + 1))
@@ -2747,12 +2747,14 @@ done
 # Test: tune45's model of the tune player against the player itself: SID
 # 1's registers (voices 0-2, the filter) after each of 300 frames (a tune
 # with every effect; one of glides, after a tune_seek; one of the filter,
-# wave tables and hard restart, patterns and loop points), in both
+# wave tables and hard restart, patterns and loop points; one of BASIC 65's
+# PLAY events: vol:, filt:, mod:, port:), in both
 # conventions, the data plain and coded (read as it plays: patterns nested)
 mkdir -p build/test/tune
 for trmode in "zp|$STDLIB||effects|0|0" "stack|$STDLIB_STACK|-fno-zpcall|effects|0|0" \
               "zp|$STDLIB||glides|1|40" "stack|$STDLIB_STACK|-fno-zpcall|glides|1|40" \
-              "zp|$STDLIB||synth|2|0" "stack|$STDLIB_STACK|-fno-zpcall|synth|2|0"; do
+              "zp|$STDLIB||synth|2|0" "stack|$STDLIB_STACK|-fno-zpcall|synth|2|0" \
+              "zp|$STDLIB||basic|3|0" "stack|$STDLIB_STACK|-fno-zpcall|basic|3|0"; do
   for trdata in "" coded-all; do
     IFS='|' read -r trname trlib trflags trtune trn trseek <<< "$trmode"
     trname=${trtune}_${trname}${trdata:+_coded}

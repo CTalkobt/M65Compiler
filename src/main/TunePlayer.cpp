@@ -80,6 +80,7 @@ void TunePlayer::filter(Voice& v) {
     int c = v.base >> 5;
     uint8_t r17 = (uint8_t)((v.base & 0x60) | 0x17), r18 = (uint8_t)(r17 + 1);
     if (!v.filt) {
+        if (v.xf) return;   // (the stream's routing kept)
         if (shadow_[r17] & v.fbit) put(r17, (uint8_t)(shadow_[r17] & ~v.fbit));
         return;
     }
@@ -107,6 +108,7 @@ bool TunePlayer::nextIsNote(const Voice& voice) const {
         else if (b == 0x85) { self.rd(v, TLO); self.rd(v, THI); }
         else if (b == 0x89) { self.rd(v, PWLO); self.rd(v, PWHI); self.rd(v, PWS); }
         else if (b == 0x8A) { self.rd(v, CLO); self.rd(v, CHI); self.rd(v, CS); }
+        else if (b >= 0x8D && b <= 0x90) self.rd(v, DVOL);
         else if (b == 0x86 || b == 0x8B) self.call(v, b, false);
         else if (b == 0x87) self.back(v);
         else if (b == 0x8C) continue;
@@ -184,6 +186,9 @@ void TunePlayer::play(const std::vector<uint8_t>& tune) {
         v.hrdone = v.wti = 0;
         v.wsemi = 0;
         v.fbit = (uint8_t)(1 << ((first_ + k) % 3));
+        v.xf = v.port = v.mod = 0;
+        v.freq = 0;
+        mreset(v);
         inst(v, 0);
     }
     // the digi voices: as many as channels from the first
@@ -318,6 +323,8 @@ void TunePlayer::next(Voice& v, int idx) {
         uint8_t b = rd(v, OP);
         if (b < 0x80) {
             v.note = (uint8_t)((b + v.ptr) & 0x7F);   // (a pattern's transposition)
+            mreset(v);
+            uint16_t last = v.freq;
             v.left = rd(v, DUR);
             v.gated = 0;
             v.t = 0;
@@ -346,6 +353,10 @@ void TunePlayer::next(Voice& v, int idx) {
                 v.tgt = v.freq;
                 v.freq = notef(v, idx, (uint8_t)(0 - (uint8_t)v.gsemi));
             }
+            if (v.port) {       // portamento: from the last note's frequency to this one
+                v.ptgt = v.freq;
+                v.freq = last;
+            }
             if (v.table) {      // the wave table's first step: its waveform and pitch
                 v.cw = byte(v.table + 2u);
                 v.wsemi = (int8_t)byte(v.table + 3u);
@@ -355,7 +366,20 @@ void TunePlayer::next(Voice& v, int idx) {
             ctrl(v);
             return;
         }
-        if (b == 0x80) { v.left = rd(v, DUR); v.gated = 0; ctrl(v); return; }
+        if (b == 0x80) { v.left = rd(v, DUR); v.gated = 0; mreset(v); ctrl(v); return; }
+        if (b == 0x8D) {   // the chip's volume, the mode kept
+            uint8_t vol = rd(v, DVOL) & 15, r18 = (uint8_t)((v.base & 0x60) | 0x18);
+            put(r18, (uint8_t)((shadow_[r18] & 0xF0) | vol));
+            continue;
+        }
+        if (b == 0x8E) {   // the voice's filter routing, nothing else
+            uint8_t on = rd(v, DVOL), r17 = (uint8_t)((v.base & 0x60) | 0x17);
+            v.xf = 1;
+            put(r17, (uint8_t)(on ? shadow_[r17] | v.fbit : shadow_[r17] & ~v.fbit));
+            continue;
+        }
+        if (b == 0x8F) { v.mod = rd(v, DVOL); mreset(v); continue; }
+        if (b == 0x90) { v.port = rd(v, DVOL); continue; }
         if (b == 0x81) { inst(v, rd(v, INST)); continue; }
         if (b == 0x82) { v.left = rd(v, DUR); return; }
         if (b == 0x83) { v.arpa = rd(v, ARPA); v.arpb = rd(v, ARPB); continue; }
@@ -433,7 +457,7 @@ void TunePlayer::effects() {
             w(v, 5, 0);
             w(v, 6, 0);
         }
-        if (!v.gated && !(v.tail && !v.done)) {   // (tail: on through the release)
+        if (!v.gated && !((v.tail || v.port || v.mod) && !v.done)) {   // (tail, portamento, modulation: on through the release)
             if (v.pwrun && !v.done) pwstep(v);   // (pwrun: the pulse width swept in rests too)
             continue;
         }
@@ -445,6 +469,7 @@ void TunePlayer::effects() {
             else if (v.tgt > v.freq) v.freq = (uint16_t)(v.freq + (((uint32_t)(v.tgt - v.freq) + mask) >> v.glide));
             else v.freq = (uint16_t)(v.freq - (((uint32_t)(v.freq - v.tgt) + mask) >> v.glide));
         }
+        pmstep(v);
         if (v.slide) {
             int f = v.freq + v.slide * 16;   // (stopping at 0 and $FFFF)
             v.freq = (uint16_t)(f < 0 ? 0 : f > 0xFFFF ? 0xFFFF : f);
@@ -492,6 +517,24 @@ void TunePlayer::effects() {
         }
         cut_[c] = (uint16_t)x;
         wcut(c);
+    }
+}
+
+// portamento: n * $50 a frame towards the note's frequency (there at most);
+// modulation: the offset $20 up in quarters 0-1, down in 2-3, the quarter on
+// after n frames (BASIC 65's assess_portamento, assess_modulation)
+void TunePlayer::pmstep(Voice& v) {
+    if (v.port) {
+        uint16_t step = (uint16_t)(v.port * 0x50);
+        if (v.ptgt >= v.freq) v.freq = (uint16_t)(v.ptgt - v.freq <= step ? v.ptgt : v.freq + step);
+        else v.freq = (uint16_t)(v.freq - v.ptgt <= step ? v.ptgt : v.freq - step);
+    }
+    if (v.mod) {
+        v.moff = (uint16_t)(v.mdir < 2 ? v.moff + 0x20 : v.moff - 0x20);
+        if (++v.midx == v.mod) {
+            v.midx = 0;
+            v.mdir = (uint8_t)((v.mdir + 1) & 3);
+        }
     }
 }
 

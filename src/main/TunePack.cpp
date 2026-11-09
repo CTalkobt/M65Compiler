@@ -21,6 +21,7 @@ int sidArgs(uint8_t c) {
     if (c < 0x80) return 1;
     switch (c) {
     case 0x80: case 0x81: case 0x82: return 1;
+    case 0x8D: case 0x8E: case 0x8F: case 0x90: return 1;
     case 0x83: case 0x84: case 0x85: case 0x88: return 2;
     case 0x86: case 0x89: case 0x8A: return 3;
     case 0x8B: return 4;
@@ -54,6 +55,7 @@ std::vector<int> argCtx(bool digi, uint8_t c) {
     case 0x88: return {LNOTE, DUR};
     case 0x89: return {PWLO, PWHI, PWS};
     case 0x8A: return {CLO, CHI, CS};
+    case 0x8D: case 0x8E: case 0x8F: case 0x90: return {DVOL};   // (small values)
     default: return {};
     }
 }

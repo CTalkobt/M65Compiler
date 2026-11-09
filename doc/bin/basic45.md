@@ -559,8 +559,13 @@ current values (`ENVELOPE`, in BASIC's own tables at `$1289`) into the instrumen
 (`tune_tempo`); `RPLAY(v)` is 1 until voice v has played its own length (the shorter voices end in rests: a tune's
 voices are as long), for good with an `L`. `TEMPO`, `VOL`, `ENVELOPE`, `FILTER` and `PLAY` alone set BASIC's
 variables (`$1273`, `$1278`-`$12BA`) as the ROM does, so the values carry over to and from the interpreter. The
-lengths match the interpreter's to a frame (2.010 s for four quarter notes at `TEMPO 12`). Not yet, as the tune
-player has no matching events: `U` volume, `X` filter, `M` modulation, `P` portamento (warned: #474-#477); a
+lengths match the interpreter's to a frame (2.010 s for four quarter notes at `TEMPO 12`). `U`, `X`, `M` and `P`
+are the player's events (#474-#477): `vol:` (U's volume through BASIC's table: 0 1 3 5 7 8 10 12 14 15, the mode
+kept), `filt:` (the voice's routing alone, kept through the notes), `mod:` (BASIC's modulation: from each note and
+rest an offset $20 a frame, up for n frames, down for 2n, up for 2n ...), `port:` (each note from the last one's
+frequency, n × $50 a frame towards its own; not the ROM's one-off extra 1 in its first step up). `FILTER` sets
+the chip's filter at once (`tune_filter`: the cutoff, resonance and mode; the ROM's chips get it at a voice's `X1`,
+which here routes the voice only). Not yet: a
 `PLAY` starts all its voices again, and a voice it leaves out stops (BASIC's goes on: #478); a voice starts at
 octave 4 and quarter notes in each `PLAY` (BASIC's keeps the last ones); strings built at run time (a compile error
 for now). Test: `test_basic_compile17_xemu.bas`.

@@ -114,6 +114,7 @@ void _bas_lin(void) {
     for (k = 0; k < n; k++) r[k + 1] = line[k];
 }
 
+void _bas_iredo(void);
 void _bas_iitem(void) {
     unsigned char c, start, n;
     if (_bas_m & 4) {
