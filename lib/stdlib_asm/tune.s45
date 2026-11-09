@@ -2618,6 +2618,7 @@ proc __tune_start
     sta __tv_freq_lo,x
     sta __tv_freq_hi,x
     jsr __tune_mreset
+    lda #0
     jsr __tune_inst     ; instrument 0 until the stream says
     inx
     bra @voice
