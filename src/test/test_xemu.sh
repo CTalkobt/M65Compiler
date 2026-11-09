@@ -700,30 +700,41 @@ else
     echo "FAIL: test_simons_xemu.txt (basic45 --convert or the build failed)"
     failed=$((failed + 1))
 fi
-# basic45 --compile (#369): the program interpreted by BASIC 65 and compiled
+# basic45 --compile --checks (#369): the program interpreted by BASIC 65 and compiled
 # (-O2, -O0, --speed: the RAM float routines) gives the same results:: arithmetic, % variables, functions,
 # strings, FOR / NEXT (out of a loop, RETURN in one), ON, IF / ELSE / BEGIN,
 # GOSUB, PRINT's layout on the screen, STR$ of numbers
 echo "Testing test_basic_compile_xemu.bas (basic45 --compile)..."
 BC_EXP="01 01 01 01 01 01 01 01 01 01 01 01 01 01 AA"
 if ./bin/basic45 src/test-resources/test_basic_compile_xemu.bas -o build/test/test_basic_compile_i.prg >/dev/null 2>&1 &&
-   ./bin/basic45 --compile src/test-resources/test_basic_compile_xemu.bas -o build/test/test_basic_compile.prg >/dev/null 2>&1 &&
-   ./bin/basic45 --compile -O0 src/test-resources/test_basic_compile_xemu.bas -o build/test/test_basic_compile_O0.prg >/dev/null 2>&1 &&
-   ./bin/basic45 --compile --speed src/test-resources/test_basic_compile_xemu.bas -o build/test/test_basic_compile_speed.prg >/dev/null 2>&1; then
+   ./bin/basic45 --compile --checks src/test-resources/test_basic_compile_xemu.bas -o build/test/test_basic_compile.prg >/dev/null 2>&1 &&
+   ./bin/basic45 --compile --checks -O0 src/test-resources/test_basic_compile_xemu.bas -o build/test/test_basic_compile_O0.prg >/dev/null 2>&1 &&
+   ./bin/basic45 --compile --checks --speed src/test-resources/test_basic_compile_xemu.bas -o build/test/test_basic_compile_speed.prg >/dev/null 2>&1; then
     run_xemu_test "test_basic_compile_interpreted" "build/test/test_basic_compile_i.prg" "C0C0" 15 "$BC_EXP"
     run_xemu_test "test_basic_compile" "build/test/test_basic_compile.prg" "C0C0" 15 "$BC_EXP"
     run_xemu_test "test_basic_compile_O0" "build/test/test_basic_compile_O0.prg" "C0C0" 15 "$BC_EXP"
     run_xemu_test "test_basic_compile_speed" "build/test/test_basic_compile_speed.prg" "C0C0" 15 "$BC_EXP"
 else
-    echo "FAIL: test_basic_compile_xemu.bas (basic45 or basic45 --compile failed)"
+    echo "FAIL: test_basic_compile_xemu.bas (basic45 or basic45 --compile --checks failed)"
+    failed=$((failed + 1))
+fi
+# without --checks a value out of range is not checked: the program goes on
+# (CHR$(300) is ?ILLEGAL QUANTITY with --checks, #489)
+printf '10 x=300:a$=chr$(x):poke 49344,1\n' > build/test/test_basic_compile_nochk.bas
+if ./bin/basic45 --compile build/test/test_basic_compile_nochk.bas -o build/test/test_basic_compile_nochk.prg >/dev/null 2>&1 &&
+   ./bin/basic45 --compile --checks build/test/test_basic_compile_nochk.bas -o build/test/test_basic_compile_chk.prg >/dev/null 2>&1; then
+    run_xemu_test "test_basic_compile_nochk" "build/test/test_basic_compile_nochk.prg" "C0C0" 1 "01"
+    run_xemu_test "test_basic_compile_chk" "build/test/test_basic_compile_chk.prg" "FD" 2 "0E 00"
+else
+    echo "FAIL: test_basic_compile_nochk (basic45 --compile failed)"
     failed=$((failed + 1))
 fi
 # a run-time error ends the compiled program: the exit status is its number (20)
 printf '10 x=0:print 1/x:poke 49344,1\n' > build/test/test_basic_compile_err.bas
-if ./bin/basic45 --compile build/test/test_basic_compile_err.bas -o build/test/test_basic_compile_err.prg >/dev/null 2>&1; then
+if ./bin/basic45 --compile --checks build/test/test_basic_compile_err.bas -o build/test/test_basic_compile_err.prg >/dev/null 2>&1; then
     run_xemu_test "test_basic_compile_err" "build/test/test_basic_compile_err.prg" "FD" 2 "14 00"
 else
-    echo "FAIL: test_basic_compile_err (basic45 --compile failed)"
+    echo "FAIL: test_basic_compile_err (basic45 --compile --checks failed)"
     failed=$((failed + 1))
 fi
 # test_basic_compile2_xemu.bas: INPUT / GET (keys put in the keyboard buffer),
@@ -732,15 +743,15 @@ fi
 # BANK; the same four ways
 BC2_EXP="01 01 01 01 01 01 01 01 01 AA"
 if ./bin/basic45 src/test-resources/test_basic_compile2_xemu.bas -o build/test/test_basic_compile2_i.prg >/dev/null 2>&1 &&
-   ./bin/basic45 --compile src/test-resources/test_basic_compile2_xemu.bas -o build/test/test_basic_compile2.prg >/dev/null 2>&1 &&
-   ./bin/basic45 --compile -O0 src/test-resources/test_basic_compile2_xemu.bas -o build/test/test_basic_compile2_O0.prg >/dev/null 2>&1 &&
-   ./bin/basic45 --compile --speed src/test-resources/test_basic_compile2_xemu.bas -o build/test/test_basic_compile2_speed.prg >/dev/null 2>&1; then
+   ./bin/basic45 --compile --checks src/test-resources/test_basic_compile2_xemu.bas -o build/test/test_basic_compile2.prg >/dev/null 2>&1 &&
+   ./bin/basic45 --compile --checks -O0 src/test-resources/test_basic_compile2_xemu.bas -o build/test/test_basic_compile2_O0.prg >/dev/null 2>&1 &&
+   ./bin/basic45 --compile --checks --speed src/test-resources/test_basic_compile2_xemu.bas -o build/test/test_basic_compile2_speed.prg >/dev/null 2>&1; then
     run_xemu_test "test_basic_compile2_interpreted" "build/test/test_basic_compile2_i.prg" "C0C0" 10 "$BC2_EXP"
     run_xemu_test "test_basic_compile2" "build/test/test_basic_compile2.prg" "C0C0" 10 "$BC2_EXP"
     run_xemu_test "test_basic_compile2_O0" "build/test/test_basic_compile2_O0.prg" "C0C0" 10 "$BC2_EXP"
     run_xemu_test "test_basic_compile2_speed" "build/test/test_basic_compile2_speed.prg" "C0C0" 10 "$BC2_EXP"
 else
-    echo "FAIL: test_basic_compile2_xemu.bas (basic45 or basic45 --compile failed)"
+    echo "FAIL: test_basic_compile2_xemu.bas (basic45 or basic45 --compile --checks failed)"
     failed=$((failed + 1))
 fi
 # an error after NEXT went back into a line, or after RETURN came back into
@@ -750,10 +761,10 @@ fi
 printf '10 print chr$(147);:for i=0 to 3:x=1/(i-2)\n20 next\n' > build/test/test_basic_compile_ln1.bas
 printf '10 print chr$(147);:gosub 100:x=1/0\n20 end\n100 return\n' > build/test/test_basic_compile_ln2.bas
 for ln in ln1 ln2; do
-    if ./bin/basic45 --compile --line-numbers build/test/test_basic_compile_$ln.bas -o build/test/test_basic_compile_$ln.prg >/dev/null 2>&1; then
+    if ./bin/basic45 --compile --checks --line-numbers build/test/test_basic_compile_$ln.bas -o build/test/test_basic_compile_$ln.prg >/dev/null 2>&1; then
         run_xemu_test "test_basic_compile_$ln" "build/test/test_basic_compile_$ln.prg" "086B" 2 "31 30"
     else
-        echo "FAIL: test_basic_compile_$ln (basic45 --compile failed)"
+        echo "FAIL: test_basic_compile_$ln (basic45 --compile --checks failed)"
         failed=$((failed + 1))
     fi
 done
@@ -762,24 +773,24 @@ done
 # (EL: built --line-numbers, #483)
 BC3_EXP="01 01 01 01 01 AA"
 if ./bin/basic45 src/test-resources/test_basic_compile3_xemu.bas -o build/test/test_basic_compile3_i.prg >/dev/null 2>&1 &&
-   ./bin/basic45 --compile --line-numbers src/test-resources/test_basic_compile3_xemu.bas -o build/test/test_basic_compile3.prg >/dev/null 2>&1 &&
-   ./bin/basic45 --compile --line-numbers -O0 src/test-resources/test_basic_compile3_xemu.bas -o build/test/test_basic_compile3_O0.prg >/dev/null 2>&1 &&
-   ./bin/basic45 --compile --line-numbers --speed src/test-resources/test_basic_compile3_xemu.bas -o build/test/test_basic_compile3_speed.prg >/dev/null 2>&1; then
+   ./bin/basic45 --compile --checks --line-numbers src/test-resources/test_basic_compile3_xemu.bas -o build/test/test_basic_compile3.prg >/dev/null 2>&1 &&
+   ./bin/basic45 --compile --checks --line-numbers -O0 src/test-resources/test_basic_compile3_xemu.bas -o build/test/test_basic_compile3_O0.prg >/dev/null 2>&1 &&
+   ./bin/basic45 --compile --checks --line-numbers --speed src/test-resources/test_basic_compile3_xemu.bas -o build/test/test_basic_compile3_speed.prg >/dev/null 2>&1; then
     run_xemu_test "test_basic_compile3_interpreted" "build/test/test_basic_compile3_i.prg" "C0C0" 6 "$BC3_EXP"
     run_xemu_test "test_basic_compile3" "build/test/test_basic_compile3.prg" "C0C0" 6 "$BC3_EXP"
     run_xemu_test "test_basic_compile3_O0" "build/test/test_basic_compile3_O0.prg" "C0C0" 6 "$BC3_EXP"
     run_xemu_test "test_basic_compile3_speed" "build/test/test_basic_compile3_speed.prg" "C0C0" 6 "$BC3_EXP"
 else
-    echo "FAIL: test_basic_compile3_xemu.bas (basic45 or basic45 --compile failed)"
+    echo "FAIL: test_basic_compile3_xemu.bas (basic45 or basic45 --compile --checks failed)"
     failed=$((failed + 1))
 fi
 # test_basic_compile4_xemu.bas: OPEN / CLOSE, PRINT#, INPUT#, GET#, CMD, ST
 # on a disk (an empty D81 as drive 8, one per run); the same four ways
 BC4_EXP="01 01 01 01 01 01 01 AA"
 if ./bin/basic45 src/test-resources/test_basic_compile4_xemu.bas -o build/test/test_basic_compile4_i.prg >/dev/null 2>&1 &&
-   ./bin/basic45 --compile src/test-resources/test_basic_compile4_xemu.bas -o build/test/test_basic_compile4.prg >/dev/null 2>&1 &&
-   ./bin/basic45 --compile -O0 src/test-resources/test_basic_compile4_xemu.bas -o build/test/test_basic_compile4_O0.prg >/dev/null 2>&1 &&
-   ./bin/basic45 --compile --speed src/test-resources/test_basic_compile4_xemu.bas -o build/test/test_basic_compile4_speed.prg >/dev/null 2>&1; then
+   ./bin/basic45 --compile --checks src/test-resources/test_basic_compile4_xemu.bas -o build/test/test_basic_compile4.prg >/dev/null 2>&1 &&
+   ./bin/basic45 --compile --checks -O0 src/test-resources/test_basic_compile4_xemu.bas -o build/test/test_basic_compile4_O0.prg >/dev/null 2>&1 &&
+   ./bin/basic45 --compile --checks --speed src/test-resources/test_basic_compile4_xemu.bas -o build/test/test_basic_compile4_speed.prg >/dev/null 2>&1; then
     for bc4 in i "" O0 speed; do
         bc4n="test_basic_compile4${bc4:+_$bc4}"
         rm -f "build/test/$bc4n.d81"
@@ -791,16 +802,16 @@ if ./bin/basic45 src/test-resources/test_basic_compile4_xemu.bas -o build/test/t
         fi
     done
 else
-    echo "FAIL: test_basic_compile4_xemu.bas (basic45 or basic45 --compile failed)"
+    echo "FAIL: test_basic_compile4_xemu.bas (basic45 or basic45 --compile --checks failed)"
     failed=$((failed + 1))
 fi
 # test_basic_compile5_xemu.bas: DOPEN / APPEND / DCLOSE, DS / DS$, their
 # errors, on a disk (an empty D81 per run); the same four ways
 BC5_EXP="01 01 01 01 01 01 01 AA"
 if ./bin/basic45 src/test-resources/test_basic_compile5_xemu.bas -o build/test/test_basic_compile5_i.prg >/dev/null 2>&1 &&
-   ./bin/basic45 --compile src/test-resources/test_basic_compile5_xemu.bas -o build/test/test_basic_compile5.prg >/dev/null 2>&1 &&
-   ./bin/basic45 --compile -O0 src/test-resources/test_basic_compile5_xemu.bas -o build/test/test_basic_compile5_O0.prg >/dev/null 2>&1 &&
-   ./bin/basic45 --compile --speed src/test-resources/test_basic_compile5_xemu.bas -o build/test/test_basic_compile5_speed.prg >/dev/null 2>&1; then
+   ./bin/basic45 --compile --checks src/test-resources/test_basic_compile5_xemu.bas -o build/test/test_basic_compile5.prg >/dev/null 2>&1 &&
+   ./bin/basic45 --compile --checks -O0 src/test-resources/test_basic_compile5_xemu.bas -o build/test/test_basic_compile5_O0.prg >/dev/null 2>&1 &&
+   ./bin/basic45 --compile --checks --speed src/test-resources/test_basic_compile5_xemu.bas -o build/test/test_basic_compile5_speed.prg >/dev/null 2>&1; then
     for bc5 in i "" O0 speed; do
         bc5n="test_basic_compile5${bc5:+_$bc5}"
         rm -f "build/test/$bc5n.d81"
@@ -812,7 +823,7 @@ if ./bin/basic45 src/test-resources/test_basic_compile5_xemu.bas -o build/test/t
         fi
     done
 else
-    echo "FAIL: test_basic_compile5_xemu.bas (basic45 or basic45 --compile failed)"
+    echo "FAIL: test_basic_compile5_xemu.bas (basic45 or basic45 --compile --checks failed)"
     failed=$((failed + 1))
 fi
 # test_basic_compile7_xemu.bas: RENAME, COPY, CONCAT, SCRATCH / ERASE /
@@ -820,9 +831,9 @@ fi
 # per run); the same four ways
 BC7_EXP="01 01 01 01 01 01 01 AA"
 if ./bin/basic45 src/test-resources/test_basic_compile7_xemu.bas -o build/test/test_basic_compile7_i.prg >/dev/null 2>&1 &&
-   ./bin/basic45 --compile src/test-resources/test_basic_compile7_xemu.bas -o build/test/test_basic_compile7.prg >/dev/null 2>&1 &&
-   ./bin/basic45 --compile -O0 src/test-resources/test_basic_compile7_xemu.bas -o build/test/test_basic_compile7_O0.prg >/dev/null 2>&1 &&
-   ./bin/basic45 --compile --speed src/test-resources/test_basic_compile7_xemu.bas -o build/test/test_basic_compile7_speed.prg >/dev/null 2>&1; then
+   ./bin/basic45 --compile --checks src/test-resources/test_basic_compile7_xemu.bas -o build/test/test_basic_compile7.prg >/dev/null 2>&1 &&
+   ./bin/basic45 --compile --checks -O0 src/test-resources/test_basic_compile7_xemu.bas -o build/test/test_basic_compile7_O0.prg >/dev/null 2>&1 &&
+   ./bin/basic45 --compile --checks --speed src/test-resources/test_basic_compile7_xemu.bas -o build/test/test_basic_compile7_speed.prg >/dev/null 2>&1; then
     for bc7 in i "" O0 speed; do
         bc7n="test_basic_compile7${bc7:+_$bc7}"
         rm -f "build/test/$bc7n.d81"
@@ -834,7 +845,7 @@ if ./bin/basic45 src/test-resources/test_basic_compile7_xemu.bas -o build/test/t
         fi
     done
 else
-    echo "FAIL: test_basic_compile7_xemu.bas (basic45 or basic45 --compile failed)"
+    echo "FAIL: test_basic_compile7_xemu.bas (basic45 or basic45 --compile --checks failed)"
     failed=$((failed + 1))
 fi
 # test_basic_compile8_xemu.bas: LINE INPUT# / LINE INPUT, FREAD# / FWRITE#,
@@ -842,9 +853,9 @@ fi
 # run); the same four ways
 BC8_EXP="01 01 01 01 01 01 01 AA"
 if ./bin/basic45 src/test-resources/test_basic_compile8_xemu.bas -o build/test/test_basic_compile8_i.prg >/dev/null 2>&1 &&
-   ./bin/basic45 --compile src/test-resources/test_basic_compile8_xemu.bas -o build/test/test_basic_compile8.prg >/dev/null 2>&1 &&
-   ./bin/basic45 --compile -O0 src/test-resources/test_basic_compile8_xemu.bas -o build/test/test_basic_compile8_O0.prg >/dev/null 2>&1 &&
-   ./bin/basic45 --compile --speed src/test-resources/test_basic_compile8_xemu.bas -o build/test/test_basic_compile8_speed.prg >/dev/null 2>&1; then
+   ./bin/basic45 --compile --checks src/test-resources/test_basic_compile8_xemu.bas -o build/test/test_basic_compile8.prg >/dev/null 2>&1 &&
+   ./bin/basic45 --compile --checks -O0 src/test-resources/test_basic_compile8_xemu.bas -o build/test/test_basic_compile8_O0.prg >/dev/null 2>&1 &&
+   ./bin/basic45 --compile --checks --speed src/test-resources/test_basic_compile8_xemu.bas -o build/test/test_basic_compile8_speed.prg >/dev/null 2>&1; then
     for bc8 in i "" O0 speed; do
         bc8n="test_basic_compile8${bc8:+_$bc8}"
         rm -f "build/test/$bc8n.d81"
@@ -856,7 +867,7 @@ if ./bin/basic45 src/test-resources/test_basic_compile8_xemu.bas -o build/test/t
         fi
     done
 else
-    echo "FAIL: test_basic_compile8_xemu.bas (basic45 or basic45 --compile failed)"
+    echo "FAIL: test_basic_compile8_xemu.bas (basic45 or basic45 --compile --checks failed)"
     failed=$((failed + 1))
 fi
 # test_basic_compile9_xemu.bas: SPRITE, SPRCOLOR, MOVSPR (positions, TO,
@@ -864,15 +875,15 @@ fi
 # SPRSAV, COLLISION, BUMP; the same four ways
 BC9_EXP="01 01 01 01 01 01 01 AA"
 if ./bin/basic45 src/test-resources/test_basic_compile9_xemu.bas -o build/test/test_basic_compile9_i.prg >/dev/null 2>&1 &&
-   ./bin/basic45 --compile src/test-resources/test_basic_compile9_xemu.bas -o build/test/test_basic_compile9.prg >/dev/null 2>&1 &&
-   ./bin/basic45 --compile -O0 src/test-resources/test_basic_compile9_xemu.bas -o build/test/test_basic_compile9_O0.prg >/dev/null 2>&1 &&
-   ./bin/basic45 --compile --speed src/test-resources/test_basic_compile9_xemu.bas -o build/test/test_basic_compile9_speed.prg >/dev/null 2>&1; then
+   ./bin/basic45 --compile --checks src/test-resources/test_basic_compile9_xemu.bas -o build/test/test_basic_compile9.prg >/dev/null 2>&1 &&
+   ./bin/basic45 --compile --checks -O0 src/test-resources/test_basic_compile9_xemu.bas -o build/test/test_basic_compile9_O0.prg >/dev/null 2>&1 &&
+   ./bin/basic45 --compile --checks --speed src/test-resources/test_basic_compile9_xemu.bas -o build/test/test_basic_compile9_speed.prg >/dev/null 2>&1; then
     run_xemu_test "test_basic_compile9_interpreted" "build/test/test_basic_compile9_i.prg" "C0C0" 8 "$BC9_EXP"
     run_xemu_test "test_basic_compile9" "build/test/test_basic_compile9.prg" "C0C0" 8 "$BC9_EXP"
     run_xemu_test "test_basic_compile9_O0" "build/test/test_basic_compile9_O0.prg" "C0C0" 8 "$BC9_EXP"
     run_xemu_test "test_basic_compile9_speed" "build/test/test_basic_compile9_speed.prg" "C0C0" 8 "$BC9_EXP"
 else
-    echo "FAIL: test_basic_compile9_xemu.bas (basic45 or basic45 --compile failed)"
+    echo "FAIL: test_basic_compile9_xemu.bas (basic45 or basic45 --compile --checks failed)"
     failed=$((failed + 1))
 fi
 # test_basic_compile10_xemu.bas: FOREGROUND / COLOR, BACKGROUND, BORDER,
@@ -880,15 +891,15 @@ fi
 # PALETTE COLOR / RESTORE, VSYNC; the same four ways
 BC10_EXP="01 01 01 01 01 01 01 AA"
 if ./bin/basic45 src/test-resources/test_basic_compile10_xemu.bas -o build/test/test_basic_compile10_i.prg >/dev/null 2>&1 &&
-   ./bin/basic45 --compile src/test-resources/test_basic_compile10_xemu.bas -o build/test/test_basic_compile10.prg >/dev/null 2>&1 &&
-   ./bin/basic45 --compile -O0 src/test-resources/test_basic_compile10_xemu.bas -o build/test/test_basic_compile10_O0.prg >/dev/null 2>&1 &&
-   ./bin/basic45 --compile --speed src/test-resources/test_basic_compile10_xemu.bas -o build/test/test_basic_compile10_speed.prg >/dev/null 2>&1; then
+   ./bin/basic45 --compile --checks src/test-resources/test_basic_compile10_xemu.bas -o build/test/test_basic_compile10.prg >/dev/null 2>&1 &&
+   ./bin/basic45 --compile --checks -O0 src/test-resources/test_basic_compile10_xemu.bas -o build/test/test_basic_compile10_O0.prg >/dev/null 2>&1 &&
+   ./bin/basic45 --compile --checks --speed src/test-resources/test_basic_compile10_xemu.bas -o build/test/test_basic_compile10_speed.prg >/dev/null 2>&1; then
     run_xemu_test "test_basic_compile10_interpreted" "build/test/test_basic_compile10_i.prg" "C0C0" 8 "$BC10_EXP"
     run_xemu_test "test_basic_compile10" "build/test/test_basic_compile10.prg" "C0C0" 8 "$BC10_EXP"
     run_xemu_test "test_basic_compile10_O0" "build/test/test_basic_compile10_O0.prg" "C0C0" 8 "$BC10_EXP"
     run_xemu_test "test_basic_compile10_speed" "build/test/test_basic_compile10_speed.prg" "C0C0" 8 "$BC10_EXP"
 else
-    echo "FAIL: test_basic_compile10_xemu.bas (basic45 or basic45 --compile failed)"
+    echo "FAIL: test_basic_compile10_xemu.bas (basic45 or basic45 --compile --checks failed)"
     failed=$((failed + 1))
 fi
 # test_basic_compile11_xemu.bas: graphics (SCREEN, PEN, LINE, DOT, BOX,
@@ -896,15 +907,15 @@ fi
 # four ways
 BC11_EXP="01 01 01 01 01 01 01 AA"
 if ./bin/basic45 src/test-resources/test_basic_compile11_xemu.bas -o build/test/test_basic_compile11_i.prg >/dev/null 2>&1 &&
-   ./bin/basic45 --compile src/test-resources/test_basic_compile11_xemu.bas -o build/test/test_basic_compile11.prg >/dev/null 2>&1 &&
-   ./bin/basic45 --compile -O0 src/test-resources/test_basic_compile11_xemu.bas -o build/test/test_basic_compile11_O0.prg >/dev/null 2>&1 &&
-   ./bin/basic45 --compile --speed src/test-resources/test_basic_compile11_xemu.bas -o build/test/test_basic_compile11_speed.prg >/dev/null 2>&1; then
+   ./bin/basic45 --compile --checks src/test-resources/test_basic_compile11_xemu.bas -o build/test/test_basic_compile11.prg >/dev/null 2>&1 &&
+   ./bin/basic45 --compile --checks -O0 src/test-resources/test_basic_compile11_xemu.bas -o build/test/test_basic_compile11_O0.prg >/dev/null 2>&1 &&
+   ./bin/basic45 --compile --checks --speed src/test-resources/test_basic_compile11_xemu.bas -o build/test/test_basic_compile11_speed.prg >/dev/null 2>&1; then
     run_xemu_test "test_basic_compile11_interpreted" "build/test/test_basic_compile11_i.prg" "C0C0" 8 "$BC11_EXP"
     run_xemu_test "test_basic_compile11" "build/test/test_basic_compile11.prg" "C0C0" 8 "$BC11_EXP"
     run_xemu_test "test_basic_compile11_O0" "build/test/test_basic_compile11_O0.prg" "C0C0" 8 "$BC11_EXP"
     run_xemu_test "test_basic_compile11_speed" "build/test/test_basic_compile11_speed.prg" "C0C0" 8 "$BC11_EXP"
 else
-    echo "FAIL: test_basic_compile11_xemu.bas (basic45 or basic45 --compile failed)"
+    echo "FAIL: test_basic_compile11_xemu.bas (basic45 or basic45 --compile --checks failed)"
     failed=$((failed + 1))
 fi
 # test_basic_compile12_xemu.bas: CIRCLE, ELLIPSE (sectors, solid), POLYGON
@@ -912,29 +923,29 @@ fi
 # size leaves -O0 and --speed above $C000 for now)
 BC12_EXP="01 01 01 01 01 01 01 AA"
 if ./bin/basic45 src/test-resources/test_basic_compile12_xemu.bas -o build/test/test_basic_compile12_i.prg >/dev/null 2>&1 &&
-   ./bin/basic45 --compile src/test-resources/test_basic_compile12_xemu.bas -o build/test/test_basic_compile12.prg >/dev/null 2>&1; then
+   ./bin/basic45 --compile --checks src/test-resources/test_basic_compile12_xemu.bas -o build/test/test_basic_compile12.prg >/dev/null 2>&1; then
     run_xemu_test "test_basic_compile12_interpreted" "build/test/test_basic_compile12_i.prg" "C0C0" 8 "$BC12_EXP"
     run_xemu_test "test_basic_compile12" "build/test/test_basic_compile12.prg" "C0C0" 8 "$BC12_EXP"
 else
-    echo "FAIL: test_basic_compile12_xemu.bas (basic45 or basic45 --compile failed)"
+    echo "FAIL: test_basic_compile12_xemu.bas (basic45 or basic45 --compile --checks failed)"
     failed=$((failed + 1))
 fi
 # test_basic_compile13_xemu.bas: PAINT (modes 0-2), VIEWPORT CLR, GCOPY / CUT /
 # PASTE, CHAR (reversed, scaled); interpreted and -O2 (as test 12)
 BC13_EXP="01 01 01 01 01 01 01 AA"
 if ./bin/basic45 src/test-resources/test_basic_compile13_xemu.bas -o build/test/test_basic_compile13_i.prg >/dev/null 2>&1 &&
-   ./bin/basic45 --compile src/test-resources/test_basic_compile13_xemu.bas -o build/test/test_basic_compile13.prg >/dev/null 2>&1; then
+   ./bin/basic45 --compile --checks src/test-resources/test_basic_compile13_xemu.bas -o build/test/test_basic_compile13.prg >/dev/null 2>&1; then
     run_xemu_test "test_basic_compile13_interpreted" "build/test/test_basic_compile13_i.prg" "C0C0" 8 "$BC13_EXP"
     run_xemu_test "test_basic_compile13" "build/test/test_basic_compile13.prg" "C0C0" 8 "$BC13_EXP"
 else
-    echo "FAIL: test_basic_compile13_xemu.bas (basic45 or basic45 --compile failed)"
+    echo "FAIL: test_basic_compile13_xemu.bas (basic45 or basic45 --compile --checks failed)"
     failed=$((failed + 1))
 fi
 # test_basic_compile14_xemu.bas: SAVEIFF / LOADIFF (320x200x2, 640x400x4, the
 # file's bytes, the errors) on an empty D81 as drive 8; interpreted and -O2
 BC14_EXP="01 01 01 01 01 01 01 AA"
 if ./bin/basic45 src/test-resources/test_basic_compile14_xemu.bas -o build/test/test_basic_compile14_i.prg >/dev/null 2>&1 &&
-   ./bin/basic45 --compile src/test-resources/test_basic_compile14_xemu.bas -o build/test/test_basic_compile14.prg >/dev/null 2>&1; then
+   ./bin/basic45 --compile --checks src/test-resources/test_basic_compile14_xemu.bas -o build/test/test_basic_compile14.prg >/dev/null 2>&1; then
     for bc14 in i ""; do
         bc14n="test_basic_compile14${bc14:+_$bc14}"
         rm -f "build/test/$bc14n.d81"
@@ -946,76 +957,76 @@ if ./bin/basic45 src/test-resources/test_basic_compile14_xemu.bas -o build/test/
         fi
     done
 else
-    echo "FAIL: test_basic_compile14_xemu.bas (basic45 or basic45 --compile failed)"
+    echo "FAIL: test_basic_compile14_xemu.bas (basic45 or basic45 --compile --checks failed)"
     failed=$((failed + 1))
 fi
 # test_basic_compile15_xemu.bas: SYS, RREG, USR, FRE, DMA, EDMA, CLR (all of it, a
 # variable, ERR$, TI, ST; in a FOR loop); four ways
 BC15_EXP="01 01 01 01 01 01 01 AA"
 if ./bin/basic45 src/test-resources/test_basic_compile15_xemu.bas -o build/test/test_basic_compile15_i.prg >/dev/null 2>&1 &&
-   ./bin/basic45 --compile src/test-resources/test_basic_compile15_xemu.bas -o build/test/test_basic_compile15.prg >/dev/null 2>&1 &&
-   ./bin/basic45 --compile -O0 src/test-resources/test_basic_compile15_xemu.bas -o build/test/test_basic_compile15_O0.prg >/dev/null 2>&1 &&
-   ./bin/basic45 --compile --speed src/test-resources/test_basic_compile15_xemu.bas -o build/test/test_basic_compile15_speed.prg >/dev/null 2>&1; then
+   ./bin/basic45 --compile --checks src/test-resources/test_basic_compile15_xemu.bas -o build/test/test_basic_compile15.prg >/dev/null 2>&1 &&
+   ./bin/basic45 --compile --checks -O0 src/test-resources/test_basic_compile15_xemu.bas -o build/test/test_basic_compile15_O0.prg >/dev/null 2>&1 &&
+   ./bin/basic45 --compile --checks --speed src/test-resources/test_basic_compile15_xemu.bas -o build/test/test_basic_compile15_speed.prg >/dev/null 2>&1; then
     run_xemu_test "test_basic_compile15_interpreted" "build/test/test_basic_compile15_i.prg" "C0C0" 8 "$BC15_EXP"
     run_xemu_test "test_basic_compile15" "build/test/test_basic_compile15.prg" "C0C0" 8 "$BC15_EXP"
     run_xemu_test "test_basic_compile15_O0" "build/test/test_basic_compile15_O0.prg" "C0C0" 8 "$BC15_EXP"
     run_xemu_test "test_basic_compile15_speed" "build/test/test_basic_compile15_speed.prg" "C0C0" 8 "$BC15_EXP"
 else
-    echo "FAIL: test_basic_compile15_xemu.bas (basic45 or basic45 --compile failed)"
+    echo "FAIL: test_basic_compile15_xemu.bas (basic45 or basic45 --compile --checks failed)"
     failed=$((failed + 1))
 fi
 # test_basic_compile16_xemu.bas: JOY, POT, LPEN (idle: headless xemu has no
 # stick, paddle or pen), their ranges, MOUSE ON / OFF, RMOUSE; four ways
 BC16_EXP="01 01 01 01 01 01 01 AA"
 if ./bin/basic45 src/test-resources/test_basic_compile16_xemu.bas -o build/test/test_basic_compile16_i.prg >/dev/null 2>&1 &&
-   ./bin/basic45 --compile src/test-resources/test_basic_compile16_xemu.bas -o build/test/test_basic_compile16.prg >/dev/null 2>&1 &&
-   ./bin/basic45 --compile -O0 src/test-resources/test_basic_compile16_xemu.bas -o build/test/test_basic_compile16_O0.prg >/dev/null 2>&1 &&
-   ./bin/basic45 --compile --speed src/test-resources/test_basic_compile16_xemu.bas -o build/test/test_basic_compile16_speed.prg >/dev/null 2>&1; then
+   ./bin/basic45 --compile --checks src/test-resources/test_basic_compile16_xemu.bas -o build/test/test_basic_compile16.prg >/dev/null 2>&1 &&
+   ./bin/basic45 --compile --checks -O0 src/test-resources/test_basic_compile16_xemu.bas -o build/test/test_basic_compile16_O0.prg >/dev/null 2>&1 &&
+   ./bin/basic45 --compile --checks --speed src/test-resources/test_basic_compile16_xemu.bas -o build/test/test_basic_compile16_speed.prg >/dev/null 2>&1; then
     run_xemu_test "test_basic_compile16_interpreted" "build/test/test_basic_compile16_i.prg" "C0C0" 8 "$BC16_EXP"
     run_xemu_test "test_basic_compile16" "build/test/test_basic_compile16.prg" "C0C0" 8 "$BC16_EXP"
     run_xemu_test "test_basic_compile16_O0" "build/test/test_basic_compile16_O0.prg" "C0C0" 8 "$BC16_EXP"
     run_xemu_test "test_basic_compile16_speed" "build/test/test_basic_compile16_speed.prg" "C0C0" 8 "$BC16_EXP"
 else
-    echo "FAIL: test_basic_compile16_xemu.bas (basic45 or basic45 --compile failed)"
+    echo "FAIL: test_basic_compile16_xemu.bas (basic45 or basic45 --compile --checks failed)"
     failed=$((failed + 1))
 fi
 # test_basic_compile17_xemu.bas: PLAY (through the tune player: lengths, voices,
 # dots, sharps, L), RPLAY, TEMPO, ENVELOPE, VOL, FILTER, PLAY alone; four ways
 BC17_EXP="01 01 01 01 01 01 01 AA"
 if ./bin/basic45 src/test-resources/test_basic_compile17_xemu.bas -o build/test/test_basic_compile17_i.prg >/dev/null 2>&1 &&
-   ./bin/basic45 --compile src/test-resources/test_basic_compile17_xemu.bas -o build/test/test_basic_compile17.prg >/dev/null 2>&1 &&
-   ./bin/basic45 --compile -O0 src/test-resources/test_basic_compile17_xemu.bas -o build/test/test_basic_compile17_O0.prg >/dev/null 2>&1 &&
-   ./bin/basic45 --compile --speed src/test-resources/test_basic_compile17_xemu.bas -o build/test/test_basic_compile17_speed.prg >/dev/null 2>&1; then
+   ./bin/basic45 --compile --checks src/test-resources/test_basic_compile17_xemu.bas -o build/test/test_basic_compile17.prg >/dev/null 2>&1 &&
+   ./bin/basic45 --compile --checks -O0 src/test-resources/test_basic_compile17_xemu.bas -o build/test/test_basic_compile17_O0.prg >/dev/null 2>&1 &&
+   ./bin/basic45 --compile --checks --speed src/test-resources/test_basic_compile17_xemu.bas -o build/test/test_basic_compile17_speed.prg >/dev/null 2>&1; then
     run_xemu_test "test_basic_compile17_interpreted" "build/test/test_basic_compile17_i.prg" "C0C0" 8 "$BC17_EXP"
     run_xemu_test "test_basic_compile17" "build/test/test_basic_compile17.prg" "C0C0" 8 "$BC17_EXP"
     run_xemu_test "test_basic_compile17_O0" "build/test/test_basic_compile17_O0.prg" "C0C0" 8 "$BC17_EXP"
     run_xemu_test "test_basic_compile17_speed" "build/test/test_basic_compile17_speed.prg" "C0C0" 8 "$BC17_EXP"
 else
-    echo "FAIL: test_basic_compile17_xemu.bas (basic45 or basic45 --compile failed)"
+    echo "FAIL: test_basic_compile17_xemu.bas (basic45 or basic45 --compile --checks failed)"
     failed=$((failed + 1))
 fi
 # test_basic_compile18_xemu.bas: PRINT USING, FGOTO / FGOSUB, RUN, KEY, DECBIN,
 # CHAR DEF, FONT; four ways
 BC18_EXP="01 01 01 01 01 01 01 AA"
 if ./bin/basic45 src/test-resources/test_basic_compile18_xemu.bas -o build/test/test_basic_compile18_i.prg >/dev/null 2>&1 &&
-   ./bin/basic45 --compile src/test-resources/test_basic_compile18_xemu.bas -o build/test/test_basic_compile18.prg >/dev/null 2>&1 &&
-   ./bin/basic45 --compile -O0 src/test-resources/test_basic_compile18_xemu.bas -o build/test/test_basic_compile18_O0.prg >/dev/null 2>&1 &&
-   ./bin/basic45 --compile --speed src/test-resources/test_basic_compile18_xemu.bas -o build/test/test_basic_compile18_speed.prg >/dev/null 2>&1; then
+   ./bin/basic45 --compile --checks src/test-resources/test_basic_compile18_xemu.bas -o build/test/test_basic_compile18.prg >/dev/null 2>&1 &&
+   ./bin/basic45 --compile --checks -O0 src/test-resources/test_basic_compile18_xemu.bas -o build/test/test_basic_compile18_O0.prg >/dev/null 2>&1 &&
+   ./bin/basic45 --compile --checks --speed src/test-resources/test_basic_compile18_xemu.bas -o build/test/test_basic_compile18_speed.prg >/dev/null 2>&1; then
     run_xemu_test "test_basic_compile18_interpreted" "build/test/test_basic_compile18_i.prg" "C0C0" 8 "$BC18_EXP"
     run_xemu_test "test_basic_compile18" "build/test/test_basic_compile18.prg" "C0C0" 8 "$BC18_EXP"
     run_xemu_test "test_basic_compile18_O0" "build/test/test_basic_compile18_O0.prg" "C0C0" 8 "$BC18_EXP"
     run_xemu_test "test_basic_compile18_speed" "build/test/test_basic_compile18_speed.prg" "C0C0" 8 "$BC18_EXP"
 else
-    echo "FAIL: test_basic_compile18_xemu.bas (basic45 or basic45 --compile failed)"
+    echo "FAIL: test_basic_compile18_xemu.bas (basic45 or basic45 --compile --checks failed)"
     failed=$((failed + 1))
 fi
 # test_basic_compile19_xemu.bas: TYPE, DISK, LOCK, UNLOCK, MKDIR, SET BIT / CLR BIT,
 # SET DEF / VERIFY / DISK, BOOT; an empty D81 as drive 8; four ways
 BC19_EXP="01 01 01 01 01 01 01 AA"
 if ./bin/basic45 src/test-resources/test_basic_compile19_xemu.bas -o build/test/test_basic_compile19_i.prg >/dev/null 2>&1 &&
-   ./bin/basic45 --compile src/test-resources/test_basic_compile19_xemu.bas -o build/test/test_basic_compile19.prg >/dev/null 2>&1 &&
-   ./bin/basic45 --compile -O0 src/test-resources/test_basic_compile19_xemu.bas -o build/test/test_basic_compile19_O0.prg >/dev/null 2>&1 &&
-   ./bin/basic45 --compile --speed src/test-resources/test_basic_compile19_xemu.bas -o build/test/test_basic_compile19_speed.prg >/dev/null 2>&1; then
+   ./bin/basic45 --compile --checks src/test-resources/test_basic_compile19_xemu.bas -o build/test/test_basic_compile19.prg >/dev/null 2>&1 &&
+   ./bin/basic45 --compile --checks -O0 src/test-resources/test_basic_compile19_xemu.bas -o build/test/test_basic_compile19_O0.prg >/dev/null 2>&1 &&
+   ./bin/basic45 --compile --checks --speed src/test-resources/test_basic_compile19_xemu.bas -o build/test/test_basic_compile19_speed.prg >/dev/null 2>&1; then
     for bc19 in i "" O0 speed; do
         bc19n="test_basic_compile19${bc19:+_$bc19}"
         rm -f "build/test/$bc19n.d81"
@@ -1027,31 +1038,31 @@ if ./bin/basic45 src/test-resources/test_basic_compile19_xemu.bas -o build/test/
         fi
     done
 else
-    echo "FAIL: test_basic_compile19_xemu.bas (basic45 or basic45 --compile failed)"
+    echo "FAIL: test_basic_compile19_xemu.bas (basic45 or basic45 --compile --checks failed)"
     failed=$((failed + 1))
 fi
 # test_basic_compile20_xemu.bas: SOUND (durations, sweeps up, down, oscillating;
 # the ranges; SOUND CLR; with PLAY); four ways
 BC20_EXP="01 01 01 01 01 01 01 AA"
 if ./bin/basic45 src/test-resources/test_basic_compile20_xemu.bas -o build/test/test_basic_compile20_i.prg >/dev/null 2>&1 &&
-   ./bin/basic45 --compile src/test-resources/test_basic_compile20_xemu.bas -o build/test/test_basic_compile20.prg >/dev/null 2>&1 &&
-   ./bin/basic45 --compile -O0 src/test-resources/test_basic_compile20_xemu.bas -o build/test/test_basic_compile20_O0.prg >/dev/null 2>&1 &&
-   ./bin/basic45 --compile --speed src/test-resources/test_basic_compile20_xemu.bas -o build/test/test_basic_compile20_speed.prg >/dev/null 2>&1; then
+   ./bin/basic45 --compile --checks src/test-resources/test_basic_compile20_xemu.bas -o build/test/test_basic_compile20.prg >/dev/null 2>&1 &&
+   ./bin/basic45 --compile --checks -O0 src/test-resources/test_basic_compile20_xemu.bas -o build/test/test_basic_compile20_O0.prg >/dev/null 2>&1 &&
+   ./bin/basic45 --compile --checks --speed src/test-resources/test_basic_compile20_xemu.bas -o build/test/test_basic_compile20_speed.prg >/dev/null 2>&1; then
     run_xemu_test "test_basic_compile20_interpreted" "build/test/test_basic_compile20_i.prg" "C0C0" 8 "$BC20_EXP"
     run_xemu_test "test_basic_compile20" "build/test/test_basic_compile20.prg" "C0C0" 8 "$BC20_EXP"
     run_xemu_test "test_basic_compile20_O0" "build/test/test_basic_compile20_O0.prg" "C0C0" 8 "$BC20_EXP"
     run_xemu_test "test_basic_compile20_speed" "build/test/test_basic_compile20_speed.prg" "C0C0" 8 "$BC20_EXP"
 else
-    echo "FAIL: test_basic_compile20_xemu.bas (basic45 or basic45 --compile failed)"
+    echo "FAIL: test_basic_compile20_xemu.bas (basic45 or basic45 --compile --checks failed)"
     failed=$((failed + 1))
 fi
 # test_basic_compile21_xemu.bas: SPRITE SAVE / LOAD, KEY SAVE / LOAD, MOUNT, CHDIR
 # on the SD card, POINTER; an empty D81 as drive 8; four ways
 BC21_EXP="01 01 01 01 01 01 01 AA"
 if ./bin/basic45 src/test-resources/test_basic_compile21_xemu.bas -o build/test/test_basic_compile21_i.prg >/dev/null 2>&1 &&
-   ./bin/basic45 --compile src/test-resources/test_basic_compile21_xemu.bas -o build/test/test_basic_compile21.prg >/dev/null 2>&1 &&
-   ./bin/basic45 --compile -O0 src/test-resources/test_basic_compile21_xemu.bas -o build/test/test_basic_compile21_O0.prg >/dev/null 2>&1 &&
-   ./bin/basic45 --compile --speed src/test-resources/test_basic_compile21_xemu.bas -o build/test/test_basic_compile21_speed.prg >/dev/null 2>&1; then
+   ./bin/basic45 --compile --checks src/test-resources/test_basic_compile21_xemu.bas -o build/test/test_basic_compile21.prg >/dev/null 2>&1 &&
+   ./bin/basic45 --compile --checks -O0 src/test-resources/test_basic_compile21_xemu.bas -o build/test/test_basic_compile21_O0.prg >/dev/null 2>&1 &&
+   ./bin/basic45 --compile --checks --speed src/test-resources/test_basic_compile21_xemu.bas -o build/test/test_basic_compile21_speed.prg >/dev/null 2>&1; then
     for bc21 in i "" O0 speed; do
         bc21n="test_basic_compile21${bc21:+_$bc21}"
         rm -f "build/test/$bc21n.d81"
@@ -1063,16 +1074,16 @@ if ./bin/basic45 src/test-resources/test_basic_compile21_xemu.bas -o build/test/
         fi
     done
 else
-    echo "FAIL: test_basic_compile21_xemu.bas (basic45 or basic45 --compile failed)"
+    echo "FAIL: test_basic_compile21_xemu.bas (basic45 or basic45 --compile --checks failed)"
     failed=$((failed + 1))
 fi
 # test_basic_compile22_xemu.bas: without --line-numbers (the default, #483) EL
 # stays 65535 after an error, ER and the trap as with them; compiled only
 BC22_EXP="01 01 01 AA"
-if ./bin/basic45 --compile src/test-resources/test_basic_compile22_xemu.bas -o build/test/test_basic_compile22.prg >/dev/null 2>&1; then
+if ./bin/basic45 --compile --checks src/test-resources/test_basic_compile22_xemu.bas -o build/test/test_basic_compile22.prg >/dev/null 2>&1; then
     run_xemu_test "test_basic_compile22" "build/test/test_basic_compile22.prg" "C0C0" 4 "$BC22_EXP"
 else
-    echo "FAIL: test_basic_compile22_xemu.bas (basic45 --compile failed)"
+    echo "FAIL: test_basic_compile22_xemu.bas (basic45 --compile --checks failed)"
     failed=$((failed + 1))
 fi
 # test_basic_compile6_xemu.bas: chaining. It (REM PRAGMA EXPORT) DLOADs
@@ -1081,7 +1092,7 @@ fi
 # trapped. Interpreted (the interpreter keeps the variables) and compiled
 # -O2, -O0, --speed
 BC6_EXP="01 01 01 01 01 AA"
-for bc6 in "i|" "|--compile" "O0|--compile -O0" "speed|--compile --speed"; do
+for bc6 in "i|" "|--compile --checks" "O0|--compile --checks -O0" "speed|--compile --checks --speed"; do
     IFS='|' read -r bc6s bc6f <<< "$bc6"
     bc6n="test_basic_compile6${bc6s:+_$bc6s}"
     rm -f "build/test/$bc6n.d81" "build/test/$bc6n.map"
@@ -1093,16 +1104,16 @@ for bc6 in "i|" "|--compile" "O0|--compile -O0" "speed|--compile --speed"; do
        ./bin/disk45 add "build/test/$bc6n.d81" "build/test/${bc6n}b.prg" bc6b >/dev/null 2>&1; then
         run_xemu_test "$bc6n" "build/test/$bc6n.prg" "C0C0" 6 "$BC6_EXP" -8 "$PWD/build/test/$bc6n.d81"
     else
-        echo "FAIL: $bc6n (basic45, basic45 --compile or disk45 failed)"
+        echo "FAIL: $bc6n (basic45, basic45 --compile --checks or disk45 failed)"
         failed=$((failed + 1))
     fi
 done
 # an array subscript past its DIM: ?BAD SUBSCRIPT (18)
 printf '10 dim a(5):a(5)=1:print a(6):poke 49344,1\n' > build/test/test_basic_compile_bs.bas
-if ./bin/basic45 --compile build/test/test_basic_compile_bs.bas -o build/test/test_basic_compile_bs.prg >/dev/null 2>&1; then
+if ./bin/basic45 --compile --checks build/test/test_basic_compile_bs.bas -o build/test/test_basic_compile_bs.prg >/dev/null 2>&1; then
     run_xemu_test "test_basic_compile_bs" "build/test/test_basic_compile_bs.prg" "FD" 2 "12 00"
 else
-    echo "FAIL: test_basic_compile_bs (basic45 --compile failed)"
+    echo "FAIL: test_basic_compile_bs (basic45 --compile --checks failed)"
     failed=$((failed + 1))
 fi
 # basic45 --convert=tsbneo: TSBneo's own forms (IF ... THEN DO / ELSE / DONE, D!PEEK / D!POKE, CLS,

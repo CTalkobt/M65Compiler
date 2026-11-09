@@ -71,6 +71,7 @@ Without `-o` the output is the input name with its extension replaced by `.prg` 
 | `-O0` … `-O4` | `--compile`: cc45's optimization level (default `-O2`) |
 | `--asm <file>` | `--compile`: also write the generated ca45 assembly |
 | `--import-map FILE` | `--compile`: the map file of `REM PRAGMA IMPORT` without one (the exporting program's `<output>.map`; see Chaining) |
+| `--checks` | `--compile`: the checks of the program's own values and flow, as the interpreter's: ranges (`?ILLEGAL QUANTITY`), subscripts, `?SYNTAX ERROR` found when run, `RETURN` / `NEXT` / `RESUME` without their match, the `GOSUB` stack, `DEF FN` not defined. Off by default: none of them is compiled, a program is taken to be tested already (undefined behaviour: it goes on with the next statement); errors of files, the disk and memory stay, and `TRAP` without `--checks` warns (#489) |
 | `--line-numbers` | `--compile`: each line that can raise an error records its number, for the messages' ` IN line` and `EL` (as the interpreter's). Off by default: smaller and faster code (8 bytes a line), an error's message without ` IN line` and `EL` 65535 (#483) |
 | `--speed`, `-Ospeed` | `--compile`: `-O3` and float `+ - * /` and comparisons by the library's RAM routines (`float_fast.s45`) instead of the ROM's: faster, with the ROM's rounding fixes (see Compiling) |
 | `--convert=<dialect>` | Another BASIC's `.prg` or text listing as BASIC 65 basic45 source, with warnings for what needs a hand: `basic7` (C128 BASIC 7.0), `basic35` (C16 / Plus/4 BASIC 3.5), `simons` (C64 Simons' BASIC and TSB), `tsbneo` (TSBneo: `AT(row, column)`) ([Converting BASIC 7.0 Programs](#converting-basic-70-programs-convertbasic7)) |
@@ -503,6 +504,13 @@ a byte of a chunk id: `?FILE DATA` is not given). Not compiled yet: `CHAR DEF`. 
 (a program using most of it at `-O0` or `--speed` can pass `$C000`); more of it is to become assembly. Tests:
 `test_basic_compile11_xemu.bas`, `test_basic_compile12_xemu.bas`, `test_basic_compile13_xemu.bas`,
 `test_basic_compile14_xemu.bas`.
+
+**Checks**: a compiled program checks its own values and flow only with `--checks` (#489). Without it, what the
+interpreter stops with `?ILLEGAL QUANTITY`, `?BAD SUBSCRIPT` (a negative subscript), `?SYNTAX ERROR` when run,
+`?NEXT WITHOUT FOR`, `?RETURN WITHOUT GOSUB`, `?CAN'T RESUME`, `?UNDEF'D FUNCTION` or a full `GOSUB` stack is
+undefined: no check is compiled and the program goes on. The run time's checks (a float's range for `POKE` and the
+like, subscripts past the `DIM`, division by zero) and the errors of files, the disk and memory stay. Test:
+`test_basic_compile_nochk` in `test_xemu.sh`; the other runtime tests are built with `--checks`.
 
 **Line numbers**: a compiled program records the line running only with `--line-numbers`; without it an error's
 message ends at `ERROR` (no ` IN line`, as in direct mode) and `EL` stays 65535, the rest (`ER`, `ERR$`, `TRAP`,

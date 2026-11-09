@@ -24,6 +24,10 @@ struct BasicChainOptions {
     // --line-numbers: each line that can raise an error records its number
     // (the messages' " IN line", EL); off: neither (#483)
     bool lineNumbers = false;
+    // --checks: the checks of the program's own values and flow (?ILLEGAL
+    // QUANTITY, ?BAD SUBSCRIPT, ?SYNTAX ERROR when run, RETURN without GOSUB,
+    // ...); off: none, undefined behaviour instead (#489)
+    bool checks = false;
 };
 
 struct BasicCompileResult {

@@ -428,8 +428,15 @@ private:
     std::string errLabel(int n) { raises(); errBlocks_.insert(n); return "Err" + std::to_string(n); }
     // the error n where the statement runs (a constant out of range: the
     // interpreter's error only when the line is run)
-    void raiseNow(int n) { raises(); br(errLabel(n)); block(newLabel("dead")); }
+    // --checks (#489): the checks of the program's own values and flow; without
+    // it none is compiled (undefined behaviour: the program goes on)
+    bool checks() const { return chainOpt_ && chainOpt_->checks; }
+    void raiseNow(int n, bool always = false) {
+        if (!checks() && !always) return;
+        raises(); br(errLabel(n)); block(newLabel("dead"));
+    }
     void raiseIf(ir::Operand cond, int n) {
+        if (!checks()) return;
         raises();
         std::string ok = newLabel("ok");
         brCond(cond, errLabel(n), ok);
@@ -2069,7 +2076,7 @@ void Compiler::finish() {
             brCond(bin(ir::Op::CMP_EQ, ir::Type::I16, v, ir::Operand::imm(lines_[l].num, ir::Type::I16)), lineLabel(l), no);
             block(no);
         }
-        raiseNow(17);
+        raiseNow(17, true);     // (the dispatch's end: never fallen out of, #489)
     }
     if (clrUsed_) {
         block("clrall");
@@ -2363,6 +2370,10 @@ void Compiler::statement() {
         return;
     }
     case T_TRAP: {
+        if (!checks()) {
+            std::string w = "without --checks only the errors of files, the disk and memory reach TRAP's handler";
+            if (warned_.insert(w).second) warnings.push_back({lines_[li_].num, w});
+        }
         // TRAP line: on; TRAP: off
         if (atEnd() || isKw(T_ELSE)) {
             store(ir::Type::I8, iconst(ir::Type::I8, 0), global("__bas_trapon"));

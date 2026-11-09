@@ -354,6 +354,17 @@ if $B --compile --asm "$D/ca.s45" "$D/ca.bas" -o "$D/ca.prg" > "$D/ca.log" 2>&1 
 else
     fail "--compile register arguments: $(grep -E 'jsr __bas_(ael|prs|sset|scmp)' "$D/ca.s45" | tr '\n' ' ') $(cat "$D/ca.log")"
 fi
+# #489: the program's own values and flow checked only with --checks; TRAP
+# without it warns that only outside errors reach its handler
+printf '10 trap 30:dim e(9)\n15 for i=0 to 9:e(i)=i:next\n20 end\n30 print er\n' > "$D/ck.bas"
+if $B --compile --asm "$D/ck0.s45" "$D/ck.bas" -o "$D/ck0.prg" > "$D/ck0.log" 2>&1 &&
+   $B --compile --checks --asm "$D/ck1.s45" "$D/ck.bas" -o "$D/ck1.prg" > "$D/ck1.log" 2>&1 &&
+   ! grep -q '@Err14' "$D/ck0.s45" && grep -q '@Err14' "$D/ck1.s45" &&
+   grep -q 'without --checks only the errors' "$D/ck0.log" && ! grep -q 'without --checks' "$D/ck1.log"; then
+    pass "--compile: range checks only with --checks; TRAP without it warns"
+else
+    fail "--compile --checks: $(grep -c '@Err14' "$D/ck0.s45" "$D/ck1.s45" | tr '\n' ' ') $(cat "$D/ck0.log" "$D/ck1.log")"
+fi
 printf '10 goto 30\n' > "$D/cg.bas"
 ! $B --compile "$D/cg.bas" -o "$D/cg.prg" > "$D/cg.log" 2>&1 && grep -q 'line 30 does not exist' "$D/cg.log" &&
     pass "--compile: GOTO to a missing line is an error" || fail "--compile GOTO 30: $(cat "$D/cg.log")"
