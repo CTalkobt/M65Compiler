@@ -572,6 +572,10 @@ __bas_error:
     inx
     bra @err
 @in:
+    lda __bas_line          ; (65535: no line recorded, basic45 without
+    and __bas_line+1        ; --line-numbers: no " IN line")
+    cmp #$FF
+    beq @end
     ldx #0
 @intxt:
     lda __bas_intxt,x

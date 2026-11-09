@@ -4,6 +4,13 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### basic45 --compile: line numbers only with --line-numbers (#483)
+
+- The running line is recorded (for errors' ` IN line` and `EL`) only with
+  `--line-numbers`; by default an error's message has no line and `EL` is
+  65535, saving 8 bytes (and a store) a line that can raise an error.
+- Test `test_basic_compile22_xemu.bas`; test 3 (EL) is built with the option.
+
 ### basic45 --compile: BOOT alone, MOUNT, SPRITE SAVE / LOAD, POINTER (#369)
 
 - BOOT alone (AUTOBOOT.C65*) and RUN "name" with the ROM's return before

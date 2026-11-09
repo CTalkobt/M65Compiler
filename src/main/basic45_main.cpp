@@ -83,6 +83,7 @@ struct Options {
     std::string asmFile;                  // --asm: --compile's assembly, kept
     int optLevel = 2;                     // -O<n> for --compile
     bool speed = false;                   // --speed / -Ospeed: -O3, the RAM float routines
+    bool lineNumbers = false;             // --compile --line-numbers: lines recorded for errors, EL (#483)
     std::string importMap;                // --import-map: REM PRAGMA IMPORT's map file
 };
 
@@ -220,6 +221,7 @@ static void printUsage(const char* progName) {
     std::cout << "  --asm <file>        --compile: also write the generated ca45 assembly" << std::endl;
     std::cout << "  --import-map FILE   --compile: REM PRAGMA IMPORT's map file (an exporting program's <name>.map)" << std::endl;
     std::cout << "  --speed, -Ospeed    --compile: -O3 and float + - * / and comparisons by RAM routines" << std::endl;
+    std::cout << "  --line-numbers      --compile: record the running line for error messages (IN line) and EL" << std::endl;
     std::cout << "                      (faster than the ROM's; its rounding fixes, see the docs)" << std::endl;
     std::cout << "  --convert=<dialect> Another BASIC's program (a .prg, or a text listing) as BASIC 65 basic45" << std::endl;
     std::cout << "                      source: keywords renamed, statements rewritten, warnings for the rest;" << std::endl;
@@ -323,6 +325,8 @@ static Options parseArgs(int argc, char* argv[]) {
             opts.optLevel = arg[2] - '0';
         } else if (arg == "--import-map" && i + 1 < argc) {
             opts.importMap = argv[++i];
+        } else if (arg == "--line-numbers") {
+            opts.lineNumbers = true;
         } else if (arg == "--speed" || arg == "-Ospeed") {
             opts.speed = true;
             opts.optLevel = 3;
@@ -525,6 +529,7 @@ static bool compileToMachineCode(const Options& opts, const char* argv0, std::ve
     BasicChainOptions chain;
     chain.importMap = opts.importMap;
     chain.sourceDir = fs::path(opts.inputFile).parent_path().string();
+    chain.lineNumbers = opts.lineNumbers;
     auto ir = compileBasicToIR(binary, name, opts.speed, &chain);
     for (const auto& [line, msg] : ir.warnings) std::cerr << where(line) << ": warning: " << msg << std::endl;
     if (!ir.ok) {
