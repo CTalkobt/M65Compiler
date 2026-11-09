@@ -382,6 +382,10 @@ echo "Testing test_sret_xemu.c (struct results/arguments)..."
 xemu_case "FAIL: test_sret_xemu.c (compilation/linking failed)" "src/test-resources/test_sret_xemu.c" "build/test/test_sret_xemu.prg" -- "test_sret" "build/test/test_sret_xemu.prg" "C0C0" 22 "44 11 88 55 07 08 09 07 08 09 0A 14 0B 0D 0F 02 06 05 07 06 07 AA"
 
 # Test: float arguments/results, negative values, ROM math functions
+echo "Testing test_float_copy_xemu.c (float copies left out, __f32cpy; #485)..."
+xemu_case "FAIL: test_float_copy_xemu.c (compilation/linking failed)" "src/test-resources/test_float_copy_xemu.c" "build/test/test_float_copy_xemu.prg" -- "test_float_copy" "build/test/test_float_copy_xemu.prg" "C0C0" 13 "01 02 03 04 05 06 07 08 09 0A 0B 0C AA"
+xemu_case "FAIL: test_float_copy_xemu.c -fno-zpcall (compilation/linking failed)" "src/test-resources/test_float_copy_xemu.c" "build/test/test_float_copy_stack_xemu.prg" "-fno-zpcall" -- "test_float_copy_stack" "build/test/test_float_copy_stack_xemu.prg" "C0C0" 13 "01 02 03 04 05 06 07 08 09 0A 0B 0C AA"
+xemu_case "FAIL: test_float_copy_xemu.c -fno-float-copy-call (compilation/linking failed)" "src/test-resources/test_float_copy_xemu.c" "build/test/test_float_copy_loop_xemu.prg" "-fno-float-copy-call" -- "test_float_copy_loop" "build/test/test_float_copy_loop_xemu.prg" "C0C0" 13 "01 02 03 04 05 06 07 08 09 0A 0B 0C AA"
 echo "Testing test_float_func_xemu.c (float functions)..."
 xemu_case "FAIL: test_float_func_xemu.c (compilation/linking failed)" "src/test-resources/test_float_func_xemu.c" "build/test/test_float_func_xemu.prg" -- "test_float_func" "build/test/test_float_func_xemu.prg" "C0C0" 16 "0F 01 01 01 06 07 04 00 0A 1B 03 20 3A 0F F9 AA"
 xemu_case "FAIL: test_float_func_xemu.c -ffast-float (compilation/linking failed)" "src/test-resources/test_float_func_xemu.c" "build/test/test_float_func_fastf_xemu.prg" "-ffast-float" -- "test_float_func_fastf" "build/test/test_float_func_fastf_xemu.prg" "C0C0" 16 "0F 01 01 01 06 07 04 00 0A 1B 03 20 3A 0F F9 AA"
@@ -2089,6 +2093,14 @@ for bfmode in "zp|" "stack|-fno-zpcall"; do
     IFS='|' read -r bfname bfflags <<< "$bfmode"
     echo "Testing test_bnot_fold_xemu.c ($bfname)..."
     xemu_case "FAIL: test_bnot_fold_xemu.c $bfname (compilation/linking failed)" "src/test-resources/test_bnot_fold_xemu.c" "build/test/test_bnot_fold_${bfname}_xemu.prg" "$bfflags" -- "test_bnot_fold_$bfname" "build/test/test_bnot_fold_${bfname}_xemu.prg" "C0C0" 6 "01 01 01 01 01 AA"
+done
+
+# Test: a pointer parameter whose fields are read after calls is copied at
+# the entry, not used in the parameter block (#470)
+for zdmode in "zp|" "stack|-fno-zpcall"; do
+    IFS='|' read -r zdname zdflags <<< "$zdmode"
+    echo "Testing test_zp_param_derived_xemu.c ($zdname)..."
+    xemu_case "FAIL: test_zp_param_derived_xemu.c $zdname (compilation/linking failed)" "src/test-resources/test_zp_param_derived_xemu.c" "build/test/test_zp_param_derived_${zdname}_xemu.prg" "$zdflags" -- "test_zp_param_derived_$zdname" "build/test/test_zp_param_derived_${zdname}_xemu.prg" "C0C0" 5 "01 01 01 01 AA"
 done
 
 # Test: the code-size changes: constant arguments into the parameter block,
