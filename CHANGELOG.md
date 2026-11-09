@@ -51,6 +51,14 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
   variable.
 - Test `test_basic_compile15_xemu.bas` (four ways).
 
+### cc45: a pointer parameter's fields read after a call (#470)
+
+- In the ZP convention, a parameter used only before a call stays in the
+  parameter block. A field address computed from it (`p->x`, fused into
+  `lda ($10),y`) used after a call now counts as a use there, so the
+  parameter is copied at the entry; before, every access after the first
+  call read the call's arguments instead. Test `test_zp_param_derived_xemu.c`.
+
 ### basic45 --compile: graphics, part 3: LOADIFF, SAVEIFF (#369)
 
 - SAVEIFF and LOADIFF as BASIC 65's kernel (`kg65.saveiff`, `kg65.loadiff`
