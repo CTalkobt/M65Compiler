@@ -20,6 +20,12 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
   bytes. Test `test_float_copy_xemu.c` (both conventions, and without the
   calls).
 
+### basic45 --compile: TYPE, DISK, LOCK, UNLOCK, MKDIR, CHDIR, SET, CLR BIT, BOOT (#369)
+
+- TYPE (page mode too), DISK, LOCK / UNLOCK, MKDIR, CHDIR, SET DEF / DISK /
+  VERIFY / BIT, CLR BIT and BOOT "name" as BASIC 65's (`basic_io.c`).
+- Test `test_basic_compile19_xemu.bas` (four ways, an empty D81).
+
 ### basic45 --compile: PRINT USING, FGOTO, FGOSUB, RUN, KEY, FONT, CHAR DEF, DECBIN (#369)
 
 - PRINT USING as BASIC 65's own (`#`, `.`, `>`, `=`, the `%` fields, hex),

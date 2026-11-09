@@ -58,6 +58,30 @@ void _bas_sys(void) {
     _bas_sregs[4] = ROMBP(5);
 }
 
+/* BOOT "name": after its BLOAD (basic_io.c), the code at the address it
+ * loaded to (sal, $A9) called in the load's bank, as SYS calls */
+extern unsigned char _bas_daux, _bas_dbnk;
+void _bas_boot(void) {
+    unsigned char bnk = _bas_daux & 1 ? _bas_dbnk : (unsigned char)(_bas_bankx ^ 128);
+    _bas_fa = (unsigned long)bnk << 16 | ROMBP(0xA9) | (unsigned int)ROMBP(0xAA) << 8;
+    _bas_sysm = 0;
+    {
+        unsigned char k, st;
+        ROMBP(2) = bnk;
+        ROMBP(3) = ROMBP(0xAA);
+        ROMBP(4) = ROMBP(0xA9);
+        ROMBP(5) = _bas_sregs[4];
+        for (k = 0; k < 4; k++) ROMBP(6 + k) = _bas_sregs[k];
+        st = INIT_STATUS;
+        INIT_STATUS = st & 0xFE;
+        __jsr(0xFF6E);
+        INIT_STATUS = st;
+        __asm__("cli");
+        for (k = 0; k < 4; k++) _bas_sregs[k] = ROMBP(6 + k);
+        _bas_sregs[4] = ROMBP(5);
+    }
+}
+
 /* RREG's register _bas_m (0-3 A X Y Z, 4 S) */
 void _bas_rreg(void) {
     _bas_n = _bas_sregs[(unsigned char)_bas_m];
