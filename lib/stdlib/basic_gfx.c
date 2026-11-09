@@ -14,6 +14,8 @@
  * parsed them), __bas_n / __bas_m for the functions' results.
  */
 
+#include <cbm.h>
+
 extern int _bas_n, _bas_m;
 extern void _bas_error(void);
 extern void _bas_out(void);
@@ -671,7 +673,8 @@ void _bas_gpaint(void) {
 static const unsigned char maskl[8] = {0, 128, 192, 224, 240, 248, 252, 254};
 static const unsigned char maskr[8] = {0, 127, 63, 31, 15, 7, 3, 1};
 static unsigned int ax, ay, adx, ady, apos;
-static unsigned char ab2sl, abor, abw, adepth, abrushw, aodd;
+static unsigned char ab2sl, abor, abw, adepth, abrushw;
+#define aodd KG.scanlineflag             /* (calcadr's odd line, the kernel's variable) */
 
 /* VIEWPORT [DEF] x, y, width, height */
 void _bas_gviewport(void) {
@@ -791,17 +794,172 @@ void _bas_gcheck1k(void) {
     if (a >= 4) raise(14);
 }
 
-/* PASTE x, y: the brush at (x, y), cut to the screen */
-void _bas_gpaste(void) {
-    unsigned int *v = (unsigned int *)&_bas_g[1], t = 0, y0, w, h;
+/* --- LOADIFF (kg65.loadiff: s.paste with s.OpenIFFr, s.GetRaster) --- */
+
+#define BYTEBUF ((unsigned char *)0x1D00)    /* the kernel's IFF byte buffer */
+extern void _bas_iffclose(void);
+/* FORM ILBM BMHD CMAP CAMG BODY (ASCII) */
+static const unsigned char iffid[] = {
+    0x46, 0x4F, 0x52, 0x4D,
+    0x49, 0x4C, 0x42, 0x4D,
+    0x42, 0x4D, 0x48, 0x44,
+    0x43, 0x4D, 0x41, 0x50,
+    0x43, 0x41, 0x4D, 0x47,
+    0x42, 0x4F, 0x44, 0x59};
+static unsigned char lbflag, bufidx, bufsize, slidx, iffdisk;
+static unsigned char chunklen[4];
+
+/* an IFF error: the file closed first (exit_GKI_disk_op; the error number is
+ * what A held at the kernel's abort: the I/O status, or a chunk id's byte) */
+static void ifferr(unsigned char e) {
+    _bas_iffclose();
+    raise(e);
+}
+
+/* read_byte: the next byte (at the end of the file: x, the caller's X) */
+static unsigned char rdbyte(unsigned char x) {
+    unsigned char c;
+    if (cbm_readst() & 0x40) return x;
+    c = cbm_k_basin();
+    if (cbm_readst() & 0x87) ifferr(cbm_readst() & 0x87);
+    return c;
+}
+
+/* getXbytes: n bytes into the byte buffer */
+static void getx(unsigned char n) {
+    unsigned char k;
+    for (k = 0; k != n; k++) BYTEBUF[k] = rdbyte(k);
+}
+
+/* findchunk: the byte buffer's first 4 bytes are chunk id i (compared from
+ * the last: idbyte the first that is not) */
+static unsigned char idbyte;
+static unsigned char isid(unsigned char i) {
+    unsigned char k = 4;
+    do {
+        k--;
+        if (BYTEBUF[k] != iffid[i + k]) { idbyte = BYTEBUF[k]; return 0; }
+    } while (k);
+    return 1;
+}
+static unsigned char readid(unsigned char i) {
+    getx(4);
+    return isid(i);
+}
+static void needid(unsigned char i) {
+    if (!readid(i)) ifferr(idbyte);
+}
+
+static void loadbuf(void) {
+    bufidx = 0;
+    bufsize = 0;
+    lbflag = 1;
+    if (!chunklen[2]) {
+        bufsize = chunklen[3];
+        getx(chunklen[3]);
+        return;
+    }
+    {
+        unsigned char k = 0;
+        do { BYTEBUF[k] = rdbyte(k); } while (++k);
+    }
+    chunklen[2]--;
+}
+
+static unsigned char nextbyte(void) {
+    unsigned char c = BYTEBUF[bufidx];
+    if (++bufidx == bufsize) loadbuf();
+    return c;
+}
+
+/* s.GetRaster: a scanline's bytes (ByteRun1) */
+static void getraster(void) {
+    slidx = 0;
+    if (!lbflag) loadbuf();
+    for (;;) {
+        unsigned char c = nextbyte(), n;
+        if (c == 128) continue;                 /* (a no-op, the width not tested) */
+        if (c > 128) {
+            unsigned char v;
+            n = (unsigned char)(0 - c);
+            v = nextbyte();
+            do SCANL[slidx++] = v; while (n--);
+        } else {
+            n = c;
+            do SCANL[slidx++] = nextbyte(); while (n--);
+        }
+        if (slidx >= abrushw) break;
+    }
+}
+
+/* PALETTE screen, colour, r, g, b without its errors (kg65.setpalette) */
+static void setpal(unsigned char y, unsigned char c, unsigned char *rgb) {
+    if (palette(y, c, rgb, 1)) return;
+    if ((unsigned char)(y << 2) == KG.viewscreen) {
+        unsigned char i = color2index(KG.viewscreen, c);
+        RED[i] = rgb[0];
+        GREEN[i] = rgb[1];
+        BLUE[i] = rgb[2];
+    }
+}
+
+/* s.OpenIFFr: FORM, ILBM, BMHD (the brush's size), then CAMG / CMAP / other
+ * chunks to the BODY */
+static void iffheader(void) {
+    lbflag = 0;
+    needid(0);
+    getx(4);
+    needid(4);
+    needid(8);
+    getx(4);
+    getx(BYTEBUF[3]);
+    adx = (unsigned int)BYTEBUF[0] << 8 | BYTEBUF[1];
+    abrushw = (unsigned char)(adx >> 3);
+    ady = (unsigned int)BYTEBUF[2] << 8 | BYTEBUF[3];
+    adepth = (unsigned char)(BYTEBUF[8] - 1);
+    for (;;) {
+        if (readid(16)) {                       /* CAMG: read, not used */
+            getx(4);
+            getx(BYTEBUF[3]);
+            continue;
+        }
+        if (isid(12)) {                         /* CMAP: 4-bit colours */
+            unsigned int len;
+            unsigned char col = 0;
+            getx(4);
+            len = (unsigned int)BYTEBUF[2] << 8 | BYTEBUF[3];
+            if (len & 1) len++;
+            for (;;) {
+                unsigned char rgb[3], k;
+                if (!(len >> 8) && (unsigned char)len < 3) break;
+                getx(3);
+                for (k = 0; k < 3; k++) rgb[k] = BYTEBUF[k] >> 4;
+                setpal(KG.drawscreen >> 2, col, rgb);
+                len -= 3;
+                col++;
+            }
+            getx((unsigned char)len);
+            continue;
+        }
+        if (isid(20)) {                         /* BODY: its length, then the rows */
+            unsigned char k;
+            getx(4);
+            for (k = 0; k < 4; k++) chunklen[k] = BYTEBUF[k];
+            return;
+        }
+        {                                       /* another chunk: skipped */
+            unsigned int n;
+            getx(4);
+            for (n = (unsigned int)BYTEBUF[2] << 8 | BYTEBUF[3]; n; n--) rdbyte((unsigned char)(n - 1));
+            if (cbm_readst() & 0x87) ifferr(cbm_readst() & 0x87);
+        }
+    }
+}
+
+/* s.paste: the brush (or the file's picture) at (ax, ay), cut to the screen */
+static void paste_(void) {
+    unsigned int t = 0, y0, w, h;
     unsigned char plane, bit;
-    ax = v[0];
-    ay = v[1];
-    adx = *(unsigned int *)&BRUSH[4];
-    ady = *(unsigned int *)&BRUSH[6];
-    adepth = BRUSH[8];
-    abrushw = BRUSH[9];
-    apos = 10;
     w = (KG.drawscrwidth ? 640 : 320) - ax;
     if (w < adx) adx = w;
     h = (KG.drawscrheight ? 400 : 200) - ay;
@@ -815,7 +973,8 @@ void _bas_gpaste(void) {
             if (!(KG.drawscrbp & bit)) continue;
             if (adepth > KG.drawscrdepth) continue;
             if (KG.drawscrdepth > adepth) { clr_line(plane, bit, adr); continue; }
-            for (k = 0; k < abrushw; k++) SCANL[k] = BRUSH[apos++];
+            if (iffdisk) getraster();
+            else for (k = 0; k < abrushw; k++) SCANL[k] = BRUSH[apos++];
             for (s2 = ab2sl; s2; s2--) {             /* (shiftright: bwidth + 1 bytes) */
                 unsigned char c = 0, i;
                 for (i = 0; i <= abw; i++) {
@@ -829,6 +988,158 @@ void _bas_gpaste(void) {
         t++;
         y0++;
     } while (t != ady);
+}
+
+/* PASTE x, y: the brush at (x, y), cut to the screen */
+void _bas_gpaste(void) {
+    unsigned int *v = (unsigned int *)&_bas_g[1];
+    ax = v[0];
+    ay = v[1];
+    adx = *(unsigned int *)&BRUSH[4];
+    ady = *(unsigned int *)&BRUSH[6];
+    adepth = BRUSH[8];
+    abrushw = BRUSH[9];
+    apos = 10;
+    iffdisk = 0;
+    paste_();
+}
+
+/* LOADIFF: the picture of the open input channel at (0, 0) */
+void _bas_gloadiff(void) {
+    ax = ay = 0;
+    iffdisk = 1;
+    iffheader();
+    paste_();
+}
+
+/* --- SAVEIFF (kg65.saveiff: WriteBMHD, WriteCMAP, WriteBODY; two passes) --- */
+
+static unsigned long chunkn, formlen, bmhdlen, cmaplen, bodylen;
+static unsigned char wpass;
+
+/* WriteByte: counted (pass 1) or written (pass 2) */
+static void wbyte(unsigned char c) {
+    if (!(wpass & 1)) { chunkn++; return; }
+    cbm_k_bsout(c);
+    if (cbm_readst() & 0x87) ifferr(cbm_readst() & 0x87);
+}
+static void wid(unsigned char i) {
+    unsigned char k;
+    for (k = 0; k < 4; k++) wbyte(iffid[i + k]);
+}
+static void wlong(unsigned long v) {
+    wbyte((unsigned char)(v >> 24));
+    wbyte((unsigned char)(v >> 16));
+    wbyte((unsigned char)(v >> 8));
+    wbyte((unsigned char)v);
+}
+static void wword(unsigned int v) {
+    wbyte((unsigned char)(v >> 8));
+    wbyte((unsigned char)v);
+}
+/* ClearChunkLen: the count added to the FORM's (pass 1 only) */
+static void clrchunk(void) {
+    if (wpass & 1) return;
+    formlen += chunkn;
+    chunkn = 0;
+}
+
+void _bas_gsaveiff(void) {
+    unsigned int wd, ht;
+    chunkn = 0;
+    formlen = 0xFFFFFFF8UL;
+    wpass = 0xF8;
+    do {
+        unsigned char k, n, y;
+        wd = KG.drawscrwidth ? 640 : 320;
+        ht = KG.drawscrheight ? 400 : 200;
+        /* BMHD */
+        wid(0);
+        wlong(formlen);
+        wid(4);
+        wid(8);
+        wlong(bmhdlen);
+        clrchunk();
+        wword(wd);
+        wword(ht);
+        for (k = 0; k < 4; k++) wbyte(0);
+        wbyte((unsigned char)(KG.drawscrdepth + 1));
+        wbyte(0);
+        wbyte(1);
+        for (k = 0; k < 3; k++) wbyte(0);
+        wbyte(1);
+        wbyte(1);
+        wword(wd);
+        wword(ht);
+        bmhdlen = chunkn;
+        /* CMAP: the draw screen's colours, the nibbles doubled (8 planes: one colour) */
+        wid(12);
+        wlong(cmaplen);
+        clrchunk();
+        n = KG.drawscrdepth < 7 ? (unsigned char)(2 << KG.drawscrdepth) : 0;
+        y = 0;
+        do {
+            unsigned char rgb[3];
+            palette(KG.drawscreen >> 2, y, rgb, 0);
+            for (k = 0; k < 3; k++) wbyte((unsigned char)(rgb[k] << 4) | rgb[k]);
+            y++;
+        } while (y < n);
+        if (chunkn & 1) wbyte(0);
+        cmaplen = chunkn;
+        /* BODY: each row's planes, ByteRun1 where it is shorter */
+        wid(20);
+        wlong(bodylen);
+        clrchunk();
+        {
+            unsigned char bw = KG.drawscrcols, p, bit;
+            unsigned int line;
+            abw = bw;
+            for (line = 0; line < ht; line++) {
+                unsigned int adr = calcadr(0, line);
+                for (p = 0, bit = 1; bit; p++, bit <<= 1) {
+                    unsigned char __far *q;
+                    unsigned char yy, x, z, c;
+                    if (!(KG.drawscrbp & bit)) continue;
+                    q = rowp(p, adr);
+                    for (k = 0; k < bw; k++) SCANL[k] = q[(unsigned int)k * 8];
+                    /* CompressScanLine */
+                    yy = 0;
+                    x = 0;
+                    for (;;) {
+                        z = 0xFF;
+                        c = SCANL[yy];
+                        for (;;) {
+                            z++;
+                            yy++;
+                            if (yy > bw) goto done;
+                            if (yy == bw || c != SCANL[yy]) break;
+                        }
+                        if (z >= 2) {
+                            BYTEBUF[x++] = (unsigned char)(0 - z);
+                            BYTEBUF[x++] = SCANL[yy - 1];
+                        } else {
+                            BYTEBUF[x++] = z;
+                            c = SCANL[yy - 1];
+                            do BYTEBUF[x++] = c; while ((signed char)--z >= 0);
+                        }
+                    }
+                done:
+                    if (x < bw) {
+                        k = x;
+                        x = 0;
+                        do wbyte(BYTEBUF[x++]); while (--k);
+                    } else {
+                        wbyte((unsigned char)(bw - 1));
+                        for (k = 0; k < bw; k++) wbyte(SCANL[k]);
+                    }
+                }
+            }
+        }
+        bodylen = chunkn;
+        if (chunkn & 1) wbyte(0);
+        clrchunk();
+        wpass++;
+    } while (wpass & 1);
 }
 
 /* --- CHAR (kg65.char, petpok / petctr / curcntl, tiltchr, mirrorchr, flipchr) --- */
@@ -949,6 +1260,8 @@ static void cdraw(void) {
             cliprow++;
         }
     }
+    /* (charaaa: each row, clipped or not, leaves the next row's odd flag) */
+    KG.scanlineflag = KG.drawscrheight ? (unsigned char)(cliprow & 1) : 0;
 }
 
 void _bas_gchar(void) {
