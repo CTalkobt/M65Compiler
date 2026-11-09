@@ -9183,6 +9183,9 @@ void IRCodeGen::emitInstBody(const ir::Inst& inst) {
                     bool clobbersX = cm == functionClobberMasks_.end() || (cm->second & (1 << REG_X));
                     if (!inst.isRegparm && clobbersX) emitComment(kXFreeCall);
                     emit("jsr " + inst.src1.name);
+                    // (a call's data after the jsr, which the routine returns past:
+                    // basic45's array accesses, #486)
+                    if (!inst.asmText.empty()) emit(inst.asmText);
                 }
             } else if (inst.callConv == ir::CallConv::ZP && inst.op == ir::Op::CALL_INDIRECT) {
                 // Through a function pointer: self-modified JSR (as for stack calls)

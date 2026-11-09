@@ -343,6 +343,17 @@ if ! grep -q 'strtof\.o45' "$D/cis.map" && grep -q 'strtof\.o45' "$D/cin.map"; t
 else
     fail "--compile INPUT/READ strings: $(grep -c 'strtof\.o45' "$D/cis.map" "$D/cin.map" | tr '\n' ' ') $(cat "$D/cis.log" "$D/cin.log")"
 fi
+# #486: an array element's subscript in A/X and its array after the jsr;
+# PRINT, string assignment and comparison take their strings in A/X / $12
+printf '10 dim e(9),n$(3):e(2)=1:n$(1)="a":print e(2);n$(1)\n20 if n$(1)="a" then print "y"\n' > "$D/ca.bas"
+if $B --compile --asm "$D/ca.s45" "$D/ca.bas" -o "$D/ca.prg" > "$D/ca.log" 2>&1 &&
+   [ "$(grep -A1 'jsr __bas_aelf' "$D/ca.s45" | grep -c '\.word __ba_E')" = 2 ] &&
+   grep -q 'jsr __bas_aels' "$D/ca.s45" && grep -q 'jsr __bas_prsa' "$D/ca.s45" &&
+   grep -q 'jsr __bas_sseta' "$D/ca.s45" && grep -q 'jsr __bas_scmpa' "$D/ca.s45" && ! grep -qE 'jsr __bas_(prs|sset|scmp|ael1)$' "$D/ca.s45"; then
+    pass "--compile: array elements, PRINT, string assignment and comparison with their arguments in registers"
+else
+    fail "--compile register arguments: $(grep -E 'jsr __bas_(ael|prs|sset|scmp)' "$D/ca.s45" | tr '\n' ' ') $(cat "$D/ca.log")"
+fi
 printf '10 goto 30\n' > "$D/cg.bas"
 ! $B --compile "$D/cg.bas" -o "$D/cg.prg" > "$D/cg.log" 2>&1 && grep -q 'line 30 does not exist' "$D/cg.log" &&
     pass "--compile: GOTO to a missing line is an error" || fail "--compile GOTO 30: $(cat "$D/cg.log")"

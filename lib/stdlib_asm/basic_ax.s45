@@ -1,0 +1,45 @@
+; basic_ax.s45 — run-time entries with their arguments in registers, for
+; BASIC 65 programs compiled by basic45 --compile (#369, #486)
+;
+; The routines of basic_str.c take their arguments in variables (__bas_sa,
+; __bas_sb, __bas_sr): 6 bytes a store at each call. These entries take the
+; first in A/X and the second in $12/$13 (cc45's __regparm call in the ZP
+; convention: the first argument's slot $10 left free), store them and go on.
+;   __bas_sseta: A/X the string (__bas_sa), $12 the variable (__bas_sr): _bas_sset
+;   __bas_scmpa: A/X the left string (__bas_sa), $12 the right (__bas_sb): _bas_scmp
+
+    .cpu 45gs02
+
+; no calls through pointers here (ln45's call graph, see O45Linker)
+.weak cc45.icallinfo
+cc45.icallinfo = 1
+
+ARG2    = $12
+
+.extern __bas_sa
+.extern __bas_sb
+.extern __bas_sr
+.extern __bas_sset
+.extern __bas_scmp
+
+    .split "__bas_sseta"
+.global __bas_sseta
+__bas_sseta:
+    sta __bas_sa
+    stx __bas_sa+1
+    lda ARG2
+    sta __bas_sr
+    lda ARG2+1
+    sta __bas_sr+1
+    jmp __bas_sset
+
+    .split "__bas_scmpa"
+.global __bas_scmpa
+__bas_scmpa:
+    sta __bas_sa
+    stx __bas_sa+1
+    lda ARG2
+    sta __bas_sb
+    lda ARG2+1
+    sta __bas_sb+1
+    jmp __bas_scmp
