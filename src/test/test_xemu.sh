@@ -996,15 +996,15 @@ else
 fi
 # test_basic_compile17_xemu.bas: PLAY (through the tune player: lengths, voices,
 # dots, sharps, L), RPLAY, TEMPO, ENVELOPE, VOL, FILTER, PLAY alone; four ways
-BC17_EXP="01 01 01 01 01 01 01 01 01 AA"
+BC17_EXP="01 01 01 01 01 01 01 01 01 01 AA"
 if ./bin/basic45 src/test-resources/test_basic_compile17_xemu.bas -o build/test/test_basic_compile17_i.prg >/dev/null 2>&1 &&
    ./bin/basic45 --compile --checks src/test-resources/test_basic_compile17_xemu.bas -o build/test/test_basic_compile17.prg >/dev/null 2>&1 &&
    ./bin/basic45 --compile --checks -O0 src/test-resources/test_basic_compile17_xemu.bas -o build/test/test_basic_compile17_O0.prg >/dev/null 2>&1 &&
    ./bin/basic45 --compile --checks --speed src/test-resources/test_basic_compile17_xemu.bas -o build/test/test_basic_compile17_speed.prg >/dev/null 2>&1; then
-    run_xemu_test "test_basic_compile17_interpreted" "build/test/test_basic_compile17_i.prg" "C0C0" 10 "$BC17_EXP"
-    run_xemu_test "test_basic_compile17" "build/test/test_basic_compile17.prg" "C0C0" 10 "$BC17_EXP"
-    run_xemu_test "test_basic_compile17_O0" "build/test/test_basic_compile17_O0.prg" "C0C0" 10 "$BC17_EXP"
-    run_xemu_test "test_basic_compile17_speed" "build/test/test_basic_compile17_speed.prg" "C0C0" 10 "$BC17_EXP"
+    run_xemu_test "test_basic_compile17_interpreted" "build/test/test_basic_compile17_i.prg" "C0C0" 11 "$BC17_EXP"
+    run_xemu_test "test_basic_compile17" "build/test/test_basic_compile17.prg" "C0C0" 11 "$BC17_EXP"
+    run_xemu_test "test_basic_compile17_O0" "build/test/test_basic_compile17_O0.prg" "C0C0" 11 "$BC17_EXP"
+    run_xemu_test "test_basic_compile17_speed" "build/test/test_basic_compile17_speed.prg" "C0C0" 11 "$BC17_EXP"
 else
     echo "FAIL: test_basic_compile17_xemu.bas (basic45 or basic45 --compile --checks failed)"
     failed=$((failed + 1))

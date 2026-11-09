@@ -4,6 +4,16 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### basic45 --compile: PLAY's strings read when it runs (#369)
+
+- `PLAY` takes any string expressions (a string built at run time was a
+  compile error): the run time (`basic_snd.c`) reads them as BASIC 65 does
+  into the tune player's streams (a voice's on the heap), each voice from
+  its octave, length and envelope of before as BASIC's (they began at
+  octave 4, quarter notes, envelope 0 in each `PLAY`). `BasicPlay.cpp` is
+  gone.
+- Test: `test_basic_compile17_xemu.bas` [9].
+
 ### Tune player: single voices; basic45 --compile's PLAY leaves the others playing (#478, #479, #369)
 
 - `tune_voice_play(voice, offset)`, `tune_voice_stop(voice)`,

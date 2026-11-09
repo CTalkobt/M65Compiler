@@ -21,7 +21,6 @@
 // messages are the runtime's (basic_rt.s45, basic_str.c).
 
 #include "BasicCompiler.hpp"
-#include "BasicPlay.hpp"
 #include "IR.hpp"
 #include "CodegenStage.hpp"
 #include "BasicTokenizer.hpp"
@@ -1504,8 +1503,6 @@ private:
     void rmouseStmt();
     void playStmt();
     void soundStmt(int kw);
-    int playTunes_ = 0;
-    PlayBank playBank_;                  // every PLAY's strings: one tune (__bas_ptune)
     std::set<std::string> warned_;
     void runStmt();
     void fgotoStmt(bool sub);
@@ -2164,14 +2161,6 @@ void Compiler::finish() {
         gv.name = "__bas_fn" + std::to_string(d.id); gv.type = ir::Type::I8; gv.size = 1;
         mod_->globals.push_back(gv);
     }
-    if (playTunes_) {
-        // (in RAM: each PLAY puts the envelopes into its instruments)
-        ir::Module::GlobalVar gv;
-        std::vector<uint8_t> b = playBank_.blob();
-        gv.name = "__bas_ptune"; gv.type = ir::Type::I8; gv.size = (int)b.size();
-        gv.hasInitValue = true; gv.hasImage = true; gv.initBytes = b;
-        mod_->globals.push_back(gv);
-    }
     if (clrUsed_) {
         ir::Module::GlobalVar gv;
         gv.name = "__bas_clrret"; gv.type = ir::Type::I16; gv.size = 2;
@@ -2736,43 +2725,41 @@ void Compiler::rmouseStmt() {
 }
 
 // PLAY "voice 1" [, "voice 2" ... "voice 6"] / PLAY alone (the defaults): the
-// strings, constants, converted to streams of the program's tune for the tune
-// player (BasicPlay.cpp); the voices given start on theirs, the others go on
+// strings (any string expressions; an empty argument: 0) in __bas_pls, read
+// when it runs into the tune player's streams (basic_snd.c): the voices
+// given start on theirs, the others go on
 void Compiler::playStmt() {
     if (stmtEnd()) { call("__bas_snddef"); return; }
-    std::vector<std::optional<std::string>> voices;
+    std::vector<Val> held;
+    int k = 0;
     for (;;) {
-        if (voices.size() == 6) fail("PLAY takes 6 voices at most (?SYNTAX ERROR)");
-        if (isCh(',')) voices.push_back(std::nullopt);
-        else {
-            auto t = peek();
-            if (!t || t->k != TK::Str)
-                fail("PLAY with a string built at run time is not supported by --compile yet (only string constants)");
-            p_++;
-            if (!stmtEnd() && !isCh(','))
-                fail("PLAY with a string built at run time is not supported by --compile yet (only string constants)");
-            voices.push_back(t->text);
+        if (k == 6) fail("PLAY takes 6 voices at most (?SYNTAX ERROR)");
+        auto at = vreg(ir::Type::PTR);
+        {
+            ir::Inst in; in.op = ir::Op::ADDR_ELEM; in.dest = at; in.src1 = global("__bas_pls");
+            in.src2 = ir::Operand::imm(k * 2, ir::Type::I16); in.args.push_back(ir::Operand::imm(1, ir::Type::I16));
+            in.resultType = ir::Type::PTR; emit(in);
         }
+        if (isCh(',') || stmtEnd()) store(ir::Type::PTR, iconst(ir::Type::PTR, 0), at);
+        else {
+            Val v = expr();
+            if (v.k != VK::S) fail("PLAY needs strings (?TYPE MISMATCH)");
+            store(ir::Type::PTR, v.op, at);
+            held.push_back(v);
+        }
+        k++;
         if (stmtEnd()) break;
         expectCh(',');
-        if (stmtEnd()) { voices.push_back(std::nullopt); break; }
     }
-    PlayTune pt = playBank_.add(voices);
-    if (!pt.error.empty()) fail(pt.error);
-    for (const auto& w : pt.warnings)
-        if (warned_.insert(w).second) warnings.push_back({lines_[li_].num, w});
-    if (pt.badValue) raiseNow(14);
-    ir::Module::GlobalVar gv;
-    gv.name = "__bas_tune" + std::to_string(playTunes_++);
-    gv.type = ir::Type::I8;
-    gv.size = (int)pt.data.size();
-    gv.hasInitValue = true; gv.hasImage = true; gv.initBytes = pt.data;
-    mod_->globals.push_back(gv);
-    auto a = vreg(ir::Type::PTR);
-    ir::Inst in; in.op = ir::Op::ADDR_GLOBAL; in.dest = a; in.src1 = global(gv.name);
-    in.resultType = ir::Type::PTR; emit(in);
-    store(ir::Type::PTR, a, global("__bas_sa"));
+    for (; k < 6; k++) {
+        auto at = vreg(ir::Type::PTR);
+        ir::Inst in; in.op = ir::Op::ADDR_ELEM; in.dest = at; in.src1 = global("__bas_pls");
+        in.src2 = ir::Operand::imm(k * 2, ir::Type::I16); in.args.push_back(ir::Operand::imm(1, ir::Type::I16));
+        in.resultType = ir::Type::PTR; emit(in);
+        store(ir::Type::PTR, iconst(ir::Type::PTR, 0), at);
+    }
     call("__bas_play");
+    for (auto it = held.rbegin(); it != held.rend(); ++it) freeVal(*it);
 }
 
 // TEMPO n; VOL [right] [, left]; ENVELOPE n [, a, d, s, r, waveform, pulse
