@@ -29,6 +29,8 @@ struct BasicCompileResult {
     std::string exportMap;
     // BASIC line number (0: none), message
     std::vector<std::pair<int, std::string>> errors;
+    // BASIC line number, message: what compiles but differs from the interpreter
+    std::vector<std::pair<int, std::string>> warnings;
     std::shared_ptr<ir::Module> module;
 };
 

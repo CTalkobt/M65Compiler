@@ -334,10 +334,10 @@ status at `$FD`/`$FE` is the error number), after which BASIC's `READY.` follows
 
 | | |
 |---|---|
-| Statements | `LET` and assignments, `PRINT` (`;`, `,`, `TAB(`, `SPC(`), `IF` … `THEN` / `GOTO` (a line number or statements), `ELSE`, `BEGIN` / `BEND`, `GOTO`, `GO TO`, `GOSUB`, `RETURN`, `ON` … `GOTO` / `GOSUB`, `FOR` … `TO` … `STEP` / `NEXT` (a float variable; `NEXT a, b`), `POKE`, `DIM`, `INPUT` (a prompt with `;` or `,`), `GET`, `GETKEY`, `DO` … `LOOP` (`WHILE` / `UNTIL` on either), `EXIT`, `READ`, `DATA`, `RESTORE` (a line number or none), `DEF FN`, `WPOKE`, `WAIT`, `SLEEP`, `SCNCLR` (the text screen), `BANK`, `TRAP` (a line number or none), `RESUME` (none, `NEXT` or a line), `OPEN`, `CLOSE`, `PRINT#`, `INPUT#`, `GET#`, `CMD`, `DOPEN`, `APPEND`, `DCLOSE`, `DLOAD`, `LOAD` (chaining), `HEADER`, `SCRATCH` / `ERASE` / `DELETE "name"`, `RENAME`, `COPY` (on one unit), `CONCAT`, `COLLECT`, `DCLEAR`, `BACKUP`, `RECORD#`, `BLOAD`, `BSAVE`, `BVERIFY`, `DIR` / `CATALOG`, `FREAD#`, `FWRITE#`, `LINE INPUT`, `LINE INPUT#`, `SPRITE` (and `SPRITE CLR`), `SPRCOLOR`, `MOVSPR`, `SPRSAV`, `COLLISION`, `COLOR` / `FOREGROUND`, `BACKGROUND`, `BORDER`, `HIGHLIGHT`, `CURSOR`, `RCURSOR`, `WINDOW`, `SPEED` / `FAST`, `PALETTE COLOR` / `PALETTE RESTORE`, `VSYNC`, `SCREEN`, `PEN`, `DMODE`, `DPAT`, `DOT`, `LINE`, `BOX`, `CIRCLE`, `ELLIPSE`, `POLYGON`, `PALETTE` of a screen, `SCNCLR colour`, `GRAPHIC CLR`, `LOADIFF`, `SAVEIFF`, `SYS`, `RREG`, `DMA`, `EDMA`, `MOUSE`, `RMOUSE`, `CLR` (also `CLR` a variable, `ERR$`, `TI`, `ST`, `DS`), `END`, `STOP`, `REM`; `POKE` / `WPOKE` with a list of values |
+| Statements | `LET` and assignments, `PRINT` (`;`, `,`, `TAB(`, `SPC(`), `IF` … `THEN` / `GOTO` (a line number or statements), `ELSE`, `BEGIN` / `BEND`, `GOTO`, `GO TO`, `GOSUB`, `RETURN`, `ON` … `GOTO` / `GOSUB`, `FOR` … `TO` … `STEP` / `NEXT` (a float variable; `NEXT a, b`), `POKE`, `DIM`, `INPUT` (a prompt with `;` or `,`), `GET`, `GETKEY`, `DO` … `LOOP` (`WHILE` / `UNTIL` on either), `EXIT`, `READ`, `DATA`, `RESTORE` (a line number or none), `DEF FN`, `WPOKE`, `WAIT`, `SLEEP`, `SCNCLR` (the text screen), `BANK`, `TRAP` (a line number or none), `RESUME` (none, `NEXT` or a line), `OPEN`, `CLOSE`, `PRINT#`, `INPUT#`, `GET#`, `CMD`, `DOPEN`, `APPEND`, `DCLOSE`, `DLOAD`, `LOAD` (chaining), `HEADER`, `SCRATCH` / `ERASE` / `DELETE "name"`, `RENAME`, `COPY` (on one unit), `CONCAT`, `COLLECT`, `DCLEAR`, `BACKUP`, `RECORD#`, `BLOAD`, `BSAVE`, `BVERIFY`, `DIR` / `CATALOG`, `FREAD#`, `FWRITE#`, `LINE INPUT`, `LINE INPUT#`, `SPRITE` (and `SPRITE CLR`), `SPRCOLOR`, `MOVSPR`, `SPRSAV`, `COLLISION`, `COLOR` / `FOREGROUND`, `BACKGROUND`, `BORDER`, `HIGHLIGHT`, `CURSOR`, `RCURSOR`, `WINDOW`, `SPEED` / `FAST`, `PALETTE COLOR` / `PALETTE RESTORE`, `VSYNC`, `SCREEN`, `PEN`, `DMODE`, `DPAT`, `DOT`, `LINE`, `BOX`, `CIRCLE`, `ELLIPSE`, `POLYGON`, `PALETTE` of a screen, `SCNCLR colour`, `GRAPHIC CLR`, `LOADIFF`, `SAVEIFF`, `SYS`, `RREG`, `DMA`, `EDMA`, `MOUSE`, `RMOUSE`, `PLAY` (string constants), `TEMPO`, `VOL`, `ENVELOPE`, `FILTER`, `CLR` (also `CLR` a variable, `ERR$`, `TI`, `ST`, `DS`), `END`, `STOP`, `REM`; `POKE` / `WPOKE` with a list of values |
 | Values | floats, `%` integers (-32768..32767), strings (up to 255 characters); arrays of each (`DIM a(n, m)`, up to 8 subscripts; sizes at run time) |
 | Operators | `+ - * / ^`, unary `-`, `= <> < > <= >=` (numbers and strings), `AND`, `OR`, `XOR`, `NOT` (-32768..65535, as BASIC 65's), `<<`, `>>` |
-| Functions | `ABS`, `INT`, `SGN`, `SQR`, `USR`, `FRE`, `JOY`, `POT`, `LPEN`, `SIN`, `COS`, `TAN`, `ATN`, `LOG`, `EXP`, `PEEK`, `LEN`, `ASC`, `CHR$`, `STR$`, `LEFT$`, `RIGHT$`, `MID$`, `RND`, `FN`, `POS`, `VAL`, `DEC`, `HEX$`, `STRBIN$`, `INSTR` (a pound sign's pattern too), `MOD`, `WPEEK`, `RPT$`, `ERR$`, `RSPRITE`, `RSPCOLOR`, `RSPPOS`, `BUMP`, `RCOLOR`, `RWINDOW`, `RSPEED`, `RGRAPHIC`, `PIXEL`, `RPEN`, `RPALETTE`, π; the variables `TI`, `TI$`, `ER`, `EL`, `ST`, `DS` and `DS$` |
+| Functions | `ABS`, `INT`, `SGN`, `SQR`, `USR`, `FRE`, `JOY`, `POT`, `LPEN`, `RPLAY`, `SIN`, `COS`, `TAN`, `ATN`, `LOG`, `EXP`, `PEEK`, `LEN`, `ASC`, `CHR$`, `STR$`, `LEFT$`, `RIGHT$`, `MID$`, `RND`, `FN`, `POS`, `VAL`, `DEC`, `HEX$`, `STRBIN$`, `INSTR` (a pound sign's pattern too), `MOD`, `WPEEK`, `RPT$`, `ERR$`, `RSPRITE`, `RSPCOLOR`, `RSPPOS`, `BUMP`, `RCOLOR`, `RWINDOW`, `RSPEED`, `RGRAPHIC`, `PIXEL`, `RPEN`, `RPALETTE`, π; the variables `TI`, `TI$`, `ER`, `EL`, `ST`, `DS` and `DS$` |
 
 **How**: the program is one function; each line and statement starts a block. `GOTO` is a branch; `GOSUB`
 pushes the address of the code after it on BASIC's stack and `RETURN` jumps back to it. `FOR` pushes its
@@ -535,6 +535,21 @@ records the latch in BASIC's bytes, `$02E8`, as BASIC's IRQ does). `MOUSE ON [, 
 [, x, y]]]]]` / `MOUSE OFF` drive the KERNAL's mouse driver (the hotspot as its margins, the position as
 `MOVSPR`'s); `RMOUSE x, y, buttons` reads the pointer sprite and the buttons (-1 each without a mouse). Test:
 `test_basic_compile16_xemu.bas`.
+
+**PLAY** (`src/main/BasicPlay.cpp`, `lib/stdlib/basic_snd.c`): each `PLAY`'s strings are read as BASIC 65 reads
+them (notes A-G, `#` / `$`, the lengths W H Q I S, dots, `R`, `O` octave, `T` envelope, `L` back to the start; a
+voice from octave 4, quarter notes, envelope 0) and turned, when the program is compiled, into a tune of the
+library's tune player (`<audio_tune.h>`, tune45's data: a tick a 32nd note, the ten envelopes as its instruments,
+voices 4-6 on SID 3 as BASIC's), which the program's interrupt hook plays each frame. A `PLAY` puts the envelopes'
+current values (`ENVELOPE`, in BASIC's own tables at `$1289`) into the instruments and plays at `TEMPO`'s speed
+(`tune_tempo`); `RPLAY(v)` is 1 until voice v has played its own length (the shorter voices end in rests: a tune's
+voices are as long), for good with an `L`. `TEMPO`, `VOL`, `ENVELOPE`, `FILTER` and `PLAY` alone set BASIC's
+variables (`$1273`, `$1278`-`$12BA`) as the ROM does, so the values carry over to and from the interpreter. The
+lengths match the interpreter's to a frame (2.010 s for four quarter notes at `TEMPO 12`). Not yet, as the tune
+player has no matching events: `U` volume, `X` filter, `M` modulation, `P` portamento (warned: #474-#477); a
+`PLAY` starts all its voices again, and a voice it leaves out stops (BASIC's goes on: #478); a voice starts at
+octave 4 and quarter notes in each `PLAY` (BASIC's keeps the last ones); strings built at run time (a compile error
+for now); `SOUND`. Test: `test_basic_compile17_xemu.bas`.
 
 **DEF FN**: each `FN name(...)` is the function's expression compiled where it is used, its parameter the
 argument (a variable of the same name keeps its value); `FN` before its `DEF` has run is `?UNDEFINED FUNCTION`. A

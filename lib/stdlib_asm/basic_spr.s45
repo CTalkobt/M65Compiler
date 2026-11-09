@@ -26,6 +26,8 @@ cc45.icallinfo = 1
 
     .cpu 45gs02
 
+.extern __bas_musv, __zp_page
+
 IIRQ = $0314
 STUB = $0500                ; the stub's code
 MISSED = $0530              ; frames it skipped
@@ -168,10 +170,11 @@ __bas_sirq:
     lda #0
     sta MISSED
 @frame:
+    jsr music               ; PLAY's tune (basic_snd.c), a frame
     ldx #7
 @m1:
     lda $D015
-    beq @out
+    beq @fdone
     and sbits,x
     beq @m2
     ldy sproff,x
@@ -182,10 +185,43 @@ __bas_sirq:
 @m2:
     dex
     bpl @m1
+@fdone:
     dec irqn
     bne @frame
 @out:
     jmp (__bas_oirq)
+
+; PLAY's music a frame: __bas_musv (tune_update; 0 none) on the program's
+; base page, the library temps it uses ($F6-$FC) kept for the code it
+; interrupted
+music:
+    lda __bas_musv
+    ora __bas_musv+1
+    beq @r
+    tba
+    pha
+    lda #>__zp_page
+    tab
+    ldx #6
+@s:
+    lda $F6,x
+    pha
+    dex
+    bpl @s
+    jsr @call
+    ldx #0
+@l:
+    pla
+    sta $F6,x
+    inx
+    cpx #7
+    bne @l
+    pla
+    tab
+@r:
+    rts
+@call:
+    jmp (__bas_musv)
 
 ; Sprite X a frame on, stopped at its target (movspr_target)
 target:

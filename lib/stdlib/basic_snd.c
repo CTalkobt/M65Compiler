@@ -1,0 +1,210 @@
+/* basic_snd.c — basic45 --compile's PLAY, RPLAY, TEMPO, VOL, ENVELOPE and
+ * FILTER (#369)
+ *
+ * PLAY's strings are converted when the program is compiled (BasicPlay.cpp)
+ * into tunes for the library's tune player (<audio_tune.h>), which the
+ * interrupt hook (basic_spr.s45) updates each frame through _bas_musv. The
+ * state is BASIC 65's own (b65.src V920413), in its variables in bank 0:
+ * the envelopes ($1289-$12BA: atktab, sustab, wavtab, pulslw, pulshi), the
+ * tempo ($1273), the volume / filter copies (filters1 $1278, filters2
+ * $127C), so a program and the interpreter share them. A PLAY puts the
+ * envelopes' current values into the tune's instruments and plays it at
+ * the tempo's speed (tune_tempo: TEMPO n is n / 12 of the speed it was
+ * written for). Arguments in _bas_sa (PLAY's descriptor), _bas_n, _bas_g.
+ */
+
+#include <audio_tune.h>
+
+extern int _bas_n, _bas_m;
+extern unsigned char *_bas_sa;
+extern unsigned char _bas_g[20];
+extern void _bas_error(void);
+
+#define TEMPO_RATE (*(volatile unsigned char *)0x1273)
+#define OCTAVE (*(volatile unsigned char *)0x1270)
+#define NTIME ((volatile unsigned char *)0x1276)
+#define FILTERS1 ((volatile unsigned char *)0x1278)
+#define FILTERS2 ((volatile unsigned char *)0x127C)
+#define ATKTAB ((volatile unsigned char *)0x1289)
+#define SUSTAB ((volatile unsigned char *)0x1293)
+#define WAVTAB ((volatile unsigned char *)0x129D)
+#define PULSLW ((volatile unsigned char *)0x12A7)
+#define PULSHI ((volatile unsigned char *)0x12B1)
+#define VOICES ((volatile unsigned char *)0x125D)
+#define SOUND_TIME_HI ((volatile unsigned char *)0x12C4)
+#define SID ((volatile unsigned char *)0xD400)
+#define VIC_PAL (*(volatile unsigned char *)0xD06F)
+
+static void raise(int n) {
+    _bas_n = n;
+    _bas_error();
+}
+
+/* the interrupt hook's music routine (0: none) */
+void (*_bas_musv)(void);
+static unsigned char playmask;
+
+static void speed(void) {
+    tune_tempo((unsigned int)TEMPO_RATE * 256 / 12);
+}
+
+/* PLAY "...", ...: the descriptor _bas_sa (mask, instruments, their table's
+ * offset, an instrument's bytes, each voice's ticks, each instrument's
+ * envelope, the tune) */
+static unsigned char *playd;
+void _bas_play(void) {
+    unsigned char *d = _bas_sa, n = d[1], k;
+    unsigned char *tune = d + 17 + n;
+    unsigned char *ins = tune + (d[2] | (unsigned int)d[3] << 8);
+    for (k = 0; k < n; k++) {
+        unsigned char e = d[17 + k], *p = ins + (unsigned int)k * d[4];
+        p[0] = WAVTAB[e] & 0xFE;
+        p[1] = ATKTAB[e];
+        p[2] = SUSTAB[e];
+        p[3] = PULSLW[e];
+        p[4] = PULSHI[e] & 0x0F;
+    }
+    playmask = d[0];
+    playd = d;
+    _bas_musv = tune_update;
+    tune_voices(0);
+    speed();
+    tune_play(tune);
+}
+
+/* RPLAY(v), v 1-6: 1 while voice v plays: the last PLAY gave it a string
+ * and the tune has not played its ticks yet */
+void _bas_rplay(void) {
+    unsigned char v = (unsigned char)(_bas_n - 1);
+    unsigned int len;
+    if ((unsigned int)_bas_n - 1 >= 6) raise(14);
+    _bas_n = 0;
+    if (!(playmask & (1 << v)) || !_bas_musv || !tune_playing()) return;
+    len = playd[5 + v * 2] | (unsigned int)playd[6 + v * 2] << 8;
+    _bas_n = tune_ticks() <= len ? 1 : 0;      /* (the last tick played out) */
+}
+
+static const unsigned char atkmus[10] = {0x09, 0xC0, 0x00, 0x05, 0x94, 0x09, 0x09, 0x09, 0x89, 0x09};
+static const unsigned char susmus[10] = {0x00, 0xC0, 0xF0, 0x50, 0x40, 0x21, 0x00, 0x90, 0x41, 0x00};
+static const unsigned char wavmus[10] = {0x41, 0x21, 0x11, 0x81, 0x11, 0x21, 0x41, 0x41, 0x41, 0x11};
+static const unsigned char pwhmus[10] = {0x06, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0x08, 0x02, 0x00};
+
+/* PLAY alone (sound_defaults): the music stopped, the four SIDs cleared
+ * (volume 8), filters off, octave 4, quarter notes, TEMPO 12, the default
+ * envelopes */
+void _bas_snddef(void) {
+    unsigned char k, c;
+    if (_bas_musv) tune_stop();
+    playmask = 0;
+    __asm__("php\n sei");
+    for (c = 0; c < 4; c++) {
+        volatile unsigned char *s = SID + c * 0x20;
+        for (k = 0; k < 24; k++) s[k] = 0;
+        s[24] = 8;
+    }
+    FILTERS1[2] = 0;
+    FILTERS2[2] = 0;
+    FILTERS1[3] = 8;
+    FILTERS2[3] = 8;
+    {
+        unsigned int q = (VIC_PAL & 0x80 ? 1440 : 1200) / 4;
+        NTIME[0] = (unsigned char)q;
+        NTIME[1] = (unsigned char)(q >> 8);
+    }
+    OCTAVE = 4;
+    TEMPO_RATE = 12;
+    for (k = 0; k < 10; k++) {
+        ATKTAB[k] = atkmus[k];
+        SUSTAB[k] = susmus[k];
+        WAVTAB[k] = wavmus[k];
+        PULSHI[k] = pwhmus[k];
+    }
+    for (k = 0; k < 6; k++) {
+        SOUND_TIME_HI[k] = 0xFF;
+        VOICES[k * 2] = 0xFF;
+        VOICES[k * 2 + 1] = 0xFF;
+    }
+    __asm__("plp");
+    if (_bas_musv) speed();
+}
+
+/* TEMPO n (1-255; 0: ?ILLEGAL QUANTITY): a whole note 24 / n seconds */
+void _bas_tempo(void) {
+    if (!(unsigned char)_bas_n) raise(14);
+    TEMPO_RATE = (unsigned char)_bas_n;
+    if (_bas_musv) speed();
+}
+
+/* VOL [right] [, left]: _bas_g[0] bit 0 / 1 given, _bas_g[1] / [2] the
+ * volumes (0-15); the right SIDs (1, 2) and the left (3, 4), and PLAY's
+ * copies */
+void _bas_vol(void) {
+    if (_bas_g[0] & 1) {
+        if (_bas_g[1] > 15) raise(14);
+        FILTERS1[3] = (FILTERS1[3] & 0xF0) | _bas_g[1];
+        SID[0x18] = FILTERS1[3];
+        SID[0x38] = FILTERS1[3];
+    }
+    if (_bas_g[0] & 2) {
+        if (_bas_g[2] > 15) raise(14);
+        FILTERS2[3] = (FILTERS2[3] & 0xF0) | _bas_g[2];
+        SID[0x58] = FILTERS2[3];
+        SID[0x78] = FILTERS2[3];
+    }
+}
+
+/* ENVELOPE n, attack, decay, sustain, release, waveform, pulse width:
+ * _bas_g[0] n (0-9), [1] the given ones (bit 0 attack ... bit 5 pulse
+ * width), [2-6] their values, [7-8] the pulse width (0-65535) */
+void _bas_envelope(void) {
+    unsigned char n = _bas_g[0], f = _bas_g[1], t[3], k;
+    if (n >= 10) raise(14);
+    t[0] = ATKTAB[n];
+    t[1] = SUSTAB[n];
+    t[2] = WAVTAB[n];
+    for (k = 0; k < 2; k++) {
+        if (f & (1 << (k * 2))) t[k] = (unsigned char)((t[k] & 0x0F) | (_bas_g[2 + k * 2] << 4));
+        if (f & (2 << (k * 2))) t[k] = (unsigned char)((t[k] & 0xF0) | (_bas_g[3 + k * 2] & 0x0F));
+    }
+    if (f & 16) {
+        unsigned char w = _bas_g[6];
+        if (w > 4) raise(14);
+        t[2] = w == 4 ? 0x15 : (unsigned char)((0x10 << w) | 1);
+    }
+    if ((f & 32) && (t[2] & 0x40)) {
+        PULSHI[n] = _bas_g[8];
+        PULSLW[n] = _bas_g[7];
+    }
+    ATKTAB[n] = t[0];
+    SUSTAB[n] = t[1];
+    WAVTAB[n] = t[2];
+}
+
+/* FILTER sid, freq, lp, bp, hp, res: _bas_g[0] the SID (1-2), [1] the given
+ * ones (bit 0 freq, 1-3 lp bp hp, 4 res), [2-3] freq (0-2047), [4-6] the
+ * types (0-1), [7] res (0-15): PLAY's copy of that SID's filter (as the
+ * ROM's FILTER: the chips get it from a voice's X) */
+void _bas_filter(void) {
+    unsigned char s = (unsigned char)(_bas_g[0] - 1), f = _bas_g[1], k, fl = 0x10;
+    volatile unsigned char *p;
+    unsigned char sv[4];
+    if (s >= 2) raise(14);
+    p = s ? FILTERS2 : FILTERS1;
+    for (k = 0; k < 4; k++) sv[k] = p[k];
+    if (f & 1) {
+        unsigned int q = _bas_g[2] | (unsigned int)_bas_g[3] << 8;
+        if (q > 2047) raise(14);
+        sv[0] = (unsigned char)q;
+        sv[1] = (unsigned char)(q >> 3);
+    }
+    for (k = 0; k < 3; k++, fl <<= 1)
+        if (f & (2 << k)) {
+            if (_bas_g[4 + k] > 1) raise(14);
+            sv[3] = _bas_g[4 + k] ? (unsigned char)(sv[3] | fl) : (unsigned char)(sv[3] & ~fl);
+        }
+    if (f & 16) {
+        if (_bas_g[7] > 15) raise(14);
+        sv[2] = (unsigned char)((sv[2] & 0x0F) | (_bas_g[7] << 4));
+    }
+    for (k = 0; k < 4; k++) p[k] = sv[k];
+}
