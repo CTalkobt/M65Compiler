@@ -615,7 +615,7 @@ it), one past the `DIM` or a wrong number of subscripts is `?BAD SUBSCRIPT`, a s
 one-dimensional array is reached by `__bas_aelf` / `__bas_aeli` / `__bas_aels` (`basic_ael.s45`: the
 subscript in A/X, the array's variable in a `.word` after the `jsr`, #486; inline with `--speed`) when the
 array exists and the subscript is in range; anything else (making the array, more subscripts, the errors) is `__bas_aref`
-(`basic_str.c`). Arrays and scalars of the same
+(`basic_aref.s45`, #487). Arrays and scalars of the same
 name are different variables; array elements are not narrowed (a float array holds floats).
 
 The run-time support is `lib/stdlib_asm/basic_rt.s45` (PRINT, the errors, BASIC's checks on numbers) and

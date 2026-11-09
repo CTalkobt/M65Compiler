@@ -7,7 +7,7 @@
 ;                          ; pointer); the array's variable after the jsr
 ;
 ; The element's address in A/X: computed here when the array exists with one
-; dimension and the subscript is in it; else basic_str.c's _bas_aref (which
+; dimension and the subscript is in it; else basic_aref.s45's _bas_aref (which
 ; makes the array, 11 elements, or raises the error). An access is about 12
 ; bytes (with the subscript's load), not the 40 its arguments stored one by
 ; one took.

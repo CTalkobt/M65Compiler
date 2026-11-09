@@ -155,58 +155,8 @@ void _bas_next(void) {
  * dimensions (1 byte), each dimension's size (its DIM + 1, 2 bytes), then
  * the elements (floats 5 bytes, integers 2, strings a 2-byte pointer). The
  * first index varies fastest. */
-#define AREF_DIM 0x80      /* __bas_m: a DIM statement's */
-#define AREF_STR 0x40      /* string elements (__bas_empty at first) */
-unsigned int _bas_sub[8];  /* the subscripts (0..65535) */
-
-/* __bas_sa: the variable; __bas_n: the number of subscripts; __bas_m: the
- * element size | AREF_DIM | AREF_STR. __bas_sr := the element's address
- * (DIM: the array made). An array used before a DIM gets 11 elements in
- * each dimension, as BASIC's. */
-void _bas_aref(void) {
-    unsigned char **var = (unsigned char **)_bas_sa;
-    unsigned char *a = *var;
-    unsigned char n = (unsigned char)_bas_n, k;
-    unsigned char esize = (unsigned char)_bas_m & 0x3F;
-    unsigned int *dims;
-    unsigned int off;
-    if (a) {
-        if (_bas_m & AREF_DIM) raise(19);
-    } else {
-        unsigned long count = 1, bytes;
-        unsigned int size;
-        for (k = 0; k < n; k++) {
-            size = _bas_m & AREF_DIM ? _bas_sub[k] + 1 : 11;
-            if (size == 0) raise(16);           /* (DIM 65535) */
-            count *= size;
-            if (count > 65535UL) raise(16);
-        }
-        bytes = count * esize + 1 + 2 * n;
-        if (bytes > 65535UL) raise(16);
-        a = (unsigned char *)malloc((unsigned int)bytes);
-        if (!a) raise(16);
-        a[0] = n;
-        dims = (unsigned int *)(a + 1);
-        for (k = 0; k < n; k++) dims[k] = _bas_m & AREF_DIM ? _bas_sub[k] + 1 : 11;
-        if (_bas_m & AREF_STR) {
-            unsigned char **e = (unsigned char **)(a + 1 + 2 * n);
-            unsigned int i;
-            for (i = 0; i < (unsigned int)count; i++) e[i] = _bas_empty;
-        } else {
-            memset(a + 1 + 2 * n, 0, (unsigned int)(bytes - 1 - 2 * n));
-        }
-        *var = a;
-        if (_bas_m & AREF_DIM) return;
-    }
-    if (a[0] != n) raise(18);
-    dims = (unsigned int *)(a + 1);
-    off = 0;
-    for (k = n; k-- > 0;) {
-        if (_bas_sub[k] >= dims[k]) raise(18);
-        off = off * dims[k] + _bas_sub[k];
-    }
-    _bas_sr = a + 1 + 2 * n + off * esize;
-}
+/* _bas_aref: basic_aref.s45 (#487); _bas_sub its subscripts */
+extern unsigned int _bas_sub[8];
 
 /* CLR's arrays: the array of the variable __bas_sa freed (a string array's
  * strings too: __bas_m 1) and undimensioned */
