@@ -208,3 +208,49 @@ void _bas_filter(void) {
     }
     for (k = 0; k < 4; k++) p[k] = sv[k];
 }
+
+/* SOUND voice, freq, duration [, dir [, min [, step [, waveform [, pulse]]]]]
+ * (b65.src sound): _bas_g[0] the voice (1-6), [1-2] the frequency, [3-4]
+ * the duration (frames, 0-32767; 0: off at the next frame), [5] the
+ * direction (0 up, 1 down, 2 oscillating), [6-7] the minimum, [8-9] the
+ * step, [10] the waveform (0-3; 2 by default), [11-12] the pulse width
+ * (0-4095; $800), [13] bit 0 / 1: the waveform / pulse width given. On
+ * SIDs 2 and 4 ($D420, $D460); the sweep and the time run in the interrupt
+ * hook (basic_spr.s45's soundirq) on BASIC's own variables */
+#define SOUND_VOICE (*(volatile unsigned char *)0x12BD)
+#define S_ARR(k) ((volatile unsigned char *)(0x12BE + (k) * 6))   /* time lo, time hi, max lo ... freq hi */
+void _bas_sound(void) {
+    static const unsigned char sidoff[6] = {0x00, 0x07, 0x0E, 0x40, 0x47, 0x4E};
+    unsigned char v = (unsigned char)(_bas_g[0] - 1), dir = _bas_g[5], w = 2, k;
+    unsigned int f = _bas_g[1] | (unsigned int)_bas_g[2] << 8, t = _bas_g[3] | (unsigned int)_bas_g[4] << 8;
+    unsigned int mn = _bas_g[6] | (unsigned int)_bas_g[7] << 8, st = _bas_g[8] | (unsigned int)_bas_g[9] << 8;
+    unsigned int pw = 0x800;
+    unsigned char tv[9];
+    if (v >= 6 || (t & 0x8000) || dir >= 3) raise(14);
+    if (dir & 1) st = 0 - st;
+    if (_bas_g[13] & 1) w = _bas_g[10];
+    if (w >= 4) raise(14);
+    if (_bas_g[13] & 2) pw = _bas_g[11] | (unsigned int)_bas_g[12] << 8;
+    if (pw >= 0x1000) raise(14);
+    SOUND_VOICE = v;
+    if (t) {
+        volatile unsigned char *sid = (volatile unsigned char *)0xD420 + sidoff[v];
+        tv[0] = (unsigned char)f; tv[1] = (unsigned char)(f >> 8);
+        tv[2] = (unsigned char)mn; tv[3] = (unsigned char)(mn >> 8);
+        tv[4] = dir;
+        tv[5] = (unsigned char)st; tv[6] = (unsigned char)(st >> 8);
+        tv[7] = (unsigned char)f; tv[8] = (unsigned char)(f >> 8);
+        for (k = 0; k < 9; k++) S_ARR(2 + k)[v] = tv[k];
+        sid[5] = 0;
+        sid[6] = 0xF0;
+        sid[0] = (unsigned char)f;
+        sid[1] = (unsigned char)(f >> 8);
+        sid[2] = (unsigned char)pw;
+        sid[3] = (unsigned char)(pw >> 8);
+        sid[4] = (unsigned char)((0x10 << w) | 1);
+    }
+    __asm__("sei");
+    S_ARR(1)[v] = (unsigned char)(t >> 8);
+    S_ARR(0)[v] = (unsigned char)t;
+    __asm__("cli");
+}

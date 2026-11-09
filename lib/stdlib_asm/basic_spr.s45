@@ -170,6 +170,7 @@ __bas_sirq:
     lda #0
     sta MISSED
 @frame:
+    jsr soundirq            ; SOUND's sweeps and durations, a frame
     jsr music               ; PLAY's tune (basic_snd.c), a frame
     ldx #7
 @m1:
@@ -190,6 +191,118 @@ __bas_sirq:
     bne @frame
 @out:
     jmp (__bas_oirq)
+
+; SOUND's six voices a frame (b65.src sound_irq, on BASIC's own variables):
+; the step added to the frequency, the sweep turned or restarted at its
+; limits, the SID's frequency set, the time counted down (the gate off at
+; its end). SOUND's voices are on SIDs 2 and 4 ($D420, $D460)
+S_TIME_LO = $12BE
+S_TIME_HI = $12C4
+S_MAX_LO  = $12CA
+S_MAX_HI  = $12D0
+S_MIN_LO  = $12D6
+S_MIN_HI  = $12DC
+S_DIR     = $12E2
+S_STEP_LO = $12E8
+S_STEP_HI = $12EE
+S_FREQ_LO = $12F4
+S_FREQ_HI = $12FA
+soundirq:
+    ldy #5
+@v:
+    lda S_TIME_HI,y         ; (active: bit 7 clear)
+    bpl @act
+@nx:
+    dey
+    bpl @v
+    rts
+@act:
+    clc
+    lda S_FREQ_LO,y
+    adc S_STEP_LO,y
+    sta S_FREQ_LO,y
+    lda S_FREQ_HI,y
+    adc S_STEP_HI,y
+    sta S_FREQ_HI,y
+    lda S_DIR,y
+    tax
+    and #1
+    beq @up
+    bcc @s13                ; down: underflow, or below the minimum
+    sec
+    lda S_FREQ_LO,y
+    sbc S_MIN_LO,y
+    lda S_FREQ_HI,y
+    sbc S_MIN_HI,y
+    bcs @set
+@s13:
+    cpx #2
+    bcc @tomax
+    jsr negstep             ; (oscillating: up again from the minimum)
+    lda #%10
+    sta S_DIR,y
+    bne @tomin
+@tomax:
+    lda S_MAX_LO,y
+    sta S_FREQ_LO,y
+    lda S_MAX_HI,y
+    sta S_FREQ_HI,y
+    bra @set
+@up:
+    bcs @over               ; up: overflow, or above the maximum
+    lda S_FREQ_HI,y
+    cmp S_MAX_HI,y
+    bcc @set
+    bne @over
+    lda S_FREQ_LO,y
+    cmp S_MAX_LO,y
+    bcc @set
+    beq @set
+@over:
+    cpx #2
+    bcc @tomin
+    jsr negstep             ; (oscillating: down again from the maximum)
+    lda #%11
+    sta S_DIR,y
+    bne @tomax
+@tomin:
+    lda S_MIN_LO,y
+    sta S_FREQ_LO,y
+    lda S_MIN_HI,y
+    sta S_FREQ_HI,y
+@set:
+    ldx sidoff,y
+    lda S_FREQ_LO,y
+    sta $D420,x
+    lda S_FREQ_HI,y
+    sta $D421,x
+    lda S_TIME_LO,y         ; the time, 16 bits down
+    bne @t1
+    lda S_TIME_HI,y
+    dec a
+    sta S_TIME_HI,y
+@t1:
+    lda S_TIME_LO,y
+    dec a
+    sta S_TIME_LO,y
+    lda S_TIME_HI,y
+    bpl @nx
+    lda #$08                ; (over: the gate off)
+    ldx sidoff,y
+    sta $D424,x
+    bra @nx
+negstep:
+    lda S_STEP_LO,y
+    eor #$FF
+    clc
+    adc #1
+    sta S_STEP_LO,y
+    lda S_STEP_HI,y
+    eor #$FF
+    adc #0
+    sta S_STEP_HI,y
+    rts
+sidoff: .byte $00, $07, $0E, $40, $47, $4E    ; (SID_offset)
 
 ; PLAY's music a frame: __bas_musv (tune_update; 0 none) on the program's
 ; base page, the library temps it uses ($F6-$FC) kept for the code it

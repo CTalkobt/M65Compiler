@@ -65,7 +65,7 @@ enum : int {
     T_MOVSPR = 0xFE06, T_SPRITE = 0xFE07, T_SPRCOLOR = 0xFE08, T_SPRSAV = 0xFE16, T_COLLISION = 0xFE17,
     T_BUMP = 0xCE03, T_RSPPOS = 0xCE05, T_RSPRITE = 0xCE06, T_RSPCOLOR = 0xCE07, T_CLR = 0x9C, T_SAVE = 0x94,
     T_SCREEN = 0xFE2E, T_SET = 0xFE2D, T_PEN = 0xFE33, T_DMODE = 0xFE35, T_DPAT = 0xFE36, T_DOT = 0xFE4C,
-    T_BOX = 0xE1, T_CIRCLE = 0xE2, T_ELLIPSE = 0xFE30, T_POLYGON = 0xFE2F, T_PAINT = 0xDF, T_VIEWPORT = 0xFE31, T_GCOPY = 0xFE32, T_CUT = 0xE4, T_PASTE = 0xE3, T_SYS = 0x9E, T_BOOT = 0xFE1B, T_VERIFY = 0x95, T_BIT = 0xFE4E, T_TYPE = 0xFE27, T_DISK = 0xFE40, T_CHDIR = 0xFE4B, T_UNLOCK = 0xFE4F, T_LOCK = 0xFE50, T_MKDIR = 0xFE51, T_FONT = 0xFE46, T_DECBIN = 0xCE11, T_RUN = 0x8A, T_FGOTO = 0xFE47, T_FGOSUB = 0xFE48, T_USING = 0xFB, T_PLAY = 0xFE04, T_TEMPO = 0xFE05, T_VOL = 0xDB, T_FILTER = 0xFE03, T_ENVELOPE = 0xFE0A, T_RPLAY = 0xCE0F, T_JOY = 0xCF, T_POT = 0xCE02, T_LPEN = 0xCE04, T_MOUSE = 0xFE3E, T_RMOUSE = 0xFE3F, T_USR = 0xB7, T_FRE = 0xB8, T_RREG = 0xFE09, T_DMA = 0xFE1F, T_EDMA = 0xFE21, T_LOADIFF = 0xFE43, T_SAVEIFF = 0xFE44, T_CHAR = 0xE0, T_GRAPHIC = 0xDE, T_RGRAPHIC = 0xCC, T_RPEN = 0xD0, T_PIXEL = 0xCE0C, T_RPALETTE = 0xCE0D,
+    T_BOX = 0xE1, T_CIRCLE = 0xE2, T_ELLIPSE = 0xFE30, T_POLYGON = 0xFE2F, T_PAINT = 0xDF, T_VIEWPORT = 0xFE31, T_GCOPY = 0xFE32, T_CUT = 0xE4, T_PASTE = 0xE3, T_SYS = 0x9E, T_SOUND = 0xDA, T_BOOT = 0xFE1B, T_VERIFY = 0x95, T_BIT = 0xFE4E, T_TYPE = 0xFE27, T_DISK = 0xFE40, T_CHDIR = 0xFE4B, T_UNLOCK = 0xFE4F, T_LOCK = 0xFE50, T_MKDIR = 0xFE51, T_FONT = 0xFE46, T_DECBIN = 0xCE11, T_RUN = 0x8A, T_FGOTO = 0xFE47, T_FGOSUB = 0xFE48, T_USING = 0xFB, T_PLAY = 0xFE04, T_TEMPO = 0xFE05, T_VOL = 0xDB, T_FILTER = 0xFE03, T_ENVELOPE = 0xFE0A, T_RPLAY = 0xCE0F, T_JOY = 0xCF, T_POT = 0xCE02, T_LPEN = 0xCE04, T_MOUSE = 0xFE3E, T_RMOUSE = 0xFE3F, T_USR = 0xB7, T_FRE = 0xB8, T_RREG = 0xFE09, T_DMA = 0xFE1F, T_EDMA = 0xFE21, T_LOADIFF = 0xFE43, T_SAVEIFF = 0xFE44, T_CHAR = 0xE0, T_GRAPHIC = 0xDE, T_RGRAPHIC = 0xCC, T_RPEN = 0xD0, T_PIXEL = 0xCE0C, T_RPALETTE = 0xCE0D,
     T_COLOR = 0xE7, T_FOREGROUND = 0xFE39, T_BACKGROUND = 0xFE3B, T_BORDER = 0xFE3C, T_HIGHLIGHT = 0xFE3D,
     T_CURSOR = 0xFE41, T_RCURSOR = 0xFE42, T_WINDOW = 0xFE1A, T_FAST = 0xFE25, T_SPEED = 0xFE26,
     T_PALETTE = 0xFE34, T_VSYNC = 0xFE54, T_OFF = 0xFE24, T_RCOLOR = 0xCD, T_RWINDOW = 0xCE09, T_RSPEED = 0xCE0E,
@@ -1471,6 +1471,7 @@ private:
     void bootStmt();
     void setStmt();
     void bitStmt(bool set);
+    void soundCmd();
     void sysStmt();
     void rregStmt();
     void dmaStmt(bool enhanced);
@@ -1603,7 +1604,8 @@ void Compiler::prescan() {
                 if (t.k != TK::Kw) continue;
                 if (t.kw == T_TRAP) usesTrap_ = true;
                 if (t.kw == T_CMD) cmdUsed_ = true;
-                if (t.kw == T_MOVSPR || t.kw == T_BUMP || t.kw == T_COLLISION || t.kw == T_LPEN || t.kw == T_PLAY)
+                if (t.kw == T_MOVSPR || t.kw == T_BUMP || t.kw == T_COLLISION || t.kw == T_LPEN || t.kw == T_PLAY ||
+                    t.kw == T_SOUND)
                     sprIrq_ = true;
                 if (t.kw == T_COLLISION) collision_ = true;
                 if (t.kw == T_RESUME && !(k + 1 < sg.toks.size() && sg.toks[k + 1].k == TK::Num)) resumeStmt_ = true;
@@ -2237,6 +2239,7 @@ void Compiler::statement() {
         graphicsStmt(kw); return;
     case T_LOADIFF: case T_SAVEIFF: iffStmt(kw); return;
     case T_SYS: sysStmt(); return;
+    case T_SOUND: soundCmd(); return;
     case T_BOOT: bootStmt(); return;
     case T_SET: setStmt(); return;
     case T_KEY: keyStmt(); return;
@@ -2899,6 +2902,29 @@ void Compiler::bootStmt() {
     sysUsed_ = true;
     call("__bas_boot");
     for (auto it = names.rbegin(); it != names.rend(); ++it) freeVal(*it);
+}
+
+// SOUND voice, frequency, duration [, direction [, minimum [, step [, waveform
+// [, pulse width]]]]] / SOUND CLR (the defaults, as PLAY alone)
+void Compiler::soundCmd() {
+    if (acceptKw(T_CLR)) { call("__bas_snddef"); return; }
+    gByte(0, expr());
+    expectCh(',');
+    gWord(1, expr());
+    expectCh(',');
+    gWord(3, expr());
+    Val v;
+    gStore(5, iconst(ir::Type::I8, 0), ir::Type::I8);
+    if (optByt(v)) gByte(5, v);
+    gStore(6, iconst(ir::Type::I16, 0), ir::Type::I16);
+    if (optByt(v)) gWord(6, v);
+    gStore(8, iconst(ir::Type::I16, 0), ir::Type::I16);
+    if (optByt(v)) gWord(8, v);
+    int given = 0;
+    if (optByt(v)) { gByte(10, v); given |= 1; }
+    if (optByt(v)) { gWord(11, v); given |= 2; }
+    gStore(13, iconst(ir::Type::I8, given), ir::Type::I8);
+    call("__bas_sound");
 }
 
 // SYS address [, a, x, y, z, s] (b65.src sys: poke_sub's address, the
