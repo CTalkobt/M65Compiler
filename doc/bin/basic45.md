@@ -550,14 +550,19 @@ records the latch in BASIC's bytes, `$02E8`, as BASIC's IRQ does). `MOUSE ON [, 
 `MOVSPR`'s); `RMOUSE x, y, buttons` reads the pointer sprite and the buttons (-1 each without a mouse). Test:
 `test_basic_compile16_xemu.bas`.
 
-**PLAY** (`src/main/BasicPlay.cpp`, `lib/stdlib/basic_snd.c`): each `PLAY`'s strings are read as BASIC 65 reads
-them (notes A-G, `#` / `$`, the lengths W H Q I S, dots, `R`, `O` octave, `T` envelope, `L` back to the start; a
-voice from octave 4, quarter notes, envelope 0) and turned, when the program is compiled, into a tune of the
-library's tune player (`<audio_tune.h>`, tune45's data: a tick a 32nd note, the ten envelopes as its instruments,
-voices 4-6 on SID 3 as BASIC's), which the program's interrupt hook plays each frame. A `PLAY` puts the envelopes'
-current values (`ENVELOPE`, in BASIC's own tables at `$1289`) into the instruments and plays at `TEMPO`'s speed
-(`tune_tempo`); `RPLAY(v)` is 1 until voice v has played its own length (the shorter voices end in rests: a tune's
-voices are as long), for good with an `L`. `TEMPO`, `VOL`, `ENVELOPE`, `FILTER` and `PLAY` alone set BASIC's
+**PLAY** (`lib/stdlib/basic_snd.c`, `lib/stdlib_asm/basic_play.s45`): each `PLAY`'s strings (any string expressions) are read when it runs as BASIC
+65 reads them (notes A-G, `#` / `$`, the lengths W H Q I S, dots, `R`, `O` octave, `T` envelope, `X` `U` `M` `P`, `L`
+back to the start; each voice from its octave, length and envelope of before as BASIC's, octave 4, quarter notes
+and envelope 0 after `PLAY` alone) into streams of the program's tune for the library's tune player
+(`<audio_tune.h>`: a tick a 32nd note, the ten envelopes as its instruments, voices 4-6 on SID 3 as BASIC's; a
+stream a voice on the heap), which the program's interrupt hook plays each frame. An `L` plays the stream again
+(BASIC's reads the string again from the octave and length it ended with). A `PLAY`
+puts the envelopes' current values (`ENVELOPE`, in BASIC's own tables at `$1289`) into the instruments and starts
+the voices it gives on their strings (`tune_voice_play`) at the next tick, the others going on as BASIC's (#478; a
+voice's string starts on the tick grid of those playing, not at the next frame as BASIC's), at `TEMPO`'s speed
+(`tune_tempo`); `RPLAY(v)` is 1 while voice v has its string to play (`tune_voice_busy`), for good with an `L`.
+`ENVELOPE` while music plays changes the tune's instrument, which a voice's next `T` takes (the notes sounding keep
+theirs), and `TEMPO` the speed from the next frame, as BASIC's (#479). `TEMPO`, `VOL`, `ENVELOPE`, `FILTER` and `PLAY` alone set BASIC's
 variables (`$1273`, `$1278`-`$12BA`) as the ROM does, so the values carry over to and from the interpreter. The
 lengths match the interpreter's to a frame (2.010 s for four quarter notes at `TEMPO 12`). `U`, `X`, `M` and `P`
 are the player's events (#474-#477): `vol:` (U's volume through BASIC's table: 0 1 3 5 7 8 10 12 14 15, the mode
@@ -565,10 +570,7 @@ kept), `filt:` (the voice's routing alone, kept through the notes), `mod:` (BASI
 rest an offset $20 a frame, up for n frames, down for 2n, up for 2n ...), `port:` (each note from the last one's
 frequency, n × $50 a frame towards its own; not the ROM's one-off extra 1 in its first step up). `FILTER` sets
 the chip's filter at once (`tune_filter`: the cutoff, resonance and mode; the ROM's chips get it at a voice's `X1`,
-which here routes the voice only). Not yet: a
-`PLAY` starts all its voices again, and a voice it leaves out stops (BASIC's goes on: #478); a voice starts at
-octave 4 and quarter notes in each `PLAY` (BASIC's keeps the last ones); strings built at run time (a compile error
-for now). Test: `test_basic_compile17_xemu.bas`.
+which here routes the voice only). Test: `test_basic_compile17_xemu.bas`.
 
 **SOUND** `voice, frequency, duration [, direction [, minimum [, step [, waveform [, pulse width]]]]]` and `SOUND
 CLR` are BASIC 65's (`basic_snd.c`, its sweep in the interrupt hook as the ROM's `sound_irq`: `basic_spr.s45`), on

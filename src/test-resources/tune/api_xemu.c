@@ -4,6 +4,8 @@
  *   tune_fade: a step a frame to its end, tune_fading
  *   tune_borrow: the voice's registers left alone, then the music's again
  *   tune_queue: the next tune at the bar line, not before
+ *   tune_voice_stop / _play / _busy: one voice ended and started on another
+ *   stream, the other going on (BASIC's PLAY); tune_filter: a chip's filter
  * The registers go to RAM (__sid_regs, __digi_regs). */
 #include <audio_tune.h>
 #include <audio_sid.h>
@@ -52,6 +54,16 @@ int main(void) {
     check(!tune_queued() && tune_ticks() == 0);
     frames(1);
     check(tune_note(0) == 69);
+    /* one voice ended, the other going on; then started on voice 0's stream */
+    tune_voice_stop(1);
+    check(!tune_voice_busy(1) && tune_voice_busy(0) && !(__sid_regs[7 + 4] & 1));
+    tune_voice_play(1, tunes[TUNE_B][8] | (unsigned int)tunes[TUNE_B][9] << 8);
+    frames(1);
+    check(tune_voice_busy(1) && tune_note(1) == 69 && (__sid_regs[7 + 4] & 1));
+    /* a chip's filter at once: the cutoff, resonance and mode, the volume kept */
+    tune_filter(0, 0x3A5, 9, 1);
+    check(__sid_regs[0x15] == 5 && __sid_regs[0x16] == 0x74 && (__sid_regs[0x17] >> 4) == 9 &&
+          (__sid_regs[0x18] & 0x7F) == 0x1F);
     *res = 0xAA;
     return 0;
 }

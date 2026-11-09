@@ -4,6 +4,33 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### basic45 --compile: PLAY's strings read when it runs (#369)
+
+- `PLAY` takes any string expressions (a string built at run time was a
+  compile error): the run time (`basic_snd.c`, its reader in assembly:
+  `basic_play.s45`) reads them as BASIC 65 does
+  into the tune player's streams (a voice's on the heap), each voice from
+  its octave, length and envelope of before as BASIC's (they began at
+  octave 4, quarter notes, envelope 0 in each `PLAY`). `BasicPlay.cpp` is
+  gone.
+- Test: `test_basic_compile17_xemu.bas` [9].
+
+### Tune player: single voices; basic45 --compile's PLAY leaves the others playing (#478, #479, #369)
+
+- `tune_voice_play(voice, offset)`, `tune_voice_stop(voice)`,
+  `tune_voice_busy(voice)`: one voice of the tune playing started on a
+  stream of its data at the next tick (or the tune going on again when
+  nothing plays), ended, asked; the others going on.
+- basic45 --compile: a program's PLAY strings are one tune (`__bas_ptune`:
+  the ten envelopes as instruments, each string's stream; BasicPlay.cpp
+  writes the streams itself); a `PLAY` starts the voices it gives and leaves
+  the others playing, as BASIC's (they stopped); `RPLAY(v)` asks the voice.
+  `ENVELOPE` while music plays changes the tune's instrument (a voice's next
+  `T` takes it, #479); the player reads instruments from the tune's data at
+  each `$81`, so a tune in RAM can be changed while it plays.
+- Tests: `test_basic_compile17_xemu.bas` [8] (voice 1 on to its end after
+  a `PLAY` of voice 2); `api_xemu.c` the three calls and `tune_filter`.
+
 ### Tune player: BASIC 65's PLAY U, X, M, P; basic45 --compile plays them (#474-#477, #369)
 
 - Four stream events and tune45 tokens: `vol:n` ($8D: the voice's chip's

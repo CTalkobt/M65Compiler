@@ -4,7 +4,9 @@
 4 rem tempo; [2] envelope (the rom's tables); [3] vol, filter (play's copies); [4] l: rplay
 5 rem stays 1, play alone stops it and puts the defaults back; [5] the ranges (?illegal
 6 rem quantity); [6] dots, sharps, flats, rests, octaves, an empty voice; [7] u, x, m, p
-7 rem (volume, filter routing, modulation, portamento: the length kept); [8] $aa
+7 rem (volume, filter routing, modulation, portamento: the length kept); [8] a play of voice 2
+8 rem alone: voice 1 goes on to its end (rplay); [9] a voice's length kept from the play before,
+9 rem a string built at run time; [10] $aa
 10 trap 900
 20 t=ti:play "t0o4qcdef":do while rplay(1):loop:d=ti-t:if d>1.98 and d<2.05 then poke 49344,1
 30 tempo 24:t=ti:play "icdef","o5wc":do while rplay(1):loop:a=ti-t:b=rplay(2):do while rplay(2):loop:c=ti-t
@@ -17,5 +19,9 @@
 70 e=0:x=rplay(0):x=rplay(7):tempo 0:envelope 10:filter 3:vol 16:if e=6 and ee=14 then poke 49349,1
 80 tempo 48:t=ti:play "o2i.c#d$e.rro6b","","q.o1c$c#b":do while rplay(3):loop:d=ti-t:if d>0.4 and d<0.48 then poke 49350,1
 85 t=ti:play "u5x1m3p2o4icdeu9x0m0p0f":do while rplay(1):loop:d=ti-t:if d>0.22 and d<0.29 then poke 49351,1
-90 poke 49352,170:end
+87 tempo 12:t=ti:play "o4wc":sleep 0.5:play ,"qc":a=rplay(1):b=rplay(2):do while rplay(1):loop:d=ti-t
+88 if a=1 and b=1 and d>1.95 and d<2.1 then poke 49352,1
+89 play "o4ic":do while rplay(1):loop:t=ti:play "cdef":do while rplay(1):loop:d=ti-t:a$="q"+"cd"
+90 t=ti:play a$:do while rplay(1):loop:e=ti-t:if d>0.95 and d<1.05 and e>0.95 and e<1.05 then poke 49353,1
+91 poke 49354,170:end
 900 e=e+1:ee=er:resume next
