@@ -4,6 +4,14 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### cc45: a float result stored through a pointer from __float_a (#485, #369)
+
+- A float result (or an int converted) used once by a store through a
+  pointer (an array element: `A(I) = 5` in `basic45 --compile`) is stored
+  from `__float_a`, not copied to a base-page temporary first.
+- `basic45 --compile`'s tests: up to 530 bytes smaller.
+- Test: `test_float_copy_xemu.c` [24].
+
 ### cc45: a float result stored and used again read from its variable (#485, #369)
 
 - A float result stored to a variable right after it and used again further

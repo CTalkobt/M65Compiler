@@ -12,7 +12,7 @@
  * call or a store between could change it).
  * Each check writes its number at $C0C0 + i; $AA after the last.
  *
- * Expected at $C0C0: 01 02 03 04 05 06 07 08 09 0A 0B 0C 0D 0E 0F 10 11 12 13 14 15 16 17 AA
+ * Expected at $C0C0: 01 02 03 04 05 06 07 08 09 0A 0B 0C 0D 0E 0F 10 11 12 13 14 15 16 17 18 AA
  */
 
 #include <stdlib.h>
@@ -134,6 +134,13 @@ int main(void) {
     r = c;
     t = s + r;                           /* 12.5 */
     if (t == 12.5) RESULT(22) = 0x17;
-    RESULT(23) = 0xAA;
+    /* 24: converted ints and a result stored through a pointer from __float_a */
+    iv = -9; ix = 2;
+    arr[ix] = iv;                        /* -9 */
+    arr[ix + 1] = iv * 2;                /* -18 */
+    fp = &arr[4];
+    *fp = arr[ix] - c;                   /* -9.5 */
+    if (arr[2] == -9.0 && arr[3] == -18.0 && arr[4] == -9.5) RESULT(23) = 0x18;
+    RESULT(24) = 0xAA;
     return 0;
 }

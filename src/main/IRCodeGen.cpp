@@ -687,6 +687,9 @@ void IRCodeGen::planF32Aliases(const ir::Function& fn) {
                                    u.op == ir::Op::FDIV || u.op == ir::Op::FCMP;
                         if (two && s1 != s2) f32Alias_[v] = s1 ? "__float_a" : "__float_b";
                         else if (u.op == ir::Op::FNEG && s1) f32Alias_[v] = "__float_a";
+                        // stored (through a pointer: an array element) from __float_a
+                        else if (u.op == ir::Op::STORE && u.resultType == ir::Type::F32 && s1 && !s2 && u.args.empty())
+                            f32Alias_[v] = "__float_a";
                         break;
                     }
                     if (u.op != ir::Op::LOAD && u.op != ir::Op::FCONST && u.op != ir::Op::CONST &&
