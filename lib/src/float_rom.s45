@@ -454,6 +454,76 @@ __float_cmp:
     jmp __bp_prog
 
 ; ===========================================================================
+; __float_eq ... __float_ge: __float_cmp's result as a boolean, A = 1 if the comparison
+; holds, else 0 (X = 0); what cc45 calls for a comparison's value
+; ($FF / 0 / 1 from cmp: asl puts bit 7 in C; cmp #1: C = A <> 0)
+; ===========================================================================
+    .split "__float_eq"
+.global __float_eq
+__float_eq:            ; a = b
+    jsr __float_cmp
+    cmp #1
+    lda #0
+    rol a
+    eor #1
+    ldx #0
+    rts
+
+    .split "__float_ne"
+.global __float_ne
+__float_ne:            ; a <> b
+    jsr __float_cmp
+    cmp #1
+    lda #0
+    rol a
+    ldx #0
+    rts
+
+    .split "__float_lt"
+.global __float_lt
+__float_lt:            ; a < b
+    jsr __float_cmp
+    asl a
+    lda #0
+    rol a
+    ldx #0
+    rts
+
+    .split "__float_ge"
+.global __float_ge
+__float_ge:            ; a >= b
+    jsr __float_cmp
+    asl a
+    lda #0
+    rol a
+    eor #1
+    ldx #0
+    rts
+
+    .split "__float_gt"
+.global __float_gt
+__float_gt:            ; a > b
+    jsr __float_cmp
+    dec a
+    cmp #1
+    lda #0
+    rol a
+    eor #1
+    ldx #0
+    rts
+
+    .split "__float_le"
+.global __float_le
+__float_le:            ; a <= b
+    jsr __float_cmp
+    dec a
+    cmp #1
+    lda #0
+    rol a
+    ldx #0
+    rts
+
+; ===========================================================================
 ; Conversions between integers and floats, done on the packed CBM format
 ; (exponent byte, 32-bit mantissa with the sign in bit 7 of its top byte and
 ; an implicit leading 1). No ROM calls: BASIC's AYINT floors and only takes

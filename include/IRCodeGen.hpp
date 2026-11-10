@@ -611,6 +611,13 @@ private:
     // the instructions in f32Skip_ emit nothing
     std::map<uint32_t, std::string> f32Alias_;
     std::set<const ir::Inst*> f32Skip_;
+    // an FCMP whose result only the next comparison with a constant reads,
+    // turned into a boolean (0/1): the routine (__float_eq ... __float_ge)
+    // and that comparison (skipped; its result the routine's A)
+    std::map<const ir::Inst*, std::pair<std::string, const ir::Inst*>> fcmpBool_;
+    std::set<std::string> fcmpBoolExt_;   // those declared (.extern) so far
+    std::map<std::string, int> fcmpBoolCount_;   // the module's candidates per kind
+    std::vector<std::pair<const ir::Inst*, const char*>> findFcmpBools(const ir::Function& fn) const;
     std::map<std::string, std::string> f32Konst_;            // the 5 bytes (hex) -> label
     std::vector<std::pair<std::string, std::string>> f32KonstList_;   // label, the 5 bytes (hex)
     void planF32Aliases(const ir::Function& fn);
