@@ -7,10 +7,12 @@
  * copies between places outside the base page calls __f32cpy for them.
  * A float read or written through a pointer is one loop, straight into
  * __float_a / __float_b or the variable stored next; an int converted to a
- * float goes straight into the variable it is stored to.
+ * float goes straight into the variable it is stored to; a result stored to
+ * a variable and used again after is read from the variable (not when a
+ * call or a store between could change it).
  * Each check writes its number at $C0C0 + i; $AA after the last.
  *
- * Expected at $C0C0: 01 02 03 04 05 06 07 08 09 0A 0B 0C 0D 0E 0F 10 11 12 13 14 AA
+ * Expected at $C0C0: 01 02 03 04 05 06 07 08 09 0A 0B 0C 0D 0E 0F 10 11 12 13 14 15 16 17 AA
  */
 
 #include <stdlib.h>
@@ -28,6 +30,8 @@ long lv;
 static void set(void) {
     a = 3.0; b = 4.0; c = 10.0; d = 0.5; e = 2.0;
 }
+
+static void bump(void) { r = r + 100.0; }
 
 int main(void) {
     set();
@@ -113,6 +117,23 @@ int main(void) {
     ix = 1;
     r = arr[ix] + (float)abs(-2);        /* 2.5 + 2 */
     if (r == 4.5) RESULT(19) = 0x14;
-    RESULT(20) = 0xAA;
+    /* 21: a result stored, then compared and used again (a FOR's NEXT) */
+    a = 4.0; b = 3.0; c = 0.5;
+    r = a + b;                           /* 7 */
+    if (r > a) s = r * c; else s = 0.0;  /* 3.5 */
+    if (r == 7.0 && s == 3.5) RESULT(20) = 0x15;
+    /* 22: a call between that writes the variable: the value before it */
+    r = a - b;                           /* 1 */
+    t = r;
+    bump();                              /* r = 101 */
+    s = t + r;                           /* 102 */
+    if (s == 102.0) RESULT(21) = 0x16;
+    /* 23: a store between to the variable */
+    r = a * b;                           /* 12 */
+    s = r;
+    r = c;
+    t = s + r;                           /* 12.5 */
+    if (t == 12.5) RESULT(22) = 0x17;
+    RESULT(23) = 0xAA;
     return 0;
 }

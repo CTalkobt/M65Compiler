@@ -633,6 +633,39 @@ void IRCodeGen::planF32Aliases(const ir::Function& fn) {
             }
             if ((in.op == ir::Op::FADD || in.op == ir::Op::FSUB || in.op == ir::Op::FMUL || in.op == ir::Op::FDIV ||
                  in.op == ir::Op::FNEG || (in.op == ir::Op::ITOF && in.resultType == ir::Type::F32)) &&
+                uses[v] > 1 && k + 1 < is.size()) {
+                // the result stored to a variable by the next instruction and read
+                // again further on in the block (a FOR loop's NEXT: the variable
+                // stepped, then compared with the limit): written there, and read
+                // from there by the float operations and stores using it, nothing
+                // that could write the variable between (no store, no call), #485
+                const ir::Inst& st = is[k + 1];
+                if (st.op == ir::Op::STORE && st.resultType == ir::Type::F32 && st.src1.isVreg() && st.src1.vregId == v &&
+                    st.src2.kind == ir::OperandKind::GLOBAL && st.args.empty() && st.src2.name != "__float_a" &&
+                    st.src2.name != "__float_b" && allInPlace(v)) {
+                    int left = uses[v] - 1;
+                    for (size_t j = k + 2; j < is.size() && left > 0; j++) {
+                        const ir::Inst& u = is[j];
+                        if ((u.src1.isVreg() && u.src1.vregId == v) || (u.src2.isVreg() && u.src2.vregId == v)) {
+                            if (u.op == ir::Op::STORE && u.src2.kind == ir::OperandKind::GLOBAL &&
+                                u.src2.name == st.src2.name) break;
+                            left--;
+                            continue;
+                        }
+                        if (u.op == ir::Op::STORE || u.op == ir::Op::CALL || u.op == ir::Op::CALL_VOID ||
+                            u.op == ir::Op::CALL_INDIRECT || u.op == ir::Op::ASM_INLINE || u.op == ir::Op::VEC_BIN ||
+                            u.op == ir::Op::FAR_STORE || u.op == ir::Op::NEAR_STORE || u.op == ir::Op::TRAMPOLINE ||
+                            u.op == ir::Op::CPU_REG_WRITE || u.op == ir::Op::CPU_FLAG_WRITE) break;
+                    }
+                    if (left == 0) {
+                        f32Alias_[v] = st.src2.name;
+                        f32Skip_.insert(&st);
+                    }
+                }
+                continue;
+            }
+            if ((in.op == ir::Op::FADD || in.op == ir::Op::FSUB || in.op == ir::Op::FMUL || in.op == ir::Op::FDIV ||
+                 in.op == ir::Op::FNEG || (in.op == ir::Op::ITOF && in.resultType == ir::Type::F32)) &&
                 uses[v] == 1 && k + 1 < is.size()) {
                 // the result straight into the variable the next instruction stores it to
                 const ir::Inst& st = is[k + 1];
@@ -9808,7 +9841,11 @@ void IRCodeGen::emitInstBody(const ir::Inst& inst) {
                 emitFloatToAbs(s2, inst.src2.vregId, "__float_b");
                 emit("jsr " + floatOp("cmp"));
                 auto da = alloc_.getAlloc(inst.dest.vregId);
-                if (da.loc == VRegAllocator::IN_ZP) {
+                if (da.loc == VRegAllocator::IN_ZP && da.type == ir::Type::I8) {
+                    // (through storeVreg: a use right after takes it from A)
+                    ms_.invalidateAll();
+                    storeVreg(inst.dest.vregId);
+                } else if (da.loc == VRegAllocator::IN_ZP) {
                     emit("sta $" + hex8((uint8_t)da.offset));
                 } else if (currentFunctionUseSAC_) {
                     emit("sta " + currentFunctionName_ + "__local_" + std::to_string(inst.dest.vregId));
