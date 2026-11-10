@@ -771,6 +771,17 @@ else
     echo "FAIL: test_basic_compile_sad_xemu.bas (basic45 or basic45 --compile failed)"
     failed=$((failed + 1))
 fi
+# test_basic_compile_tron_xemu.bas: TRON / TROFF's "[line]" before each
+# statement (and the one after THEN / ELSE), MEM (#369): the screen's bytes
+BCT_EXP="1B 32 30 1D 1B 32 30 1D 1B 32 30 1D 1B 33 30 1D 1B 33 30 1D 1B 33 30 1D 1B 33 30 1D 1B 34 30 1D 1B 31 30 30 35 1D 1B 31 30 30 35 1D 1B 34 30 1D 20 20 20 20 20 20 20 20 20 20 20 20 AA"
+if ./bin/basic45 src/test-resources/test_basic_compile_tron_xemu.bas -o build/test/test_basic_compile_tron_i.prg >/dev/null 2>&1 &&
+   ./bin/basic45 --compile --checks src/test-resources/test_basic_compile_tron_xemu.bas -o build/test/test_basic_compile_tron.prg >/dev/null 2>&1; then
+    run_xemu_test "test_basic_compile_tron_interpreted" "build/test/test_basic_compile_tron_i.prg" "C0C0" 61 "$BCT_EXP"
+    run_xemu_test "test_basic_compile_tron" "build/test/test_basic_compile_tron.prg" "C0C0" 61 "$BCT_EXP"
+else
+    echo "FAIL: test_basic_compile_tron_xemu.bas (basic45 or basic45 --compile failed)"
+    failed=$((failed + 1))
+fi
 # a run-time error ends the compiled program: the exit status is its number (20)
 printf '10 x=0:print 1/x:poke 49344,1\n' > build/test/test_basic_compile_err.bas
 if ./bin/basic45 --compile --checks build/test/test_basic_compile_err.bas -o build/test/test_basic_compile_err.prg >/dev/null 2>&1; then
