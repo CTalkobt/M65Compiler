@@ -4,6 +4,16 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### cc45: a float comparison's value by one call (#369)
+
+- A float comparison whose result is a value, not a branch (`r = a < b`;
+  `basic45 --compile`'s `IF A=B AND C<D`), calls `__float_eq` / `_ne` /
+  `_lt` / `_le` / `_gt` / `_ge` (`__ffast_*` with `-ffast-float`): A = 1 if
+  it holds, else 0, X = 0; 3 bytes, not `jsr __float_cmp` and 9 more. Only
+  when the file has two or more of that kind (each routine 13 bytes).
+- `basic45 --compile`'s tests: up to 177 bytes smaller.
+- Test: `test_float_cmpbool_xemu.c` (also `-fno-zpcall`, `-ffast-float`).
+
 ### cc45: a float result stored through a pointer from __float_a (#485, #369)
 
 - A float result (or an int converted) used once by a store through a

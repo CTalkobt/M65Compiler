@@ -527,6 +527,7 @@ bool IRCodeGen::f32AbsBase(uint32_t vregId, std::string& base) {
 void IRCodeGen::planF32Aliases(const ir::Function& fn) {
     f32Alias_.clear();
     f32Skip_.clear();
+    fcmpBool_.clear();
     std::map<uint32_t, int> defs, uses;
     std::map<uint32_t, std::vector<const ir::Inst*>> users;
     for (const auto& b : fn.blocks)
@@ -698,6 +699,57 @@ void IRCodeGen::planF32Aliases(const ir::Function& fn) {
             }
         }
     }
+    // an FCMP turned into a boolean (findFcmpBools), when the program has at
+    // least two of that kind (one alone is shorter as cmp + the flag code)
+    for (const auto& [in, r] : findFcmpBools(fn)) {
+        if (fcmpBoolCount_[r] < 2) continue;
+        fcmpBool_[in] = {floatOp(r), in + 1};
+        f32Skip_.insert(in + 1);
+    }
+}
+
+// FCMP (A = $FF, 0, 1 as a <, =, > b) read only by the next comparison with a
+// constant that makes a boolean: one call, A = 0/1 (X = 0), the routine's
+// kind (eq ... ge). Not when a branch on that boolean follows (cmp #k + the
+// branch is shorter).
+std::vector<std::pair<const ir::Inst*, const char*>> IRCodeGen::findFcmpBools(const ir::Function& fn) const {
+    std::vector<std::pair<const ir::Inst*, const char*>> out;
+    std::map<uint32_t, int> defs, uses;
+    for (const auto& b : fn.blocks)
+        for (const auto& in : b.insts) {
+            if (in.dest.isVreg() && in.op != ir::Op::STORE && in.op != ir::Op::BR_COND) defs[in.dest.vregId]++;
+            auto use = [&](const ir::Operand& o) { if (o.isVreg()) uses[o.vregId]++; };
+            use(in.src1);
+            use(in.src2);
+            for (const auto& x : in.args) use(x);
+            if (in.op == ir::Op::STORE && in.dest.isVreg()) use(in.dest);
+        }
+    for (const auto& b : fn.blocks) {
+        const auto& is = b.insts;
+        for (size_t k = 0; k + 1 < is.size(); k++) {
+            const ir::Inst& in = is[k];
+            const ir::Inst& c = is[k + 1];
+            if (in.op != ir::Op::FCMP || !in.dest.isVreg()) continue;
+            uint32_t v = in.dest.vregId;
+            if (defs[v] != 1 || uses[v] != 1 || !c.src1.isVreg() || c.src1.vregId != v ||
+                !c.src2.isImm() || !c.dest.isVreg() || c.dest.vregId == v) continue;
+            if (k + 2 < is.size() && is[k + 2].op == ir::Op::BR_COND && is[k + 2].src1.isVreg() &&
+                is[k + 2].src1.vregId == c.dest.vregId) continue;
+            int kv = (int)(c.src2.immVal & 0xFF);
+            const char* r = nullptr;
+            switch (c.op) {
+                case ir::Op::CMP_EQ: r = kv == 0 ? "eq" : kv == 1 ? "gt" : kv == 0xFF ? "lt" : nullptr; break;
+                case ir::Op::CMP_NE: r = kv == 0 ? "ne" : kv == 1 ? "le" : kv == 0xFF ? "ge" : nullptr; break;
+                case ir::Op::CMP_LT: r = kv == 0 ? "lt" : nullptr; break;
+                case ir::Op::CMP_GE: r = kv == 0 ? "ge" : nullptr; break;
+                case ir::Op::CMP_GT: r = kv == 0 ? "gt" : nullptr; break;
+                case ir::Op::CMP_LE: r = kv == 0 ? "le" : nullptr; break;
+                default: break;
+            }
+            if (r) out.push_back({&in, r});
+        }
+    }
+    return out;
 }
 
 void IRCodeGen::emitF32Konsts() {
@@ -2071,6 +2123,9 @@ void IRCodeGen::generate(const ir::Module& mod, uint32_t zpStart, bool relocMode
         funcMap[fn.name] = &fn;
     }
     setFunctionMap(&funcMap);
+    fcmpBoolCount_.clear();
+    for (const auto& fn : mod.functions)
+        for (const auto& fb : findFcmpBools(fn)) fcmpBoolCount_[fb.second]++;
 
     // Phase 2: Pre-compute clobber masks for all functions (fine-grained register and flag invalidation)
     // First pass: compute base clobbers for all functions
@@ -9842,6 +9897,17 @@ void IRCodeGen::emitInstBody(const ir::Inst& inst) {
                 auto s2 = alloc_.getAlloc(inst.src2.vregId);
                 emitFloatToAbs(s1, inst.src1.vregId, "__float_a");
                 emitFloatToAbs(s2, inst.src2.vregId, "__float_b");
+                auto fb = fcmpBool_.find(&inst);
+                if (fb != fcmpBool_.end()) {
+                    // the comparison's boolean (planF32Aliases): A = 0/1, X = 0
+                    // (declared here: an .extern links the routine)
+                    if (fcmpBoolExt_.insert(fb->second.first).second) emit(".extern " + fb->second.first);
+                    emit("jsr " + fb->second.first);
+                    lastCmp_.valid = false;
+                    ms_.invalidateAll();
+                    storeVreg(fb->second.second->dest.vregId);
+                    break;
+                }
                 emit("jsr " + floatOp("cmp"));
                 auto da = alloc_.getAlloc(inst.dest.vregId);
                 if (da.loc == VRegAllocator::IN_ZP && da.type == ir::Type::I8) {

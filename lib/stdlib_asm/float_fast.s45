@@ -532,6 +532,76 @@ __ffast_cmp:
     lda #1
     rts
 
+; ===========================================================================
+; __ffast_eq ... __ffast_ge: __ffast_cmp's result as a boolean, A = 1 if the comparison
+; holds, else 0 (X = 0); what cc45 calls for a comparison's value
+; ($FF / 0 / 1 from cmp: asl puts bit 7 in C; cmp #1: C = A <> 0)
+; ===========================================================================
+    .split "__ffast_eq"
+.global __ffast_eq
+__ffast_eq:            ; a = b
+    jsr __ffast_cmp
+    cmp #1
+    lda #0
+    rol a
+    eor #1
+    ldx #0
+    rts
+
+    .split "__ffast_ne"
+.global __ffast_ne
+__ffast_ne:            ; a <> b
+    jsr __ffast_cmp
+    cmp #1
+    lda #0
+    rol a
+    ldx #0
+    rts
+
+    .split "__ffast_lt"
+.global __ffast_lt
+__ffast_lt:            ; a < b
+    jsr __ffast_cmp
+    asl a
+    lda #0
+    rol a
+    ldx #0
+    rts
+
+    .split "__ffast_ge"
+.global __ffast_ge
+__ffast_ge:            ; a >= b
+    jsr __ffast_cmp
+    asl a
+    lda #0
+    rol a
+    eor #1
+    ldx #0
+    rts
+
+    .split "__ffast_gt"
+.global __ffast_gt
+__ffast_gt:            ; a > b
+    jsr __ffast_cmp
+    dec a
+    cmp #1
+    lda #0
+    rol a
+    eor #1
+    ldx #0
+    rts
+
+    .split "__ffast_le"
+.global __ffast_le
+__ffast_le:            ; a <= b
+    jsr __ffast_cmp
+    dec a
+    cmp #1
+    lda #0
+    rol a
+    ldx #0
+    rts
+
 .segment "bss"
 __ff_ma: .res 4
 __ff_mb: .res 4
