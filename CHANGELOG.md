@@ -16,6 +16,16 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
   larger.
 - Test: `test_cmp_const_xemu.c` (also `-fno-zpcall`).
 
+### basic45 --compile: a DOS statement's parsed parameters by one call (#369)
+
+- The four bytes basic45 parses for a DOS statement (`DOPEN`, `DLOAD`,
+  `HEADER`, `COPY`, `BLOAD`...: `_bas_dpar`, `_bas_dflx`, `_bas_derr`,
+  `_bas_daux`) were four stores of 5 bytes; with three or more DOS statements
+  in a program they are `jsr __bas_dpars` and the four as `.byte`s (7 bytes;
+  `lib/stdlib_asm/basic_dos.s45`, 45 bytes once).
+- `basic45 --compile`'s tests: 993 bytes smaller in all (up to 339), none
+  larger.
+
 ### basic45 --compile: RESUME's statement addresses by one call (#369)
 
 - A program with `RESUME` (without a line) noted each statement's address and

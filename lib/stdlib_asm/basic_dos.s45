@@ -1,0 +1,50 @@
+; basic_dos.s45 -- basic45 --compile: a DOS statement's parsed parameters
+; (#369)
+;
+;     jsr __bas_dpars
+;     .byte par, flx, err, aux
+;
+; stores the four bytes basic45 parsed (basic_io.c's _bas_dpar, _bas_dflx,
+; _bas_derr, _bas_daux) and returns past them: 7 bytes a statement, not
+; four stores of 5. A and Y clobbered, X kept; $F6/$F7 (library temps).
+
+    .cpu 45gs02
+
+; no calls through pointers here (ln45's call graph)
+.weak cc45.icallinfo
+cc45.icallinfo = 1
+
+.extern __bas_dpar
+.extern __bas_dflx
+.extern __bas_derr
+.extern __bas_daux
+
+    .split "__bas_dpars"
+.global __bas_dpars
+__bas_dpars:
+    pla
+    sta $F6
+    pla
+    sta $F7                 ; ($F6): the jsr's last byte
+    ldy #1
+    lda ($F6),y
+    sta __bas_dpar
+    iny
+    lda ($F6),y
+    sta __bas_dflx
+    iny
+    lda ($F6),y
+    sta __bas_derr
+    iny
+    lda ($F6),y
+    sta __bas_daux
+    tya                     ; back past the bytes: ($F6) + 4
+    clc
+    adc $F6
+    sta $F6
+    lda $F7
+    adc #0
+    pha
+    lda $F6
+    pha
+    rts
