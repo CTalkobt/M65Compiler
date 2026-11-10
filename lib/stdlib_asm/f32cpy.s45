@@ -144,3 +144,35 @@ f32ld_ret:
     lda list
     pha
     rts
+
+; ---------------------------------------------------------------------------
+; __f32ldp / __f32stp: a float read into __float_a / written from it through
+; the pointer in A/X (cc45: a file with several float loads or stores through
+; a pointer; 3 bytes, not sta/stx and the 10-byte loop). A and Y clobbered,
+; X and Z kept; $F6-$F7 used.
+; ---------------------------------------------------------------------------
+    .split "__f32ldp"
+.global __f32ldp
+__f32ldp:
+    sta list
+    stx list+1
+    ldy #4
+f32ldp_l:
+    lda (list),y
+    sta __float_a,y
+    dey
+    bpl f32ldp_l
+    rts
+
+    .split "__f32stp"
+.global __f32stp
+__f32stp:
+    sta list
+    stx list+1
+    ldy #4
+f32stp_l:
+    lda __float_a,y
+    sta (list),y
+    dey
+    bpl f32stp_l
+    rts

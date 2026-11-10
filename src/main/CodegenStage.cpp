@@ -285,6 +285,7 @@ void CodegenStage::generateAssembly() {
         std::ostringstream ss;
         IRCodeGen codegen(ss);
         codegen.setFunctionSections(functionSections_);
+        codegen.setF32PtrCall(objectOnly_ && optOn("FloatCopyCall"));
         // Parameters: module, zpStart, relocMode, zpCallMode, emitReasons, staticAllocMode, sacDebugMode, prgBase
         codegen.generate(mod,
                          0x08,              // zpStart
