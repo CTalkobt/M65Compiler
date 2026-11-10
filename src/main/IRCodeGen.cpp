@@ -792,6 +792,15 @@ void IRCodeGen::emitF32CopyAbs(const std::string& src, const std::string& dst) {
 // A 5-byte float through the pointer at zpPair: loaded into (load) or stored
 // from the vreg's place, one loop (10 bytes, 12 for a base-page place; five
 // unrolled ldy/lda/sta are 25), #485
+// __f32ldp / __f32stp (f32cpy.s45): a float through the pointer in A/X,
+// read into or written from __float_a; A and Y clobbered
+void IRCodeGen::emitF32PtrCall(const std::string& name) {
+    if (fcmpBoolExt_.insert(name).second) emit(".extern " + name);
+    emit("jsr " + name);
+    ms_.invalidateAll();
+    storeCache_.vreg = UINT32_MAX;
+}
+
 void IRCodeGen::emitF32Indirect(bool load, const std::string& zpPair, uint32_t vregId) {
     std::string base;
     if (!f32AbsBase(vregId, base)) {
@@ -2126,6 +2135,44 @@ void IRCodeGen::generate(const ir::Module& mod, uint32_t zpStart, bool relocMode
     fcmpBoolCount_.clear();
     for (const auto& fn : mod.functions)
         for (const auto& fb : findFcmpBools(fn)) fcmpBoolCount_[fb.second]++;
+    // floats through pointers by calls (__f32ldp / __f32stp, 16 bytes each):
+    // in a file with several float loads / stores through a pointer
+    {
+        // (the ones read into or written from __float_a, planF32Aliases's, the
+        // pointer made by the instruction right before: still in A/X, its
+        // sta/stx left out, 11 bytes saved; otherwise the loop)
+        f32PtrInsts_.clear();
+        int nsAll = 0;   // all stores from __float_a through a pointer (3 bytes saved each)
+        for (const auto& fn : mod.functions) {
+            planF32Aliases(fn);
+            auto inA = [&](const ir::Operand& o) {
+                auto al = o.isVreg() ? f32Alias_.find(o.vregId) : f32Alias_.end();
+                return al != f32Alias_.end() && al->second == "__float_a";
+            };
+            for (const auto& b : fn.blocks)
+                for (size_t k = 1; k < b.insts.size(); k++) {
+                    const ir::Inst& in = b.insts[k];
+                    const ir::Inst& pv = b.insts[k - 1];
+                    if (in.resultType != ir::Type::F32) continue;
+                    const ir::Operand* ptr = nullptr;
+                    if (in.op == ir::Op::LOAD && in.dest.isVreg() && inA(in.dest)) ptr = &in.src1;
+                    if (in.op == ir::Op::STORE && in.src1.isVreg() && inA(in.src1)) ptr = &in.src2;
+                    if (ptr && ptr->isVreg() && in.op == ir::Op::STORE) nsAll++;
+                    if (ptr && ptr->isVreg() && pv.dest.isVreg() && pv.dest.vregId == ptr->vregId &&
+                        pv.op != ir::Op::STORE && pv.op != ir::Op::BR_COND && !f32Skip_.count(&pv))
+                        f32PtrInsts_.insert(&in);
+                }
+        }
+        f32Alias_.clear(); f32Skip_.clear(); fcmpBool_.clear();
+        // each routine when two or more of its kind save 11 bytes; then for
+        // every load (store) into (from) __float_a through a pointer: 3 more
+        // bytes saved even when the pointer is loaded first
+        int nl = 0, ns = 0;
+        for (const ir::Inst* in : f32PtrInsts_) (in->op == ir::Op::LOAD ? nl : ns)++;
+        bool on = f32PtrCall_ && !getenv("CC45_NO_F32PTR");
+        f32PtrLdOn_ = on && nl >= 2;
+        f32PtrStOn_ = on && (ns >= 2 || nsAll >= 6);
+    }
 
     // Phase 2: Pre-compute clobber masks for all functions (fine-grained register and flag invalidation)
     // First pass: compute base clobbers for all functions
@@ -7558,7 +7605,13 @@ void IRCodeGen::emitInstBody(const ir::Inst& inst) {
                     emitF32AbsToVreg(inst.src1.name, inst.dest.vregId);
                 } else {
                     // Indirect load via (ZP),Y
-                    std::string zpPair;
+                    std::string zpPair, fb;
+                    if (f32PtrLdOn_ && inst.src1.isVreg() && f32AbsBase(inst.dest.vregId, fb) && fb == "__float_a") {
+                        // straight into __float_a by a call: the pointer in A/X
+                        loadVreg(inst.src1.vregId);
+                        emitF32PtrCall("__f32ldp");
+                        break;
+                    }
                     if (inst.src1.isVreg()) {
                         auto addrAlloc = alloc_.getAlloc(inst.src1.vregId);
                         if (addrAlloc.loc == VRegAllocator::IN_ZP)
@@ -8056,7 +8109,13 @@ void IRCodeGen::emitInstBody(const ir::Inst& inst) {
                         }
                     } else {
                         // Indirect store via (ZP),Y — dest vreg holds a pointer address
-                        std::string zpPair;
+                        std::string zpPair, fb;
+                        if (f32PtrStOn_ && f32AbsBase(inst.src1.vregId, fb) && fb == "__float_a") {
+                            // from __float_a by a call: the pointer in A/X
+                            loadVreg(inst.src2.vregId);
+                            emitF32PtrCall("__f32stp");
+                            break;
+                        }
                         auto addrAlloc = alloc_.getAlloc(inst.src2.vregId);
                         if (addrAlloc.loc == VRegAllocator::IN_ZP)
                             zpPair = "$" + hex8((uint8_t)addrAlloc.offset);
