@@ -354,7 +354,14 @@ public:
     void setBssFill(uint8_t v) { bssFill_ = v; }
     // The CPU stack's share below __stack_top: the heap ends there
     // (__stack_size, unless an object defines it)
-    void setStackSize(uint16_t v) { stackSize_ = v; }
+    void setStackSize(uint16_t v) { stackSize_ = v; stackSizeSet_ = true; }
+    // the stack's share chosen (--stack-size, or an object's __stack_size:
+    // cc45 -fstack-size / #pragma cc45 stack_size), not the default (#467)
+    bool stackSizeChosen() const {
+        if (stackSizeSet_) return true;
+        auto it = symbolSource_.find("__stack_size");
+        return it != symbolSource_.end() && it->second != "<linker>";
+    }
     // --section NAME=ADDR: the address of a __section variables' section
     void setSectionAddr(const std::string& name, uint32_t addr) { sectionAddrOpt_[name] = addr; }
 
@@ -532,6 +539,7 @@ private:
                        const std::vector<std::pair<int, uint32_t>>& importRefs,
                        O45File& out, std::string& err);
     uint16_t stackSize_ = 0x1000;
+    bool stackSizeSet_ = false;
 
     // Code overlays
     std::vector<std::string> ovlNames_;            // overlay i + 1

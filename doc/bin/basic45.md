@@ -508,9 +508,11 @@ a byte of a chunk id: `?FILE DATA` is not given). Not compiled yet: `CHAR DEF`. 
 **Checks**: a compiled program checks its own values and flow only with `--checks` (#489). Without it, what the
 interpreter stops with `?ILLEGAL QUANTITY`, `?BAD SUBSCRIPT` (a negative subscript), `?SYNTAX ERROR` when run,
 `?NEXT WITHOUT FOR`, `?RETURN WITHOUT GOSUB`, `?CAN'T RESUME`, `?UNDEF'D FUNCTION` or a full `GOSUB` stack is
-undefined: no check is compiled and the program goes on. The run time's checks (a float's range for `POKE` and the
-like, subscripts past the `DIM`, division by zero) and the errors of files, the disk and memory stay. Test:
-`test_basic_compile_nochk` in `test_xemu.sh`; the other runtime tests are built with `--checks`.
+undefined: no check is compiled and the program goes on. A float made an integer, a byte or an address (AYINT,
+`AND` / `OR`'s 16 bits, `POKE`'s value, `CHR$`, `PEEK` / `POKE`'s address) goes through the run time's entries
+without their range checks too (`__bas_ayintu`, `__bas_getadr32u`: outside the range any value). Subscripts past
+the `DIM`, division by zero and the errors of files, the disk and memory stay. Tests: `test_basic_compile_nochk`
+and `test_basic_compile_unchk_xemu.bas` in `test_xemu.sh`; the other runtime tests are built with `--checks`.
 
 **Line numbers**: a compiled program records the line running only with `--line-numbers`; without it an error's
 message ends at `ERROR` (no ` IN line`, as in direct mode) and `EL` stays 65535, the rest (`ER`, `ERR$`, `TRAP`,

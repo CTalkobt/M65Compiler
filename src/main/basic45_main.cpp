@@ -33,6 +33,7 @@
 #include <csignal>
 #include <unistd.h>
 #include <iterator>
+#include "SelfPath.hpp"
 
 namespace fs = std::filesystem;
 
@@ -438,8 +439,8 @@ static void writeFile(const std::string& filename, const std::vector<uint8_t>& d
 // The directory of this executable (the other tools are next to it)
 static std::string toolDir(const char* argv0) {
     std::error_code ec;
-    fs::path self = fs::read_symlink("/proc/self/exe", ec);
-    if (ec) self = fs::absolute(argv0, ec);
+    std::string s = selfpath::exePath(argv0);   // (#503)
+    fs::path self = !s.empty() ? fs::path(s) : fs::absolute(argv0, ec);
     return self.parent_path().string();
 }
 
@@ -639,9 +640,8 @@ int main(int argc, char* argv[]) {
             if (a == "--send-cmd" || a == "--emulator-path") { i++; continue; }
             args.push_back(a);
         }
-        std::error_code ec;
-        std::string self = fs::read_symlink("/proc/self/exe", ec).string();
-        if (ec) self = argv[0];
+        std::string self = selfpath::exePath(argv[0]);
+        if (self.empty()) self = argv[0];
         std::string cmd = shellQuote(self);
         for (const auto& a : args) cmd += " " + shellQuote(a);
         auto watched = [&]() {

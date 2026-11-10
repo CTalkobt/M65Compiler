@@ -742,6 +742,17 @@ else
     echo "FAIL: test_basic_compile_nochk (basic45 --compile failed)"
     failed=$((failed + 1))
 fi
+# test_basic_compile_unchk_xemu.bas: the run time's conversions without their
+# range checks (compiled without --checks, #489) give the interpreter's values
+BCU_EXP="01 01 01 01 01 01 01 AA"
+if ./bin/basic45 src/test-resources/test_basic_compile_unchk_xemu.bas -o build/test/test_basic_compile_unchk_i.prg >/dev/null 2>&1 &&
+   ./bin/basic45 --compile src/test-resources/test_basic_compile_unchk_xemu.bas -o build/test/test_basic_compile_unchk.prg >/dev/null 2>&1; then
+    run_xemu_test "test_basic_compile_unchk_interpreted" "build/test/test_basic_compile_unchk_i.prg" "C0C0" 8 "$BCU_EXP"
+    run_xemu_test "test_basic_compile_unchk" "build/test/test_basic_compile_unchk.prg" "C0C0" 8 "$BCU_EXP"
+else
+    echo "FAIL: test_basic_compile_unchk_xemu.bas (basic45 or basic45 --compile failed)"
+    failed=$((failed + 1))
+fi
 # a run-time error ends the compiled program: the exit status is its number (20)
 printf '10 x=0:print 1/x:poke 49344,1\n' > build/test/test_basic_compile_err.bas
 if ./bin/basic45 --compile --checks build/test/test_basic_compile_err.bas -o build/test/test_basic_compile_err.prg >/dev/null 2>&1; then
@@ -2978,6 +2989,19 @@ if $CC build/test/test_heap_layout_nopragma.c -o build/test/test_heap_layout_nop
     passed=$((passed + 1))
 else
     echo "FAIL: ln45 'no heap' warning"
+    failed=$((failed + 1))
+fi
+# a program ending inside a stack share chosen (cc45 -fstack-size, ln45
+# --stack-size) is an error (#467); one ending below it links
+printf 'char big[40000];\nint main(void){ big[0]=1; return big[0]; }\n' > build/test/test_stack_share_in.c
+printf 'char big[30000];\nint main(void){ big[0]=1; return big[0]; }\n' > build/test/test_stack_share_ok.c
+if ! $CC -fstack-size=1024 build/test/test_stack_share_in.c -o build/test/test_stack_share_in.prg > build/test/test_stack_share_in.log 2>&1 &&
+   grep -q "ln45: error: program ends at \$BF00, inside the 1024-byte stack share (\$BC00-\$BFFF)" build/test/test_stack_share_in.log &&
+   $CC -fstack-size=1024 build/test/test_stack_share_ok.c -o build/test/test_stack_share_ok.prg >/dev/null 2>&1; then
+    echo "SUCCESS: ln45 refuses a program ending inside the stack share"
+    passed=$((passed + 1))
+else
+    echo "FAIL: ln45 stack share check: $(head -2 build/test/test_stack_share_in.log)"
     failed=$((failed + 1))
 fi
 
