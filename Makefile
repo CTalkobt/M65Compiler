@@ -6,6 +6,10 @@ GIT_HASH := $(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
 EXTRA_CXXFLAGS ?=
 NM ?= nm
 OBJCOPY ?= objcopy
+# libca45.a (the assembler as an installed C++ library) renames its symbols
+# with GNU objcopy on an ELF object: without one (macOS, #502) it is not
+# built or installed, and test_validation links libca45-int.a instead
+HAVE_LIBCA45 ?= $(shell [ "$$(uname -s)" != Darwin ] && $(OBJCOPY) --version 2>/dev/null | grep -q GNU && echo 1)
 CXXFLAGS = -std=c++17 -Wall -Wextra -Iinclude -MMD -MP -DGIT_HASH='"$(GIT_HASH)"' $(EXTRA_CXXFLAGS)
 
 # Optional FUSE3 support for disk45 mount command
@@ -591,10 +595,11 @@ TV_OBJECTS = $(patsubst src/test/%.cpp,$(OBJ_DIR)/tv_%.o,$(TV_SOURCES)) $(OBJ_DI
 TV_LIB_OBJECTS = $(OBJ_DIR)/O45Reader.o $(OBJ_DIR)/O45Writer.o $(OBJ_DIR)/O45DebugSections.o $(OBJ_DIR)/O45IRSerializer.o \
                  $(OBJ_DIR)/O45Linker.o $(OBJ_DIR)/Logger.o $(OBJ_DIR)/O45Archive.o $(OBJ_DIR)/AssemblerOpcodeDatabase.o $(OBJ_DIR)/Pack45.o
 
-# (the ca45lib category calls libca45)
-$(TV_TARGET): $(TV_OBJECTS) $(TV_LIB_OBJECTS) $(LIBCA45)
+# (the ca45lib category calls libca45; its plain objects without objcopy)
+TV_CA45LIB = $(if $(HAVE_LIBCA45),$(LIBCA45),$(LIBCA45_INT))
+$(TV_TARGET): $(TV_OBJECTS) $(TV_LIB_OBJECTS) $(TV_CA45LIB)
 	@mkdir -p $(BIN_DIR)
-	$(CXX) $(CXXFLAGS) -o $@ $(TV_OBJECTS) $(TV_LIB_OBJECTS) $(LIBCA45)
+	$(CXX) $(CXXFLAGS) -o $@ $(TV_OBJECTS) $(TV_LIB_OBJECTS) $(TV_CA45LIB)
 
 # (the category's name: test_validation_parser -> parser, test_move_fill -> move_fill)
 $(OBJ_DIR)/tv_%.o: src/test/%.cpp src/test/test_harness.hpp
@@ -765,7 +770,7 @@ coverage: coverage-build
 	@echo ""
 	@$(MAKE) coverage-report
 
-install: all lib $(LIBCA45)
+install: all lib $(if $(HAVE_LIBCA45),$(LIBCA45))
 	install -d $(DESTDIR)$(BINDIR)
 	install -m 755 $(CC_TARGET) $(CA_TARGET) $(NM_TARGET) $(PACK_TARGET) $(LN_TARGET) $(AR_TARGET) $(OD_TARGET) $(DISK_TARGET) $(ASMCVT45_TARGET) $(BASIC_TARGET) $(TUNE_TARGET) $(DBG45_TARGET) $(DEPLOY_TARGET) $(DESTDIR)$(BINDIR)
 	ln -sf cc45 $(DESTDIR)$(BINDIR)/cp45
@@ -778,9 +783,13 @@ install: all lib $(LIBCA45)
 	install -m 644 lib/include/*.h $(DESTDIR)$(INCDIR)
 	install -m 644 lib/include/sys/*.h $(DESTDIR)$(INCDIR)/sys
 	install -m 644 lib/include/tgi/*.h $(DESTDIR)$(INCDIR)/tgi
+ifeq ($(HAVE_LIBCA45),1)
 	install -d $(DESTDIR)$(CXXLIBDIR) $(DESTDIR)$(CXXINCDIR)/ca45
 	install -m 644 $(LIBCA45) $(DESTDIR)$(CXXLIBDIR)
 	install -m 644 include/ca45/ca45.hpp $(DESTDIR)$(CXXINCDIR)/ca45
+else
+	@echo "(libca45.a not installed: it needs GNU objcopy on ELF objects, #502)"
+endif
 	install -d $(DESTDIR)$(MANDIR)
 	if [ -d $(MAN_DIR) ] && ls $(MAN_DIR)/*.1 >/dev/null 2>&1; then \
 		install -m 644 $(MAN_DIR)/*.1 $(DESTDIR)$(MANDIR); \

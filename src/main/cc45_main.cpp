@@ -4,9 +4,8 @@
 #include <vector>
 #include <cstdlib>
 #include <cstdio>
-#ifdef __linux__
 #include <unistd.h>
-#endif
+#include "SelfPath.hpp"
 #include <fstream>
 #include <sstream>
 #include <csignal>
@@ -454,19 +453,8 @@ int main(int argc, char** argv) {
 
     // Add default system include path
     {
-        std::string exePath;
-#ifdef __linux__
-        char buf[4096];
-        ssize_t len = readlink("/proc/self/exe", buf, sizeof(buf) - 1);
-        if (len > 0) { buf[len] = '\0'; exePath = buf; }
-#endif
-        if (exePath.empty()) {
-            char* resolved = realpath(argv[0], nullptr);
-            if (resolved) { exePath = resolved; free(resolved); }
-            else exePath = argv[0];
-        }
-        size_t sep = exePath.find_last_of("/\\");
-        std::string baseDir = (sep != std::string::npos) ? exePath.substr(0, sep + 1) : "";
+        // (the program's directory: also when started from PATH, #503)
+        std::string baseDir = selfpath::exeDir(argv[0]);
         // The system headers, after CC45_INCLUDE: the build tree's
         // bin/../lib/include, else an installed tree's bin/../include/cc45
         // (make install's PREFIX/include/cc45 next to PREFIX/bin)

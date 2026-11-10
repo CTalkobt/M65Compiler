@@ -14,6 +14,7 @@
 #include "O45Linker.hpp"
 #include "O45Archive.hpp"
 #include "Version.hpp"
+#include "SelfPath.hpp"
 
 // An ifstream opens a directory but throws on the first read.
 static bool isDirectory(const std::string& path) {
@@ -363,17 +364,10 @@ int main(int argc, char** argv) {
     // Last, the standard library directories next to this executable: the
     // build tree's bin/../lib/build, an installed tree's bin/../lib/cc45
     {
-        char buf[4096];
-        ssize_t len = readlink("/proc/self/exe", buf, sizeof(buf) - 1);
-        if (len > 0) {
-            buf[len] = '\0';
-            std::string self(buf);
-            size_t sep = self.find_last_of('/');
-            if (sep != std::string::npos) {
-                std::string base = self.substr(0, sep + 1);
-                libSearchPaths.push_back(base + "../lib/build");
-                libSearchPaths.push_back(base + "../lib/cc45");
-            }
+        std::string base = selfpath::exeDir(argv[0]);   // (#503)
+        if (!base.empty()) {
+            libSearchPaths.push_back(base + "../lib/build");
+            libSearchPaths.push_back(base + "../lib/cc45");
         }
     }
 

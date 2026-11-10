@@ -12,6 +12,19 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
   that fails at run time: "program ends at $BF00, inside the 1024-byte stack
   share ($BC00-$BFFF)". The default share (4096) still only limits the heap.
 - Test: `test_xemu.sh`'s stack share check.
+### macOS: the tools build, install and find their files (#501, #502, #503)
+
+- cc45 builds on macOS: `<unistd.h>` (`access`, `R_OK`) is included on every
+  platform, not only Linux (#501).
+- `make install` without GNU `objcopy` (macOS) leaves out `libca45.a` and its
+  header instead of failing; `test_validation` then links the assembler's plain
+  objects (`HAVE_LIBCA45`, #502).
+- cc45, ln45, basic45, objdump45 and tune45 find their own directory (and so
+  the headers, libraries, symbol files and each other) on every platform:
+  `include/SelfPath.hpp`, `/proc/self/exe` on Linux, `_NSGetExecutablePath`
+  on macOS, `sysctl` on FreeBSD, otherwise argv[0] looked up on `PATH`; before,
+  a tool started from `PATH` outside Linux looked in `../lib/include` relative
+  to the current directory (#503).
 
 ### basic45 --compile: the run time's conversions without checks; fewer run-time pieces linked (#489)
 
