@@ -14,6 +14,7 @@
 #include "O45Linker.hpp"
 #include "O45Archive.hpp"
 #include "Version.hpp"
+#include "SelfPath.hpp"
 
 // An ifstream opens a directory but throws on the first read.
 static bool isDirectory(const std::string& path) {
@@ -363,17 +364,10 @@ int main(int argc, char** argv) {
     // Last, the standard library directories next to this executable: the
     // build tree's bin/../lib/build, an installed tree's bin/../lib/cc45
     {
-        char buf[4096];
-        ssize_t len = readlink("/proc/self/exe", buf, sizeof(buf) - 1);
-        if (len > 0) {
-            buf[len] = '\0';
-            std::string self(buf);
-            size_t sep = self.find_last_of('/');
-            if (sep != std::string::npos) {
-                std::string base = self.substr(0, sep + 1);
-                libSearchPaths.push_back(base + "../lib/build");
-                libSearchPaths.push_back(base + "../lib/cc45");
-            }
+        std::string base = selfpath::exeDir(argv[0]);   // (#503)
+        if (!base.empty()) {
+            libSearchPaths.push_back(base + "../lib/build");
+            libSearchPaths.push_back(base + "../lib/cc45");
         }
     }
 
@@ -479,6 +473,21 @@ int main(int argc, char** argv) {
                 std::cerr << "ln45: error: program ends at " << hex(end) << ", above the CPU stack top "
                           << hex(st->second) << " (cc45 -fstack-top=ADDR, at most " << hex(ramTop - 1)
                           << "; or make the program smaller)" << std::endl;
+                return 1;
+            }
+            // a stack share chosen (--stack-size, cc45 -fstack-size; basic45
+            // links with one): the program must end below it, or the stack
+            // overwrites its last variables (#467); the default share is the
+            // heap's limit only
+            auto ss = syms.find("__stack_size");
+            uint32_t share = ss != syms.end() ? ss->second : 0;
+            if (end > 0 && linker.stackSizeChosen() && share > 0 && st->second + 1 > share &&
+                end > st->second + 1 - share) {
+                uint32_t lo = st->second + 1 - share;
+                std::cerr << "ln45: error: program ends at " << hex(end) << ", inside the " << share
+                          << "-byte stack share (" << hex(lo) << "-" << hex(st->second)
+                          << "): make the program smaller, or the share smaller (--stack-size, cc45 -fstack-size)"
+                          << std::endl;
                 return 1;
             }
             if (end > 0 && st->second + 1 - end < 0x200) {

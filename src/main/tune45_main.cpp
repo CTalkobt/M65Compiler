@@ -36,6 +36,7 @@
 #include <cmath>
 #include <ctime>
 #include <cstdlib>
+#include "SelfPath.hpp"
 
 namespace {
 
@@ -751,14 +752,12 @@ int trace(const TuneFile& f, const PlayOptions& o) {
     return 0;
 }
 
+// argv[0], for selfpath when the platform has no /proc/self/exe (#503)
+static const char* selfArgv0 = nullptr;
+
 // The directory tune45 is in (cc45, ln45 are next to it)
 std::string toolDir() {
-    char buf[PATH_MAX];
-    ssize_t n = readlink("/proc/self/exe", buf, sizeof buf - 1);
-    if (n <= 0) return "";
-    buf[n] = 0;
-    std::string p = buf;
-    return p.substr(0, p.find_last_of('/') + 1);
+    return selfpath::exeDir(selfArgv0);   // (#503)
 }
 
 bool exists(const std::string& p) { struct stat st; return stat(p.c_str(), &st) == 0; }
@@ -1045,6 +1044,7 @@ int list(const TuneFile& f) {
 }  // namespace
 
 int main(int argc, char** argv) {
+    selfArgv0 = argv[0];
     Logger::setTool("tune45");
     argc = Logger::takeFlags(argc, argv);   // -v ... -vvvv anywhere
     if (argc < 2) { usage(std::cerr); return 1; }
