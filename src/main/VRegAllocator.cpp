@@ -149,10 +149,14 @@ void VRegAllocator::extendLiveRangesAcrossLoops(const ir::Function& fn) {
             for (const auto& t : targets) {
                 auto it = labelToBlock.find(t);
                 if (it != labelToBlock.end() && it->second <= bi) {
-                    // Back-edge: bi → it->second
+                    // Back-edge: bi → it->second. The loop starts at the
+                    // first instruction at or after its header: a header
+                    // with none (a rotated loop's latch that falls into the
+                    // test, #464) starts it at the next block's
                     int hdr = it->second;
-                    if (blockStart.count(hdr) && blockEnd.count(bi)) {
-                        loops.push_back({blockStart[hdr], blockEnd[bi]});
+                    auto st = blockStart.lower_bound(hdr);
+                    if (st != blockStart.end() && st->first <= bi && blockEnd.count(bi)) {
+                        loops.push_back({st->second, blockEnd[bi]});
                     }
                 }
             }

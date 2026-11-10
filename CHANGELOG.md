@@ -4,6 +4,19 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### cc45: a value live across a rotated loop's calls kept out of the register pool (#464)
+
+- After loop rotation the back edge goes to the old latch, an empty block
+  that falls into the test: the register allocator's loop detection
+  (`extendLiveRangesAcrossLoops`) looked up the header's first instruction,
+  found none and skipped the loop. A value defined before such a loop and
+  read in it only before its calls (LICM's hoisted `py[0]` address in
+  `basic_gfx.c`'s old `facet`) then ended at that read and went into a pool
+  register the calls overwrite. The loop now starts at the first instruction
+  at or after its header.
+- Test: `test_licm_rotate_xemu.c` (ZP and stack convention, with and without
+  `-frotate-loops`).
+
 ### ca45: code before any .segment and after .segment "code" is one text sub-segment (#468)
 
 - ca45 `-c` wrote the two as separate text sub-segments (`OPT_SEGATTR`
