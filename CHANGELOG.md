@@ -13,6 +13,22 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
   share ($BC00-$BFFF)". The default share (4096) still only limits the heap.
 - Test: `test_xemu.sh`'s stack share check.
 
+### basic45 --compile: the run time's conversions without checks; fewer run-time pieces linked (#489)
+
+- Without `--checks`, a float made an integer, a byte or an address (AYINT,
+  `AND` / `OR`, `POKE`'s value, `CHR$`, `PEEK` / `POKE`'s address) calls
+  `__bas_ayintu` / `__bas_getadr32u`, the run time's entries without their
+  range checks; these link no error code.
+- `basic_rt.s45`: `__bas_ayint`, `__bas_getadr`, `__bas_getadr32`,
+  `__bas_getbyt`, `__bas_sqr`, `__bas_log`, `__bas_exp` and `__bas_pow` each
+  jump to `__bas_illegal` / `__bas_overflow` from a tail of their own. A short
+  branch into another section kept every section between the two linked, so
+  one of them brought in all the others (about 530 bytes).
+- `basic45 --compile`'s tests: 6983 bytes smaller in all without `--checks`
+  (up to 996), 3899 with it (up to 517); none larger.
+- Test: `test_basic_compile_unchk_xemu.bas` (interpreted and compiled without
+  `--checks`).
+
 ### cc45: a float comparison's value by one call (#369)
 
 - A float comparison whose result is a value, not a branch (`r = a < b`;
