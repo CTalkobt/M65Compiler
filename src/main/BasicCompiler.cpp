@@ -68,6 +68,7 @@ enum : int {
     T_COLOR = 0xE7, T_FOREGROUND = 0xFE39, T_BACKGROUND = 0xFE3B, T_BORDER = 0xFE3C, T_HIGHLIGHT = 0xFE3D,
     T_CURSOR = 0xFE41, T_RCURSOR = 0xFE42, T_WINDOW = 0xFE1A, T_FAST = 0xFE25, T_SPEED = 0xFE26,
     T_PALETTE = 0xFE34, T_VSYNC = 0xFE54, T_OFF = 0xFE24, T_RCOLOR = 0xCD, T_RWINDOW = 0xCE09, T_RSPEED = 0xCE0E,
+    T_IMPORT = 0xDD, T_FREEZER = 0xFE4A,
 };
 
 enum class TK { Kw, Num, Str, Name, Ch };
@@ -2611,6 +2612,16 @@ void Compiler::statement() {
         return;
     }
     case T_BEGIN: return;     // (THEN BEGIN / ELSE BEGIN: already passed)
+    case T_IMPORT:
+        // direct mode only (b65.src import: errind): in a program
+        // ?DIRECT MODE ONLY when it runs, whatever --checks says
+        p_ = toks_->size();
+        raiseNow(34, true);
+        return;
+    case T_FREEZER:
+        // the hypervisor's Freezer (b65.src freezer: its trap at $D67F)
+        call("__bas_freezer");
+        return;
     case T_BEND: return;      // the end of a block: nothing to do
     default:
         fail(tokenName(kw) + " is not supported by --compile yet");

@@ -1218,6 +1218,14 @@ __bas_stmt:
     sta __bas_spc+1
     rts
 
+; FREEZER: the hypervisor's Freezer (b65.src freezer: HYV_TRAP + HYV_FREEZER)
+    .split "__bas_freezer"
+.global __bas_freezer
+__bas_freezer:
+    sta $D67F
+    eom                     ; (after a hypervisor trap: the ROM's nop, $EA)
+    rts
+
 ; ---------------------------------------------------------------------------
 ; Data
 ; ---------------------------------------------------------------------------

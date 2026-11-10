@@ -4,6 +4,15 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### basic45 --compile: FREEZER and IMPORT (#369)
+
+- `FREEZER` enters the hypervisor's Freezer, as the ROM's (its trap at
+  `$D67F`; `__bas_freezer` in `basic_rt.s45`).
+- `IMPORT` in a program raises `?DIRECT MODE ONLY` (34) when it runs, as
+  the interpreter's (`errind`), also without `--checks`.
+- Test: `test_basic_compile_import_xemu.bas` (interpreted and compiled; the
+  Freezer itself is not run).
+
 ### ca45: no relative branch from one section into another (unused code no longer linked)
 
 - With sections (`-ffunction-sections`, the library), a relative branch
