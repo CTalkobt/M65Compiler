@@ -189,7 +189,8 @@ make test             # optional: unit tests and examples (about 6 minutes)
 `make CXX=clang++` builds with clang. `make install` (below) builds everything first.
 
 These distributions build the tree from a clean checkout with the packages above (`make test-distros`, which
-needs Docker, repeats the check; the CI runs it on each push):
+needs Docker, repeats the check). The CI builds Debian 13, Fedora (GCC and clang), Arch and Alpine on each
+push, and macOS (Apple clang: the tools, the library, an install, a program compiled with it):
 
 | Distribution | Compiler |
 |---|---|
