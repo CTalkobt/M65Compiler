@@ -275,14 +275,14 @@ __bas_prcomma:
     eor #$FF
     adc #1
     tax
-    bra __bas_rights
+    jmp __bas_rights        ; (a jmp: a branch would tie the sections together)
 
 ; SPC(__bas_n): that many cursor rights
     .split "__bas_prspc"
 .global __bas_prspc
 __bas_prspc:
     ldx __bas_n
-    bra __bas_rights
+    jmp __bas_rights
 
 ; TAB(__bas_n): cursor rights to that column (none if past it)
     .split "__bas_prtab"
@@ -293,8 +293,11 @@ __bas_prtab:
     lda __bas_n
     sec
     sbc __bas_m
-    bcc __bas_rights_done
+    bcc @past
     tax
+    jmp __bas_rights
+@past:
+    rts
     .split "__bas_rights"
 __bas_rights:
     cpx #0
