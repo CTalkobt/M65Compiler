@@ -1501,6 +1501,7 @@ private:
     void chanArg(const char* routine);
     void openStmt();
     void dosStmt(int kw);
+    void setArgCalls();
     int dosArgs(const char* what, int errflags, std::vector<Val>& names, int auxAllowed = 0);
     void iffStmt(int kw);
     void clrStmt();
@@ -2291,7 +2292,92 @@ void Compiler::finish() {
             }
         }
     }
+    setArgCalls();
     for (const auto& e : externs_) mod_->externs.push_back(e);
+}
+
+// Constant arguments of the run time's calls (#369): a store of a constant
+// to __bas_n or __bas_m (10 bytes) is jsr __bas_setn / __bas_setm and the
+// word after it (5), a store to each in a row jsr __bas_setnm and both (7;
+// basic_args.s45). Each helper only when its uses save more than its code.
+void Compiler::setArgCalls() {
+    struct Site { ir::Function* f; size_t b; size_t i; size_t j; int kind; int64_t n, m; };
+    std::vector<Site> sites;
+    for (auto& f : mod_->functions) {
+        std::map<uint32_t, int> defs;
+        std::map<uint32_t, int64_t> consts;
+        for (const auto& b : f.blocks)
+            for (const auto& in : b.insts) {
+                if (in.dest.isVreg()) defs[in.dest.vregId]++;
+                if (in.op == ir::Op::CONST && in.dest.isVreg() && in.src1.isImm()) consts[in.dest.vregId] = in.src1.immVal;
+            }
+        auto constOf = [&](const ir::Operand& o, int64_t& v) {
+            if (o.isImm()) { v = o.immVal; return true; }
+            if (!o.isVreg() || defs[o.vregId] != 1 || f.localSlotVregs.count(o.vregId)) return false;
+            auto c = consts.find(o.vregId);
+            if (c == consts.end()) return false;
+            v = c->second;
+            return true;
+        };
+        // 0: __bas_n, 1: __bas_m, -1: neither
+        auto which = [&](const ir::Inst& in, int64_t& v) {
+            if (in.op != ir::Op::STORE || !in.args.empty() || in.resultType != ir::Type::I16 ||
+                in.src2.kind != ir::OperandKind::GLOBAL) return -1;
+            int w = in.src2.name == "__bas_n" ? 0 : in.src2.name == "__bas_m" ? 1 : -1;
+            if (w < 0 || !constOf(in.src1, v)) return -1;
+            return w;
+        };
+        for (size_t bi = 0; bi < f.blocks.size(); bi++) {
+            auto& is = f.blocks[bi].insts;
+            for (size_t i = 0; i < is.size(); i++) {
+                int64_t v;
+                int w = which(is[i], v);
+                if (w < 0) continue;
+                // the other one next (only constants and NOPs between): a pair
+                size_t j = i + 1;
+                while (j < is.size() && (is[j].op == ir::Op::NOP || is[j].op == ir::Op::CONST)) j++;
+                int64_t v2;
+                int w2 = j < is.size() ? which(is[j], v2) : -1;
+                if (w2 >= 0 && w2 != w) {
+                    sites.push_back({&f, bi, i, j, 2, w == 0 ? v : v2, w == 0 ? v2 : v});
+                    i = j;
+                } else {
+                    sites.push_back({&f, bi, i, i, w, w == 0 ? v : 0, w == 1 ? v : 0});
+                }
+            }
+        }
+    }
+    int count[3] = {0, 0, 0};
+    for (const auto& s : sites) count[s.kind]++;
+    // (the helpers: setn / setm 17 bytes, setnm 25, the shared argptr / argret
+    // 31 once; a single store saves about 4, a pair 11 -- the stores are
+    // sometimes shorter than 10 bytes): each helper whose uses pay for it,
+    // and those only when together they pay for the shared code too
+    const int save[3] = {4, 4, 11}, size[3] = {17, 17, 25};
+    bool use[3];
+    int net = 0;
+    for (int k = 0; k < 3; k++) {
+        int g = count[k] * save[k] - size[k];
+        use[k] = g > 0;
+        if (use[k]) net += g;
+    }
+    if (net <= 31) return;
+    const char* name[3] = {"__bas_setn", "__bas_setm", "__bas_setnm"};
+    // replaced from the end of each block, so earlier indices stay valid
+    std::sort(sites.begin(), sites.end(), [](const Site& a, const Site& b) {
+        return a.f != b.f ? a.f < b.f : a.b != b.b ? a.b < b.b : a.i > b.i; });
+    for (const auto& s : sites) {
+        if (!use[s.kind]) continue;
+        auto& is = s.f->blocks[s.b].insts;
+        auto w = [](int64_t v) { return std::to_string((int)(v & 0xFFFF)); };
+        ir::Inst in; in.op = ir::Op::CALL_VOID; in.src1 = ir::Operand::global(name[s.kind]);
+        in.callConv = ir::CallConv::ZP; in.isRegparm = true; in.loc = is[s.j].loc;
+        in.asmText = ".word " + (s.kind == 2 ? w(s.n) + ", " + w(s.m) : w(s.kind == 0 ? s.n : s.m));
+        is[s.j] = in;
+        if (s.j != s.i) { is[s.i].op = ir::Op::NOP; is[s.i].resultType = ir::Type::VOID; is[s.i].dest = is[s.i].src1 = is[s.i].src2 = ir::Operand::none(); is[s.i].args.clear(); }
+        externs_.insert(name[s.kind]);
+        s.f->originalCallees.insert(name[s.kind]);
+    }
 }
 
 void Compiler::statement() {
