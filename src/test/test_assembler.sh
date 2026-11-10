@@ -654,6 +654,39 @@ else
     echo "FAIL: .split pieces in the default segment and \"code\" (#468)"
     failed=$((failed + 1))
 fi
+# A jmp to a near label in another section stays a jmp, a branch to a jmp
+# is not retargeted into another section: a relative branch between two
+# sections would tie every section between them together (b1 kept unused)
+cat > $SD/secjmp.s45 << 'EOF2'
+    .split "_a1"
+.global _a1
+_a1: lda $10
+    beq x1
+    jmp b2
+x1: lda $11
+    beq x2
+    rts
+x2: jmp b2
+    .split "b1"
+.global b1
+b1: lda #1
+    rts
+    .split "b2"
+.global b2
+b2: lda #2
+    rts
+EOF2
+rm -f $SD/secjmp.lib
+if $AS -c -ffunction-sections $SD/secjmp.s45 -o $SD/secjmp.o45 >/dev/null 2>&1 &&
+   ./bin/ar45 c $SD/secjmp.lib $SD/secjmp.o45 >/dev/null 2>&1 &&
+   ./bin/ln45 -basic -M $SD/secjmp.map -o $SD/secjmp.prg $SD/defcode_main.o45 $SD/secjmp.lib lib/build/c45.lib >/dev/null 2>&1 &&
+   grep -q "secjmp.o45): b1 (3 bytes)" $SD/secjmp.map && grep -qE '^\s+\$[0-9A-F]+\s+b2\b' $SD/secjmp.map; then
+    echo "SUCCESS: no branch into another section (an unused section between is dropped)"
+    passed=$((passed + 1))
+else
+    echo "FAIL: a jmp / branch into another section tied the sections between together"
+    failed=$((failed + 1))
+fi
 
 # A compare with a character literal ('0' is $30) after a load is not the
 # "cmp #0" the optimiser drops
