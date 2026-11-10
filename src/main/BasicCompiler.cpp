@@ -69,6 +69,7 @@ enum : int {
     T_CURSOR = 0xFE41, T_RCURSOR = 0xFE42, T_WINDOW = 0xFE1A, T_FAST = 0xFE25, T_SPEED = 0xFE26,
     T_PALETTE = 0xFE34, T_VSYNC = 0xFE54, T_OFF = 0xFE24, T_RCOLOR = 0xCD, T_RWINDOW = 0xCE09, T_RSPEED = 0xCE0E,
     T_IMPORT = 0xDD, T_FREEZER = 0xFE4A,
+    T_TRON = 0xD8, T_TROFF = 0xD9, T_MEM = 0xFE23,
 };
 
 enum class TK { Kw, Num, Str, Name, Ch };
@@ -932,7 +933,7 @@ private:
         call("__bas_poke");
     }
     bool farMem_ = false;    // a BANK in the program
-    bool usesTrap_ = false, resumeStmt_ = false, erVars_ = false;
+    bool usesTrap_ = false, resumeStmt_ = false, erVars_ = false, traceUsed_ = false;
     bool cmdUsed_ = false;   // a CMD in the program
     bool sprIrq_ = false;    // MOVSPR, BUMP or COLLISION: the sprites' interrupt hook
     bool collision_ = false; // COLLISION: its traps looked for at each statement
@@ -1490,6 +1491,18 @@ private:
 
     // --- statements ---
     void statement();
+    // TRON in the program: "[line]" before each statement while the trace
+    // is on (jsr __bas_trace / .word line; basic_rt.s45), also before the
+    // statement after THEN / ELSE, as BASIC's token_dispatch
+    void traceCall() {
+        if (!traceUsed_) return;
+        externs_.insert("__bas_trace");
+        fn_->originalCallees.insert("__bas_trace");
+        ir::Inst in; in.op = ir::Op::CALL_VOID; in.src1 = ir::Operand::global("__bas_trace");
+        in.callConv = ir::CallConv::ZP; in.isRegparm = true;
+        in.asmText = ".word " + std::to_string(li_ < lines_.size() ? lines_[li_].num : 0);
+        emit(in);
+    }
     void assignment(const std::string& name);
     // a place a value is stored: a scalar (its global) or an element (its address)
     struct LV { VK k = VK::F; bool elem = false; std::string g; ir::Operand addr; };
@@ -1675,6 +1688,7 @@ void Compiler::prescan() {
                     sprIrq_ = true;
                 if (t.kw == T_COLLISION) collision_ = true;
                 if (t.kw == T_RESUME && !(k + 1 < sg.toks.size() && sg.toks[k + 1].k == TK::Num)) resumeStmt_ = true;
+                if (t.kw == T_TRON) traceUsed_ = true;
             }
     // the DATA statements (a statement's first token)
     dataAt_.assign(lines_.size() + 1, 0);
@@ -1982,6 +1996,7 @@ std::shared_ptr<ir::Module> Compiler::run() {
                 in.asmText = ".word @" + nx;
                 emit(in);
             }
+            if (!lines_[li_].segs[si_].toks.empty()) traceCall();
             if (collision_) {
                 // a COLLISION trap's flag (set by the interrupt): its GOSUB first, as BASIC's ngone
                 std::string go = newLabel("ctrip"), body = newLabel("cbody");
@@ -2608,6 +2623,7 @@ void Compiler::statement() {
         block(elseLabel(li_, si_));
         auto n = peek();
         if (n && n->k == TK::Num) { br(lineLabel(lineTarget())); block(newLabel("dead")); return; }
+        if (n) traceCall();
         statement();
         return;
     }
@@ -2622,6 +2638,19 @@ void Compiler::statement() {
         // the hypervisor's Freezer (b65.src freezer: its trap at $D67F)
         call("__bas_freezer");
         return;
+    case T_TRON: case T_TROFF:
+        // the trace on / off (b65.src tron / troff: runmod's bit 5)
+        store(ir::Type::I8, iconst(ir::Type::I8, kw == T_TRON ? 0x80 : 0), global("__bas_tron"));
+        return;
+    case T_MEM: {
+        // MEM b4, b5: the banks BASIC's memory allocation leaves alone
+        // (b65.src mem: getbyt, combyt into alloc4 / alloc5); a compiled
+        // program allocates none there: the values checked, then ignored
+        toByte(expr());
+        expectCh(',');
+        toByte(expr());
+        return;
+    }
     case T_BEND: return;      // the end of a block: nothing to do
     default:
         fail(tokenName(kw) + " is not supported by --compile yet");
@@ -4689,6 +4718,7 @@ void Compiler::ifStmt() {
     block(then);
     if (stmts) {
         if (begin) p_++;
+        if (peek()) traceCall();
         statement();
     }
 }
