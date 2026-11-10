@@ -774,13 +774,40 @@ std::string IRCodeGen::callF32Copies(const std::string& text) {
     }
     // (__f32cpy is 54 bytes; a call saves 4: 7 bytes, the loop 11)
     if (sites.size() < 14) return text;
+    // the short forms (__f32ld, about 90 bytes, linked once): a copy into
+    // __float_a / __float_b or out of __float_a names one address (5 bytes);
+    // one into __float_a right before one into __float_b (whose source is not
+    // __float_b) is one call, both addresses (7 bytes for the two)
+    auto fa = [](const std::string& x) { return x == "__float_a"; };
+    auto fb = [](const std::string& x) { return x == "__float_b"; };
+    std::vector<int> form(sites.size(), 0);   // 0 __f32cpy, 1 lda, 2 ldb, 3 sta, 4 ldab (with the next), 5 its second
+    int saved = 0;
+    for (size_t k = 0; k < sites.size(); k++) {
+        const Site& c = sites[k];
+        if (fa(c.dst) && k + 1 < sites.size() && sites[k + 1].at == c.at + 8 && fb(sites[k + 1].dst) &&
+            !fb(sites[k + 1].src) && !fa(c.src)) {
+            form[k] = 4; form[k + 1] = 5; saved += 7; k++;
+        } else if (fa(c.dst) && !fb(c.src)) { form[k] = 1; saved += 2; }
+        else if (fb(c.dst) && !fa(c.src)) { form[k] = 2; saved += 2; }
+        else if (fa(c.src) && !fb(c.dst)) { form[k] = 3; saved += 2; }
+    }
+    static const bool noShort = getenv("CC45_NO_F32LD") != nullptr;
+    if (saved < 90 || noShort) std::fill(form.begin(), form.end(), 0);
     std::string out;
     size_t next = 0;
-    bool ext = false;
+    bool ext = false, extLd = false;
     for (size_t i = 0; i < ln.size(); i++) {
         if (next < sites.size() && sites[next].at == i) {
-            if (!ext) { out += "    .extern __f32cpy\n"; ext = true; }
-            out += "    jsr __f32cpy\n    .word " + sites[next].src + ", " + sites[next].dst + "\n";
+            const Site& c = sites[next];
+            int f = form[next];
+            if (f == 0 && !ext) { out += "    .extern __f32cpy\n"; ext = true; }
+            if (f != 0 && !extLd) { out += "    .extern __f32lda\n    .extern __f32ldb\n    .extern __f32sta\n    .extern __f32ldab\n"; extLd = true; }
+            if (f == 0) out += "    jsr __f32cpy\n    .word " + c.src + ", " + c.dst + "\n";
+            else if (f == 1) out += "    jsr __f32lda\n    .word " + c.src + "\n";
+            else if (f == 2) out += "    jsr __f32ldb\n    .word " + c.src + "\n";
+            else if (f == 3) out += "    jsr __f32sta\n    .word " + c.dst + "\n";
+            else if (f == 4) out += "    jsr __f32ldab\n    .word " + c.src + ", " + sites[next + 1].src + "\n";
+            // (5: the pair's second, in the call before)
             i += 7;
             next++;
             continue;
