@@ -4,6 +4,16 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### ca45: code before any .segment and after .segment "code" is one text sub-segment (#468)
+
+- ca45 `-c` wrote the two as separate text sub-segments (`OPT_SEGATTR`
+  "default" and "code"), and ln45 drops unused sections only in an object
+  with one: a `.split` file starting in the default segment and switching to
+  `"code"` later (after a `.segment "bss"` block) kept every piece. Plain code
+  next to each other (`default`, `code`, `text`) is now one sub-segment, and
+  no record is written when that is all.
+- Test: `test_assembler.sh` (the issue's repro, linked).
+
 ### cc45: a float comparison's value by one call (#369)
 
 - A float comparison whose result is a value, not a branch (`r = a < b`;
