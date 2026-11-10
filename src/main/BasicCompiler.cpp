@@ -430,6 +430,13 @@ private:
     // --checks (#489): the checks of the program's own values and flow; without
     // it none is compiled (undefined behaviour: the program goes on)
     bool checks() const { return chainOpt_ && chainOpt_->checks; }
+    // a run-time conversion's entry without its range checks when compiled
+    // without --checks (#489): __bas_ayintu for AYINT, ayintw, GETBYT and
+    // GETADR (16 bits in __bas_n), __bas_getadr32u
+    const char* unchecked(const char* entry) const {
+        if (checks()) return entry;
+        return std::string(entry) == "__bas_getadr32" ? "__bas_getadr32u" : "__bas_ayintu";
+    }
     void raiseNow(int n, bool always = false) {
         if (!checks() && !always) return;
         raises(); br(errLabel(n)); block(newLabel("dead"));
@@ -586,7 +593,7 @@ private:
             return iconst(ir::Type::I16, 0);
         }
         store(ir::Type::F32, toF(v), global("__float_a"));
-        call("__bas_getadr");
+        call(unchecked("__bas_getadr"));
         return load(ir::Type::I16, global("__bas_n"));
     }
     ir::Operand addrGlobal(const std::string& g) {
@@ -798,7 +805,7 @@ private:
             return constI((int64_t)f);
         }
         Val r; r.k = VK::I; r.bound = 32768;
-        r.op = viaN(v, "__bas_ayint");
+        r.op = viaN(v, unchecked("__bas_ayint"));
         return r;
     }
     // AND, OR, NOT, XOR's integer: BASIC 65's ayintw (-32768..65535, rounded
@@ -824,7 +831,7 @@ private:
             return constI(c > 32767 ? c - 65536 : c);
         }
         Val r; r.k = VK::I; r.bound = 32768;
-        r.op = viaN(v, "__bas_ayintw");
+        r.op = viaN(v, unchecked("__bas_ayintw"));
         return r;
     }
     // ?ILLEGAL QUANTITY outside lo..hi: only the limits the value's bound
@@ -854,7 +861,7 @@ private:
             raiseIf(v.op, 14);
             return iconst(ir::Type::I8, 0);
         }
-        return trunc(viaN(v, "__bas_getbyt"), ir::Type::I8);
+        return trunc(viaN(v, unchecked("__bas_getbyt")), ir::Type::I8);
     }
     // An address 0..65535 (POKE, PEEK): PTR
     ir::Operand toAddr(const Val& v) {
@@ -869,7 +876,7 @@ private:
             return trunc(v.op, ir::Type::PTR);
         }
         store(ir::Type::F32, toF(v), global("__float_a"));
-        call("__bas_getadr");
+        call(unchecked("__bas_getadr"));
         return load(ir::Type::PTR, global("__bas_n"));
     }
     // PEEK / POKE / WPEEK / WPOKE's address: 0..2^32-1 (BASIC 65's getadr:
@@ -895,7 +902,7 @@ private:
             store(ir::Type::I32, asType(x, ir::Type::I32), global("__bas_fa"));
         } else {
             store(ir::Type::F32, toF(v), global("__float_a"));
-            call("__bas_getadr32");
+            call(unchecked("__bas_getadr32"));
         }
         return m;
     }
@@ -1538,7 +1545,7 @@ private:
             store(ir::Type::I32, asType(x, ir::Type::I32), global("__bas_fa"));
         } else {
             store(ir::Type::F32, toF(v), global("__float_a"));
-            call("__bas_getadr32");
+            call(unchecked("__bas_getadr32"));
         }
     }
     int lastAux_ = 0;
@@ -2571,7 +2578,7 @@ int Compiler::dosArgs(const char* what, int errflags, std::vector<Val>& names, i
             store(ir::Type::I32, asType(x, ir::Type::I32), global(g));
         } else {
             store(ir::Type::F32, toF(a), global("__float_a"));
-            call("__bas_getadr32");
+            call(unchecked("__bas_getadr32"));
             store(ir::Type::I32, load(ir::Type::I32, global("__bas_fa")), global(g));
         }
     };
@@ -3199,7 +3206,7 @@ void Compiler::freadStmt(bool write) {
         store(ir::Type::I32, asType(x, ir::Type::I32), global("__bas_fa"));
     } else {
         store(ir::Type::F32, toF(a), global("__float_a"));
-        call("__bas_getadr32");
+        call(unchecked("__bas_getadr32"));
     }
     expectCh(',');
     store(ir::Type::I16, toAddr(expr()), global("__bas_m"));
