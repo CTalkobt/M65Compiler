@@ -760,6 +760,17 @@ else
     echo "FAIL: test_basic_compile_unchk_xemu.bas (basic45 or basic45 --compile failed)"
     failed=$((failed + 1))
 fi
+# test_basic_compile_sad_xemu.bas: coordinates (getsad) of constants computed
+# when compiled, of integers as they are, of floats at run time (#369)
+BCS_EXP="70 01 FF 00 FF 01 2C 00 FD 01 F1 00 01 01 F0 00 0B 01 DC 00 AA"
+if ./bin/basic45 src/test-resources/test_basic_compile_sad_xemu.bas -o build/test/test_basic_compile_sad_i.prg >/dev/null 2>&1 &&
+   ./bin/basic45 --compile --checks src/test-resources/test_basic_compile_sad_xemu.bas -o build/test/test_basic_compile_sad.prg >/dev/null 2>&1; then
+    run_xemu_test "test_basic_compile_sad_interpreted" "build/test/test_basic_compile_sad_i.prg" "C0C0" 21 "$BCS_EXP"
+    run_xemu_test "test_basic_compile_sad" "build/test/test_basic_compile_sad.prg" "C0C0" 21 "$BCS_EXP"
+else
+    echo "FAIL: test_basic_compile_sad_xemu.bas (basic45 or basic45 --compile failed)"
+    failed=$((failed + 1))
+fi
 # a run-time error ends the compiled program: the exit status is its number (20)
 printf '10 x=0:print 1/x:poke 49344,1\n' > build/test/test_basic_compile_err.bas
 if ./bin/basic45 --compile --checks build/test/test_basic_compile_err.bas -o build/test/test_basic_compile_err.prg >/dev/null 2>&1; then

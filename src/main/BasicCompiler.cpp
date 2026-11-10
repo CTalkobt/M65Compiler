@@ -1572,11 +1572,24 @@ private:
     }
     void gByte(int off, const Val& v) { gStore(off, toByte(v), ir::Type::I8); }
     void gWord(int off, const Val& v) { gStore(off, toAddr(v), ir::Type::I16); }
-    void gSad(int off, const Val& v) {
+    // BASIC's getsad: rounded down, the low 16 bits (?ILLEGAL QUANTITY from
+    // 2^32 on). A constant computed here, an integer's low 16 bits as they
+    // are; otherwise __bas_getsad on __float_a, the result in __bas_n
+    ir::Operand sadValue(const Val& v) {
+        if ((v.k == VK::I || v.k == VK::F) && v.isConst) {
+            double f = std::floor(v.cval);
+            if (std::fabs(f) < 4294967296.0) {
+                int64_t i = (int64_t)f;
+                return iconst(ir::Type::I16, (int16_t)(uint16_t)((uint64_t)i & 0xFFFF));
+            }
+        }
+        if (v.k == VK::I)
+            return v.op.type == ir::Type::I16 ? v.op : trunc(v.op, ir::Type::I16);
         store(ir::Type::F32, toF(v), global("__float_a"));
         call("__bas_getsad");
-        gStore(off, load(ir::Type::I16, global("__bas_n")), ir::Type::I16);
+        return load(ir::Type::I16, global("__bas_n"));
     }
+    void gSad(int off, const Val& v) { gStore(off, sadValue(v), ir::Type::I16); }
     void graphicsStmt(int kw);
     int gkiParms();
     void screenGStmt();
@@ -3443,8 +3456,7 @@ void Compiler::coordArg(int which) {
     if (acceptKw(T_PLUS)) mode = 0x10;
     else if (acceptKw(T_MINUS)) mode = 0x20;
     Val v = expr();
-    store(ir::Type::F32, toF(v), global("__float_a"));
-    call("__bas_getsad");
+    store(ir::Type::I16, sadValue(v), global("__bas_n"));
     store(ir::Type::I16, iconst(ir::Type::I16, which | mode), global("__bas_m"));
     call("__bas_mvarg");
 }
