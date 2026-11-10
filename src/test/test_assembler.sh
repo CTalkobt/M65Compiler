@@ -627,6 +627,33 @@ else
     echo "FAIL: -ffunction-sections / linking a sectioned object"
     failed=$((failed + 1))
 fi
+# Code before any .segment and after .segment "code" is one text
+# sub-segment (#468): ln45 drops an unused .split piece of either part
+cat > $SD/defcode.s45 << 'EOF2'
+    .split "_a1"
+.global _a1
+_a1: rts
+.segment "bss"
+v1: .res 1
+.segment "code"
+    .split "b1"
+.global b1
+b1: lda v1
+    rts
+EOF2
+printf 'extern void a1(void); int main(void){a1();return 0;}\n' > $SD/defcode_main.c
+rm -f $SD/defcode.lib
+if $AS -c -ffunction-sections $SD/defcode.s45 -o $SD/defcode.o45 >/dev/null 2>&1 &&
+   ./bin/ar45 c $SD/defcode.lib $SD/defcode.o45 >/dev/null 2>&1 &&
+   ./bin/cc45 -O2 -c $SD/defcode_main.c -o $SD/defcode_main.o45 >/dev/null 2>&1 &&
+   ./bin/ln45 -basic -M $SD/defcode.map -o $SD/defcode.prg $SD/defcode_main.o45 $SD/defcode.lib lib/build/c45.lib >/dev/null 2>&1 &&
+   grep -q "defcode.o45): b1 (4 bytes)" $SD/defcode.map && grep -qE '^\s+\$[0-9A-F]+\s+_a1\b' $SD/defcode.map; then
+    echo "SUCCESS: an unused .split piece after .segment \"code\" is dropped"
+    passed=$((passed + 1))
+else
+    echo "FAIL: .split pieces in the default segment and \"code\" (#468)"
+    failed=$((failed + 1))
+fi
 
 # A compare with a character literal ('0' is $30) after a load is not the
 # "cmp #0" the optimiser drops
