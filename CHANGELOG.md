@@ -4,6 +4,20 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### ca45: no relative branch from one section into another (unused code no longer linked)
+
+- With sections (`-ffunction-sections`, the library), a relative branch
+  between two sections ties together every section from the one to the other,
+  so code nothing calls was linked. ca45's optimiser made such branches: `JMP`
+  to a near label in another section became `BRA`, and jump threading sent a
+  branch to a `JMP` on to its target in another section (`conio.s45`'s
+  `__conio_newline`, `tune.s45`'s `__tune_legato`). Both now stay within a
+  section. `basic_rt.s45`'s PRINT comma / SPC / TAB reach `__bas_rights` by
+  `JMP` instead of `BRA` / falling through. No library file has such a branch
+  now (`CA45_DEBUG_SECTIONS=1` lists them).
+- Test: `test_assembler.sh` (an unused section between two that jump to each
+  other is dropped).
+
 ### macOS: the tools build again (#503)
 
 - `include/SelfPath.hpp` declared `_NSGetExecutablePath` by including

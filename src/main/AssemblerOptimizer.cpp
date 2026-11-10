@@ -344,6 +344,27 @@ bool AssemblerOptimizer::optimizeInternal(
                    (tm == "JMP" && t->instr.mode == AddressingMode::ABSOLUTE);
         };
         static const std::set<std::string> condBranches = {"BEQ", "BNE", "BCC", "BCS", "BMI", "BPL", "BVC", "BVS"};
+        // with sections (-ffunction-sections): each statement's section (.split
+        // / proc open one, per segment); a relative branch is never retargeted
+        // into another (it would tie the sections between together, O45Emitter)
+        std::vector<int> secOf(st.size(), -1);
+        if (parser->functionSections) {
+            std::map<std::string, int> open;
+            int nextSec = 0;
+            for (size_t k = 0; k < st.size(); ++k) {
+                auto* x = st[k].get();
+                const std::string& seg = x->segmentName;
+                if (x->type == AssemblerParser::Statement::DIRECTIVE) {
+                    if (x->dir.name == "split") open[seg] = nextSec++;
+                    else if (x->dir.name == "nosplit") open.erase(seg);
+                } else if (x->type == AssemblerParser::Statement::INSTRUCTION && x->instr.mnemonic == "proc") {
+                    open[seg] = nextSec++;
+                }
+                auto o = open.find(seg);
+                secOf[k] = o == open.end() ? -1 : o->second;
+                if (x->type == AssemblerParser::Statement::INSTRUCTION && x->instr.mnemonic == "endproc") open.erase(seg);
+            }
+        }
         for (size_t i = 0; i < st.size(); ++i) {
             auto* s = st[i].get();
             if (s->deleted || s->noOpt || s->type != AssemblerParser::Statement::INSTRUCTION) continue;
@@ -369,10 +390,12 @@ bool AssemblerOptimizer::optimizeInternal(
             // relative one within its 8-bit range) from the same scope
             if (!isUncond(ts) || ts->scopePrefix != s->scopePrefix) continue;
             uint32_t final;
-            if (targetOf(ts, final) < 0 || final == addr || final == s->address) continue;
+            long ft = targetOf(ts, final);
+            if (ft < 0 || final == addr || final == s->address) continue;
             if (m != "JMP") {
                 int32_t off = (int32_t)final - (int32_t)(s->address + 2);
                 if (off < -128 || off > 127) continue;
+                if (parser->functionSections && secOf[ft] != secOf[i]) continue;
             }
             report("jump-chain", s, m + " " + s->instr.operand + " → " + ts->instr.operand + " (a branch to a branch)");
             s->instr.operand = ts->instr.operand;
@@ -802,6 +825,42 @@ bool AssemblerOptimizer::optimizeInternal(
     }
 
     // --- Pass 1d: JMP→BRA conversion when target is within ±127 bytes ---
+    // With sections (-ffunction-sections), never a branch into another one:
+    // a relative branch between two sections ties together every section
+    // from the one to the other (O45Emitter), so unused code is linked.
+    // A statement's section: its index in the order .split / proc open them
+    // (-1 outside any), per segment as the emitter's
+    std::vector<int> secOf;
+    if (parser->functionSections) {
+        secOf.assign(parser->statements.size(), -1);
+        std::map<std::string, int> open;
+        int next = 0;
+        for (size_t i = 0; i < parser->statements.size(); ++i) {
+            auto* st = parser->statements[i].get();
+            const std::string& seg = st->segmentName;
+            if (st->type == AssemblerParser::Statement::DIRECTIVE) {
+                if (st->dir.name == "split") open[seg] = next++;
+                else if (st->dir.name == "nosplit") open.erase(seg);
+            } else if (st->type == AssemblerParser::Statement::INSTRUCTION) {
+                if (st->instr.mnemonic == "proc") open[seg] = next++;
+            }
+            auto o = open.find(seg);
+            secOf[i] = o == open.end() ? -1 : o->second;
+            if (st->type == AssemblerParser::Statement::INSTRUCTION && st->instr.mnemonic == "endproc")
+                open.erase(seg);
+        }
+    }
+    // the section holding an address of a segment (by the statements' addresses)
+    auto secAt = [&](const std::string& seg, uint32_t addr) -> int {
+        int found = -2;
+        for (size_t i = 0; i < parser->statements.size(); ++i) {
+            auto* st = parser->statements[i].get();
+            if (st->deleted || st->segmentName != seg) continue;
+            if (st->address <= addr) found = secOf[i];
+            else break;
+        }
+        return found;
+    };
     for (size_t i = 0; i < parser->statements.size(); ++i) {
         auto* s = parser->statements[i].get();
         if (s->deleted || s->noOpt) continue;
@@ -850,7 +909,9 @@ bool AssemblerOptimizer::optimizeInternal(
                 // computed goto, patched at run time): never a relative branch
                 bool numeric = operand.empty() || operand[0] == '$' || operand[0] == '%' ||
                                (operand[0] >= '0' && operand[0] <= '9');
-                if (!isReloc && !numeric && !parser->isWeakSymbol(operand)) {
+                // (into another section: see above)
+                bool otherSec = !secOf.empty() && secAt(s->segmentName, targetAddr) != secOf[i];
+                if (!isReloc && !numeric && !otherSec && !parser->isWeakSymbol(operand)) {
                     uint32_t braPC = s->address + 2;
                     int32_t offset = (int32_t)targetAddr - (int32_t)braPC;
                     if (offset >= -128 && offset <= 127) {
