@@ -4,6 +4,20 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### macOS: the tools build, install and find their files (#501, #502, #503)
+
+- cc45 builds on macOS: `<unistd.h>` (`access`, `R_OK`) is included on every
+  platform, not only Linux (#501).
+- `make install` without GNU `objcopy` (macOS) leaves out `libca45.a` and its
+  header instead of failing; `test_validation` then links the assembler's plain
+  objects (`HAVE_LIBCA45`, #502).
+- cc45, ln45, basic45, objdump45 and tune45 find their own directory (and so
+  the headers, libraries, symbol files and each other) on every platform:
+  `include/SelfPath.hpp`, `/proc/self/exe` on Linux, `_NSGetExecutablePath`
+  on macOS, `sysctl` on FreeBSD, otherwise argv[0] looked up on `PATH`; before,
+  a tool started from `PATH` outside Linux looked in `../lib/include` relative
+  to the current directory (#503).
+
 ### cc45: a float comparison's value by one call (#369)
 
 - A float comparison whose result is a value, not a branch (`r = a < b`;
