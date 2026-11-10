@@ -382,6 +382,11 @@ echo "Testing test_sret_xemu.c (struct results/arguments)..."
 xemu_case "FAIL: test_sret_xemu.c (compilation/linking failed)" "src/test-resources/test_sret_xemu.c" "build/test/test_sret_xemu.prg" -- "test_sret" "build/test/test_sret_xemu.prg" "C0C0" 22 "44 11 88 55 07 08 09 07 08 09 0A 14 0B 0D 0F 02 06 05 07 06 07 AA"
 
 # Test: float arguments/results, negative values, ROM math functions
+echo "Testing test_licm_rotate_xemu.c (a value hoisted out of a rotated loop, live across its calls; #464)..."
+xemu_case "FAIL: test_licm_rotate_xemu.c (compilation/linking failed)" "src/test-resources/test_licm_rotate_xemu.c" "build/test/test_licm_rotate_xemu.prg" -- "test_licm_rotate" "build/test/test_licm_rotate_xemu.prg" "C0C0" 4 "01 02 03 AA"
+xemu_case "FAIL: test_licm_rotate_xemu.c -fno-zpcall (compilation/linking failed)" "src/test-resources/test_licm_rotate_xemu.c" "build/test/test_licm_rotate_stack_xemu.prg" "-fno-zpcall" -- "test_licm_rotate_stack" "build/test/test_licm_rotate_stack_xemu.prg" "C0C0" 4 "01 02 03 AA"
+xemu_case "FAIL: test_licm_rotate_xemu.c -frotate-loops (compilation/linking failed)" "src/test-resources/test_licm_rotate_xemu.c" "build/test/test_licm_rotate_rot_xemu.prg" "-frotate-loops" -- "test_licm_rotate_rot" "build/test/test_licm_rotate_rot_xemu.prg" "C0C0" 4 "01 02 03 AA"
+xemu_case "FAIL: test_licm_rotate_xemu.c -frotate-loops -fno-zpcall (compilation/linking failed)" "src/test-resources/test_licm_rotate_xemu.c" "build/test/test_licm_rotate_rotstack_xemu.prg" "-frotate-loops -fno-zpcall" -- "test_licm_rotate_rotstack" "build/test/test_licm_rotate_rotstack_xemu.prg" "C0C0" 4 "01 02 03 AA"
 echo "Testing test_float_cmpbool_xemu.c (a float comparison's value by one call)..."
 xemu_case "FAIL: test_float_cmpbool_xemu.c (compilation/linking failed)" "src/test-resources/test_float_cmpbool_xemu.c" "build/test/test_float_cmpbool_xemu.prg" -- "test_float_cmpbool" "build/test/test_float_cmpbool_xemu.prg" "C0C0" 9 "01 02 03 04 05 06 07 08 AA"
 xemu_case "FAIL: test_float_cmpbool_xemu.c -fno-zpcall (compilation/linking failed)" "src/test-resources/test_float_cmpbool_xemu.c" "build/test/test_float_cmpbool_stack_xemu.prg" "-fno-zpcall" -- "test_float_cmpbool_stack" "build/test/test_float_cmpbool_stack_xemu.prg" "C0C0" 9 "01 02 03 04 05 06 07 08 AA"
