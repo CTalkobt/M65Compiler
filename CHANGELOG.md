@@ -4,6 +4,17 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### basic45 --compile: constant arguments of the run time's calls after a jsr (#369)
+
+- A store of a constant to `__bas_n` or `__bas_m` (the run time's argument
+  words) is `jsr __bas_setn` / `__bas_setm` and the word after it, a store to
+  each in a row `jsr __bas_setnm` and both (`lib/stdlib_asm/basic_args.s45`):
+  5 / 7 bytes instead of 10 / 20. Done at the end of compiling (`setArgCalls`),
+  each helper only when its uses pay for it, and those only when together they
+  pay for the code they share.
+- `basic45 --compile`'s tests: 1432 bytes smaller in all (up to 381), none
+  larger.
+
 ### basic45 --compile: coordinates of constants and integers without the float conversion (#369)
 
 - A graphics or sprite coordinate (BASIC's getsad: rounded down, its low 16

@@ -1,0 +1,92 @@
+; basic_args.s45 -- basic45 --compile: constant arguments of the run time's
+; calls after a jsr (#369)
+;
+;     jsr __bas_setn  / .word n          __bas_n := n
+;     jsr __bas_setm  / .word m          __bas_m := m
+;     jsr __bas_setnm / .word n, m       both
+;
+; 5 (7) bytes instead of 10 (20) of lda / ldx / sta / stx; each returns past
+; its words. A, X, Y clobbered; $F6/$F7 (library temps).
+
+    .cpu 45gs02
+
+; no calls through pointers here (ln45's call graph)
+.weak cc45.icallinfo
+cc45.icallinfo = 1
+
+.extern __bas_n
+.extern __bas_m
+
+    .split "__bas_setn"
+.global __bas_setn
+__bas_setn:
+    jsr __bas_argptr
+    lda ($F6),y
+    sta __bas_n
+    iny
+    lda ($F6),y
+    sta __bas_n+1
+    jmp __bas_argret
+
+    .split "__bas_setm"
+.global __bas_setm
+__bas_setm:
+    jsr __bas_argptr
+    lda ($F6),y
+    sta __bas_m
+    iny
+    lda ($F6),y
+    sta __bas_m+1
+    jmp __bas_argret
+
+    .split "__bas_setnm"
+.global __bas_setnm
+__bas_setnm:
+    jsr __bas_argptr
+    lda ($F6),y
+    sta __bas_n
+    iny
+    lda ($F6),y
+    sta __bas_n+1
+    iny
+    lda ($F6),y
+    sta __bas_m
+    iny
+    lda ($F6),y
+    sta __bas_m+1
+    jmp __bas_argret
+
+; ($F6) := the caller's jsr's last byte (its words follow), Y = 1; the
+; entry's own return address taken off the stack and kept in $F8/$F9
+    .split "__bas_argptr"
+.global __bas_argptr
+__bas_argptr:
+    pla
+    sta $F8
+    pla
+    sta $F9
+    pla
+    sta $F6
+    pla
+    sta $F7
+    lda $F9
+    pha
+    lda $F8
+    pha
+    ldy #1
+    rts
+
+; back past the words read (Y: the last one's offset)
+    .split "__bas_argret"
+.global __bas_argret
+__bas_argret:
+    tya                     ; (the last byte's address: rts adds 1)
+    clc
+    adc $F6
+    tax
+    lda $F7
+    adc #0
+    pha
+    txa
+    pha
+    rts
