@@ -4,6 +4,16 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### cc45: a float result stored and used again read from its variable (#485, #369)
+
+- A float result stored to a variable right after it and used again further
+  on in the block (a `FOR` loop's `NEXT`: the variable stepped, then compared
+  with the limit) is written there and read from there, not kept in a
+  base-page temporary, when no store or call between could change it.
+- A float comparison's result used right after is taken from A.
+- `basic45 --compile`'s tests: up to 180 bytes smaller.
+- Test: `test_float_copy_xemu.c` [21]-[23].
+
 ### cc45: shorter float copy calls (#485, #369)
 
 - With `-ffloat-copy-call`, a copy into `__float_a` / `__float_b` or out of
