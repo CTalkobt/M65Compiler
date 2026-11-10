@@ -5491,6 +5491,10 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
             if (in.op == ir::Op::ASM_INLINE) anyAsm = true;
             for (const ir::Operand* o : {&in.dest, &in.src1, &in.src2})
                 if (o->kind == ir::OperandKind::LABEL) labelRefs_[o->name]++;
+            // (a call's data naming a label, reached through it as an
+            // address: basic45's RESUME; never a single predecessor's)
+            if ((in.op == ir::Op::CALL || in.op == ir::Op::CALL_VOID) && in.src2.kind == ir::OperandKind::LABEL)
+                labelRefs_[in.src2.name]++;
             for (const auto& o : in.args)
                 if (o.kind == ir::OperandKind::LABEL) labelRefs_[o.name]++;
             for (const auto& c : in.switchCases) labelRefs_[c.second] += 2;

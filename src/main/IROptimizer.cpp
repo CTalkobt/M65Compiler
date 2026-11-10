@@ -2593,6 +2593,9 @@ void optimizeBranchFold(Module& mod) {
                     bool hasTerminator = false;
                     for (auto& inst : block.insts) {
                         if (inst.op == Op::ADDR_LABEL) referenced.insert(inst.src1.name);
+                        // (a call's data naming a label: basic45's jsr __bas_stmt / .word <next>)
+                        if ((inst.op == Op::CALL || inst.op == Op::CALL_VOID) && inst.src2.kind == OperandKind::LABEL)
+                            referenced.insert(inst.src2.name);
                         if (inst.op == Op::BR) {
                             referenced.insert(inst.src1.name);
                             hasTerminator = true;

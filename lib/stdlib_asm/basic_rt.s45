@@ -1181,6 +1181,40 @@ __bas_getbyt:
 @ill:
     jmp __bas_illegal
 
+; A statement's first code when the program has RESUME: jsr __bas_stmt /
+; .word <the next statement> (#369). __bas_spc := the jsr's address (RESUME
+; runs the statement again from it), __bas_snext := the word (RESUME NEXT);
+; returns past the word. A, X, Y clobbered; $F6/$F7 (library temps)
+    .split "__bas_stmt"
+.global __bas_stmt
+__bas_stmt:
+    pla
+    sta $F6
+    pla
+    sta $F7                 ; ($F6): the jsr's last byte
+    ldy #1
+    lda ($F6),y
+    sta __bas_snext
+    iny
+    lda ($F6),y
+    sta __bas_snext+1
+    clc                     ; back past the word: ($F6) + 2
+    lda $F6
+    adc #2
+    tax
+    lda $F7
+    adc #0
+    pha
+    phx
+    sec                     ; the jsr's address: ($F6) - 2
+    lda $F6
+    sbc #2
+    sta __bas_spc
+    lda $F7
+    sbc #0
+    sta __bas_spc+1
+    rts
+
 ; ---------------------------------------------------------------------------
 ; Data
 ; ---------------------------------------------------------------------------
