@@ -4,6 +4,15 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### macOS: the tools build again (#503)
+
+- `include/SelfPath.hpp` declared `_NSGetExecutablePath` by including
+  `<mach-o/dyld.h>`, whose `<mach-o/loader.h>` #defines `SEG_TEXT` and
+  `SEG_DATA`: the names of `O45Segment`'s members (`O45Types.hpp`), included
+  after it, became strings and cc45, ln45, objdump45, tune45 and basic45 no
+  longer compiled on macOS. The function is declared in the `__APPLE__` branch
+  instead; other platforms are unchanged.
+
 ### basic45 --compile: constant arguments of the run time's calls after a jsr (#369)
 
 - A store of a constant to `__bas_n` or `__bas_m` (the run time's argument

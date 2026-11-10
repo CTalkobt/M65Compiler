@@ -12,7 +12,10 @@
 #include <unistd.h>
 #include <sys/stat.h>
 #if defined(__APPLE__)
-#include <mach-o/dyld.h>
+// (not <mach-o/dyld.h>: its <mach-o/loader.h> #defines SEG_TEXT / SEG_DATA,
+// which clash with O45Segment's names, #503)
+#include <cstdint>
+extern "C" int _NSGetExecutablePath(char* buf, uint32_t* bufsize);
 #elif defined(__FreeBSD__)
 #include <sys/types.h>
 #include <sys/sysctl.h>
