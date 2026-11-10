@@ -382,6 +382,11 @@ echo "Testing test_sret_xemu.c (struct results/arguments)..."
 xemu_case "FAIL: test_sret_xemu.c (compilation/linking failed)" "src/test-resources/test_sret_xemu.c" "build/test/test_sret_xemu.prg" -- "test_sret" "build/test/test_sret_xemu.prg" "C0C0" 22 "44 11 88 55 07 08 09 07 08 09 0A 14 0B 0D 0F 02 06 05 07 06 07 AA"
 
 # Test: float arguments/results, negative values, ROM math functions
+echo "Testing test_licm_rotate_xemu.c (a value hoisted out of a rotated loop, live across its calls; #464)..."
+xemu_case "FAIL: test_licm_rotate_xemu.c (compilation/linking failed)" "src/test-resources/test_licm_rotate_xemu.c" "build/test/test_licm_rotate_xemu.prg" -- "test_licm_rotate" "build/test/test_licm_rotate_xemu.prg" "C0C0" 4 "01 02 03 AA"
+xemu_case "FAIL: test_licm_rotate_xemu.c -fno-zpcall (compilation/linking failed)" "src/test-resources/test_licm_rotate_xemu.c" "build/test/test_licm_rotate_stack_xemu.prg" "-fno-zpcall" -- "test_licm_rotate_stack" "build/test/test_licm_rotate_stack_xemu.prg" "C0C0" 4 "01 02 03 AA"
+xemu_case "FAIL: test_licm_rotate_xemu.c -frotate-loops (compilation/linking failed)" "src/test-resources/test_licm_rotate_xemu.c" "build/test/test_licm_rotate_rot_xemu.prg" "-frotate-loops" -- "test_licm_rotate_rot" "build/test/test_licm_rotate_rot_xemu.prg" "C0C0" 4 "01 02 03 AA"
+xemu_case "FAIL: test_licm_rotate_xemu.c -frotate-loops -fno-zpcall (compilation/linking failed)" "src/test-resources/test_licm_rotate_xemu.c" "build/test/test_licm_rotate_rotstack_xemu.prg" "-frotate-loops -fno-zpcall" -- "test_licm_rotate_rotstack" "build/test/test_licm_rotate_rotstack_xemu.prg" "C0C0" 4 "01 02 03 AA"
 echo "Testing test_float_cmpbool_xemu.c (a float comparison's value by one call)..."
 xemu_case "FAIL: test_float_cmpbool_xemu.c (compilation/linking failed)" "src/test-resources/test_float_cmpbool_xemu.c" "build/test/test_float_cmpbool_xemu.prg" -- "test_float_cmpbool" "build/test/test_float_cmpbool_xemu.prg" "C0C0" 9 "01 02 03 04 05 06 07 08 AA"
 xemu_case "FAIL: test_float_cmpbool_xemu.c -fno-zpcall (compilation/linking failed)" "src/test-resources/test_float_cmpbool_xemu.c" "build/test/test_float_cmpbool_stack_xemu.prg" "-fno-zpcall" -- "test_float_cmpbool_stack" "build/test/test_float_cmpbool_stack_xemu.prg" "C0C0" 9 "01 02 03 04 05 06 07 08 AA"
@@ -735,6 +740,17 @@ if ./bin/basic45 --compile build/test/test_basic_compile_nochk.bas -o build/test
     run_xemu_test "test_basic_compile_chk" "build/test/test_basic_compile_chk.prg" "FD" 2 "0E 00"
 else
     echo "FAIL: test_basic_compile_nochk (basic45 --compile failed)"
+    failed=$((failed + 1))
+fi
+# test_basic_compile_unchk_xemu.bas: the run time's conversions without their
+# range checks (compiled without --checks, #489) give the interpreter's values
+BCU_EXP="01 01 01 01 01 01 01 AA"
+if ./bin/basic45 src/test-resources/test_basic_compile_unchk_xemu.bas -o build/test/test_basic_compile_unchk_i.prg >/dev/null 2>&1 &&
+   ./bin/basic45 --compile src/test-resources/test_basic_compile_unchk_xemu.bas -o build/test/test_basic_compile_unchk.prg >/dev/null 2>&1; then
+    run_xemu_test "test_basic_compile_unchk_interpreted" "build/test/test_basic_compile_unchk_i.prg" "C0C0" 8 "$BCU_EXP"
+    run_xemu_test "test_basic_compile_unchk" "build/test/test_basic_compile_unchk.prg" "C0C0" 8 "$BCU_EXP"
+else
+    echo "FAIL: test_basic_compile_unchk_xemu.bas (basic45 or basic45 --compile failed)"
     failed=$((failed + 1))
 fi
 # a run-time error ends the compiled program: the exit status is its number (20)
@@ -2973,6 +2989,19 @@ if $CC build/test/test_heap_layout_nopragma.c -o build/test/test_heap_layout_nop
     passed=$((passed + 1))
 else
     echo "FAIL: ln45 'no heap' warning"
+    failed=$((failed + 1))
+fi
+# a program ending inside a stack share chosen (cc45 -fstack-size, ln45
+# --stack-size) is an error (#467); one ending below it links
+printf 'char big[40000];\nint main(void){ big[0]=1; return big[0]; }\n' > build/test/test_stack_share_in.c
+printf 'char big[30000];\nint main(void){ big[0]=1; return big[0]; }\n' > build/test/test_stack_share_ok.c
+if ! $CC -fstack-size=1024 build/test/test_stack_share_in.c -o build/test/test_stack_share_in.prg > build/test/test_stack_share_in.log 2>&1 &&
+   grep -q "ln45: error: program ends at \$BF00, inside the 1024-byte stack share (\$BC00-\$BFFF)" build/test/test_stack_share_in.log &&
+   $CC -fstack-size=1024 build/test/test_stack_share_ok.c -o build/test/test_stack_share_ok.prg >/dev/null 2>&1; then
+    echo "SUCCESS: ln45 refuses a program ending inside the stack share"
+    passed=$((passed + 1))
+else
+    echo "FAIL: ln45 stack share check: $(head -2 build/test/test_stack_share_in.log)"
     failed=$((failed + 1))
 fi
 

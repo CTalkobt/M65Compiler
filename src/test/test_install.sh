@@ -92,6 +92,10 @@ else
     fail "installed objdump45 -S: $("$PREFIX/bin/objdump45" -d sym.prg 2>&1 | tail -2)"
 fi
 
+# libca45.a needs GNU objcopy on ELF (#502): not built or installed on macOS
+if [ ! -f "$PREFIX/lib/libca45.a" ] && [ "$(uname -s)" = Darwin ]; then
+    echo "  (skipped: libca45.a, not built on macOS)"
+else
 # libca45 (#117): a C++ program built against only the installed header and
 # archive (-I PREFIX/include, PREFIX/lib/libca45.a) assembles a 45GS02 line
 cat > ca45lib.cpp <<'EOF'
@@ -152,6 +156,7 @@ if ${CXX:-g++} -std=c++17 -I"$PREFIX/include" ca45names.cpp "$PREFIX/lib/libca45
     pass "a program with its own MachineState and Logger links libca45.a"
 else
     fail "libca45 names: $(tail -3 ca45names.log)"
+fi
 fi
 
 if make -C "$ROOT" --no-print-directory uninstall PREFIX="$PREFIX" >"$WORK/uninstall.log" 2>&1 \

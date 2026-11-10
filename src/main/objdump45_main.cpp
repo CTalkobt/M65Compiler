@@ -25,6 +25,7 @@
 #include "BasicTokenizer.hpp"
 #include "BasicEmitter.hpp"
 #include "Version.hpp"
+#include "SelfPath.hpp"
 
 // An ifstream opens a directory but throws on the first read.
 static bool isDirectory(const std::string& path) {
@@ -947,16 +948,15 @@ static bool loadSymbolFile(const std::string& path, std::map<uint32_t, std::stri
     return true;
 }
 
+// argv[0], for selfpath when the platform has no /proc/self/exe (#503)
+static const char* selfArgv0 = nullptr;
+
 // -S NAME without a file of that name: lib/symbols/NAME.sym beside the tools
 // (the build tree, or an installed one's lib/cc45/symbols)
 static std::string shippedSymbolFile(const std::string& name) {
     if (name.find('/') != std::string::npos) return "";
-    char buf[4096];
-    ssize_t n = readlink("/proc/self/exe", buf, sizeof buf - 1);
-    if (n <= 0) return "";
-    buf[n] = 0;
-    std::string bin = buf;
-    bin = bin.substr(0, bin.find_last_of('/') + 1);
+    std::string bin = selfpath::exeDir(selfArgv0);   // (#503)
+    if (bin.empty()) return "";
     for (const char* d : {"../lib/symbols/", "../lib/cc45/symbols/"}) {
         std::string p = bin + d + name + ".sym";
         if (std::ifstream(p)) return p;
@@ -2044,6 +2044,7 @@ static void printUsage(const char* progName) {
 }
 
 int main(int argc, char** argv) {
+    selfArgv0 = argv[0];
     bool showFileHeader = false;
     bool showSections = false;
     bool showSymbols = false;

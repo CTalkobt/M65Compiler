@@ -71,7 +71,11 @@ std::vector<uint8_t> emitO45(AssemblerParser& parser, const std::string& asmVers
     if (parser.segments.count("default") && (parser.segments.at("default")->startAddress != 0xFFFFFFFF || parser.segments.at("default")->pc > 0)) {
         bool found = false;
         for (const auto& s : allSegNames) if (s == "default") { found = true; break; }
-        if (!found) allSegNames.insert(allSegNames.begin(), "default");
+        if (!found) {
+            // (right before "code": the two are one text sub-segment, #468)
+            auto code = std::find(allSegNames.begin(), allSegNames.end(), std::string("code"));
+            allSegNames.insert(code != allSegNames.end() ? code : allSegNames.begin(), "default");
+        }
     }
 
     std::map<std::string, SegBody> segBodies;
@@ -822,6 +826,8 @@ std::vector<uint8_t> emitO45(AssemblerParser& parser, const std::string& asmVers
     {
         std::vector<uint8_t> mergedTextBody;
         std::vector<O45Reloc> mergedTextRelocs;
+        struct TextAttr { std::string name; uint32_t offset, len; };
+        std::vector<TextAttr> textAttrs;
         uint32_t textBase = 0;
         bool baseSet = false;
 
@@ -835,29 +841,8 @@ std::vector<uint8_t> emitO45(AssemblerParser& parser, const std::string& asmVers
                 baseSet = true;
             }
 
-            // Emit OPT_SEGATTR when there are multiple text sub-segments,
-            // or when a single sub-segment has a non-default name (e.g., "init")
-            bool needAttr = (textSegNames.size() > 1) ||
-                            (name != "code" && name != "default" && name != "text");
-            if (needAttr && !sb.bytes.empty()) {
-                std::vector<uint8_t> payload;
-                payload.push_back((uint8_t)SEG_TEXT);
-                // offset (4 LE)
-                payload.push_back((uint8_t)(offset & 0xFF));
-                payload.push_back((uint8_t)((offset >> 8) & 0xFF));
-                payload.push_back((uint8_t)((offset >> 16) & 0xFF));
-                payload.push_back((uint8_t)((offset >> 24) & 0xFF));
-                // length (4 LE)
-                uint32_t len = (uint32_t)sb.bytes.size();
-                payload.push_back((uint8_t)(len & 0xFF));
-                payload.push_back((uint8_t)((len >> 8) & 0xFF));
-                payload.push_back((uint8_t)((len >> 16) & 0xFF));
-                payload.push_back((uint8_t)((len >> 24) & 0xFF));
-                // name (NUL-terminated)
-                for (char c : name) payload.push_back((uint8_t)c);
-                payload.push_back(0x00);
-                writer.addOptionRaw(OPT_SEGATTR, payload);
-            }
+            // (the OPT_SEGATTR records: after the loop)
+            if (!sb.bytes.empty()) textAttrs.push_back({name, offset, (uint32_t)sb.bytes.size()});
 
             // Adjust relocation offsets for this sub-segment
             auto it = segRelocs.find(name);
@@ -869,6 +854,34 @@ std::vector<uint8_t> emitO45(AssemblerParser& parser, const std::string& asmVers
             }
 
             mergedTextBody.insert(mergedTextBody.end(), sb.bytes.begin(), sb.bytes.end());
+        }
+
+        // OPT_SEGATTR records: plain code ("default", the code before any
+        // .segment, "code", "text") next to each other is one sub-segment,
+        // "code"; none when that is all (#468: ln45 drops unused sections
+        // only in an object with at most one text sub-segment)
+        {
+            auto plain = [](const std::string& n) { return n == "default" || n == "code" || n == "text"; };
+            std::vector<TextAttr> merged;
+            for (const auto& t : textAttrs) {
+                if (!merged.empty() && plain(t.name) && merged.back().name == "code" &&
+                    merged.back().offset + merged.back().len == t.offset) {
+                    merged.back().len += t.len;
+                    continue;
+                }
+                merged.push_back({plain(t.name) ? std::string("code") : t.name, t.offset, t.len});
+            }
+            bool needAttr = merged.size() > 1 || (merged.size() == 1 && merged[0].name != "code");
+            if (needAttr)
+                for (const auto& t : merged) {
+                    std::vector<uint8_t> payload;
+                    payload.push_back((uint8_t)SEG_TEXT);
+                    for (int k = 0; k < 4; k++) payload.push_back((uint8_t)(t.offset >> (8 * k)));
+                    for (int k = 0; k < 4; k++) payload.push_back((uint8_t)(t.len >> (8 * k)));
+                    for (char c : t.name) payload.push_back((uint8_t)c);
+                    payload.push_back(0x00);
+                    writer.addOptionRaw(OPT_SEGATTR, payload);
+                }
         }
 
         // Sort merged relocs by offset
