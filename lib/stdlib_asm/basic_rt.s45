@@ -798,9 +798,11 @@ __bas_sqr:
     lda __float_a
     beq @ok
     lda __float_a+1
-    bmi __bas_illegal
+    bmi @ill
 @ok:
     jmp __float_sqr
+@ill:
+    jmp __bas_illegal
 
     .split "__bas_illegal"
 .global __bas_illegal
@@ -813,10 +815,12 @@ __bas_illegal:
 .global __bas_log
 __bas_log:
     lda __float_a
-    beq __bas_illegal
+    beq @ill
     lda __float_a+1
-    bmi __bas_illegal
+    bmi @ill
     jmp __float_log
+@ill:
+    jmp __bas_illegal
 
 ; EXP, ?OVERFLOW above 88.0296919 (the ROM's limit)
     .split "__bas_exp"
@@ -830,8 +834,10 @@ __bas_exp:
     bpl @b
     jsr __float_cmp
     cmp #1
-    beq __bas_overflow
+    beq @ovf
     jmp __float_exp
+@ovf:
+    jmp __bas_overflow
 
     .split "__bas_overflow"
 .global __bas_overflow
@@ -883,7 +889,7 @@ __bas_pow:
     bpl @cb
     jsr __float_cmp
     cmp #0
-    bne __bas_illegal
+    bne @ill
 @range:
     ; LOG(|a|) * b above 88: ?OVERFLOW (EXP's limit)
     ldx #4
@@ -911,7 +917,7 @@ __bas_pow:
     bpl @lim
     jsr __float_cmp
     cmp #1
-    beq __bas_overflow
+    beq @ovf
     ldx #4
 @back:
     lda __bas_fx,x
@@ -935,6 +941,10 @@ __bas_pow:
     ldx #>__float_a
     jsr __float_store_fac
     jmp __bp_prog
+@ill:
+    jmp __bas_illegal
+@ovf:
+    jmp __bas_overflow
 
 ; __float_a to a 16-bit integer in __bas_n, as BASIC's AYINT: rounded down
 ; (INT), ?ILLEGAL QUANTITY outside -32768..32767
@@ -945,17 +955,17 @@ __bas_ayint:
     lda __float_a
     beq @zero
     cmp #$91
-    bcs __bas_illegal       ; |x| >= 65536
+    bcs @ill                ; |x| >= 65536
     cmp #$90
     bcc @fits               ; |x| < 32768
     ; |x| in 32768..65535: only -32768
     lda __float_a+1
     cmp #$80
-    bne __bas_illegal
+    bne @ill
     lda __float_a+2
     ora __float_a+3
     ora __float_a+4
-    bne __bas_illegal
+    bne @ill
     lda #0
     sta __bas_n
     lda #$80
@@ -994,6 +1004,90 @@ __bas_ayint:
     sta __bas_n+1
 @done:
     rts
+@ill:
+    jmp __bas_illegal
+
+; __bas_ayint without the range checks (compiled without --checks, #489):
+; INT(__float_a)'s 16 bits in __bas_n for -32768..65535 (AYINT, ayintw,
+; GETADR's 0..65535, GETBYT's byte the low one); outside, any value
+    .split "__bas_ayintu"
+.global __bas_ayintu
+__bas_ayintu:
+    jsr __bas_int
+    lda __float_a
+    beq ayu_zero
+    cmp #$91
+    bcs ayu_zero               ; |x| >= 65536: undefined
+    lda __float_a+1
+    ora #$80
+    sta __bas_n+1
+    lda __float_a+2
+    sta __bas_n
+    lda #$90
+    sec
+    sbc __float_a
+    tax
+    beq ayu_sign
+ayu_shift:
+    lsr __bas_n+1
+    ror __bas_n
+    dex
+    bne ayu_shift
+ayu_sign:
+    lda __float_a+1
+    bpl ayu_done
+    sec
+    lda #0
+    sbc __bas_n
+    sta __bas_n
+    lda #0
+    sbc __bas_n+1
+    sta __bas_n+1
+ayu_done:
+    rts
+ayu_zero:
+    lda #0
+    sta __bas_n
+    sta __bas_n+1
+    rts
+
+; __bas_getadr32 without the range checks (without --checks, #489): a
+; negative address or one of 2^32 or more any value
+    .split "__bas_getadr32u"
+.global __bas_getadr32u
+__bas_getadr32u:
+    jsr __bas_int
+    lda __float_a
+    beq ga32u_zero
+    cmp #$A1
+    bcs ga32u_zero               ; undefined
+    lda __float_a+4
+    sta __bas_fa
+    lda __float_a+3
+    sta __bas_fa+1
+    lda __float_a+2
+    sta __bas_fa+2
+    lda __float_a+1
+    ora #$80
+    sta __bas_fa+3
+    lda #$A0
+    sec
+    sbc __float_a
+    tax
+    beq ga32u_done
+ga32u_shift:
+    lsrq __bas_fa
+    dex
+    bne ga32u_shift
+ga32u_done:
+    rts
+ga32u_zero:
+    lda #0
+    sta __bas_fa
+    sta __bas_fa+1
+    sta __bas_fa+2
+    sta __bas_fa+3
+    rts
 
 ; A whole number 0..65535 for POKE's address, PEEK, WAIT (as GETADR):
 ; INT(__float_a) into __bas_n, ?ILLEGAL QUANTITY outside it
@@ -1001,14 +1095,14 @@ __bas_ayint:
 .global __bas_getadr
 __bas_getadr:
     lda __float_a
-    beq __bas_n0
+    beq @n0
     lda __float_a+1
-    bmi __bas_illegal2
+    bmi @ill
     jsr __bas_int
     lda __float_a
-    beq __bas_n0
+    beq @n0
     cmp #$91
-    bcs __bas_illegal2      ; >= 65536
+    bcs @ill      ; >= 65536
     lda __float_a+1
     ora #$80
     sta __bas_n+1
@@ -1026,6 +1120,12 @@ __bas_getadr:
     bne @shift
 @done:
     rts
+@n0:
+    sta __bas_n
+    sta __bas_n+1
+    rts
+@ill:
+    jmp __bas_illegal
 ; __float_a rounded down as a 32-bit address (PEEK / POKE: BASIC 65's getadr,
 ; 0..2^32-1) into __bas_fa; ?ILLEGAL QUANTITY outside
     .split "__bas_getadr32"
@@ -1034,12 +1134,12 @@ __bas_getadr32:
     lda __float_a
     beq @zero
     lda __float_a+1
-    bmi __bas_illegal2
+    bmi @ill
     jsr __bas_int
     lda __float_a
     beq @zero
     cmp #$A1
-    bcs __bas_illegal2      ; >= 2^32
+    bcs @ill      ; >= 2^32
     lda __float_a+4
     sta __bas_fa
     lda __float_a+3
@@ -1067,14 +1167,7 @@ __bas_getadr32:
     sta __bas_fa+2
     sta __bas_fa+3
     rts
-
-    .split "__bas_n0"
-__bas_n0:
-    sta __bas_n
-    sta __bas_n+1
-    rts
-    .split "__bas_illegal2"
-__bas_illegal2:
+@ill:
     jmp __bas_illegal
 
 ; A byte 0..255 (POKE's value, CHR$, TAB, SPC): __bas_ayint, then the range
@@ -1083,8 +1176,10 @@ __bas_illegal2:
 __bas_getbyt:
     jsr __bas_ayint
     lda __bas_n+1
-    bne __bas_illegal2
+    bne @ill
     rts
+@ill:
+    jmp __bas_illegal
 
 ; ---------------------------------------------------------------------------
 ; Data
