@@ -1949,6 +1949,24 @@ std::shared_ptr<ir::Module> Compiler::run() {
         entry();
         for (si_ = 0; si_ < lines_[li_].segs.size(); si_++) {
             block(stmtLabel(li_, si_));
+            // (a REM, DATA or empty statement raises no error: no call)
+            const auto& st0 = lines_[li_].segs[si_].toks;
+            bool quiet = st0.empty() || (st0[0].k == TK::Kw && (st0[0].kw == T_REM || st0[0].kw == T_DATA));
+            if (resumeStmt_ && !quiet) {
+                // (RESUME: this statement and the next one, should it raise
+                // an error): jsr __bas_stmt / .word <next>, the statement's
+                // first code -- __bas_spc is the jsr's own address, so RESUME
+                // runs it again. The next statement's label in src2 keeps its
+                // block (as an address taken)
+                externs_.insert("__bas_stmt");
+                fn_->originalCallees.insert("__bas_stmt");
+                std::string nx = nextStmtLabel(li_, si_);
+                ir::Inst in; in.op = ir::Op::CALL_VOID; in.src1 = ir::Operand::global("__bas_stmt");
+                in.callConv = ir::CallConv::ZP; in.isRegparm = true;
+                in.src2 = ir::Operand::label(nx);
+                in.asmText = ".word @" + nx;
+                emit(in);
+            }
             if (collision_) {
                 // a COLLISION trap's flag (set by the interrupt): its GOSUB first, as BASIC's ngone
                 std::string go = newLabel("ctrip"), body = newLabel("cbody");
@@ -1961,15 +1979,6 @@ std::shared_ptr<ir::Module> Compiler::run() {
                 br("Ctrap");
                 block(body);
                 entry();
-            }
-            if (resumeStmt_) {
-                // (RESUME: this statement and the next one, should it raise an error)
-                for (auto [lbl, g] : {std::pair<std::string, const char*>{stmtLabel(li_, si_), "__bas_spc"},
-                                      {nextStmtLabel(li_, si_), "__bas_snext"}}) {
-                    auto r = vreg(ir::Type::I16);
-                    ir::Inst in; in.op = ir::Op::ADDR_LABEL; in.dest = r; in.src1 = ir::Operand::label(lbl); emit(in);
-                    store(ir::Type::I16, r, global(g));
-                }
             }
             toks_ = &lines_[li_].segs[si_].toks;
             p_ = 0;

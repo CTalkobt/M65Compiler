@@ -522,7 +522,9 @@ message ends at `ERROR` (no ` IN line`, as in direct mode) and `EL` stays 65535,
 the trap's line with the CPU stack as at the start (BASIC's stack of `GOSUB`, `FOR` and `DO` as it was, as the ROM
 does); `RESUME` turns it on again and goes back to the statement (`RESUME`), to the one after it (`RESUME NEXT`)
 or to a line; `?CAN'T RESUME` without an error. A trap's line is a number (`TRAP 100`). A program with `RESUME`
-without a line notes each statement's address as it runs (`__bas_spc` / `__bas_snext`).
+without a line notes each statement's address as it runs: the statement starts with `jsr __bas_stmt` and the
+next statement's address in a `.word` (5 bytes), which sets `__bas_spc` (the call's own address) and `__bas_snext`
+(not for `REM`, `DATA` or an empty statement, which raise no error).
 
 **PEEK, POKE, WPEEK, WPOKE, WAIT** take BASIC 65's addresses: 0..2^32-1, above 65535 a 28-bit address (far memory,
 `[zp],z`), below it in the bank `BANK` chose (128, the default, the CPU's map). A `POKE` value is 0..65535, its low

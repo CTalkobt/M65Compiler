@@ -14,6 +14,19 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 - `basic45 --compile`'s tests: 993 bytes smaller in all (up to 339), none
   larger.
 
+### basic45 --compile: RESUME's statement addresses by one call (#369)
+
+- A program with `RESUME` (without a line) noted each statement's address and
+  the next one's with two label loads and stores, about 20 bytes a statement.
+  Each statement now starts with `jsr __bas_stmt` and `.word <the next
+  statement>` (5 bytes; `basic_rt.s45`): `__bas_spc` is the call's own address,
+  so `RESUME` runs the statement again from it, and `__bas_snext` the word.
+  No call in a `REM`, `DATA` or empty statement.
+- The next statement's label is the call's `src2` (a label operand): the IR's
+  dead-block pass and IRCodeGen count it as a reference.
+- `basic45 --compile`'s tests: 26946 bytes smaller in all (up to 2454; most of
+  them use `TRAP` and `RESUME`), none larger.
+
 ### cc45: floats read and written through a pointer by calls (#369)
 
 - A float read through a pointer into `__float_a` is `jsr __f32ldp`, one
