@@ -14,6 +14,20 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 - `basic45 --compile`'s tests: 993 bytes smaller in all (up to 339), none
   larger.
 
+### cc45: floats read and written through a pointer by calls (#369)
+
+- A float read through a pointer into `__float_a` is `jsr __f32ldp`, one
+  written through a pointer from `__float_a` is `jsr __f32stp`, with the
+  pointer in A/X (`lib/stdlib_asm/f32cpy.s45`, 16 bytes each): 3 bytes instead
+  of `sta`/`stx` and the 10-byte loop. Each routine is used when two or more of
+  its kind in the file have the pointer just computed (an array element at a
+  variable index; six stores in all also do), then for every one of that
+  kind; with `-ffloat-copy-call` (`-O1`, `-O2`; off from `-O3`),
+  `CC45_NO_F32PTR=1` keeps the loops.
+- `basic45 --compile`'s tests: 1020 bytes smaller in all (up to 287), none
+  larger.
+- Test: `test_float_ptr_xemu.c` (also `-fno-zpcall`, `-fno-float-copy-call`).
+
 ### cc45: a value live across a rotated loop's calls kept out of the register pool (#464)
 
 - After loop rotation the back edge goes to the old latch, an empty block

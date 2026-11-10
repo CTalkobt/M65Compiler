@@ -316,7 +316,7 @@ ffc() { ./bin/cc45 "$@" -c src/test-resources/test_float_copy_xemu.c -o $T/fc.o4
 [ "$(ffc -O3)" = 0 ] && pass || fail "-O3 calls __f32cpy"
 # the short forms (one address, or both operands in one call)
 [ "$(./bin/cc45 -O2 -c src/test-resources/test_float_copy_xemu.c -o $T/fc.o45 2>/dev/null && ./bin/nm45 $T/fc.o45 | grep -cE ' U __f32(lda|ldb|sta|ldab)$')" = 4 ] && pass || fail "-O2: float copies not through __f32lda/ldb/sta/ldab"
-[ "$(CC45_NO_F32LD=1 ./bin/cc45 -O2 -c src/test-resources/test_float_copy_xemu.c -o $T/fc.o45 2>/dev/null && ./bin/nm45 $T/fc.o45 | grep -c ' U __f32ld')" = 0 ] && pass || fail "CC45_NO_F32LD=1 still calls __f32ld*"
+[ "$(CC45_NO_F32LD=1 ./bin/cc45 -O2 -c src/test-resources/test_float_copy_xemu.c -o $T/fc.o45 2>/dev/null && ./bin/nm45 $T/fc.o45 | grep -cE ' U __f32(lda|ldb|ldab)$')" = 0 ] && pass || fail "CC45_NO_F32LD=1 still calls __f32lda/ldb/ldab"
 printf 'float a, b, c, r;\nvoid f(void) { r = a * b + c; }\n' > $T/fa.c
 ./bin/cc45 -O2 -S $T/fa.c -o $T/fa.s 2>/dev/null
 [ "$(grep -c '@__fcpy_[0-9]*:' $T/fa.s)" = 4 ] && pass || fail "a * b + c: $(grep -c '@__fcpy_[0-9]*:' $T/fa.s) float copies, not 4 (a, b, c, r: the product left in __float_a)"
