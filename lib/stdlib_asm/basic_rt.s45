@@ -1215,6 +1215,75 @@ __bas_stmt:
     sta __bas_spc+1
     rts
 
+;   jsr __bas_trace / .word line   (a statement's first code with TRON in
+; the program, #369): with the trace on (__bas_tron bit 7, TRON / TROFF),
+; "[line]" before the statement, as BASIC's token_dispatch (curprt: the
+; number without a space). A, X, Y clobbered; $F6-$FB (library temps)
+    .split "__bas_trace"
+.global __bas_trace
+__bas_trace:
+    pla
+    sta $F6
+    pla
+    sta $F7                 ; ($F6): the jsr's last byte
+    clc                     ; back past the word
+    lda $F6
+    adc #2
+    tax
+    lda $F7
+    adc #0
+    pha
+    phx
+    bit __bas_tron
+    bmi @on
+    rts
+@on:
+    ldy #1
+    lda ($F6),y
+    sta $F8
+    iny
+    lda ($F6),y
+    sta $F9                 ; the line number
+    lda #'['
+    jsr __bas_out
+    lda #0
+    sta $FA                 ; (a digit printed: no more zeros left out)
+    ldx #0
+@pow:
+    ldy #'0'
+@sub:
+    lda $F8                 ; the number - 10^(4-x), while it does not borrow
+    sec
+    sbc trace_lo,x
+    sta $FB
+    lda $F9
+    sbc trace_hi,x
+    bcc @digit
+    sta $F9
+    lda $FB
+    sta $F8
+    iny
+    bra @sub
+@digit:
+    cpy #'0'
+    bne @print
+    lda $FA
+    bne @print
+    cpx #4
+    bne @next               ; a leading zero (not the last digit)
+@print:
+    sty $FA
+    tya
+    jsr __bas_out           ; (keeps X and Y)
+@next:
+    inx
+    cpx #5
+    bne @pow
+    lda #']'
+    jmp __bas_out
+trace_lo: .byte <10000, <1000, <100, <10, <1
+trace_hi: .byte >10000, >1000, >100, >10, >1
+
 ; ---------------------------------------------------------------------------
 ; Data
 ; ---------------------------------------------------------------------------
@@ -1360,6 +1429,8 @@ __bas_trapv: .res 2
 __bas_spc: .res 2
 .global __bas_snext
 __bas_snext: .res 2
+.global __bas_tron
+__bas_tron: .res 1         ; TRON: bit 7 set (TROFF, at the start: clear)
 .global __bas_rpc
 __bas_rpc: .res 2
 .global __bas_rnext

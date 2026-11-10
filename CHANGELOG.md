@@ -4,6 +4,18 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### basic45 --compile: TRON, TROFF and MEM (#369)
+
+- `TRON` / `TROFF` turn BASIC's trace on and off: while it is on, `[line]`
+  is printed before each statement, also the one after `THEN` / `ELSE`, as
+  the interpreter's token_dispatch does. A program with `TRON` starts each
+  statement with `jsr __bas_trace` and its line number in a `.word`
+  (`basic_rt.s45`); programs without it are unchanged.
+- `MEM b4, b5` is accepted: its values are checked as bytes; a compiled
+  program allocates nothing in banks 4 and 5.
+- Test: `test_basic_compile_tron_xemu.bas` (the screen's bytes, interpreted
+  and compiled).
+
 ### macOS: the tools build again (#503)
 
 - `include/SelfPath.hpp` declared `_NSGetExecutablePath` by including
