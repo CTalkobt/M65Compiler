@@ -2340,6 +2340,59 @@ void optimizeBranchFold(Module& mod) {
                 }
             }
 
+            // Pass 0b: a comparison of two constants (a constant vreg or an
+            // immediate) is a constant 0 / 1 (basic45's arguments: SCREEN 320,
+            // ...'s form, a depth's range), which Pass 1 then branches on.
+            // The operands at their type's width, signed for CMP_LT ... GE
+            for (auto& blk : fn.blocks) {
+                for (auto& inst : blk.insts) {
+                    if (inst.op < Op::CMP_EQ || inst.op > Op::CMP_GEU || !inst.dest.isVreg() || !inst.args.empty())
+                        continue;
+                    uint32_t d = inst.dest.vregId;
+                    if (defCount[d] != 1 || storedTo.count(d) || fn.localSlotVregs.count(d)) continue;
+                    auto val = [&](const Operand& o, int64_t& v) {
+                        if (o.isImm()) { v = o.immVal; return true; }
+                        if (!o.isVreg()) return false;
+                        auto c = constVals.find(o.vregId);
+                        if (c == constVals.end()) return false;
+                        v = c->second;
+                        return true;
+                    };
+                    int64_t a, b;
+                    if (!val(inst.src1, a) || !val(inst.src2, b)) continue;
+                    // (the compare's width: its first operand's type)
+                    Type t = inst.src1.type;
+                    int bits = t == Type::I8 ? 8 : t == Type::I32 ? 32 : t == Type::I16 || t == Type::PTR ? 16 : 0;
+                    if (!bits) continue;
+                    uint64_t mask = bits == 32 ? 0xFFFFFFFFull : (1ull << bits) - 1;
+                    uint64_t ua = (uint64_t)a & mask, ub = (uint64_t)b & mask;
+                    auto sx = [&](uint64_t u) { return (int64_t)(u ^ (1ull << (bits - 1))) - (int64_t)(1ull << (bits - 1)); };
+                    int64_t sa = sx(ua), sb = sx(ub);
+                    bool r;
+                    switch (inst.op) {
+                        case Op::CMP_EQ: r = ua == ub; break;
+                        case Op::CMP_NE: r = ua != ub; break;
+                        case Op::CMP_LT: r = sa < sb; break;
+                        case Op::CMP_LE: r = sa <= sb; break;
+                        case Op::CMP_GT: r = sa > sb; break;
+                        case Op::CMP_GE: r = sa >= sb; break;
+                        case Op::CMP_LTU: r = ua < ub; break;
+                        case Op::CMP_LEU: r = ua <= ub; break;
+                        case Op::CMP_GTU: r = ua > ub; break;
+                        case Op::CMP_GEU: r = ua >= ub; break;
+                        default: continue;
+                    }
+                    trace("branch", fn.name, "compare of constants -> " + std::to_string(r ? 1 : 0), inst.loc);
+                    Type rt = inst.resultType == Type::VOID ? Type::I8 : inst.resultType;
+                    inst.op = Op::CONST;
+                    inst.src1 = Operand::imm(r ? 1 : 0, rt);
+                    inst.src2 = Operand::none();
+                    inst.resultType = rt;
+                    constVals[d] = r ? 1 : 0;
+                    changed = true;
+                }
+            }
+
             // Pass 1: Fold BR_COND on constant condition
             // If target is the next block, remove the branch entirely (fallthrough).
             // Otherwise, replace with unconditional BR.

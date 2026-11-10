@@ -4,6 +4,18 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### cc45: a comparison of two constants folded in the IR (#369)
+
+- Branch folding turns a comparison whose operands are both constants (a
+  constant vreg with one definition, or an immediate) into a constant 0 / 1,
+  at the first operand's width, signed or unsigned as the comparison; a branch
+  on it is then decided. Such comparisons come from inlining (a constant
+  argument) and from basic45's statements (`SCREEN 320, 200, 2`: the form
+  chosen by the first value, the depth's range).
+- `basic45 --compile`'s tests: 1774 bytes smaller in all (up to 409), none
+  larger.
+- Test: `test_cmp_const_xemu.c` (also `-fno-zpcall`).
+
 ### basic45 --compile: RESUME's statement addresses by one call (#369)
 
 - A program with `RESUME` (without a line) noted each statement's address and
