@@ -7,6 +7,7 @@
 #            arch alpine opensuse rocky9 (default: all)
 #   DISTRO_JOBS (default 3) builds at once, each with make -j4;
 #   DISTRO_TEST=1 runs make test after the build too.
+#   DISTRO_EXAMPLES=1 builds the examples too (make -C examples all).
 # Builds the files git tracks, as they are in the working tree.
 cd "$(dirname "$0")/../.." || exit 1
 
@@ -43,6 +44,10 @@ build() {   # build NAME: the log in $work/NAME.log, "ok"/"FAILED" in $work/NAME
         make -j4 CXX=$cxx all > /tmp/all.log 2>&1 || { grep -E ':[0-9]+:[0-9]+: (fatal )?error' /tmp/all.log | sort -u | head -40; tail -5 /tmp/all.log; echo 'make all failed'; exit 1; }
         make lib > /tmp/lib.log 2>&1 || { grep -E 'error' /tmp/lib.log | head -20; echo 'make lib failed'; exit 1; }
         echo \"tools: \$(ls bin | tr '\n' ' ')\"
+        if [ '${DISTRO_EXAMPLES:-0}' = 1 ]; then
+            make -C examples all > /tmp/examples.log 2>&1 || { grep -E 'rror' /tmp/examples.log | head -20; tail -5 /tmp/examples.log; echo 'make -C examples all failed'; exit 1; }
+            echo 'examples built'
+        fi
         if [ '${DISTRO_TEST:-0}' = 1 ]; then
             make test > /tmp/test.log 2>&1 || { grep -E 'FAIL|command not found|rror:' /tmp/test.log | head -30; tail -5 /tmp/test.log; echo 'make test failed'; exit 1; }
             grep -E 'Summary|Example tests' /tmp/test.log
@@ -61,6 +66,7 @@ failed=0
 for d in "${distros[@]}"; do
     r=$(cat "$work/$d.result" 2>/dev/null || echo FAILED)
     printf '%-14s %-22s %s  (%s)\n' "$d" "${IMAGE[$d]}" "$r" "$(grep -m1 '^compiler:' "$work/$d.log" | cut -c11-)"
+    grep -q '^examples built' "$work/$d.log" 2>/dev/null && echo "    examples built"
     if [ "$r" != ok ]; then failed=$((failed + 1)); sed 's/^/    /' "$work/$d.log" | tail -45; fi
 done
 echo "Distribution builds: $(( ${#distros[@]} - failed )) passed, $failed failed"
