@@ -2247,6 +2247,41 @@ void Compiler::finish() {
         mod_->globals.push_back(fv);
         externs_.insert("__bas_forpush");
     }
+    // fewer than three DOS statements: their parameters as four stores again
+    // (__bas_dpars's 45 bytes save 13 a statement)
+    {
+        std::vector<ir::Inst*> calls;
+        for (auto& f : mod_->functions)
+            for (auto& b : f.blocks)
+                for (auto& in : b.insts)
+                    if (in.op == ir::Op::CALL_VOID && in.src1.kind == ir::OperandKind::GLOBAL &&
+                        in.src1.name == "__bas_dpars")
+                        calls.push_back(&in);
+        if (!calls.empty() && calls.size() < 3) {
+            externs_.erase("__bas_dpars");
+            for (auto& f : mod_->functions) {
+                f.originalCallees.erase("__bas_dpars");
+                for (auto& b : f.blocks) {
+                    std::vector<ir::Inst> out;
+                    for (auto& in : b.insts) {
+                        if (!(in.op == ir::Op::CALL_VOID && in.src1.kind == ir::OperandKind::GLOBAL &&
+                              in.src1.name == "__bas_dpars")) { out.push_back(in); continue; }
+                        int v[4] = {0, 0, 0, 0};
+                        std::sscanf(in.asmText.c_str(), ".byte %d, %d, %d, %d", &v[0], &v[1], &v[2], &v[3]);
+                        const char* g[4] = {"__bas_dpar", "__bas_dflx", "__bas_derr", "__bas_daux"};
+                        for (int k = 0; k < 4; k++) {
+                            ir::Inst st; st.op = ir::Op::STORE; st.resultType = ir::Type::I8;
+                            st.src1 = ir::Operand::imm(v[k], ir::Type::I8); st.src2 = ir::Operand::global(g[k]);
+                            st.loc = in.loc;
+                            out.push_back(st);
+                            externs_.insert(g[k]);
+                        }
+                    }
+                    b.insts = std::move(out);
+                }
+            }
+        }
+    }
     for (const auto& e : externs_) mod_->externs.push_back(e);
 }
 
@@ -2669,10 +2704,17 @@ int Compiler::dosArgs(const char* what, int errflags, std::vector<Val>& names, i
         }
     }
     if (par & errflags & 0x7F) syn("a parameter it does not take");
-    store(ir::Type::I8, ir::Operand::imm(par, ir::Type::I8), global("__bas_dpar"));
-    store(ir::Type::I8, ir::Operand::imm(flx, ir::Type::I8), global("__bas_dflx"));
-    store(ir::Type::I8, ir::Operand::imm(errflags, ir::Type::I8), global("__bas_derr"));
-    store(ir::Type::I8, ir::Operand::imm(aux, ir::Type::I8), global("__bas_daux"));
+    // the four parse results by one call: jsr __bas_dpars / .byte par, flx,
+    // err, aux (7 bytes, not four stores of 5; basic_dos.s45)
+    {
+        externs_.insert("__bas_dpars");
+        fn_->originalCallees.insert("__bas_dpars");
+        ir::Inst in; in.op = ir::Op::CALL_VOID; in.src1 = ir::Operand::global("__bas_dpars");
+        in.callConv = ir::CallConv::ZP; in.isRegparm = true;
+        in.asmText = ".byte " + std::to_string(par & 0xFF) + ", " + std::to_string(flx & 0xFF) + ", " +
+                     std::to_string(errflags & 0xFF) + ", " + std::to_string(aux & 0xFF);
+        emit(in);
+    }
     if (aux) lastAux_ = aux;
     return par;
 }
