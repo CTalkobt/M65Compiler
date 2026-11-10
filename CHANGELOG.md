@@ -4,6 +4,18 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### basic45 --compile: coordinates of constants and integers without the float conversion (#369)
+
+- A graphics or sprite coordinate (BASIC's getsad: rounded down, its low 16
+  bits; `PIXEL`, `DOT`'s and `MOVSPR`'s coordinates...) that is a constant is
+  computed when compiled, and one that is an integer is its low 16 bits as it
+  is: no float in `__float_a` and no `__bas_getsad` call (a float variable or
+  expression still converts at run time; a constant of 2^32 or more still
+  raises ?ILLEGAL QUANTITY then).
+- `basic45 --compile`'s tests: 2991 bytes smaller in all (up to 630), none
+  larger.
+- Test: `test_basic_compile_sad_xemu.bas` (interpreted and compiled).
+
 ### basic45 --compile: a DOS statement's parsed parameters by one call (#369)
 
 - The four bytes basic45 parses for a DOS statement (`DOPEN`, `DLOAD`,
