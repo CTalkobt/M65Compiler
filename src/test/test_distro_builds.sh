@@ -66,6 +66,7 @@ failed=0
 for d in "${distros[@]}"; do
     r=$(cat "$work/$d.result" 2>/dev/null || echo FAILED)
     printf '%-14s %-22s %s  (%s)\n' "$d" "${IMAGE[$d]}" "$r" "$(grep -m1 '^compiler:' "$work/$d.log" | cut -c11-)"
+    grep -q '^examples built' "$work/$d.log" 2>/dev/null && echo "    examples built"
     if [ "$r" != ok ]; then failed=$((failed + 1)); sed 's/^/    /' "$work/$d.log" | tail -45; fi
 done
 echo "Distribution builds: $(( ${#distros[@]} - failed )) passed, $failed failed"
