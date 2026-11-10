@@ -70,6 +70,8 @@ public:
 
     // Phase 91.3: Set functions to skip during code generation (dead code elimination)
     void setFunctionSections(bool on) { functionSections_ = on; }
+    // floats through pointers by __f32ldp / __f32stp calls (-ffloat-copy-call, objects only)
+    void setF32PtrCall(bool on) { f32PtrCall_ = on; }
     // the float copy loops between places outside the base page as calls of
     // __f32cpy with the addresses after the jsr, when there are enough of them
     // to pay for it (#485)
@@ -617,6 +619,9 @@ private:
     std::map<const ir::Inst*, std::pair<std::string, const ir::Inst*>> fcmpBool_;
     std::set<std::string> fcmpBoolExt_;   // those declared (.extern) so far
     std::map<std::string, int> fcmpBoolCount_;   // the module's candidates per kind
+    bool f32PtrCall_ = false, f32PtrLdOn_ = false, f32PtrStOn_ = false;
+    std::set<const ir::Inst*> f32PtrInsts_;   // those with the pointer in A/X (the counts)
+    void emitF32PtrCall(const std::string& name);
     std::vector<std::pair<const ir::Inst*, const char*>> findFcmpBools(const ir::Function& fn) const;
     std::map<std::string, std::string> f32Konst_;            // the 5 bytes (hex) -> label
     std::vector<std::pair<std::string, std::string>> f32KonstList_;   // label, the 5 bytes (hex)
