@@ -9,59 +9,49 @@ on:
       - main
 
 jobs:
-  compile:
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Install dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y build-essential pkg-config libsqlite3-dev zlib1g-dev libfuse3-dev
-
-      - name: Build compiler suite
-        run: make all
-
-      - name: Verify compiler binaries
-        run: |
-          test -f bin/cc45 || (echo "cc45 not built" && exit 1)
-          test -f bin/ca45 || (echo "ca45 not built" && exit 1)
-          test -f bin/cp45 || (echo "cp45 not built" && exit 1)
-          test -f bin/nm45 || (echo "nm45 not built" && exit 1)
-          test -f bin/ln45 || (echo "ln45 not built" && exit 1)
-          test -f bin/ar45 || (echo "ar45 not built" && exit 1)
-          test -f bin/objdump45 || (echo "objdump45 not built" && exit 1)
-          echo "✓ All compiler binaries built successfully"
-
-      - name: Build standard library
-        run: make lib
-
-      - name: Verify library files
-        run: |
-          test -f lib/build/c45.lib || (echo "c45.lib not built" && exit 1)
-          test -f lib/build/c45_zp.lib || (echo "c45_zp.lib not built" && exit 1)
-          echo "✓ Standard library built successfully"
-
-      - name: Build examples
-        run: make -C examples all
-
-      - name: Clean build artifacts
-        run: make clean
-        if: always()
-
   # A clean build with each distribution's compiler (newer GCC, musl, clang):
-  # src/test/test_distro_builds.sh, one distribution per job
+  # src/test/test_distro_builds.sh, one distribution per job. One of each
+  # compiler / C library: debian13 (GCC; also builds the examples), fedora
+  # (GCC), fedora-clang (clang), arch (the newest GCC), alpine (musl).
   distros:
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        distro: [ubuntu2204, debian13, fedora, fedora-clang, arch, alpine, opensuse, rocky9]
+        distro: [debian13, fedora, fedora-clang, arch, alpine]
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
       - name: Build in ${{ matrix.distro }}
+        env:
+          DISTRO_EXAMPLES: ${{ matrix.distro == 'debian13' && '1' || '0' }}
         run: bash src/test/test_distro_builds.sh ${{ matrix.distro }}
+
+  # macOS (Apple clang, the macOS SDK; #501-#503): the tools and the library
+  # build, install, and an installed cc45 started from PATH finds its headers
+  # and library from any directory. GNU make from Homebrew (gmake): macOS's
+  # own make is 3.81. FUSE is not installed: disk45 is built without mount.
+  macos:
+    runs-on: macos-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install GNU make
+        run: brew install make
+
+      - name: Build the tools
+        run: gmake -j"$(sysctl -n hw.ncpu)" all
+
+      - name: Build the library
+        run: gmake lib
+
+      - name: Install and compile from another directory
+        run: |
+          gmake install PREFIX="$RUNNER_TEMP/m65"
+          cd "$RUNNER_TEMP"
+          printf '#include <stdio.h>\nint main(void) { puts("hello"); return 0; }\n' > hello.c
+          PATH="$RUNNER_TEMP/m65/bin:$PATH" cc45 -O2 hello.c -o hello.prg
+          test -s hello.prg
+          echo "an installed cc45 from PATH built hello.prg ($(wc -c < hello.prg) bytes)"
