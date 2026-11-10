@@ -2975,6 +2975,19 @@ else
     echo "FAIL: ln45 'no heap' warning"
     failed=$((failed + 1))
 fi
+# a program ending inside a stack share chosen (cc45 -fstack-size, ln45
+# --stack-size) is an error (#467); one ending below it links
+printf 'char big[40000];\nint main(void){ big[0]=1; return big[0]; }\n' > build/test/test_stack_share_in.c
+printf 'char big[30000];\nint main(void){ big[0]=1; return big[0]; }\n' > build/test/test_stack_share_ok.c
+if ! $CC -fstack-size=1024 build/test/test_stack_share_in.c -o build/test/test_stack_share_in.prg > build/test/test_stack_share_in.log 2>&1 &&
+   grep -q "ln45: error: program ends at \$BF00, inside the 1024-byte stack share (\$BC00-\$BFFF)" build/test/test_stack_share_in.log &&
+   $CC -fstack-size=1024 build/test/test_stack_share_ok.c -o build/test/test_stack_share_ok.prg >/dev/null 2>&1; then
+    echo "SUCCESS: ln45 refuses a program ending inside the stack share"
+    passed=$((passed + 1))
+else
+    echo "FAIL: ln45 stack share check: $(head -2 build/test/test_stack_share_in.log)"
+    failed=$((failed + 1))
+fi
 
 # Test: printf("text") without % is written without the formatter (puts /
 # putstr): the same screen as through "%s", and a program far smaller

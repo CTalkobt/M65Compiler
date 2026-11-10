@@ -4,6 +4,15 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### ln45: a program ending inside the stack share is an error (#467)
+
+- With a stack share chosen (`--stack-size=N`, cc45 `-fstack-size` /
+  `#pragma cc45 stack_size`; basic45 `--compile` links with 1024), a program
+  whose BSS or private base page ends inside it is an error instead of a link
+  that fails at run time: "program ends at $BF00, inside the 1024-byte stack
+  share ($BC00-$BFFF)". The default share (4096) still only limits the heap.
+- Test: `test_xemu.sh`'s stack share check.
+
 ### cc45: a float comparison's value by one call (#369)
 
 - A float comparison whose result is a value, not a branch (`r = a < b`;

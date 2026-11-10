@@ -481,6 +481,21 @@ int main(int argc, char** argv) {
                           << "; or make the program smaller)" << std::endl;
                 return 1;
             }
+            // a stack share chosen (--stack-size, cc45 -fstack-size; basic45
+            // links with one): the program must end below it, or the stack
+            // overwrites its last variables (#467); the default share is the
+            // heap's limit only
+            auto ss = syms.find("__stack_size");
+            uint32_t share = ss != syms.end() ? ss->second : 0;
+            if (end > 0 && linker.stackSizeChosen() && share > 0 && st->second + 1 > share &&
+                end > st->second + 1 - share) {
+                uint32_t lo = st->second + 1 - share;
+                std::cerr << "ln45: error: program ends at " << hex(end) << ", inside the " << share
+                          << "-byte stack share (" << hex(lo) << "-" << hex(st->second)
+                          << "): make the program smaller, or the share smaller (--stack-size, cc45 -fstack-size)"
+                          << std::endl;
+                return 1;
+            }
             if (end > 0 && st->second + 1 - end < 0x200) {
                 std::cerr << "ln45: warning: only " << (st->second + 1 - end)
                           << " bytes left for the CPU stack between the program end ($"
