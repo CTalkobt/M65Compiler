@@ -37,8 +37,11 @@ std::string formatOf(const std::string& path) {
     std::string ext = dot == std::string::npos ? "" : lower(path.substr(dot + 1));
     if (ext == "bdf") return "bdf";
     if (ext == "psf" || ext == "psfu") return "psf";
-    if (ext == "bin" || ext == "64c" || ext == "chr" || ext == "rom") return "charset";
+    if (ext == "bin" || ext == "64c" || ext == "chr" || ext == "rom" || ext == "prg") return "charset";
     if (ext == "txt" || ext == "glyphs") return "text";
+    if (ext == "ttf" || ext == "otf") return "truetype";
+    if (ext == "png" || ext == "bmp" || ext == "gif" || ext == "jpg" || ext == "jpeg" || ext == "tga") return "image";
+    if (ext == "c" || ext == "h" || ext == "s45" || ext == "asm") return "font45";
     return "";
 }
 
@@ -159,6 +162,95 @@ bool readCharset(const std::vector<uint8_t>& d, Font& f, std::string& err) {
         f.glyphs[(int)c] = g;
     }
     return true;
+}
+
+bool readRom(const std::vector<uint8_t>& d, bool upperSet, Font& f, std::string& err) {
+    if (d.size() != 131072) { err = "a MEGA65 ROM image is 128 KB, not " + std::to_string(d.size()) + " bytes"; return false; }
+    // the ROM is $20000-$3FFFF: its character sets at $29000 (upper case / graphics) and $29800 (lower / upper)
+    size_t at = upperSet ? 0x9000 : 0x9800;
+    std::vector<uint8_t> set(d.begin() + (long)at, d.begin() + (long)at + 2048);
+    return readCharset(set, f, err);
+}
+
+bool readFont45(const std::vector<uint8_t>& d, Font& f, std::string& err) {
+    size_t o = 0;
+    if (d.size() > 4 && !(d[0] == 'F' && d[1] == '4') && d[2] == 'F' && d[3] == '4') o = 2;   // a load address
+    if (d.size() < o + 12 || d[o] != 'F' || d[o + 1] != '4') { err = "not a font font45 wrote (no \"F4\")"; return false; }
+    if (d[o + 2] != 1) { err = "font45's format " + std::to_string(d[o + 2]) + ": this font45 reads format 1"; return false; }
+    int height = d[o + 3], baseline = d[o + 4], first = d[o + 5], last = d[o + 6], bpp = d[o + 7], flags = d[o + 8];
+    int cellw = d[o + 9], rowbytes = d[o + 10];
+    if (last < first || !height || (bpp != 1 && bpp != 2 && bpp != 4)) { err = "a font45 header that makes no sense"; return false; }
+    bool prop = flags & 1;
+    size_t widths = o + 12, glyphs = widths + (prop ? (size_t)(last - first + 1) : 0);
+    size_t need = glyphs + (size_t)(last - first + 1) * height * rowbytes;
+    if (d.size() < need) { err = "the font is cut short (" + std::to_string(d.size()) + " of " + std::to_string(need) + " bytes)"; return false; }
+    f.height = height;
+    f.baseline = baseline;
+    int levels = (1 << bpp) - 1;
+    for (int c = first; c <= last; c++) {
+        int adv = prop ? d[widths + (size_t)(c - first)] : cellw;
+        Glyph g = blank(cellw, height);
+        g.advance = adv;
+        bool any = false;
+        const uint8_t* src = &d[glyphs + (size_t)(c - first) * height * rowbytes];
+        for (int y = 0; y < height; y++)
+            for (int x = 0; x < cellw; x++) {
+                int bit = x * bpp;
+                int v = (src[(size_t)y * rowbytes + (size_t)(bit / 8)] >> (8 - bpp - bit % 8)) & levels;
+                g.px[(size_t)y * cellw + x] = (uint8_t)(v * 255 / levels);
+                if (v) any = true;
+            }
+        // (a proportional font's code without a glyph has width 0)
+        if (prop && !adv && !any) continue;
+        f.glyphs[c] = g;
+    }
+    return true;
+}
+
+bool readFont45Source(const std::string& t, Font& f, std::string& err) {
+    // the numbers of the array's initializer (C: 0x46, ...; assembly: .byte $46, ...)
+    std::vector<uint8_t> bytes;
+    size_t open = t.find('{');
+    bool c = open != std::string::npos;
+    size_t i = c ? open + 1 : 0, end = c ? t.find('}', open) : t.size();
+    if (end == std::string::npos) end = t.size();
+    while (i < end) {
+        if (!c) {
+            // assembly: the operands of .byte lines
+            size_t b = t.find(".byte", i);
+            if (b == std::string::npos || b >= end) break;
+            size_t e = t.find('\n', b);
+            if (e == std::string::npos) e = end;
+            std::string line = t.substr(b + 5, e - b - 5);
+            for (size_t k = 0; k < line.size();) {
+                if (line[k] == '$' || std::isdigit((unsigned char)line[k])) {
+                    size_t used = 0;
+                    long v = line[k] == '$' ? std::stol(line.substr(k + 1), &used, 16) + 0 : std::stol(line.substr(k), &used, 0);
+                    bytes.push_back((uint8_t)v);
+                    k += used + (line[k] == '$' ? 1 : 0);
+                } else if (line[k] == ';') {
+                    break;
+                } else {
+                    k++;
+                }
+            }
+            i = e + 1;
+            continue;
+        }
+        if (std::isdigit((unsigned char)t[i])) {
+            size_t used = 0;
+            long v = std::stol(t.substr(i, 16), &used, 0);
+            bytes.push_back((uint8_t)v);
+            i += used;
+        } else if (t.compare(i, 2, "/*") == 0) {
+            size_t e = t.find("*/", i + 2);
+            i = e == std::string::npos ? end : e + 2;
+        } else {
+            i++;
+        }
+    }
+    if (bytes.empty()) { err = "no bytes found (font45's C array or .byte lines)"; return false; }
+    return readFont45(bytes, f, err);
 }
 
 // --- hand-drawn glyphs ---------------------------------------------------

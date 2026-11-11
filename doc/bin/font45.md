@@ -1,6 +1,6 @@
 # font45 — Fonts for the MEGA65
 
-`font45` converts a bitmap font into one of two forms (#466):
+`font45` converts a font (bitmap, TrueType or an image of glyphs) into one of two forms (#466):
 
 - an **8x8 charset** for the VIC-IV's text mode, 256 or 512 characters, in ASCII, screen-code or PETSCII order;
 - a **`<font.h>` font**: 1, 2 or 4 bits a pixel, fixed or proportional, any height up to 255 rows. The library
@@ -12,7 +12,8 @@ Both are written as C (an array and its header), ca45 assembly or a binary file.
 
 ```bash
 font45 convert <font> [options] -o <output>
-font45 list <font> [--range A-B] [--map FROM=TO]
+font45 list <font> [options]
+font45 preview <font> [options] -o <image.png>
 font45 -V | --version
 font45 -h | --help
 ```
@@ -27,6 +28,10 @@ The format comes from the extension, or from `--format`:
 | `.psf`, `.psfu` | `psf` | Linux console fonts, PSF1 (8 wide, 256 or 512 glyphs) and PSF2 (any width, its header's glyph size). Glyph *n* is code *n* (the Unicode table is not read) |
 | `.bin`, `.64c`, `.chr`, `.rom` | `charset` | A C64 / C65 charset: 8x8, 8 bytes a character, 256 or 512 of them. Read with or without a two-byte load address in front. Its order is `--from`'s: screen codes by default (the ROM's charsets; 0-127, as 128-255 are their inverse) |
 | `.txt`, `.glyphs` | `text` | Hand-drawn glyphs, below |
+| `.ttf`, `.otf` | `truetype` | TrueType and OpenType fonts, rasterized by `stb_truetype` (not hinted) at `--size` pixels: the line's height from ascent to descent. It takes ASCII, Latin-1 and the arrows and π PETSCII has. Coverage is anti-aliased, 0–255 |
+| `.png`, `.bmp`, `.gif`, `.jpg`, `.tga` | `image` | A sheet of glyphs (`stb_image`). With `--grid WxH`, cells W x H pixels, rows first (`--order columns`: down the columns first), codes from `--first` (32). With `--marker`, one row of glyphs whose top row marks where each glyph starts (proportional sheets). The background is the image's commonest brightness (transparent pixels are background; `--invert` when the commonest is the ink), and a pixel's coverage is its difference from it |
+| a 128 KB `.rom` | `rom` | A MEGA65 ROM image: its lower / upper case set at `$29800` (`--upper`: the upper case / graphics set at `$29000`), in screen-code order |
+| `.bin`, `.prg` with `F4`; `.c`, `.h`, `.s45`, `.asm` | `font45` | font45's own fonts: a binary (with or without a load address), or the C or assembly it wrote. They keep their codes (no `--encoding`), so a font can be converted again, listed or previewed |
 
 A **hand-drawn** font has one glyph to a line: the code, a colon, then the rows separated by spaces. Each row is
 `0`/`1`, or `.`/`#` (`x`, `X`, `*` are set too; `-` is clear). The code can be a character (`A`, `' '`), a
@@ -59,13 +64,24 @@ I: 1 1 1 1 1
 | `--italic` | Italic: rows slant right, one pixel for each four rows above the baseline |
 | `--outline` | Outline: the pixels around the glyph, the glyph itself cleared (two wider) |
 | `--load-at ADDR` | Binary output: a two-byte load address in front (for `cbm_load` or [`load_far`](../architecture/stdlib.md#loading-files-anywhere-loadh)) |
-| `--format F` | The input's format: `bdf`, `psf`, `charset`, `text` |
+| `--format F` | The input's format: `bdf`, `psf`, `charset`, `text`, `truetype`, `image`, `rom`, `font45` |
+| `--size N` | TrueType: the line's height in pixels, 4–255 (default 16) |
+| `--grid WxH`, `--first N`, `--order rows\|columns` | An image: the cells, the first cell's code, the cells' order |
+| `--marker` | An image: one row of glyphs, each starting at a mark in the top row |
+| `--invert` | An image: the commonest colour is the ink, not the background |
+| `--baseline N` | An image: the baseline's row (default: the cell's bottom) |
+| `--upper` | A ROM image: the upper case / graphics set |
+| `--scale N`, `--text "..."` | `preview`: pixels a font pixel (1–16, default 4), the sample line (default "The quick brown fox") |
 | `--from ORDER` | A charset input's order: `screencode` (the default), `petscii` or `ascii` (as font45 `--charset ascii` writes) |
 | `-v` … `-vvvv` | Log on stderr as `[font45:LEVEL] …` |
 
 The glyphs of BDF, PSF and hand-drawn fonts have character codes (ASCII, or Unicode in BDF). A `<font.h>` font moves them to its encoding's codes. Characters the encoding does not have (`{`, `|`, `}`, `~` and the backtick in PETSCII) are dropped. Codes between the glyphs are stored as blank glyphs, so a PETSCII font of the space to `Z` holds 187 codes. Use `--range` to keep fewer.
 
 `list` prints the font's height, baseline, glyph count, codes and widths in their character codes.
+
+`preview` writes a PNG: every glyph on a grid (each cell's advance a lighter shade) and the sample line below
+it. With `--bpp` the coverage is shown in that many levels, as the MEGA65 would draw it. A font45 font in PETSCII
+shows the sample text in PETSCII's letters.
 
 ### Charset orders
 
@@ -127,8 +143,14 @@ font_install(0x3000UL, 2048, 0x40000UL);       /* (after loading it to $3000) */
 font_select(0x40000UL);
 ```
 
+## Third-party code
+
+`stb_truetype.h`, `stb_image.h` and `stb_image_write.h` (`third_party/stb`, public domain or MIT; the commit is in its
+`PROVENANCE.md`), compiled into `src/main/Font45Stb.cpp` only.
+
 ## Known problems
 
-- TrueType fonts and images are not read yet. Those, a preview, the VIC-IV's full-colour and nibble-colour
-  characters, and assembly drawing routines are later phases of #466.
+- TrueType is not hinted: small sizes are softer than a hinted rasterizer makes them. 2 bpp keeps them readable.
+- The VIC-IV's full-colour and nibble-colour characters, segment fonts and assembly drawing routines are later
+  phases of #466.
 - PSF's Unicode table is ignored: glyphs keep their position as their code.
