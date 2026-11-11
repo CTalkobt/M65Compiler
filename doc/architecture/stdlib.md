@@ -567,6 +567,24 @@ Test: `test_sprites_xemu.c` (the registers, the pointer table, positions with th
 
 `unsigned long unpack(unsigned long src)` (#345, `lib/stdlib_asm/unpack.s45`, `__fastcall__`: the ZP convention in either library; a macro for the library's `__unpack`, #346, so a program's own function named `unpack`, written without `<unpack.h>`, is a separate function and the overlay loader keeps calling the library's) unpacks the stream at the 28-bit address `src` to the address in its header (chip or attic RAM) and returns the number of bytes written; 0 for a stream of another format. The streams are made by [pack45](../bin/pack45.md) (format 1: literals, fills and repeats, each one DMA job) and by `ln45 --pack-overlays`. A stream can be loaded inside the area it unpacks into, as far in as pack45 reports, and unpacked there. `unsigned long unpack_to(unsigned long src, unsigned long dst)` (`__unpack_to`) unpacks to `dst` instead of the header's destination (a stream used in more than one place). Both are assembly (about 30% faster than the earlier C on the test stream, and 214 bytes smaller): literals up to 16 bytes copied by the CPU, longer ones, fills and repeats one DMA job each; from assembly, the addresses in `$10`-`$13` / `$14`-`$17` and `jsr ___unpack` / `___unpack_to`, the count in Q (pack45.md: examples with `.incbin` and from assembly). Test: `src/test-resources/test_unpack_xemu.c`.
 
+### Fonts (`font.h`)
+
+Fonts made by [font45](../bin/font45.md) (#466, `lib/stdlib/font.c`): a font at 1, 2 or 4 bits a pixel, fixed or proportional, measured and drawn into an 8-bit-a-pixel bitmap; and 8x8 charsets for the VIC-IV's text mode. The font data can be anywhere in the 28-bit space and is read through far pointers. A font's codes are those of the program's strings: PETSCII unless font45 was given `--encoding ascii`.
+
+| Name | Description |
+|------|-------------|
+| `font_t` | `height`, `baseline`, `first`, `last`, `bpp`, `flags` (`FONT_PROPORTIONAL`), `cellw`, `rowbytes`, `widths` (the width table's address, 0 when fixed), `glyphs` (the first glyph's address) |
+| `const font_t *font_from(font_t *f, unsigned long data)` | Fills `f` from font45's data at `data` (a C array: `(unsigned long)(unsigned int)name`; or a file font45 wrote with `--bin`, loaded anywhere). Returns `f`, or `NULL` when the data is not a format 1 font |
+| `unsigned char font_glyph_width(const font_t *f, unsigned char c)` | A code's advance in pixels: 0 for a code outside the font |
+| `unsigned int font_width(const font_t *f, const char *s)` | A string's width |
+| `void font_ramp(unsigned char first, unsigned char levels)` | The palette entries the coverage levels are drawn in: level n (1 up to 1, 3 or 15) is entry `first + n - 1`. The default `first` is 1 |
+| `void font_clip(signed int x0, signed int y0, signed int x1, signed int y1)` | The rectangle drawing keeps to, inclusive. The default is x, y ≥ 0 |
+| `signed int font_draw_bitmap(const font_t *f, unsigned long lin, unsigned int pitch, signed int x, signed int y, const char *s)` | Draws `s` into the bitmap at 28-bit address `lin`, `pitch` bytes a row, with the cell's top-left at x, y (not the baseline). Blank pixels (coverage 0) are left as they are. Returns the x after the last glyph |
+| `void font_install(unsigned long charset, unsigned int bytes, unsigned long lin)` | Copies a charset to chip RAM at `lin` (DMA) |
+| `void font_select(unsigned long lin)` | Makes the VIC-IV's character set the one at `lin` (`$D068`-`$D06A`) |
+
+Drawing is C, a pixel at a time through a far pointer (an assembly fast path is a later phase). Test: `test_font_xemu.c`, with fonts font45 makes from `src/test-resources/font45/tiny.txt`.
+
 ### rom_ram.h
 
 Unused parts of the ROM area ($20000-$3FFFF of chip RAM) as RAM (#339). In C65 mode the C64 BASIC and KERNAL images there are never used: 16 KB for characters, samples, DMA buffers. The hypervisor write-protects the area (CPU and DMA writes are ignored): its memory trap, `$D641`, lifts the protection (`A = $02`) or sets it again (`A = $00`); `$D67D` bit 2 shows it.
