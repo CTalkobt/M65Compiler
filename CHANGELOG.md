@@ -4,6 +4,18 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### basic45 --convert: MOVSPR by distance;angle, RWINDOW(0/1), RLUM (#433)
+
+- BASIC 7.0's `MOVSPR n, distance;angle` (angle 0 up, clockwise) becomes
+  BASIC 65's relative move, `MOVSPR n, +(INT(d * SIN(a) + .5)),
+  +(INT(-d * COS(a) + .5))`, which adds to where the sprite is going.
+- `RWINDOW(0)` / `RWINDOW(1)` (BASIC 7.0: the window's lines / columns) are
+  swapped to BASIC 65's (0 the width, 1 the height). `WINDOW` is no longer
+  warned: its arguments are BASIC 65's.
+- BASIC 3.5's `RLUM(n)` is the luminance `COLOR` last gave source n, kept in an
+  array (when the program uses `RLUM`).
+- Tests: `test_convert7_xemu.txt` (run by BASIC 65), `test_basic45.sh`.
+
 ### basic45 --compile: FREEZER and IMPORT (#369)
 
 - `FREEZER` enters the hypervisor's Freezer, as the ROM's (its trap at

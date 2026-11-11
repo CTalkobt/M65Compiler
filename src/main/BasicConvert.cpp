@@ -367,7 +367,6 @@ const std::map<std::string, std::string>& v7Renames() {
 const std::map<std::string, std::string>& v7Differ() {
     static const std::map<std::string, std::string> m = {
         {"BANK", "the C128's bank numbers are not the MEGA65's"},
-        {"WINDOW", "check WINDOW's arguments (BASIC 65: WINDOW left, top, right, bottom, clear)"},
     };
     return m;
 }
@@ -558,6 +557,13 @@ void convertV7(std::vector<DecompiledLine>& lines, const BasicDecompileOptions& 
     for (const auto& l : lines)
         for (const auto& pc : l.pieces)
             if (pc.isKw && pc.text == "RGR") rgr = true;
+    // RLUM(n) (BASIC 3.5): each colour source's luminance, as COLOR set it,
+    // kept in an array (the MEGA65's colours have none of their own)
+    bool rlum = false;
+    for (const auto& l : lines)
+        for (const auto& pc : l.pieces)
+            if (pc.isKw && pc.text == "RLUM") rlum = true;
+    const std::string LU = rlum ? fresh() : std::string();
     const std::string GM = rgr ? fresh() : "";
     // SCALE: the coordinates times the scale's factors (1 until a SCALE)
     bool scale = false;
@@ -713,8 +719,11 @@ void convertV7(std::vector<DecompiledLine>& lines, const BasicDecompileOptions& 
             if (k == "RWINDOW") {
                 int n = -1;
                 if (i + 3 < p.size() && p[i + 1].text == "(" && isNumber(p[i + 2].text) && p[i + 3].text == ")") n = std::stoi(p[i + 2].text);
-                if (n != 2) warn(line.num, "RWINDOW(" + (n >= 0 ? std::to_string(n) : std::string("n")) +
-                                 "): BASIC 65 gives the window's width (0) and height (1); check against BASIC 7.0's");
+                // BASIC 7.0: 0 the window's lines, 1 its columns; BASIC 65 the
+                // other way round (b65.src rwindow: 0 right - left + 1)
+                if (n == 0 || n == 1) { p[i + 2].text = n == 0 ? "1" : "0"; continue; }
+                if (n != 2) warn(line.num, "RWINDOW(n) of an expression: BASIC 65 gives the window's width (0) and height (1), "
+                                 "BASIC 7.0 its lines (0) and columns (1)");
                 continue;
             }
             auto literalArg = [&](int& n) {
@@ -769,6 +778,14 @@ void convertV7(std::vector<DecompiledLine>& lines, const BasicDecompileOptions& 
                 } else warn(line.num, "RGR: arguments not understood, left as written");
             } else if ((k == "SSHAPE" || k == "GSHAPE") && shapes.size() == 1) {
                 // (converted below)
+            } else if (k == "RLUM" && !LU.empty()) {
+                // RLUM(n): the luminance COLOR last gave source n (0 if none)
+                size_t close;
+                Args a = fnArgs(close);
+                if (a.list.size() == 1) {
+                    p.erase(p.begin() + (long)i + 1, p.begin() + (long)close + 1);
+                    p[i] = {false, LU + "(" + a.list[0] + ")"};
+                } else warn(line.num, "RLUM: arguments not understood, left as written");
             } else if (auto it = v7Missing().find(k); it != v7Missing().end()) {
                 warn(line.num, k + " has no BASIC 65 counterpart (" + it->second + "): left as written");
             } else if (auto it = v7Differ().find(k); it != v7Differ().end()) {
@@ -1007,12 +1024,14 @@ void convertV7(std::vector<DecompiledLine>& lines, const BasicDecompileOptions& 
                 }
                 usedState = true;
                 penNow.clear();
-                if (s == "0") replace(CS + "(0) = " + c + " : background " + c);
-                else if (s == "4") replace("border " + c);
-                else if (s == "5") replace("foreground " + c);
-                else if (s == "1" || s == "2" || s == "3") replace(CS + "(" + s + ") = " + c);
+                // (the luminance kept for RLUM, when the program asks for it)
+                std::string lumSet = v35 && rlum && a.list.size() == 3 ? " : " + LU + "(" + s + ") = " + a.list[2] : "";
+                if (s == "0") replace(CS + "(0) = " + c + " : background " + c + lumSet);
+                else if (s == "4") replace("border " + c + lumSet);
+                else if (s == "5") replace("foreground " + c + lumSet);
+                else if (s == "1" || s == "2" || s == "3") replace(CS + "(" + s + ") = " + c + lumSet);
                 else if (s == "6") { drop(); warn(line.num, "COLOR 6 (the 80-column background): dropped"); }
-                else { replace(CS + "(" + s + ") = " + c); warn(line.num, "COLOR of a source expression: kept as " + CS + "(source)"); }
+                else { replace(CS + "(" + s + ") = " + c + lumSet); warn(line.num, "COLOR of a source expression: kept as " + CS + "(source)"); }
             } else if (k == "LOCATE") {
                 Args a = splitArgs(p, i + 1, e);
                 if (a.list.size() == 2) { replace(PX + " = " + times(sx(a.list[0]), mode >= 3 ? 2 : 1) + " : " + PY + " = " + sy(a.list[1])); usedState = true; }
@@ -1238,8 +1257,27 @@ void convertV7(std::vector<DecompiledLine>& lines, const BasicDecompileOptions& 
                     else if (k == "SPRITE" && q == 2 && !v.empty()) v = minus1(v);
                     t += (q ? ", " : "") + v;
                 }
-                if (k == "MOVSPR" && t.find(';') != std::string::npos)
-                    warn(line.num, "MOVSPR n, distance;angle: BASIC 65 moves by +x, +y or angle#speed");
+                if (k == "MOVSPR" && t.find(';') != std::string::npos) {
+                    // MOVSPR n, distance;angle (angle 0 up, clockwise): BASIC
+                    // 65's relative form (+x, +y: added to where the sprite is
+                    // going, which RSPPOS read at once would not be yet)
+                    size_t semi = a.list.size() == 2 ? a.list[1].find(';') : std::string::npos;
+                    if (semi == std::string::npos || a.list[0].empty()) {
+                        warn(line.num, "MOVSPR n, distance;angle: not understood, left as written");
+                        continue;
+                    }
+                    std::string n = minus1(a.list[0]), d = a.list[1].substr(0, semi), ang = a.list[1].substr(semi + 1);
+                    auto trim = [](std::string x) {
+                        size_t b = x.find_first_not_of(' '), e2 = x.find_last_not_of(' ');
+                        return b == std::string::npos ? std::string() : x.substr(b, e2 - b + 1);
+                    };
+                    d = trim(d); ang = trim(ang);
+                    std::string rad = "(" + ang + ") * .0174532925";
+                    // (rounded: BASIC 65 takes a coordinate rounded down, and
+                    // cos(90) is not quite 0)
+                    replace("movspr " + n + ", +(int((" + d + ") * sin(" + rad + ") + .5)), +(int(-(" + d + ") * cos(" + rad + ") + .5))");
+                    continue;
+                }
                 // (MOVSPR's TO form keeps its pieces: the TO keyword is in the arguments)
                 if (k == "MOVSPR" && joinPieces(p, i + 1, e).find(" to ") != std::string::npos) {
                     if (!isNumber(a.list[0])) { warn(line.num, "MOVSPR with TO: its sprite number is BASIC 7.0's (1-8)"); continue; }
