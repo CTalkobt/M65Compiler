@@ -18,6 +18,16 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 - Docs: `doc/bin/font45.md`, stdlib.md's Fonts section. Tests:
   `src/test/test_font45.sh` (make test), `test_font_xemu.c`.
 
+### cc45: a compound assignment evaluates its target once (#526)
+
+- In `E1 op= E2` the target's side effects ran twice: once to load the old
+  value and again to store the result, so `a[i++] |= v` stepped `i` twice,
+  read `a[i]` and wrote `a[i+1]` (also `*p++ += v`, a call or an assignment
+  in the subscript; every level, every compound operator). A target that is a
+  subscript or a dereference with a side effect now has its address computed
+  once, and the old value is loaded and the result stored through it (C11
+  6.5.16.2p3). Other targets are compiled as before.
+- Test: `test_compound_once_xemu.c` (ZP, `-fno-zpcall`, `-O0`).
 ### lib: load.h, a file from disk to any 28-bit address, packed or not (#444)
 
 - `load_far(name, len, device, lin)`: a file to chip RAM by the KERNAL's
