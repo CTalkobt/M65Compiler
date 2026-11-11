@@ -4,6 +4,17 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### lib: load.h, a file from disk to any 28-bit address, packed or not (#444)
+
+- `load_far(name, len, device, lin)`: a file to chip RAM by the KERNAL's
+  `LOAD`, or to attic RAM through a stage (`load_stage`; bank 4 by default) and
+  a DMA copy; it returns the bytes loaded. `load_unpack(...)`: a pack45 stream
+  loaded and unpacked to its destination. `load_error`: the KERNAL's error,
+  `LOAD_TOO_BIG` or `LOAD_NOT_PACKED`. Device 0: the drive the program came
+  from. From the Midwinter demo's `load.c`.
+- Test: `test_load_far_xemu.c` (a D81 test_xemu.sh makes: chip RAM, attic
+  RAM, a packed file, a missing file, one larger than the stage, one not
+  packed; both conventions).
 ### basic45 --convert: MOVSPR by distance;angle, RWINDOW(0/1), RLUM (#433)
 
 - BASIC 7.0's `MOVSPR n, distance;angle` (angle 0 up, clockwise) becomes
