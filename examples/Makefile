@@ -29,6 +29,7 @@ SUBDIRS = \
 	c/rogue \
 	c/hanger \
 	c/fcm_graphics \
+	c/fonts \
 	c/tgi_demo \
 	c/map_decode \
 	c/tunes \

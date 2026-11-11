@@ -217,6 +217,25 @@ runs 100 frames, then reads cells back and reports on the screen.
 
 ![fcm_graphics](images/fcm_graphics.png)
 
+### fonts
+
+[Source](https://github.com/CTalkobt/M65Compiler/tree/main/examples/c/fonts) —
+[font45](../bin/font45.md) and `<font.h>`: the Makefile converts one TrueType
+font (Russo One, SIL Open Font License) three ways and makes a segment
+display's font, and the program shows all four on conio's full-colour screen
+(`fcm_enable`). The title is a glyph set (`--fcm`): each glyph pre-drawn into
+3 x 4 full-colour characters, two colour ramps down it and a drop shadow, put
+on the screen by `font_put_cells`. The paragraph is a proportional 2 bpp font
+drawn by `font_draw_fcm` into a block of characters. The counter is a
+16-segment display's digits (`--segments 16 --fcm`), unlit segments dim, put
+again each frame. conio's own text is in an 8x8 charset made from the same
+font (`--charset screencode --center`, `font_install`, `font_select`). The
+glyph sets are copied to bank 4 so their characters are numbered from 256.
+Any key quits; `make check` runs 50 frames, reads the title's cells and the
+segment font back and reports.
+
+![fonts](images/fonts.png)
+
 ### tgi_demo
 
 [Source](https://github.com/CTalkobt/M65Compiler/tree/main/examples/c/tgi_demo) —

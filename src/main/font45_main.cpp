@@ -87,6 +87,7 @@ void usage() {
         "  --invert           an image: its commonest colour is the ink, not the background\n"
         "  --baseline N       an image: the baseline's row (default: under the cell)\n"
         "  --upper            a ROM image: the upper case / graphics set ($29000), not lower / upper\n"
+        "  --center           --charset: a narrow glyph centred across its 8 columns\n"
         "  --fcm, --ncm       a glyph set: each glyph drawn into full-colour (8x8, a byte a pixel)\n"
         "                     or nibble-colour (16x8) characters, for font_put_cells\n"
         "  --palette B,L      a glyph set: coverage levels 1..L as palette entries B..B+L-1 (1,1)\n"
@@ -135,7 +136,7 @@ int main(int argc, char** argv) {
     long packAt = -1;
     font45::CellOptions cells;
     bool cellSet = false;
-    bool upperSet = false;
+    bool upperSet = false, center = false;
     font45::ImageOptions img;
     int bpp = 0, count = 256, fixedW = 0;
     long loadAt = -1, lo = -1, hi = -1;
@@ -183,6 +184,7 @@ int main(int argc, char** argv) {
         else if (a == "--invert") img.invert = true;
         else if (a == "--baseline") { long v; if (!parseNum(need("a row"), v) || v < 0 || v > 255) { std::cerr << "font45: --baseline needs a row\n"; return 1; } img.baseline = (int)v; }
         else if (a == "--upper") upperSet = true;
+        else if (a == "--center") center = true;
         else if (a == "--scale") { long v; if (!parseNum(need("1-16"), v) || v < 1 || v > 16) { std::cerr << "font45: --scale is 1-16\n"; return 1; } scale = (int)v; }
         else if (a == "--text") text = need("a sample line");
         else if (a == "--encoding") encoding = need("an encoding (petscii, ascii, screencode)");
@@ -303,7 +305,7 @@ int main(int argc, char** argv) {
         else if (charset == "petscii") order = font45::Order::Petscii;
         else { std::cerr << "font45: --charset is ascii, screencode or petscii\n"; return 1; }
         if (f.height > 8) std::cerr << "font45: warning: glyphs " << f.height << " rows high: the top 8 used\n";
-        out = font45::charset8x8(f, order, count);
+        out = font45::charset8x8(f, order, count, center);
         what = "an 8x8 charset, " + std::to_string(count) + " characters, " + charset + " order";
     } else {
         if (!bpp) bpp = 1;

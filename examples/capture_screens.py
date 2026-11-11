@@ -49,6 +49,7 @@ EXAMPLES = {
     "rogue": "examples/c/rogue/rogue.prg",
     "hanger": "examples/c/hanger/hanger.prg",
     "fcm_graphics": "examples/c/fcm_graphics/fcm_graphics.prg",
+    "fonts": "examples/c/fonts/fonts.prg",
     "tgi_demo": "examples/c/tgi_demo/tgi_demo.prg",
     "tgi_demo_640": "examples/c/tgi_demo/tgi_demo640.prg",
     "tgi_patterns": "examples/c/tgi_demo/tgi_patterns.prg",

@@ -59,6 +59,7 @@ I: 1 1 1 1 1
 | `--name NAME` | The array's or label's name. The default is the output's base name |
 | `--charset ORDER` | Write an 8x8 charset in this order instead of a font: `ascii`, `screencode` or `petscii` (below) |
 | `--count N` | With `--charset`: 256 (the default) or 512 characters |
+| `--center` | With `--charset`: a glyph narrower than 8 pixels centred across its cell (by its inked columns), not at its left |
 | `--encoding E` | A `<font.h>` font's codes: `petscii` (the default: cc45's plain literals, `'A'` is 193, `'a'` 65), `ascii` (a program under `#pragma encoding ascii`, or `a"…"` strings) or `screencode` |
 | `--bpp 1\|2\|4` | Write a `<font.h>` font with this many bits a pixel (the default is 1) |
 | `--proportional` | Store a width for each glyph. The default is fixed: every glyph is the widest glyph's width |
@@ -147,6 +148,9 @@ top-left, coverage level *n* as palette entry B + *n* − 1 (0 transparent), the
 
 ## Example
 
+`examples/c/fonts` ([doc/examples](../examples/README.md#fonts)) uses every form: a TrueType title as a glyph set, a
+2 bpp paragraph, a 16-segment counter and an 8x8 charset, built by its Makefile with font45.
+
 ```bash
 font45 convert title.bdf --bpp 1 --proportional -o title.c
 cc45 -O2 game.c title.c -o game.prg
@@ -180,5 +184,5 @@ font_select(0x40000UL);
 ## Known problems
 
 - TrueType is not hinted: small sizes are softer than a hinted rasterizer makes them. 2 bpp keeps them readable.
-- Drawing is C, a pixel at a time; assembly routines are a later phase of #466.
+- `font_draw_fcm` and `font_draw_ncm` are C, a pixel at a time (`font_draw_bitmap` draws each glyph in assembly).
 - PSF's Unicode table is ignored: glyphs keep their position as their code.

@@ -587,7 +587,7 @@ Fonts made by [font45](../bin/font45.md) (#466, `lib/stdlib/font.c`): a font at 
 | `void font_install(unsigned long charset, unsigned int bytes, unsigned long lin)` | Copies a charset to chip RAM at `lin` (DMA) |
 | `void font_select(unsigned long lin)` | Makes the VIC-IV's character set the one at `lin` (`$D068`-`$D06A`) |
 
-Drawing is C, a pixel at a time through a far pointer (an assembly fast path is a later phase). Tests: `test_font_cells_xemu.c` (glyph sets, `font_draw_fcm` / `_ncm`, `font_load`), `test_font_xemu.c`, with fonts font45 makes from `src/test-resources/font45/tiny.txt`.
+`font_draw_bitmap` clips in C and draws each glyph's visible rows in assembly (`stdlib_asm/font_glyph.s45`, `[ptr],z` far reads and stores): about 4 times the C loop's speed (an 11-pixel 2 bpp font, 1040 glyphs: 18 frames against 72). `font_draw_fcm` / `font_draw_ncm` are C, a pixel at a time. Example: `examples/c/fonts`. Tests: `test_font_cells_xemu.c` (glyph sets, `font_draw_fcm` / `_ncm`, `font_load`), `test_font_xemu.c`, with fonts font45 makes from `src/test-resources/font45/tiny.txt`.
 
 ### Loading files anywhere (`load.h`)
 

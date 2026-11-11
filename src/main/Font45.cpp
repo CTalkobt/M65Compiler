@@ -429,7 +429,7 @@ void decodeCharset(Font& f, Order order) {
     f.glyphs = std::move(out);
 }
 
-std::vector<uint8_t> charset8x8(const Font& f, Order order, int count) {
+std::vector<uint8_t> charset8x8(const Font& f, Order order, int count, bool center) {
     std::vector<uint8_t> out((size_t)count * 8, 0);
     for (int i = 0; i < count; i++) {
         int idx = i;
@@ -438,11 +438,20 @@ std::vector<uint8_t> charset8x8(const Font& f, Order order, int count) {
         // a second 256: the same order again)
         if (order == Order::ScreenCode) { inverse = (i & 0x80) != 0; idx = i & 0x7F; }
         const Glyph* g = findGlyph(f, sourceCodes(order == Order::ScreenCode ? idx : (i & 0xFF), order));
+        // (centred: by the glyph's inked columns)
+        int shift = 0;
+        if (g && center) {
+            int lo = 8, hi = -1;
+            for (int y = 0; y < 8; y++)
+                for (int x = 0; x < g->w && x < 8; x++)
+                    if (g->at(x, y) >= 128) { lo = std::min(lo, x); hi = std::max(hi, x); }
+            if (hi >= lo) shift = (8 - (hi - lo + 1)) / 2 - lo;
+        }
         for (int y = 0; y < 8; y++) {
             uint8_t b = 0;
             if (g)
                 for (int x = 0; x < 8; x++)
-                    if (g->at(x, y) >= 128) b |= (uint8_t)(0x80 >> x);
+                    if (g->at(x - shift, y) >= 128) b |= (uint8_t)(0x80 >> x);
             out[(size_t)i * 8 + y] = inverse ? (uint8_t)~b : b;
         }
     }
