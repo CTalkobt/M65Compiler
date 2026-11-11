@@ -11,6 +11,9 @@
  *   cbm_load_far("TILES", 5, 8, 0x41234UL);    the in-place address pack45 printed
  *   unpack(0x41234UL);                         unpacks to its destination ($40000)
  *
+ * <load.h>'s load_unpack does both in one call, also for a stream loaded to
+ * attic RAM: load_unpack("tiles", 5, 0, 0x41234UL).
+ *
  * Format 1 (Pack45.hpp): the format byte, the destination (4 bytes), then
  * tokens: literals, fills (DMA fill) and repeats (DMA copy). unpack returns
  * the number of bytes it wrote, 0 for a stream of another format.
