@@ -4,6 +4,16 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### cc45: a run-time call's second float operand copied straight into __float_b (#485)
+
+- A float result (or an int converted) whose one use is a store to
+  `__float_b` after the first operand's store to `__float_a` (basic45's
+  arguments of `__bas_fdiv` and the like: `INT((N + PE - 1) / PE)`) is copied
+  into `__float_b` at once instead of through a base-page temporary: a 5-byte
+  copy loop less each.
+- `basic45 --compile`'s tests and `games_menu.bas`: 82 bytes smaller, none
+  larger.
+
 ### basic45 --compile: FREEZER and IMPORT (#369)
 
 - `FREEZER` enters the hypervisor's Freezer, as the ROM's (its trap at
