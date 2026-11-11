@@ -4,6 +4,22 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### basic45 --convert=basic8: BASIC 8 programs as BASIC 65 (#449)
+
+- BASIC 8 (Walrusoft / Patech, C128): BASIC 7.0 with `@` graphics commands
+  on the VDC's 640 x 200 bit map. Programs are read at `$7001` (`@` followed
+  by BASIC 7.0's tokens or `$FE $30`-`$5A`); in listings BASIC 8's names are
+  tokenized only after an `@`.
+- The commands become BASIC 65 statements on a 640 x 200, 16-colour screen
+  whose palette is the VDC's RGBI colours: `@MODE` / `@WALRUS` / `@TEXT`,
+  `@COLOR`, `@CLEAR`, `@DOT`, `@LINE`, `@BOX` (with its shear), `@CIRCLE`,
+  `@ARC` (`ELLIPSE`, or a subroutine for arcs, polygons and subtends),
+  `@PAINT`, `@CHAR`, `@PIXEL`, `@WINDOWOPEN` / `@WINDOWCLOSE` (the window's
+  corner as the origin). 3D, brushes, patterns, the VDC's RAM, the mouse and
+  printing are kept in a REM with a warning.
+- Docs: basic45.md's BASIC 8 section. Tests: `test_basic45.sh`,
+  `test_convert8_xemu.txt` (run by BASIC 65 on xemu).
+
 ### basic45 --convert: MOVSPR by distance;angle, RWINDOW(0/1), RLUM (#433)
 
 - BASIC 7.0's `MOVSPR n, distance;angle` (angle 0 up, clockwise) becomes

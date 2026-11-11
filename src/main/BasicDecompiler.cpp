@@ -65,7 +65,8 @@ BasicDecompileResult decompileBasic(const std::vector<uint8_t>& prg, const Basic
     // another CBM BASIC's tokens (converted below)
     const bool v7 = options.source != BasicSource::B65;
     const CbmBasic cbm = options.source == BasicSource::V35 ? CbmBasic::V35
-                       : options.source == BasicSource::SIMONS ? CbmBasic::SIMONS : CbmBasic::V7;
+                       : options.source == BasicSource::SIMONS ? CbmBasic::SIMONS
+                       : options.source == BasicSource::B8 ? CbmBasic::B8 : CbmBasic::V7;
     BasicDecompileResult r;
     if (prg.size() < 4) { r.error = "not a BASIC program (too short)"; return r; }
     uint16_t load = prg[0] | (prg[1] << 8);
