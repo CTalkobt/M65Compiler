@@ -710,6 +710,17 @@ else
     echo "FAIL: test_convert35_xemu.txt (basic45 --convert or the build failed)"
     failed=$((failed + 1))
 fi
+# basic45 --convert=basic8: a BASIC 8 (C128) listing converted and run by BASIC 65 on a
+# 640 x 200 screen: each command's pixels read back by @PIXEL, the window, THEN : (a command
+# kept in a REM)
+echo "Testing test_convert8_xemu.txt (basic45 --convert=basic8)..."
+if ./bin/basic45 --convert=basic8 src/test-resources/test_convert8_xemu.txt -o build/test/test_convert8_xemu.bas >/dev/null 2>&1 &&
+   ./bin/basic45 build/test/test_convert8_xemu.bas -o build/test/test_convert8_xemu.prg >/dev/null 2>&1; then
+    run_xemu_test "test_convert8" "build/test/test_convert8_xemu.prg" "C0C0" 12 "01 01 01 01 01 01 01 01 01 01 01 AA"
+else
+    echo "FAIL: test_convert8_xemu.txt (basic45 --convert or the build failed)"
+    failed=$((failed + 1))
+fi
 # basic45 --convert=simons: a Simons' BASIC (C64) listing converted and run by
 # BASIC 65: procedures, loops, functions, ELSE/RCOMP, ON ERROR, CGOTO, PRINT AT,
 # the graphics (pixels tested), PAUSE, COLOUR, a sprite moved, the text-screen

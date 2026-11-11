@@ -31,7 +31,8 @@ const char* basicDialectName(BasicDialect d);
 bool decodeV7Token(const std::vector<uint8_t>& p, size_t& i, std::string& out, bool v7 = true);
 
 // The CBM BASICs another dialect's program can be in (basic45 --convert)
-enum class CbmBasic { V2, V35, V7, SIMONS };
+// (B8: BASIC 8, BASIC 7.0 with its own commands after @: BASIC 7.0's tokens and $FE $30-$5A)
+enum class CbmBasic { V2, V35, V7, SIMONS, B8 };
 
 // One keyword token of BASIC V2, 3.5 (C16 / Plus/4: V7's $CC-$FD, $CE is
 // RLUM), 7.0 or Simons' BASIC ($64 xx, xx 1-127; TSB's extra keywords too) at

@@ -392,5 +392,40 @@ else
     fail "GOTO a reserved word: $(cat "$D/rw2.log" "$D/rw3.log")"
 fi
 
+# --convert=basic8: BASIC 8 (C128), BASIC 7.0 and its @ graphics commands on a 640 x 200 screen
+conv8() { printf '%s\n' "$@" > "$D/c8.txt"; $B --convert=basic8 $CONV_OPTS "$D/c8.txt" -o "$D/c8.bas" 2> "$D/c8.err"; }
+conv8 '10 @MODE,0:@COLOR,2,13,1:@DOT,5,6,0:@LINE,1,2,0,3,4,0,1' '20 @BOX,10,10,0,50,40,0,1,5,1:@CIRCLE,100,50,0,20,1:@PAINT,1,2,0,0,0' \
+      '30 @ARC,320,100,0,50,30,0,360,2,1,0:@CHAR,255,1,2,16,8,4,"X"' '40 A=@PIXEL,5,6,0:D$=@DIR$,8:@TEXT' \
+      '50 IF A THEN @ANGLE,0,0,45,0:PRINT "Z"' '60 MODE1=5:@SCALE,0' '70 @ARC,320,100,0,50,30,0,90,10,1,1'
+grep -q '^  ya = 15 : yb = 0 : gosub \(l[0-9]*\) : yb = 2 : ya = 13 : pen 0, ya : border 11 : dot 5, 6 : line 1, 2, 3, 4$' "$D/c8.bas" &&
+grep -q '^  box 10, 10, 50, 10, 55, 40, 15, 40, 0 : circle 100, 50, 20 : paint 1, 2, 0$' "$D/c8.bas" &&
+grep -q '^  ellipse 320, 100, 50, 30 : char 1, 2, 2, 1, 4, "x", \$29000$' "$D/c8.bas" &&
+grep -q '^  a = (-(pixel(5, 6) <> yb)) : d\$ = "" : gosub l[0-9]* : rem @dir\$,8$' "$D/c8.bas" &&
+grep -q '^  if a then : print "z" : rem @angle,0, 0, 45, 0$' "$D/c8.bas" && grep -q '^  mode1 = 5$' "$D/c8.bas" &&
+grep -q '^  y[a-z0-9] = 320 : y[a-z0-9] = 100 : y[a-z0-9] = 50 : y[a-z0-9] = 30 : y[a-z0-9] = 0 : y[a-z0-9] = 90 : y[a-z0-9] = 10 : y[a-z0-9] = 1 : gosub l[0-9]*$' "$D/c8.bas" &&
+grep -q 'screen 640, 200, 4 : palette 0, 0, 0, 0, 0 : palette 0, 1, 5, 5, 5' "$D/c8.bas" && grep -q 'palette 0, 15, 15, 15, 15 : pen 0, ya : return' "$D/c8.bas" &&
+grep -q 'converted from BASIC 8 (C128) by basic45 --convert=basic8' "$D/c8.bas" &&
+grep -q 'line 40: @DIR\$ as a function has no BASIC 65 counterpart: "" instead' "$D/c8.err" && grep -q 'line 50: @ANGLE (3D)' "$D/c8.err" &&
+    pass "--convert=basic8: @MODE, @COLOR (the pen, a VDC border colour), @DOT, @LINE, a sheared @BOX, @CIRCLE, @PAINT, a whole @ARC as ELLIPSE and a part by the subroutine, @CHAR (ROM font, sizes, direction), @PIXEL, @TEXT; the rest in a REM; BASIC 8's names only after @" ||
+    fail "--convert=basic8: $(cat "$D/c8.bas" "$D/c8.err")"
+# a tokenized BASIC 8 program (bytes as BASIC 8 stores them, at $7001): @ and BASIC 7.0's tokens or $FE $30-$5A
+python3 - "$D/c8.prg" <<'PYEOF'
+import sys
+lines = [(10, bytes.fromhex('40FE4D2C303A40FE1A9F2C312C322C332C342C303A40FE3F2C352C362C303A40FE1AA0')),   # @MODE,0:@WINDOWOPEN,1,2,3,4,0:@DOT,5,6,0:@WINDOWCLOSE
+         (20, bytes.fromhex('4DB240FE3E2C322C30')),                                                    # M=@MOUSE,2,0
+         (30, bytes.fromhex('40E02C3235342C312C322C382C382C322C224122'))]                              # @CHAR,254,1,2,8,8,2,"A"
+out = bytearray([0x01, 0x70]); addr = 0x7001
+for n, body in lines:
+    nxt = addr + 4 + len(body) + 1
+    out += bytes([nxt & 255, nxt >> 8, n & 255, n >> 8]) + body + b'\0'; addr = nxt
+open(sys.argv[1], 'wb').write(out + b'\0\0')
+PYEOF
+$B --decompile --convert=basic8 "$D/c8.prg" -o "$D/c8p.bas" 2> "$D/c8p.err"
+grep -q 'gosub l[0-9]* : yc = 1 : yd = 2 : ye = 3 : yf = 4 : dot 5 + yc, 6 + yd : yc = 0 : yd = 0 : ye = 640 : yf = 200$' "$D/c8p.bas" &&
+grep -q '^  m = 0 : rem @mouse,2, 0$' "$D/c8p.bas" && grep -q '^  char 1 + int(yc / 8), 2 + yd, 1, 1, 2, "a"$' "$D/c8p.bas" &&
+! grep -q 'loads at\|unknown token' "$D/c8p.err" && grep -q '@MOUSE as a function' "$D/c8p.err" &&
+    pass "--convert=basic8 of a .prg: \$40 \$FE \$4D is @MODE, \$FE \$1A \$9F @WINDOWOPEN (coordinates from the window's corner), \$40 \$E0 @CHAR; loaded at \$7001" ||
+    fail "--convert=basic8 .prg: $(cat "$D/c8p.bas" "$D/c8p.err")"
+
 echo "basic45 tests: $passed passed, $failed failed"
 [ $failed -eq 0 ]
