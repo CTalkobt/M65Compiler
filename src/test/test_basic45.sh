@@ -395,17 +395,17 @@ fi
 # --convert=basic8: BASIC 8 (C128), BASIC 7.0 and its @ graphics commands on a 640 x 200 screen
 conv8() { printf '%s\n' "$@" > "$D/c8.txt"; $B --convert=basic8 $CONV_OPTS "$D/c8.txt" -o "$D/c8.bas" 2> "$D/c8.err"; }
 conv8 '10 @MODE,0:@COLOR,2,13,1:@DOT,5,6,0:@LINE,1,2,0,3,4,0,1' '20 @BOX,10,10,0,50,40,0,1,5,1:@CIRCLE,100,50,0,20,1:@PAINT,1,2,0,0,0' \
-      '30 @ARC,320,100,0,50,30,0,360,2,1,0:@CHAR,255,1,2,16,8,4,"X"' '40 A=@PIXEL,5,6,0:D$=@DIR$,8:@TEXT' \
+      '30 @ARC,320,100,0,50,30,0,360,2,1,0:@CHAR,255,1,2,16,8,4,"X"' '40 A=@PIXEL,5,6,0:L=@DIR$:@TEXT' \
       '50 IF A THEN @ANGLE,0,0,45,0:PRINT "Z"' '60 MODE1=5:@SCALE,0' '70 @ARC,320,100,0,50,30,0,90,10,1,1'
 grep -q '^  ya = 15 : yb = 0 : gosub \(l[0-9]*\) : yb = 2 : ya = 13 : pen 0, ya : border 11 : dot 5, 6 : line 1, 2, 3, 4$' "$D/c8.bas" &&
 grep -q '^  box 10, 10, 50, 10, 55, 40, 15, 40, 0 : circle 100, 50, 20 : paint 1, 2, 0$' "$D/c8.bas" &&
 grep -q '^  ellipse 320, 100, 50, 30 : char 1, 2, 2, 1, 4, "x", \$29000$' "$D/c8.bas" &&
-grep -q '^  a = (-(pixel(5, 6) <> yb)) : d\$ = "" : gosub l[0-9]* : rem @dir\$,8$' "$D/c8.bas" &&
+grep -q '^  a = (-(pixel(5, 6) <> yb)) : l = 0 : gosub l[0-9]* : rem @dir\$$' "$D/c8.bas" &&
 grep -q '^  if a then : print "z" : rem @angle,0, 0, 45, 0$' "$D/c8.bas" && grep -q '^  mode1 = 5$' "$D/c8.bas" &&
 grep -q '^  y[a-z0-9] = 320 : y[a-z0-9] = 100 : y[a-z0-9] = 50 : y[a-z0-9] = 30 : y[a-z0-9] = 0 : y[a-z0-9] = 90 : y[a-z0-9] = 10 : y[a-z0-9] = 1 : gosub l[0-9]*$' "$D/c8.bas" &&
 grep -q 'screen 640, 200, 4 : palette 0, 0, 0, 0, 0 : palette 0, 1, 5, 5, 5' "$D/c8.bas" && grep -q 'palette 0, 15, 15, 15, 15 : pen 0, ya : return' "$D/c8.bas" &&
 grep -q 'converted from BASIC 8 (C128) by basic45 --convert=basic8' "$D/c8.bas" &&
-grep -q 'line 40: @DIR\$ as a function has no BASIC 65 counterpart: "" instead' "$D/c8.err" && grep -q 'line 50: @ANGLE (3D)' "$D/c8.err" &&
+grep -q 'line 40: @DIR\$ as a function has no BASIC 65 counterpart: 0 instead' "$D/c8.err" && grep -q 'line 50: @ANGLE (3D)' "$D/c8.err" &&
     pass "--convert=basic8: @MODE, @COLOR (the pen, a VDC border colour), @DOT, @LINE, a sheared @BOX, @CIRCLE, @PAINT, a whole @ARC as ELLIPSE and a part by the subroutine, @CHAR (ROM font, sizes, direction), @PIXEL, @TEXT; the rest in a REM; BASIC 8's names only after @" ||
     fail "--convert=basic8: $(cat "$D/c8.bas" "$D/c8.err")"
 # a tokenized BASIC 8 program (bytes as BASIC 8 stores them, at $7001): @ and BASIC 7.0's tokens or $FE $30-$5A

@@ -1328,6 +1328,19 @@ else
     echo "FAIL: test_basic45_link_xemu.bas (basic45 --link failed)"
     failed=$((failed + 1))
 fi
+# --compile --link (#369): the same program compiled, its C functions called
+# directly, {name} the symbols' addresses, the asm block and incbin linked in
+for blmode in "|" "_checks|--checks"; do
+    IFS='|' read -r blname blflags <<< "$blmode"
+    echo "Testing test_basic45_link_xemu.bas compiled$blname..."
+    if ./bin/basic45 --strict --compile $blflags --link src/test-resources/test_basic45_link_xemu.c \
+           src/test-resources/test_basic45_link_xemu.bas -o build/test/test_basic45_linkc$blname.prg >/dev/null 2>&1; then
+        run_xemu_test "test_basic45_linkc$blname" "build/test/test_basic45_linkc$blname.prg" "C0C0" 9 "01 01 01 01 01 01 01 01 AA"
+    else
+        echo "FAIL: test_basic45_link_xemu.bas compiled$blname (basic45 --compile --link failed)"
+        failed=$((failed + 1))
+    fi
+done
 # basic45 warnings: a variable read but never assigned (a typo), assigned but
 # never read, a line that can never run, a proc never called; a hex number's
 # letters ($2F8) are not a variable
