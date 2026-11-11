@@ -139,6 +139,42 @@ $F convert $D/ttf.bin --bpp 1 --proportional -o $D/back.bin >/dev/null && cmp -s
 $F preview $D/tiny.ttf --size 10 --text OIL --scale 2 -o $D/p.png >/dev/null && [ "$(head -c 8 $D/p.png | xxd -p)" = "89504e470d0a1a0a" ] &&
     pass "preview: a PNG of the glyphs and a sample line" || fail "preview"
 
+# glyph sets: NCM (A at entry 5: row 0 0110 -> pixels 1, 2: $50 $05, the left pixel the low nibble; row 1 1001:
+# $05 $50; row 2 1111: $55 $55), FCM with a
+# shadow (I's column at x 0, its shadow at x 1 one row down), the characters from offset 64
+$F convert $T/tiny.txt --ncm --palette 5,1 --range 193-193 -o $D/n.bin >/dev/null &&
+    [ "$(xxd -l 12 -p $D/n.bin)" = "4634010805c1c10404100101" ] && [ "$(stat -c %s $D/n.bin)" = 128 ] &&
+    [ "$(xxd -s 64 -l 2 -p $D/n.bin)" = "5005" ] && [ "$(xxd -s 72 -l 2 -p $D/n.bin)" = "0550" ] && [ "$(xxd -s 80 -l 3 -p $D/n.bin)" = "555500" ] &&
+    $F convert $T/tiny.txt --fcm --palette 3,1 --shadow 9 --range 201-201 -o $D/f.bin >/dev/null &&
+    [ "$(xxd -s 7 -l 5 -p $D/f.bin)" = "0802080101" ] && [ "$(xxd -s 64 -l 2 -p $D/f.bin)" = "0300" ] &&
+    [ "$(xxd -s $((64 + 8)) -l 2 -p $D/f.bin)" = "0309" ] && [ "$(xxd -s $((64 + 40)) -l 2 -p $D/f.bin)" = "0009" ] &&
+    $F convert $T/tiny.txt --fcm --range 193-194 -o $D/fc.c >/dev/null && grep -q '^_Alignas(64) const unsigned char fc\[' $D/fc.c &&
+    grep -q '#define FC_COLS 1' $D/fc.h && $F convert $T/tiny.txt --fcm --range 193-194 -o $D/fa.s45 >/dev/null &&
+    grep -q '^    .align 64$' $D/fa.s45 && ! $F convert $D/n.bin --bpp 1 -o $D/x.bin 2>/dev/null &&
+    pass "glyph sets: NCM's nibbles, FCM with a shadow, the characters at 64, C _Alignas(64) / assembly .align 64" ||
+    fail "glyph sets: $(xxd -l 16 -p $D/n.bin) $(xxd -s 64 -l 16 -p $D/n.bin) / $(xxd -s 64 -l 48 -p $D/f.bin)"
+# segment fonts: 7 segments at 2 bpp, 8 all lit (level 3), 1 lit and unlit (1); 16 segments' letters; no ghost
+$F convert --segments 7 --size 16 --bpp 2 --encoding ascii --range 48-57 -o $D/s7.bin >/dev/null &&
+    python3 - "$D/s7.bin" <<'PYEOF' &&
+import sys
+d = open(sys.argv[1], 'rb').read()
+h, first, rb = d[3], d[5], d[10]
+def levels(c):
+    g = d[12 + (c - first) * h * rb: 12 + (c - first + 1) * h * rb]
+    return {(b >> s) & 3 for b in g for s in (6, 4, 2, 0)}
+assert levels(ord('8')) == {0, 3}, levels(ord('8'))
+assert levels(ord('1')) == {0, 1, 3}, levels(ord('1'))
+PYEOF
+    $F list --segments 16 --size 24 | grep -q 'glyphs:   75' && $F list --segments 7 --size 24 --no-ghost | grep -q 'glyphs:   52' &&
+    ! $F convert --segments 9 -o $D/x.bin 2>/dev/null &&
+    pass "segment fonts: 7 at 2 bpp (8 all lit, 1 lit and dim), 16 segments' 75 glyphs, the errors" || fail "segment fonts"
+# --pack: a pack45 stream that unpacks to the font
+$F convert $T/tiny.txt --bpp 1 --proportional -o $D/up.bin >/dev/null &&
+    $F convert $T/tiny.txt --bpp 1 --proportional --pack 0x46000 -o $D/pk.bin >/dev/null &&
+    ./bin/pack45 -x $D/pk.bin $D/pk.out --raw >/dev/null 2>&1 && cmp -s $D/up.bin $D/pk.out &&
+    [ "$(xxd -l 5 -p $D/pk.bin)" = "0100600400" ] &&
+    pass "--pack: a pack45 stream (format 1, to \$46000) that unpacks to the font" || fail "--pack: $(xxd -l 8 -p $D/pk.bin)"
+
 # list and the errors
 $F list $T/tiny.bdf | grep -q 'glyphs:   2 (codes 65-106)' && pass "list: the glyphs and their codes" || fail "list"
 printf 'A: 01z0\n' > $D/bad.txt

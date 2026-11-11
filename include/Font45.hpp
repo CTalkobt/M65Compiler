@@ -97,6 +97,27 @@ void reencode(Font& f, Order order);
 // position i is the character `order` puts at i (screen codes: 0-127)
 void decodeCharset(Font& f, Order order);
 
+// A pre-rendered glyph set (format 1, flags bit 1 FCM / bit 2 NCM): each
+// glyph drawn into the VIC-IV's characters, cols x rows of them (FCM 8 x 8
+// pixels a byte each, NCM 16 x 8 a nibble each, the left pixel the low
+// nibble; 64 bytes a character), numbered down each column; the glyphs'
+// characters from the next multiple of 64 after the header and widths.
+// Header: 3 the rows of pixels (rows * 8), 7 bpp 8 / 4, 9 the cell's width
+// in pixels, 10 cols, 11 rows. A coverage level n (of levels) is palette
+// entry base + n - 1 (gradient: the ramp chosen by the row, ramp r's
+// entries base + r * levels ...), 0 is transparent; edge / shadow (>= 0)
+// the entries of a pixel round the glyph / below and right of it
+struct CellOptions {
+    bool ncm = false;
+    int base = 1, levels = 1, gradient = 0, shadow = -1, edge = -1;
+};
+std::vector<uint8_t> cellData(const Font& f, const CellOptions& o, bool proportional, int first, int last);
+
+// a segment display's font (7, 14 or 16 segments) height pixels high: the
+// digits, the letters it can show (lower case as upper) and some signs;
+// lit segments coverage 255, the unlit ones (ghost) 85: levels 3 and 1 at 2 bpp
+bool makeSegmentFont(int kind, int height, bool ghost, Font& f, std::string& err);
+
 // A proportional (or fixed) font for <font.h> (format 1):
 //   0..1 "F4", 2 version (1), 3 height, 4 baseline, 5 first, 6 last, 7 bpp,
 //   8 flags (bit 0 proportional), 9 cell width (the widest glyph),

@@ -2826,6 +2826,28 @@ else
     failed=$((failed + 1))
 fi
 
+# Test: <font.h>'s glyph sets (font45 --fcm: font_put_cells), font_draw_fcm /
+# font_draw_ncm, font_load (a font file and a packed one, from a disk)
+FC=build/test/fontc
+mkdir -p $FC
+rm -f $FC/fonts.d81
+if ./bin/font45 convert --segments 7 --size 16 --bpp 2 --fcm --palette 16,3 --range 48-57 -o $FC/seg.c >/dev/null 2>&1 &&
+   ./bin/font45 convert src/test-resources/font45/tiny.txt --bpp 1 --proportional -o $FC/tiny.c >/dev/null 2>&1 &&
+   ./bin/font45 convert src/test-resources/font45/tiny.txt --bpp 1 --proportional --load-at 0x2000 -o $FC/font.prg >/dev/null 2>&1 &&
+   ./bin/font45 convert src/test-resources/font45/tiny.txt --bpp 1 --proportional --pack 0x46000 --load-at 0x2000 -o $FC/fpack.prg >/dev/null 2>&1 &&
+   ./bin/disk45 create $FC/fonts.d81 -n FONTS >/dev/null 2>&1 &&
+   ./bin/disk45 add $FC/fonts.d81 $FC/font.prg FONT -p >/dev/null 2>&1 &&
+   ./bin/disk45 add $FC/fonts.d81 $FC/fpack.prg FPACK -p >/dev/null 2>&1; then
+    for fcmode in "zp|" "stack|-fno-zpcall"; do
+        IFS='|' read -r fcname fcflags <<< "$fcmode"
+        echo "Testing test_font_cells_xemu.c ($fcname)..."
+        xemu_case "FAIL: test_font_cells_xemu.c $fcname (compilation/linking failed)" "src/test-resources/test_font_cells_xemu.c" "build/test/test_font_cells_${fcname}_xemu.prg" "$fcflags -I$FC" "$FC/seg.c $FC/tiny.c" -- "test_font_cells_$fcname" "build/test/test_font_cells_${fcname}_xemu.prg" "C0C0" 7 "01 01 01 01 01 01 AA" -8 "$PWD/$FC/fonts.d81"
+    done
+else
+    echo "FAIL: test_font_cells_xemu.c: font45 or disk45 failed"
+    failed=$((failed + 1))
+fi
+
 # Test: tgi_bar's fill patterns (both drivers), gets / gets_s from the
 # KERNAL's keyboard buffer, heapfree, ftoa
 for tpmode in "zp|" "stack|-fno-zpcall"; do

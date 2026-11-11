@@ -179,6 +179,7 @@ bool readFont45(const std::vector<uint8_t>& d, Font& f, std::string& err) {
     if (d[o + 2] != 1) { err = "font45's format " + std::to_string(d[o + 2]) + ": this font45 reads format 1"; return false; }
     int height = d[o + 3], baseline = d[o + 4], first = d[o + 5], last = d[o + 6], bpp = d[o + 7], flags = d[o + 8];
     int cellw = d[o + 9], rowbytes = d[o + 10];
+    if (flags & 6) { err = "a glyph set (FCM / NCM characters): not read back"; return false; }
     if (last < first || !height || (bpp != 1 && bpp != 2 && bpp != 4)) { err = "a font45 header that makes no sense"; return false; }
     bool prop = flags & 1;
     size_t widths = o + 12, glyphs = widths + (prop ? (size_t)(last - first + 1) : 0);
@@ -501,7 +502,10 @@ std::string upper(std::string s) {
 }  // namespace
 
 std::string asC(const std::vector<uint8_t>& data, const std::string& name, const std::string& what) {
-    return "/* " + name + ": " + what + " (font45) */\n#include \"" + name + ".h\"\n\nconst unsigned char " + name +
+    // (a glyph set's characters must be 64-byte aligned: the array is)
+    bool cells = data.size() >= 12 && data[0] == 'F' && data[1] == '4' && (data[8] & 6);
+    return "/* " + name + ": " + what + " (font45) */\n#include \"" + name + ".h\"\n\n" +
+           std::string(cells ? "_Alignas(64) " : "") + "const unsigned char " + name +
            "[" + std::to_string(data.size()) + "] = {\n" + hexBytes(data, "0x", ", ", "    ") + "};\n";
 }
 
@@ -516,14 +520,19 @@ std::string asHeader(const std::vector<uint8_t>& data, const std::string& name, 
         s += "#define " + N + "_FIRST " + std::to_string(data[5]) + "\n";
         s += "#define " + N + "_LAST " + std::to_string(data[6]) + "\n";
         s += "#define " + N + "_BPP " + std::to_string(data[7]) + "\n";
-        s += "/* font_from(&f, " + name + ") (<font.h>) */\n";
+        if (data[8] & 6) {
+            s += "#define " + N + "_COLS " + std::to_string(data[10]) + "\n";
+            s += "#define " + N + "_ROWS " + std::to_string(data[11]) + "\n";
+        }
+        s += "/* font_from(&f, (unsigned long)(unsigned int)" + name + ") (<font.h>) */\n";
     }
     s += "extern const unsigned char " + name + "[" + std::to_string(data.size()) + "];\n\n#endif\n";
     return s;
 }
 
 std::string asAsm(const std::vector<uint8_t>& data, const std::string& name, const std::string& what) {
-    return "; " + name + ": " + what + " (font45)\n    .global " + name + "\n" + name + ":\n" +
+    bool cells = data.size() >= 12 && data[0] == 'F' && data[1] == '4' && (data[8] & 6);
+    return "; " + name + ": " + what + " (font45)\n    .global " + name + "\n" + (cells ? "    .align 64\n" : "") + name + ":\n" +
            hexBytes(data, "$", ", ", "    .byte ");
 }
 

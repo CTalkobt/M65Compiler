@@ -4,6 +4,21 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### font45 and <font.h>: glyph sets, segment fonts, font_load (#466, phase 3)
+
+- `font45 --fcm` / `--ncm`: each glyph pre-drawn into the VIC-IV's
+  full-colour or nibble-colour characters (numbered down each glyph's
+  columns, 64-byte aligned), coloured from `--palette B,L`, with
+  `--gradient`, `--shadow` and `--edge`.
+- `--segments 7|14|16`: a segment display's font (digits, letters, signs),
+  unlit segments dim (`--no-ghost`); `--pack ADDR`: a pack45 stream.
+- `<font.h>`: `font_put_cells` (a glyph set on a 16-bit character screen),
+  `font_draw_fcm` / `font_draw_ncm` (a font drawn into characters laid out
+  down columns or along rows), `font_load` (a font file from disk, packed
+  or not; its own member, `font_load.c`). `font_from` reads glyph sets.
+- Tests: `test_font45.sh` (26 checks), `test_font_cells_xemu.c` (both
+  conventions, a disk with a plain and a packed font).
+
 ### font45: TrueType, images, ROM images, its own fonts, preview (#466, phase 2)
 
 - TrueType / OpenType fonts at `--size` pixels (stb_truetype, vendored in

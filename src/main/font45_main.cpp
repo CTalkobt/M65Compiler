@@ -9,6 +9,7 @@
 #include <string>
 #include <vector>
 #include "Font45.hpp"
+#include "Pack45.hpp"
 #include "Logger.hpp"
 #include "Version.hpp"
 
@@ -86,6 +87,14 @@ void usage() {
         "  --invert           an image: its commonest colour is the ink, not the background\n"
         "  --baseline N       an image: the baseline's row (default: under the cell)\n"
         "  --upper            a ROM image: the upper case / graphics set ($29000), not lower / upper\n"
+        "  --fcm, --ncm       a glyph set: each glyph drawn into full-colour (8x8, a byte a pixel)\n"
+        "                     or nibble-colour (16x8) characters, for font_put_cells\n"
+        "  --palette B,L      a glyph set: coverage levels 1..L as palette entries B..B+L-1 (1,1)\n"
+        "  --gradient N       a glyph set: N ramps down the glyph (ramp r: B + r * L ...)\n"
+        "  --shadow C, --edge C   a glyph set: a drop shadow / an outline in palette entry C\n"
+        "  --segments 7|14|16 no input: a segment display's font, --size pixels high; unlit\n"
+        "                     segments dim (coverage a third: --bpp 2's level 1; --no-ghost)\n"
+        "  --pack ADDR        the output a pack45 stream that unpacks to ADDR (font_load)\n"
         "  --scale N          preview: pixels a pixel (default 4); --text \"...\": a sample line\n"
         "  -V, --version      the version\n";
 }
@@ -121,7 +130,11 @@ int main(int argc, char** argv) {
     if (cmd != "convert" && cmd != "list" && cmd != "preview") { std::cerr << "font45: unknown command " << cmd << " (convert, list, preview)\n"; return 1; }
 
     std::string input, output, name, format, form, charset, encoding = "petscii", from = "screencode", text = "The quick brown fox";
-    int size = 16, scale = 4;
+    int size = 16, scale = 4, segments = 0;
+    bool ghost = true;
+    long packAt = -1;
+    font45::CellOptions cells;
+    bool cellSet = false;
     bool upperSet = false;
     font45::ImageOptions img;
     int bpp = 0, count = 256, fixedW = 0;
@@ -151,6 +164,22 @@ int main(int argc, char** argv) {
         else if (a == "--first") { long v; if (!parseNum(need("a code"), v) || v < 0 || v > 0xFFFF) { std::cerr << "font45: --first needs a code\n"; return 1; } img.first = (int)v; }
         else if (a == "--order") { std::string o = need("rows or columns"); if (o != "rows" && o != "columns") { std::cerr << "font45: --order is rows or columns\n"; return 1; } img.columns = o == "columns"; }
         else if (a == "--marker") img.marker = true;
+        else if (a == "--fcm" || a == "--ncm") { cellSet = true; cells.ncm = a == "--ncm"; }
+        else if (a == "--palette") {
+            std::string v = need("B,L");
+            auto c = v.find(',');
+            long b, l;
+            if (c == std::string::npos || !parseNum(v.substr(0, c), b) || !parseNum(v.substr(c + 1), l) || b < 0 || b > 255 || l < 1 || l > 15) {
+                std::cerr << "font45: --palette needs B,L (an entry 0-255, 1-15 levels)\n"; return 1;
+            }
+            cells.base = (int)b; cells.levels = (int)l;
+        }
+        else if (a == "--gradient") { long v; if (!parseNum(need("ramps"), v) || v < 1 || v > 16) { std::cerr << "font45: --gradient is 1-16 ramps\n"; return 1; } cells.gradient = (int)v; }
+        else if (a == "--shadow") { long v; if (!parseNum(need("an entry"), v) || v < 0 || v > 255) { std::cerr << "font45: --shadow needs a palette entry\n"; return 1; } cells.shadow = (int)v; }
+        else if (a == "--edge") { long v; if (!parseNum(need("an entry"), v) || v < 0 || v > 255) { std::cerr << "font45: --edge needs a palette entry\n"; return 1; } cells.edge = (int)v; }
+        else if (a == "--segments") { long v; if (!parseNum(need("7, 14 or 16"), v) || (v != 7 && v != 14 && v != 16)) { std::cerr << "font45: --segments is 7, 14 or 16\n"; return 1; } segments = (int)v; }
+        else if (a == "--no-ghost") ghost = false;
+        else if (a == "--pack") { if (!parseNum(need("an address"), packAt) || packAt < 0 || packAt > 0xFFFFFFF) { std::cerr << "font45: --pack needs a 28-bit address\n"; return 1; } }
         else if (a == "--invert") img.invert = true;
         else if (a == "--baseline") { long v; if (!parseNum(need("a row"), v) || v < 0 || v > 255) { std::cerr << "font45: --baseline needs a row\n"; return 1; } img.baseline = (int)v; }
         else if (a == "--upper") upperSet = true;
@@ -185,11 +214,19 @@ int main(int argc, char** argv) {
         else if (input.empty()) input = a;
         else { std::cerr << "font45: one font at a time (" << a << ")\n"; return 1; }
     }
-    if (input.empty()) { std::cerr << "font45: no font given\n"; return 1; }
+    if (input.empty() && !segments) { std::cerr << "font45: no font given\n"; return 1; }
 
     std::vector<uint8_t> data;
-    if (!readFile(input, data)) { std::cerr << "font45: cannot read " << input << "\n"; return 1; }
-    if (format.empty()) format = font45::formatOf(input);
+    if (segments) {
+        if (!input.empty()) { std::cerr << "font45: --segments makes a font: no input (" << input << ")\n"; return 1; }
+        input = std::to_string(segments) + "-segment";
+        format = "segments";
+    } else {
+        if (!readFile(input, data)) { std::cerr << "font45: cannot read " << input << "\n"; return 1; }
+        if (format.empty()) format = font45::formatOf(input);
+    }
+    if (cells.ncm && cellSet && cells.base + cells.levels * std::max(1, cells.gradient) - 1 > 15)
+        std::cerr << "font45: warning: --ncm's entries are 0-15 (a character's 16): the ramp goes past 15\n";
     font45::Font f;
     std::string err;
     bool ok;
@@ -198,7 +235,8 @@ int main(int argc, char** argv) {
     bool f4 = data.size() > 4 && ((data[0] == 'F' && data[1] == '4') || (data[2] == 'F' && data[3] == '4'));
     if (format == "charset" && f4) format = "font45bin";
     if (format == "charset" && data.size() == 131072) format = "rom";
-    if (format == "bdf") ok = font45::readBDF(data, f, err);
+    if (format == "segments") ok = font45::makeSegmentFont(segments, size, ghost, f, err);
+    else if (format == "bdf") ok = font45::readBDF(data, f, err);
     else if (format == "truetype") ok = font45::readTrueType(data, size, f, err);
     else if (format == "image") ok = font45::readImage(data, img, f, err);
     else if (format == "rom") ok = font45::readRom(data, upperSet, f, err);
@@ -275,12 +313,26 @@ int main(int argc, char** argv) {
             return 1;
         }
         if (f.height > 255) { std::cerr << "font45: glyphs over 255 rows high\n"; return 1; }
-        out = font45::fontData(f, bpp, proportional, first, last, fixedW);
-        what = std::string(proportional ? "a proportional" : "a fixed") + " font, " + std::to_string(bpp) +
-               " bpp, codes " + std::to_string(first) + "-" + std::to_string(last) + ", " + std::to_string(f.height) +
-               " rows";
+        if (cellSet) {
+            out = font45::cellData(f, cells, proportional, first, last);
+            what = std::string(proportional ? "a proportional" : "a fixed") + " glyph set, " + (cells.ncm ? "NCM" : "FCM") +
+                   " characters " + std::to_string(out[10]) + " x " + std::to_string(out[11]) + " a glyph, codes " +
+                   std::to_string(first) + "-" + std::to_string(last);
+        } else {
+            out = font45::fontData(f, bpp, proportional, first, last, fixedW);
+            what = std::string(proportional ? "a proportional" : "a fixed") + " font, " + std::to_string(bpp) +
+                   " bpp, codes " + std::to_string(first) + "-" + std::to_string(last) + ", " + std::to_string(f.height) +
+                   " rows";
+        }
     }
 
+    if (packAt >= 0) {
+        auto pk = pack45::pack(out, (uint32_t)packAt);
+        what += ", packed to unpack at $" + [&] { char b[16]; std::snprintf(b, sizeof b, "%lX", packAt); return std::string(b); }() +
+                " (" + std::to_string(out.size()) + " bytes)";
+        out = pk.stream;
+        isFont = false;
+    }
     if (form == "c") {
         std::string h = output;
         auto dot = h.find_last_of('.');

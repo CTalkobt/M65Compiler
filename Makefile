@@ -295,9 +295,9 @@ $(PACK_TARGET): $(LIB_DIR)/lib45-common.a
 	$(CXX) $(CXXFLAGS) -o $@ $(OBJ_DIR)/pack45_main.o $(OBJ_DIR)/PackAudio.o $(LIB_DIR)/lib45-common.a
 
 # Fonts (font45, #466) - uses common
-$(FONT_TARGET): $(OBJ_DIR)/font45_main.o $(OBJ_DIR)/Font45.o $(OBJ_DIR)/Font45Stb.o $(LIB_DIR)/lib45-common.a | $(LIB_DIR)
+$(FONT_TARGET): $(OBJ_DIR)/font45_main.o $(OBJ_DIR)/Font45.o $(OBJ_DIR)/Font45Stb.o $(OBJ_DIR)/Font45Cells.o $(LIB_DIR)/lib45-common.a | $(LIB_DIR)
 	@mkdir -p $(BIN_DIR)
-	$(CXX) $(CXXFLAGS) -o $@ $(OBJ_DIR)/font45_main.o $(OBJ_DIR)/Font45.o $(OBJ_DIR)/Font45Stb.o $(LIB_DIR)/lib45-common.a
+	$(CXX) $(CXXFLAGS) -o $@ $(OBJ_DIR)/font45_main.o $(OBJ_DIR)/Font45.o $(OBJ_DIR)/Font45Stb.o $(OBJ_DIR)/Font45Cells.o $(LIB_DIR)/lib45-common.a
 
 # Linker (ln45) - uses linker + opt + common
 $(LN_TARGET): $(OBJ_DIR)/ln45_main.o | $(LIB_DIR)
