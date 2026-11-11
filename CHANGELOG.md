@@ -4,6 +4,20 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### font45 and <font.h> (#466, phase 1)
+
+- `font45`, a new tool: bitmap fonts (BDF, PSF1/PSF2, C64 charsets,
+  hand-drawn glyphs as text) to 8x8 text-mode charsets (ASCII, screen-code or
+  PETSCII order, 256 or 512 characters) or to `<font.h>` fonts (1, 2 or 4
+  bpp, fixed or proportional; PETSCII codes by default, as cc45's literals,
+  `--encoding ascii|screencode`), as C, ca45 assembly or binary. `--range`,
+  `--map`, `--bold` / `--italic` / `--outline`, `--load-at`; `list`.
+- `<font.h>`: `font_from`, `font_glyph_width`, `font_width`, `font_ramp`,
+  `font_clip`, `font_draw_bitmap` (a string into an 8-bit-a-pixel bitmap
+  anywhere in memory), `font_install`, `font_select`.
+- Docs: `doc/bin/font45.md`, stdlib.md's Fonts section. Tests:
+  `src/test/test_font45.sh` (make test), `test_font_xemu.c`.
+
 ### basic45 --convert=basic8: BASIC 8 programs as BASIC 65 (#449)
 
 - BASIC 8 (Walrusoft / Patech, C128): BASIC 7.0 with `@` graphics commands

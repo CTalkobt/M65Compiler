@@ -2810,6 +2810,21 @@ for apmode in "zp|$STDLIB|" "stack|$STDLIB_STACK|-fno-zpcall"; do
     fi
 done
 
+# Test: <font.h> (#466) with fonts font45 makes from tiny.txt: font_from,
+# widths, drawing into bank 4 (clipping, the ramp), font_install / font_select
+mkdir -p build/test/font
+if ./bin/font45 convert src/test-resources/font45/tiny.txt --bpp 1 --proportional -o build/test/font/tiny.c >/dev/null 2>&1 &&
+   ./bin/font45 convert src/test-resources/font45/tiny.txt --bpp 2 --range 193-193 -o build/test/font/tiny2.c >/dev/null 2>&1; then
+    for fmode in "zp|" "stack|-fno-zpcall"; do
+        IFS='|' read -r fname fflags <<< "$fmode"
+        echo "Testing test_font_xemu.c ($fname)..."
+        xemu_case "FAIL: test_font_xemu.c $fname (compilation/linking failed)" "src/test-resources/test_font_xemu.c" "build/test/test_font_${fname}_xemu.prg" "$fflags -Ibuild/test/font" "build/test/font/tiny.c build/test/font/tiny2.c" -- "test_font_$fname" "build/test/test_font_${fname}_xemu.prg" "C0C0" 7 "01 01 01 01 01 01 AA"
+    done
+else
+    echo "FAIL: test_font_xemu.c: font45 failed"
+    failed=$((failed + 1))
+fi
+
 # Test: tgi_bar's fill patterns (both drivers), gets / gets_s from the
 # KERNAL's keyboard buffer, heapfree, ftoa
 for tpmode in "zp|" "stack|-fno-zpcall"; do
