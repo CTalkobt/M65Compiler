@@ -2113,11 +2113,12 @@ for bpmode in "zp|" "stack|-fno-zpcall"; do
 done
 
 # Test: a ?: between a long and a narrower value (#310): the narrower arm
-# widened (zero or sign), not copied with its top bytes left as they were
+# widened (zero or sign), not copied with its top bytes left as they were;
+# a signed char arm sign-extended by its own type
 for twmode in "zp|" "stack|-fno-zpcall"; do
     IFS='|' read -r twname twflags <<< "$twmode"
     echo "Testing test_ternary_widen_xemu.c ($twname)..."
-    xemu_case "FAIL: test_ternary_widen_xemu.c $twname (compilation/linking failed)" "src/test-resources/test_ternary_widen_xemu.c" "build/test/test_ternary_widen_${twname}_xemu.prg" "$twflags" -- "test_ternary_widen_$twname" "build/test/test_ternary_widen_${twname}_xemu.prg" "C0C0" 6 "01 01 01 01 01 AA"
+    xemu_case "FAIL: test_ternary_widen_xemu.c $twname (compilation/linking failed)" "src/test-resources/test_ternary_widen_xemu.c" "build/test/test_ternary_widen_${twname}_xemu.prg" "$twflags" -- "test_ternary_widen_$twname" "build/test/test_ternary_widen_${twname}_xemu.prg" "C0C0" 7 "01 01 01 01 01 01 AA"
 done
 
 # Test: a call's arguments computed in their parameter slots ($10-$2F),
