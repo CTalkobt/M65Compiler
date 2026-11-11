@@ -585,6 +585,10 @@ Fonts made by [font45](../bin/font45.md) (#466, `lib/stdlib/font.c`): a font at 
 
 Drawing is C, a pixel at a time through a far pointer (an assembly fast path is a later phase). Test: `test_font_xemu.c`, with fonts font45 makes from `src/test-resources/font45/tiny.txt`.
 
+### Loading files anywhere (`load.h`)
+
+`unsigned int load_far(const char *name, unsigned char len, unsigned char device, unsigned long lin)` (#444, `lib/stdlib/load.c`) loads a file (a PRG: its two-byte load address skipped) to a 28-bit address: chip RAM (below `$8000000`) by the KERNAL's `LOAD` into that bank, attic RAM through a stage in chip RAM and a DMA copy. It returns the bytes loaded, which `cbm_load_far` does not (`LOAD`'s end address less the start), and 0 on an error. `unsigned long load_unpack(name, len, device, at)` loads a pack45 stream to `at` (as `load_far`) and unpacks it to the destination in its header (`unpack`), returning the bytes unpacked. `void load_stage(unsigned long lin, unsigned int size)` sets the stage: `$40000`, all of bank 4, by default; a file for attic RAM larger than `size` is `LOAD_TOO_BIG`. `device` 0 is the drive the program came from (`$BA`), or 8. `unsigned char load_error`: 0, the KERNAL's error (4 file not found, 5 device not present...), `LOAD_TOO_BIG` or `LOAD_NOT_PACKED`; a variable of its own rather than `_oserror`, since two of its values are not the KERNAL's. The KERNAL runs the load, so a program that has taken over the machine hands it back around the call. File names are PETSCII: with cc45's default encoding, `"level1"` for the directory's `LEVEL1`. Test: `src/test-resources/test_load_far_xemu.c` (from a D81: chip RAM, attic RAM, a packed file, the three errors).
+
 ### rom_ram.h
 
 Unused parts of the ROM area ($20000-$3FFFF of chip RAM) as RAM (#339). In C65 mode the C64 BASIC and KERNAL images there are never used: 16 KB for characters, samples, DMA buffers. The hypervisor write-protects the area (CPU and DMA writes are ignored): its memory trap, `$D641`, lifts the protection (`A = $02`) or sets it again (`A = $00`); `$D67D` bit 2 shows it.

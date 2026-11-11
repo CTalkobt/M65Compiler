@@ -58,7 +58,7 @@ I: 1 1 1 1 1
 | `--bold` | Bold: each pixel also drawn one to the right (one wider) |
 | `--italic` | Italic: rows slant right, one pixel for each four rows above the baseline |
 | `--outline` | Outline: the pixels around the glyph, the glyph itself cleared (two wider) |
-| `--load-at ADDR` | Binary output: a two-byte load address in front (for `cbm_load` or `load_far`) |
+| `--load-at ADDR` | Binary output: a two-byte load address in front (for `cbm_load` or [`load_far`](../architecture/stdlib.md#loading-files-anywhere-loadh)) |
 | `--format F` | The input's format: `bdf`, `psf`, `charset`, `text` |
 | `--from ORDER` | A charset input's order: `screencode` (the default), `petscii` or `ascii` (as font45 `--charset ascii` writes) |
 | `-v` … `-vvvv` | Log on stderr as `[font45:LEVEL] …` |
