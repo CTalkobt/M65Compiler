@@ -4,6 +4,20 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### <font.h>: glyphs drawn in assembly; examples/c/fonts (#466, phase 4)
+
+- `font_draw_bitmap` draws each glyph's visible rows in assembly
+  (`stdlib_asm/font_glyph.s45`, `[ptr],z` far reads and stores; C clips
+  once a glyph): about 4 times as fast (an 11-pixel 2 bpp font, 1040
+  glyphs: 18 frames against 72). The clipping is computed in longs (the
+  default clip's 32767 minus x overflowed an int).
+- `font45 --center`: narrow glyphs centred in an 8x8 charset's cells.
+- `examples/c/fonts`: a TrueType title (Russo One, OFL) as a full-colour
+  glyph set with a gradient and a shadow, a 2 bpp paragraph drawn into
+  characters, a 16-segment counter and an 8x8 charset, all made by font45
+  in its Makefile; a screenshot in doc/examples, a check in
+  test_examples.sh.
+
 ### font45 and <font.h>: glyph sets, segment fonts, font_load (#466, phase 3)
 
 - `font45 --fcm` / `--ncm`: each glyph pre-drawn into the VIC-IV's

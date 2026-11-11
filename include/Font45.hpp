@@ -89,7 +89,8 @@ void makeOutline(Font& f);
 enum class Order { Ascii, ScreenCode, Petscii };
 // the 8x8 1 bpp charset (count 256 or 512 characters, 8 bytes each, bit 7 the
 // leftmost pixel): each glyph's top-left 8x8, set where coverage >= 128
-std::vector<uint8_t> charset8x8(const Font& f, Order order, int count);
+// (center: a glyph narrower than 8 centred across its cell, not at its left)
+std::vector<uint8_t> charset8x8(const Font& f, Order order, int count, bool center = false);
 // a font's glyphs moved from character codes (ASCII, Unicode) to the codes of
 // an encoding: a C program's PETSCII literals ('A' is 193), screen codes
 void reencode(Font& f, Order order);

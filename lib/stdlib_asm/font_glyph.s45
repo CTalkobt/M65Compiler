@@ -1,0 +1,153 @@
+; font_glyph.s45 — <font.h>'s inner loops (#466): a glyph's visible rows drawn
+; into a linear 8-bit-a-pixel buffer at a 28-bit address (font.c's
+; font_draw_bitmap: the clipping and the string there, a glyph's pixels here).
+;
+; void __font_glyph(unsigned long src, unsigned long dst, unsigned char c0,
+;                   unsigned char c1, unsigned char bpp, unsigned char ink0,
+;                   unsigned char rows, unsigned char rowbytes, unsigned int pitch)
+;   src      $10-$13  the first row drawn (the leftmost pixel in its top bits)
+;   dst      $14-$17  where that row's column 0 goes
+;   c0       $18      the first column drawn
+;   c1       $1A      the column after the last
+;   bpp      $1C      1, 2 or 4
+;   ink0     $1E      a pixel of level v (> 0) is written as ink0 + v; 0 is not written
+;   rows     $20      the rows drawn
+;   rowbytes $22      a glyph row's bytes (src's step)
+;   pitch    $24-$25  the buffer's row (dst's step)
+; The ZP convention in either library (__fastcall__). $08-$09 changed, and
+; the parameters.
+
+; no calls through pointers here (ln45's call graph)
+.weak cc45.icallinfo
+cc45.icallinfo = 1
+
+.global ___font_glyph
+
+COL = $08               ; the column
+V = $09                 ; the source byte, then the ink
+
+.segment "code"
+
+proc ___font_glyph
+    .zp_uses $08, $09, $10, $11, $12, $13, $14, $15, $16, $17, $18, $1A, $1C, $1E, $20, $22, $24, $25
+    .zp_clobbers $08, $09, $10, $11, $12, $13, $14, $15, $16, $17, $20
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+@row:
+    lda $20
+    beq @done
+    lda $18
+    sta COL
+@loop:
+    lda COL
+    cmp $1A
+    bcs @rowdone
+    ldx $1C
+    cpx #2
+    beq @b2
+    bcs @b4
+    ; 1 bpp: byte col >> 3, bit $80 >> (col & 7)
+    lsr
+    lsr
+    lsr
+    taz
+    lda [$10],z
+    sta V
+    lda COL
+    and #7
+    tax
+    lda V
+    and __fr_bit,x
+    beq @next
+    lda #1
+    bra @put
+@b2:
+    ; 2 bpp: byte col >> 2, the pair (3 - (col & 3)) pairs from the bottom
+    lsr
+    lsr
+    taz
+    lda [$10],z
+    sta V
+    lda COL
+    and #3
+    eor #3
+    tax
+    lda V
+@s2:
+    dex
+    bmi @m2
+    lsr
+    lsr
+    bra @s2
+@m2:
+    and #3
+    beq @next
+    bra @put
+@b4:
+    ; 4 bpp: byte col >> 1, the high nibble for an even column
+    lsr
+    taz
+    lda [$10],z
+    sta V
+    lda COL
+    and #1
+    bne @lo4
+    lda V
+    lsr
+    lsr
+    lsr
+    lsr
+    bra @m4
+@lo4:
+    lda V
+    and #$0F
+@m4:
+    beq @next
+@put:
+    clc
+    adc $1E
+    sta V
+    lda COL                 ; (ldz $xx has no base-page form)
+    taz
+    lda V
+    sta [$14],z
+@next:
+    inc COL
+    bra @loop
+@rowdone:
+    ; the next row: src + rowbytes, dst + pitch
+    clc
+    lda $10
+    adc $22
+    sta $10
+    lda $11
+    adc #0
+    sta $11
+    lda $12
+    adc #0
+    sta $12
+    lda $13
+    adc #0
+    sta $13
+    clc
+    lda $14
+    adc $24
+    sta $14
+    lda $15
+    adc $25
+    sta $15
+    lda $16
+    adc #0
+    sta $16
+    lda $17
+    adc #0
+    sta $17
+    dec $20
+    bra @row
+@done:
+    rts
+    .func_flags zp_call
+endproc
+
+__fr_bit:
+    .byte $80, $40, $20, $10, $08, $04, $02, $01

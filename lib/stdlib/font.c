@@ -72,6 +72,10 @@ void font_clip(signed int x0, signed int y0, signed int x1, signed int y1) {
     clip_x0 = x0; clip_y0 = y0; clip_x1 = x1; clip_y1 = y1;
 }
 
+/* a glyph's rows (columns c0..c1 - 1 of each) into a linear buffer (font_glyph.s45) */
+__fastcall__ void __font_glyph(unsigned long src, unsigned long dst, unsigned char c0, unsigned char c1, unsigned char bpp,
+                               unsigned char ink0, unsigned char rows, unsigned char rowbytes, unsigned int pitch);
+
 /* a string's pixels, plotted into a linear buffer (kind 0: lin + y * pitch + x),
  * full-colour characters (1) or nibble-colour ones (2: a nibble a pixel) */
 static signed int draw(const font_t *f, unsigned char kind, unsigned long lin, signed int pitch, signed int x, signed int y,
@@ -82,7 +86,21 @@ static signed int draw(const font_t *f, unsigned char kind, unsigned long lin, s
     while (*s) {
         unsigned char c = (unsigned char)*s++;
         unsigned char w = font_glyph_width(f, c), row, col;
-        if (c >= f->first && c <= f->last) {
+        if (c >= f->first && c <= f->last && kind == 0) {
+            /* a linear buffer: the glyph's visible rows and columns, drawn in assembly
+             * (in longs: the default clip, 32767, minus x overflows an int) */
+            signed long c0 = (signed long)clip_x0 - x, c1 = (signed long)clip_x1 - x + 1;
+            signed long r0 = (signed long)clip_y0 - y, r1 = (signed long)clip_y1 - y + 1;
+            if (c0 < 0) c0 = 0;
+            if (c1 > f->cellw) c1 = f->cellw;
+            if (r0 < 0) r0 = 0;
+            if (r1 > f->height) r1 = f->height;
+            if (c0 < c1 && r0 < r1)
+                __font_glyph(f->glyphs + (unsigned long)(c - f->first) * glyphBytes + (unsigned int)r0 * f->rowbytes,
+                             lin + (unsigned long)(y + r0) * (unsigned int)pitch + (unsigned long)(signed long)x,
+                             (unsigned char)c0, (unsigned char)c1, bpp, (unsigned char)(ramp_first - 1),
+                             (unsigned char)(r1 - r0), f->rowbytes, (unsigned int)pitch);
+        } else if (c >= f->first && c <= f->last) {
             const unsigned char __far *g =
                 (const unsigned char __far *)(f->glyphs + (unsigned long)(c - f->first) * glyphBytes);
             for (row = 0; row < f->height; row++) {
@@ -98,10 +116,6 @@ static signed int draw(const font_t *f, unsigned char kind, unsigned long lin, s
                     unsigned int ch;
                     if (!v || px < clip_x0 || px > clip_x1) continue;
                     ink = (unsigned char)(ramp_first + v - 1);
-                    if (kind == 0) {
-                        *(unsigned char __far *)(lin + (unsigned long)py * (unsigned int)pitch + (unsigned int)px) = ink;
-                        continue;
-                    }
                     /* the character: down the columns (pitch > 0 characters a column) or along the rows */
                     if (kind == 1) ch = pitch > 0 ? (unsigned int)(px >> 3) * (unsigned int)pitch + (unsigned int)(py >> 3)
                                                   : (unsigned int)(py >> 3) * (unsigned int)-pitch + (unsigned int)(px >> 3);

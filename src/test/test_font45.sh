@@ -175,6 +175,11 @@ $F convert $T/tiny.txt --bpp 1 --proportional -o $D/up.bin >/dev/null &&
     [ "$(xxd -l 5 -p $D/pk.bin)" = "0100600400" ] &&
     pass "--pack: a pack45 stream (format 1, to \$46000) that unpacks to the font" || fail "--pack: $(xxd -l 8 -p $D/pk.bin)"
 
+# --center: I (one column) in the middle of its 8 (column 3), A (4 wide) from column 2
+$F convert $T/tiny.txt --charset ascii --center -o $D/cc.bin >/dev/null &&
+    [ "$(xxd -s $((73*8)) -l 1 -p $D/cc.bin)" = "10" ] && [ "$(xxd -s $((65*8)) -l 1 -p $D/cc.bin)" = "18" ] &&
+    pass "--center: narrow glyphs centred in the 8x8 cells" || fail "--center: $(xxd -s $((73*8)) -l 8 -p $D/cc.bin)"
+
 # list and the errors
 $F list $T/tiny.bdf | grep -q 'glyphs:   2 (codes 65-106)' && pass "list: the glyphs and their codes" || fail "list"
 printf 'A: 01z0\n' > $D/bad.txt

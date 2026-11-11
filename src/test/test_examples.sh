@@ -384,6 +384,15 @@ test_text "sprite_demo" "$EXAMPLES/c/sprite_demo/spritecheck.prg" "SPRITE CHECK 
 
 }
 
+unit_32() {   # fonts
+build_example "$EXAMPLES/c/fonts"
+# the test build: 50 frames of the counter, then the title's cells and the
+# segment font read back, a report on the text screen
+make -C "$EXAMPLES/c/fonts" check >/dev/null 2>&1
+test_text "fonts" "$EXAMPLES/c/fonts/fontscheck.prg" "FONTS CHECK OK, 000050 FRAMES" 20
+
+}
+
 unit_29() {   # map_decode
 build_example "$EXAMPLES/c/map_decode"
 test_screenshot "map_decode" "$EXAMPLES/c/map_decode/map_decode.prg" 10
