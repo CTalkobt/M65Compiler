@@ -18,6 +18,7 @@ Running cast fold type preservation tests...|bash src/test/test_cast_fold.sh
 Running incomplete struct type tests...|bash src/test/test_incomplete_types.sh
 Running deploy45 tests...|bash src/test/test_deploy45.sh
 Running inline control tests...|bash src/test/test_inline_control.sh
+Running ?: sign warning tests...|bash src/test/test_ternary_sign_warning.sh
 Running optimization switch tests...|bash src/test/test_optimizations.sh
 Running tune45 tests...|bash src/test/test_tune45.sh
 Running debug information tests...|bash src/test/test_debug_info.sh

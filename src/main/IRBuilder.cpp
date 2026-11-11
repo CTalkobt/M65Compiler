@@ -8744,6 +8744,40 @@ void IRBuilder::visit(ConditionalExpression& node) {
     IRTypeInfo info = getExprTypeInfo(&node);
     auto dest = allocVreg(info.type);
 
+    // each arm widened to the result by its own signedness (lastValueSigned_
+    // is not set by every load: a signed char array element or global was
+    // zero-extended, c ? dx[d] : 0 giving 255 for -1)
+    IRTypeInfo thenInfo = getExprTypeInfo(node.thenExpr ? node.thenExpr.get() : node.condition.get());
+    IRTypeInfo elseInfo = getExprTypeInfo(node.elseExpr.get());
+
+    // cc45's plain int is unsigned: c ? s : 0 with a signed s has an unsigned
+    // result, so s is converted to unsigned (in standard C the 0 is a signed
+    // int and the result stays signed). Said once a place, when the unsigned
+    // arm is unsigned only by that default: a literal with no U suffix or
+    // cast (unsigned in -fsigned-default too), or a plain-int variable.
+    {
+        auto isInt = [](const IRTypeInfo& t) {
+            return (t.type == ir::Type::I8 || t.type == ir::Type::I16 || t.type == ir::Type::I32) &&
+                   !fixedFracOf(t.typeName);
+        };
+        auto plain = [this](Expression* e) {
+            if (auto* lit = dynamic_cast<IntegerLiteral*>(e)) return lit->castType.empty() && lit->value >= 0;
+            std::string vn;
+            return plainUnsignedVar(e, vn);
+        };
+        bool thenS = thenInfo.isSigned, elseS = elseInfo.isSigned;
+        if (node.thenExpr && isInt(info) && !info.isSigned && isInt(thenInfo) && isInt(elseInfo) &&
+            thenS != elseS && plain(thenS ? node.elseExpr.get() : node.thenExpr.get())) {
+            std::string key = node.sourceFile + ":" + std::to_string(node.line) + ":" +
+                              std::to_string(node.column) + ":condsign";
+            if (reportedUnused_.insert(key).second)
+                warnings_.push_back(formatDiagnostic(node.sourceFile, node.line, node.column, Severity::Warning,
+                    std::string("?: of a signed and a plain (unsigned in cc45) operand is unsigned: the ") +
+                    (thenS ? "third" : "second") + " operand makes the signed one unsigned "
+                    "(cast it to signed, e.g. (signed)0)"));
+        }
+    }
+
     ir::Inst br;
     br.op = ir::Op::BR_COND;
     br.src1 = cond;
@@ -8766,7 +8800,7 @@ void IRBuilder::visit(ConditionalExpression& node) {
     // copied a 16-bit 0, leaving the top bytes as they were)
     if (dest.type == ir::Type::F32 || thenVal.type == ir::Type::F32 ||
         ir::typeSize(thenVal.type) != ir::typeSize(dest.type))
-        thenVal = emitCast(thenVal, dest.type, lastValueSigned_);
+        thenVal = emitCast(thenVal, dest.type, thenInfo.isSigned);
     ir::Inst copyThen;
     copyThen.op = ir::Op::COPY;
     copyThen.dest = dest;
@@ -8784,7 +8818,7 @@ void IRBuilder::visit(ConditionalExpression& node) {
     auto elseVal = lastValue_;
     if (dest.type == ir::Type::F32 || elseVal.type == ir::Type::F32 ||
         ir::typeSize(elseVal.type) != ir::typeSize(dest.type))
-        elseVal = emitCast(elseVal, dest.type, lastValueSigned_);
+        elseVal = emitCast(elseVal, dest.type, elseInfo.isSigned);
     
     ir::Inst copyElse;
     copyElse.op = ir::Op::COPY;
@@ -8800,6 +8834,7 @@ void IRBuilder::visit(ConditionalExpression& node) {
 
     startBlock(endLabel);
     lastValue_ = dest;
+    lastValueSigned_ = info.isSigned;
 }
 
 void IRBuilder::visit(GenericSelection& node) {
