@@ -4,7 +4,12 @@
 
 - an **8x8 charset** for the VIC-IV's text mode, 256 or 512 characters, in ASCII, screen-code or PETSCII order;
 - a **`<font.h>` font**: 1, 2 or 4 bits a pixel, fixed or proportional, any height up to 255 rows. The library
-  measures it and draws it into a bitmap ([stdlib.md](../architecture/stdlib.md#fonts-fonth)).
+  measures it and draws it into a bitmap or into characters ([stdlib.md](../architecture/stdlib.md#fonts-fonth));
+- a **glyph set** (`--fcm`, `--ncm`): each glyph pre-drawn into the VIC-IV's full-colour or nibble-colour
+  characters, coloured from a ramp of palette entries, which `font_put_cells` puts on the screen (large digits,
+  titles, score displays).
+
+`--segments 7|14|16` makes a segment display's font instead of reading one.
 
 Both are written as C (an array and its header), ca45 assembly or a binary file.
 
@@ -71,6 +76,12 @@ I: 1 1 1 1 1
 | `--invert` | An image: the commonest colour is the ink, not the background |
 | `--baseline N` | An image: the baseline's row (default: the cell's bottom) |
 | `--upper` | A ROM image: the upper case / graphics set |
+| `--fcm`, `--ncm` | A glyph set: full-colour characters (8x8, a byte a pixel) or nibble-colour ones (16x8, 4 bits a pixel, the left pixel the low nibble) |
+| `--palette B,L` | A glyph set: coverage levels 1 to L as palette entries B to B+L−1 (default 1,1; 0 is transparent). With `--ncm` the entries are a character's 16 (0–15) |
+| `--gradient N` | A glyph set: N ramps down the glyph, ramp r's entries B + r·L … (a vertical gradient) |
+| `--shadow C`, `--edge C` | A glyph set: a drop shadow (one pixel below and right) / an outline in palette entry C |
+| `--segments 7\|14\|16` | No input: a segment display's font, `--size` pixels high (7–255): the digits, the letters the display can show (lower case as upper case) and some signs. Unlit segments are drawn dim, at a third of the coverage (`--bpp 2`'s level 1, the lit ones 3), unless `--no-ghost` |
+| `--pack ADDR` | The output is a pack45 stream that unpacks to ADDR, for `font_load` |
 | `--scale N`, `--text "..."` | `preview`: pixels a font pixel (1–16, default 4), the sample line (default "The quick brown fox") |
 | `--from ORDER` | A charset input's order: `screencode` (the default), `petscii` or `ascii` (as font45 `--charset ascii` writes) |
 | `-v` … `-vvvv` | Log on stderr as `[font45:LEVEL] …` |
@@ -116,6 +127,24 @@ All values are bytes.
 The leftmost pixel of a row is in the top bits of its first byte. A pixel's value is its coverage: 0 is blank and
 1, 3 or 15 is full. Pixels in between come from a source with grey levels.
 
+## Glyph sets (`--fcm`, `--ncm`)
+
+A glyph set keeps format 1's header, with flags bit 1 (FCM, bpp 8) or bit 2 (NCM, bpp 4):
+
+| Offset | Value |
+|--------|-------|
+| 3 | the rows of pixels: rows × 8 |
+| 7 | 8 (FCM) or 4 (NCM) |
+| 9 | the cell's width in pixels |
+| 10, 11 | cols, rows: a glyph's characters across and down |
+| 12 | proportional: the widths, as format 1 |
+| the next multiple of 64 | each glyph's cols × rows characters, 64 bytes each, numbered down each column, then the next column |
+
+The characters start 64-byte aligned from the font's start, and the font must be 64-byte aligned (font45's C array
+is `_Alignas(64)`, its assembly `.align 64`), so character *n* of the set is at the font's address + 64·*n*. That is
+what the VIC-IV needs to show it, and what `font_put_cells` writes to the screen. A glyph is drawn from its cell's
+top-left, coverage level *n* as palette entry B + *n* − 1 (0 transparent), the edge and the shadow round it.
+
 ## Example
 
 ```bash
@@ -151,6 +180,5 @@ font_select(0x40000UL);
 ## Known problems
 
 - TrueType is not hinted: small sizes are softer than a hinted rasterizer makes them. 2 bpp keeps them readable.
-- The VIC-IV's full-colour and nibble-colour characters, segment fonts and assembly drawing routines are later
-  phases of #466.
+- Drawing is C, a pixel at a time; assembly routines are a later phase of #466.
 - PSF's Unicode table is ignored: glyphs keep their position as their code.

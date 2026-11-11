@@ -573,17 +573,21 @@ Fonts made by [font45](../bin/font45.md) (#466, `lib/stdlib/font.c`): a font at 
 
 | Name | Description |
 |------|-------------|
-| `font_t` | `height`, `baseline`, `first`, `last`, `bpp`, `flags` (`FONT_PROPORTIONAL`), `cellw`, `rowbytes`, `widths` (the width table's address, 0 when fixed), `glyphs` (the first glyph's address) |
+| `font_t` | `height`, `baseline`, `first`, `last`, `bpp`, `flags` (`FONT_PROPORTIONAL`, `FONT_FCM`, `FONT_NCM`), `cellw`, `rowbytes`, `cols`, `rows` (a glyph set's characters a glyph), `widths` (the width table's address, 0 when fixed), `glyphs` (the first glyph's address) |
 | `const font_t *font_from(font_t *f, unsigned long data)` | Fills `f` from font45's data at `data` (a C array: `(unsigned long)(unsigned int)name`; or a file font45 wrote with `--bin`, loaded anywhere). Returns `f`, or `NULL` when the data is not a format 1 font |
 | `unsigned char font_glyph_width(const font_t *f, unsigned char c)` | A code's advance in pixels: 0 for a code outside the font |
 | `unsigned int font_width(const font_t *f, const char *s)` | A string's width |
 | `void font_ramp(unsigned char first, unsigned char levels)` | The palette entries the coverage levels are drawn in: level n (1 up to 1, 3 or 15) is entry `first + n - 1`. The default `first` is 1 |
 | `void font_clip(signed int x0, signed int y0, signed int x1, signed int y1)` | The rectangle drawing keeps to, inclusive. The default is x, y ≥ 0 |
 | `signed int font_draw_bitmap(const font_t *f, unsigned long lin, unsigned int pitch, signed int x, signed int y, const char *s)` | Draws `s` into the bitmap at 28-bit address `lin`, `pitch` bytes a row, with the cell's top-left at x, y (not the baseline). Blank pixels (coverage 0) are left as they are. Returns the x after the last glyph |
+| `signed int font_draw_fcm(const font_t *f, unsigned long chars, signed int strip, signed int x, signed int y, const char *s)` | The same, into full-colour characters (8x8, a byte a pixel) at `chars`: numbered down the columns, `strip` characters a column (`strip` > 0), or along the rows, −`strip` a row (`strip` < 0). x, y are pixels |
+| `signed int font_draw_ncm(...)` | The same into nibble-colour characters (16x8, 4 bits a pixel, the left pixel the low nibble; the ramp's entries 0–15) |
+| `unsigned char font_put_cells(const font_t *f, unsigned long screen, unsigned int row_bytes, unsigned char col, unsigned char row, const char *s)` | A glyph set's characters (font45 `--fcm` / `--ncm`) on a 16-bit character screen (2 bytes a character) at `screen`, `row_bytes` a row: each glyph its cols × rows characters from column `col`, row `row` (a proportional one as many columns as its width covers). Returns the column after. The set must be where the VIC-IV sees it; colour RAM is the program's (NCM: byte 0 bit 3 of each character) |
+| `const font_t *font_load(const char *name, unsigned char len, unsigned long lin)` | A font file font45 wrote (`--bin` with `--load-at`; `--pack ADDR` too) loaded from the program's drive to `lin` with `load_far` and, when packed, unpacked to ADDR: a `font_t` for it (one, which the next `font_load` overwrites), or NULL (`load_error` says why; 0: not a font). In `font_load.c`, so only a program that loads fonts links `<load.h>` |
 | `void font_install(unsigned long charset, unsigned int bytes, unsigned long lin)` | Copies a charset to chip RAM at `lin` (DMA) |
 | `void font_select(unsigned long lin)` | Makes the VIC-IV's character set the one at `lin` (`$D068`-`$D06A`) |
 
-Drawing is C, a pixel at a time through a far pointer (an assembly fast path is a later phase). Test: `test_font_xemu.c`, with fonts font45 makes from `src/test-resources/font45/tiny.txt`.
+Drawing is C, a pixel at a time through a far pointer (an assembly fast path is a later phase). Tests: `test_font_cells_xemu.c` (glyph sets, `font_draw_fcm` / `_ncm`, `font_load`), `test_font_xemu.c`, with fonts font45 makes from `src/test-resources/font45/tiny.txt`.
 
 ### Loading files anywhere (`load.h`)
 
