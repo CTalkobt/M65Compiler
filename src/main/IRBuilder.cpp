@@ -5104,6 +5104,31 @@ void IRBuilder::visit(VariableReference& node) {
         lastValue_ = dest;
 }
 
+// An expression with a side effect: ++ / -- (pre or post), an assignment, a
+// call, a statement expression, va_arg. A compound assignment's target with
+// one is evaluated once (#526)
+namespace {
+class SideEffectFinder : public ASTWalker {
+public:
+    bool found = false;
+    using ASTWalker::visit;
+    void visit(UnaryOperation& n) override {
+        if (n.op.rfind("++", 0) == 0 || n.op.rfind("--", 0) == 0) found = true;
+        ASTWalker::visit(n);
+    }
+    void visit(Assignment&) override { found = true; }
+    void visit(FunctionCall&) override { found = true; }
+    void visit(StatementExpression&) override { found = true; }
+    void visit(BuiltinVaArg&) override { found = true; }
+};
+bool hasSideEffect(Expression* e) {
+    if (!e) return false;
+    SideEffectFinder f;
+    e->accept(f);
+    return f.found;
+}
+}
+
 void IRBuilder::visit(Assignment& node) {
     if (farUsed_ && emitFarAssign(node)) return;
     if (farUsed_ && node.op == "=") {
@@ -5365,9 +5390,49 @@ void IRBuilder::visit(Assignment& node) {
     auto rhs = lastValue_;
 
     // 2.5 Handle compound assignment (+=, -=, &=, |=, ^=, <<=, >>=, *=, /=, %=)
+    // A target with a side effect (a[i++] |= v, *p++ += 1) is evaluated once
+    // (C11 6.5.16.2p3, #526): its address computed, the old value loaded and
+    // the result stored through it. Other targets as before
+    ir::Operand onceAddr;
+    IRTypeInfo onceInfo;
+    bool once = node.op != "=" && hasSideEffect(node.target.get()) &&
+                (dynamic_cast<ArrayAccess*>(node.target.get()) ||
+                 (dynamic_cast<UnaryOperation*>(node.target.get()) &&
+                  static_cast<UnaryOperation*>(node.target.get())->op == "*"));
+    if (once) {
+        onceInfo = getExprTypeInfo(node.target.get());
+        // (a scalar element only: an aggregate keeps the general path; and
+        // not through a near or far pointer, which load and store their way)
+        if (onceInfo.type == ir::Type::VOID || (!onceInfo.typeName.empty() && structOf(onceInfo.typeName))) once = false;
+        Expression* base = nullptr;
+        if (auto* aa = dynamic_cast<ArrayAccess*>(node.target.get())) base = aa->arrayExpr.get();
+        else base = static_cast<UnaryOperation*>(node.target.get())->operand.get();
+        if (once && base) {
+            const std::string bt = getExprTypeInfo(base).typeName;
+            if (bt.rfind("__nearp", 0) == 0 || bt.rfind("__farp", 0) == 0) once = false;
+        }
+    }
     if (node.op != "=") {
         // Load current LHS value
-        node.target->accept(*this);
+        if (once) {
+            bool saved = computeAddressOnly_;
+            computeAddressOnly_ = true;
+            node.target->accept(*this);
+            computeAddressOnly_ = saved;
+            onceAddr = lastValue_;
+            auto v = allocVreg(onceInfo.type);
+            ir::Inst ld;
+            ld.op = ir::Op::LOAD;
+            ld.dest = v;
+            ld.resultType = onceInfo.type;
+            ld.src1 = onceAddr;
+            ld.loc = loc(node);
+            emit(ld);
+            lastValue_ = v;
+            lastValueSigned_ = onceInfo.isSigned;
+        } else {
+            node.target->accept(*this);
+        }
         auto lhsVal = lastValue_;
         bool lhsSigned = lastValueSigned_;
         auto rhsInfo = getExprTypeInfo(node.expression.get());
@@ -5472,6 +5537,21 @@ void IRBuilder::visit(Assignment& node) {
 
     // a _Bool target: the value is 0 or 1
     if (lhsTypeHint.type == ir::Type::I8 && isBoolType(lhsTypeHint.typeName)) rhs = emitBoolConvert(rhs, loc(node));
+
+    // (the target evaluated once: the result stored through its address)
+    if (once) {
+        auto val = emitCast(rhs, onceInfo.type, onceInfo.isSigned);
+        ir::Inst store;
+        store.op = ir::Op::STORE;
+        store.resultType = onceInfo.type;
+        store.src1 = val;
+        store.src2 = onceAddr;
+        store.loc = loc(node);
+        emit(store);
+        lastValue_ = val;
+        lastValueSigned_ = onceInfo.isSigned;
+        return;
+    }
 
     // 2.6 Handle CPU register/flag writes
     if (auto* cra = dynamic_cast<CpuRegisterAccess*>(node.target.get())) {
