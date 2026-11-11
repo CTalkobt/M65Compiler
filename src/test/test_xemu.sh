@@ -398,6 +398,10 @@ xemu_case "FAIL: test_float_ptr_xemu.c -fno-float-copy-call (compilation/linking
 echo "Testing test_cmp_const_xemu.c (comparisons of two constants folded in the IR)..."
 xemu_case "FAIL: test_cmp_const_xemu.c (compilation/linking failed)" "src/test-resources/test_cmp_const_xemu.c" "build/test/test_cmp_const_xemu.prg" -- "test_cmp_const" "build/test/test_cmp_const_xemu.prg" "C0C0" 8 "01 02 03 04 05 06 07 AA"
 xemu_case "FAIL: test_cmp_const_xemu.c -fno-zpcall (compilation/linking failed)" "src/test-resources/test_cmp_const_xemu.c" "build/test/test_cmp_const_stack_xemu.prg" "-fno-zpcall" -- "test_cmp_const_stack" "build/test/test_cmp_const_stack_xemu.prg" "C0C0" 8 "01 02 03 04 05 06 07 AA"
+echo "Testing test_compound_once_xemu.c (a compound assignment's target evaluated once; #526)..."
+xemu_case "FAIL: test_compound_once_xemu.c (compilation/linking failed)" "src/test-resources/test_compound_once_xemu.c" "build/test/test_compound_once_xemu.prg" -- "test_compound_once" "build/test/test_compound_once_xemu.prg" "C0C0" 9 "01 02 03 04 05 06 07 08 AA"
+xemu_case "FAIL: test_compound_once_xemu.c -fno-zpcall (compilation/linking failed)" "src/test-resources/test_compound_once_xemu.c" "build/test/test_compound_once_stack_xemu.prg" "-fno-zpcall" -- "test_compound_once_stack" "build/test/test_compound_once_stack_xemu.prg" "C0C0" 9 "01 02 03 04 05 06 07 08 AA"
+xemu_case "FAIL: test_compound_once_xemu.c -O0 (compilation/linking failed)" "src/test-resources/test_compound_once_xemu.c" "build/test/test_compound_once_O0_xemu.prg" "-O0" -- "test_compound_once_O0" "build/test/test_compound_once_O0_xemu.prg" "C0C0" 9 "01 02 03 04 05 06 07 08 AA"
 echo "Testing test_float_copy_xemu.c (float copies left out, __f32cpy; #485)..."
 xemu_case "FAIL: test_float_copy_xemu.c (compilation/linking failed)" "src/test-resources/test_float_copy_xemu.c" "build/test/test_float_copy_xemu.prg" -- "test_float_copy" "build/test/test_float_copy_xemu.prg" "C0C0" 25 "01 02 03 04 05 06 07 08 09 0A 0B 0C 0D 0E 0F 10 11 12 13 14 15 16 17 18 AA"
 xemu_case "FAIL: test_float_copy_xemu.c -fno-zpcall (compilation/linking failed)" "src/test-resources/test_float_copy_xemu.c" "build/test/test_float_copy_stack_xemu.prg" "-fno-zpcall" -- "test_float_copy_stack" "build/test/test_float_copy_stack_xemu.prg" "C0C0" 25 "01 02 03 04 05 06 07 08 09 0A 0B 0C 0D 0E 0F 10 11 12 13 14 15 16 17 18 AA"
@@ -687,11 +691,11 @@ for bsmode in "plain|" "minify|--minify" "spaces|--preserve-spaces"; do
 done
 # basic45 --convert=basic7 (#368): a BASIC 7.0 listing converted, built and
 # run by BASIC 65: PLAY's voices and waits timed in frames; variables, TI, the graphics
-# statements, sprite and colour numbers, 40 columns
+# statements, sprite and colour numbers, 40 columns, MOVSPR by distance;angle, RWINDOW(0/1)
 echo "Testing test_convert7_xemu.txt (basic45 --convert=basic7)..."
 if ./bin/basic45 --convert=basic7 src/test-resources/test_convert7_xemu.txt -o build/test/test_convert7_xemu.bas >/dev/null 2>&1 &&
    ./bin/basic45 build/test/test_convert7_xemu.bas -o build/test/test_convert7_xemu.prg >/dev/null 2>&1; then
-    run_xemu_test "test_convert7" "build/test/test_convert7_xemu.prg" "C0C0" 16 "01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 AA"
+    run_xemu_test "test_convert7" "build/test/test_convert7_xemu.prg" "C0C0" 18 "01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 AA"
 else
     echo "FAIL: test_convert7_xemu.txt (basic45 --convert or the build failed)"
     failed=$((failed + 1))
@@ -704,6 +708,17 @@ if ./bin/basic45 --convert=basic35 src/test-resources/test_convert35_xemu.txt -o
     run_xemu_test "test_convert35" "build/test/test_convert35_xemu.prg" "C0C0" 9 "01 01 01 01 01 01 01 01 AA"
 else
     echo "FAIL: test_convert35_xemu.txt (basic45 --convert or the build failed)"
+    failed=$((failed + 1))
+fi
+# basic45 --convert=basic8: a BASIC 8 (C128) listing converted and run by BASIC 65 on a
+# 640 x 200 screen: each command's pixels read back by @PIXEL, the window, THEN : (a command
+# kept in a REM)
+echo "Testing test_convert8_xemu.txt (basic45 --convert=basic8)..."
+if ./bin/basic45 --convert=basic8 src/test-resources/test_convert8_xemu.txt -o build/test/test_convert8_xemu.bas >/dev/null 2>&1 &&
+   ./bin/basic45 build/test/test_convert8_xemu.bas -o build/test/test_convert8_xemu.prg >/dev/null 2>&1; then
+    run_xemu_test "test_convert8" "build/test/test_convert8_xemu.prg" "C0C0" 12 "01 01 01 01 01 01 01 01 01 01 01 AA"
+else
+    echo "FAIL: test_convert8_xemu.txt (basic45 --convert or the build failed)"
     failed=$((failed + 1))
 fi
 # basic45 --convert=simons: a Simons' BASIC (C64) listing converted and run by
@@ -2308,6 +2323,32 @@ for upmode in "stack|-fno-zpcall" "zp|"; do
     xemu_case "FAIL: test_unpack_xemu.c $upname (compilation/linking failed)" "src/test-resources/test_unpack_xemu.c" "build/test/test_unpack_${upname}_xemu.prg" "$upflags -Ibuild/test" -- "test_unpack_$upname" "build/test/test_unpack_${upname}_xemu.prg" "C0C0" 7 "01 01 01 01 01 01 AA"
 done
 
+# <load.h> (#444): files from a D81 to chip RAM, to attic RAM through the
+# stage, unpacked; a missing file, one larger than the stage, one not packed
+python3 - <<'PYEOF'
+N = 3000
+def e(i):
+    b = (i >> 8) % 3
+    return (i * 7) & 255 if b == 0 else (0x41 + i % 13) if b == 1 else 0x55
+data = bytes(e(i) for i in range(N))
+open('build/test/load_data.bin', 'wb').write(data)
+open('build/test/load_data.prg', 'wb').write(b'\x00\x00' + data)
+PYEOF
+rm -f build/test/test_load_far.d81
+if ./bin/pack45 build/test/load_data.bin build/test/load_pack.prg -d 0x48000 >/dev/null 2>&1 &&
+   ./bin/disk45 create build/test/test_load_far.d81 -n LOAD >/dev/null 2>&1 &&
+   ./bin/disk45 add build/test/test_load_far.d81 build/test/load_data.prg LDATA -p >/dev/null 2>&1 &&
+   ./bin/disk45 add build/test/test_load_far.d81 build/test/load_pack.prg LPACK -p >/dev/null 2>&1; then
+    for lfmode in "zp|" "stack|-fno-zpcall"; do
+        IFS='|' read -r lfname lfflags <<< "$lfmode"
+        echo "Testing test_load_far_xemu.c ($lfname)..."
+        xemu_case "FAIL: test_load_far_xemu.c $lfname (compilation/linking failed)" "src/test-resources/test_load_far_xemu.c" "build/test/test_load_far_${lfname}_xemu.prg" "$lfflags" -- "test_load_far_$lfname" "build/test/test_load_far_${lfname}_xemu.prg" "C0C0" 7 "01 01 01 01 01 01 AA" -8 "$PWD/build/test/test_load_far.d81"
+    done
+else
+    echo "FAIL: test_load_far (its disk: pack45 or disk45 failed)"
+    failed=$((failed + 1))
+fi
+
 # __bank(n) (#69): variables and functions kept in banks 4, 5 and attic
 # RAM, in the overlay files (three: bank 5, attic RAM through bank 5, bank
 # 4); a 16-bit reference to one is a link error
@@ -2769,6 +2810,21 @@ for apmode in "zp|$STDLIB|" "stack|$STDLIB_STACK|-fno-zpcall"; do
         failed=$((failed + 1))
     fi
 done
+
+# Test: <font.h> (#466) with fonts font45 makes from tiny.txt: font_from,
+# widths, drawing into bank 4 (clipping, the ramp), font_install / font_select
+mkdir -p build/test/font
+if ./bin/font45 convert src/test-resources/font45/tiny.txt --bpp 1 --proportional -o build/test/font/tiny.c >/dev/null 2>&1 &&
+   ./bin/font45 convert src/test-resources/font45/tiny.txt --bpp 2 --range 193-193 -o build/test/font/tiny2.c >/dev/null 2>&1; then
+    for fmode in "zp|" "stack|-fno-zpcall"; do
+        IFS='|' read -r fname fflags <<< "$fmode"
+        echo "Testing test_font_xemu.c ($fname)..."
+        xemu_case "FAIL: test_font_xemu.c $fname (compilation/linking failed)" "src/test-resources/test_font_xemu.c" "build/test/test_font_${fname}_xemu.prg" "$fflags -Ibuild/test/font" "build/test/font/tiny.c build/test/font/tiny2.c" -- "test_font_$fname" "build/test/test_font_${fname}_xemu.prg" "C0C0" 7 "01 01 01 01 01 01 AA"
+    done
+else
+    echo "FAIL: test_font_xemu.c: font45 failed"
+    failed=$((failed + 1))
+fi
 
 # Test: tgi_bar's fill patterns (both drivers), gets / gets_s from the
 # KERNAL's keyboard buffer, heapfree, ftoa

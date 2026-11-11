@@ -26,7 +26,7 @@ struct DecompiledLine {
 
 // The program's dialect: BASIC 65 (decompiled as it is), or another one
 // converted to BASIC 65 (--convert=basic7 / basic35 / simons)
-enum class BasicSource { B65, V7, V35, SIMONS };
+enum class BasicSource { B65, V7, V35, SIMONS, B8 };
 
 struct BasicDecompileOptions {
     BasicSource source = BasicSource::B65;

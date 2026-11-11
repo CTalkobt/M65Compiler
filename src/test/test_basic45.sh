@@ -181,11 +181,11 @@ $B --convert=basic7 "$D/x.prg" -o "$D/x.bas" 2> /dev/null && grep -q 'a = ((1) x
 # --convert=basic35: BASIC 3.5 (C16 / Plus/4), BASIC 7.0's rules plus the TED's colours and sound
 conv35() { printf '%s\n' "$@" > "$D/c35.txt"; $B --convert=basic35 $CONV_OPTS "$D/c35.txt" -o "$D/c35.bas" 2> "$D/c35.err"; }
 conv35 '10 COLOR 0,2,7:COLOR 4,2,2:COLOR 1,12:COLOR 1,C,3:A=RLUM(1)' '20 PRINT "{light-red}{$82}X{$84}";CHR$(154):VOL 8'
-grep -q 'background 1 : border 12 : [a-z][a-z0-9](1) = 10 : [a-z][a-z0-9](1) = val(mid\$("00010203040506070809131003140613", (c) \* 2 - 1, 2))' "$D/c35.bas" &&
+grep -q 'background 1 : [a-z][a-z0-9](0) = 7 : border 12 : [a-z][a-z0-9](4) = 2 : [a-z][a-z0-9](1) = 10 : [a-z][a-z0-9](1) = val(mid\$("00010203040506070809131003140613", (c) \* 2 - 1, 2))' "$D/c35.bas" &&
 grep -q 'print "{light-green}{flash}x{flash-off}"; chr\$(31) : vol 15' "$D/c35.bas" &&
-grep -q 'line 10: RLUM has no BASIC 65 counterpart' "$D/c35.err" && grep -q 'luminance of an expression' "$D/c35.err" &&
+grep -q ' : \([a-z][a-z0-9]\)(1) = 3 : a = \1(1)$' "$D/c35.bas" && ! grep -q 'RLUM' "$D/c35.err" && grep -q 'luminance of an expression' "$D/c35.err" &&
 grep -q 'converted from BASIC 3.5' "$D/c35.bas" &&
-    pass "--convert=basic35: TED colours and luminances (white's greys, pink -> light red, an expression by a table), colour codes and flash in strings, CHR\$ codes, VOL 0-8 -> 0-15, RLUM warned" ||
+    pass "--convert=basic35: TED colours and luminances (white's greys, pink -> light red, an expression by a table), colour codes and flash in strings, CHR\$ codes, VOL 0-8 -> 0-15, RLUM from the luminances COLOR set" ||
     fail "--convert=basic35 colours: $(cat "$D/c35.bas" "$D/c35.err")"
 conv35 '10 SOUND 1,810,30:SOUND 3,600,10:SOUND V,F,D' '20 GRAPHIC 1:CIRCLE 1,100,100,30:SCNCLR:GRAPHIC 0:SCNCLR'
 grep -q 'do while peek(4804) < 128 : loop : sound 1, int(517.946 \* \([a-z][a-z0-9]\)), 30 : do while peek(4805) < 128 : loop : sound 2, int(261.416 \* \1), 10, 0, 0, 0, 3' "$D/c35.bas" &&
@@ -201,8 +201,8 @@ $B "$D/c35.bas" -o "$D/c35.prg" > "$D/c35b.log" 2>&1 && pass "--convert=basic35:
     fail "--convert=basic35 result does not build: $(cat "$D/c35b.log")"
 # a .prg at $1001: $CE is RLUM (BASIC 7.0's prefix), $E7 COLOR
 printf '\x01\x10\x0c\x10\x0a\x00\x41\xb2\xce\x28\x31\x29\x00\x00\x00' > "$D/p4.prg"
-$B --convert=basic35 "$D/p4.prg" -o "$D/p4.bas" 2> "$D/p4.err" && grep -q 'a = rlum(1)' "$D/p4.bas" && ! grep -q 'loads at' "$D/p4.err" &&
-    pass "--convert=basic35: a .prg read with BASIC 3.5's tables (\$CE is RLUM)" || fail "--convert=basic35 .prg: $(cat "$D/p4.bas" "$D/p4.err")"
+$B --convert=basic35 "$D/p4.prg" -o "$D/p4.bas" 2> "$D/p4.err" && grep -q 'a = [a-z][a-z0-9](1)$' "$D/p4.bas" && ! grep -q 'loads at' "$D/p4.err" &&
+    pass "--convert=basic35: a .prg read with BASIC 3.5's tables (\$CE is RLUM, converted to its luminance array)" || fail "--convert=basic35 .prg: $(cat "$D/p4.bas" "$D/p4.err")"
 
 # --convert=simons: Simons' BASIC (C64)
 convs() { printf '%s\n' "$@" > "$D/cs.txt"; $B --convert=simons "$D/cs.txt" -o "$D/cs.bas" 2> "$D/cs.err"; }
@@ -391,6 +391,41 @@ if ! $B "$D/rw2.bas" -o "$D/rw2.prg" > "$D/rw2.log" 2>&1 &&
 else
     fail "GOTO a reserved word: $(cat "$D/rw2.log" "$D/rw3.log")"
 fi
+
+# --convert=basic8: BASIC 8 (C128), BASIC 7.0 and its @ graphics commands on a 640 x 200 screen
+conv8() { printf '%s\n' "$@" > "$D/c8.txt"; $B --convert=basic8 $CONV_OPTS "$D/c8.txt" -o "$D/c8.bas" 2> "$D/c8.err"; }
+conv8 '10 @MODE,0:@COLOR,2,13,1:@DOT,5,6,0:@LINE,1,2,0,3,4,0,1' '20 @BOX,10,10,0,50,40,0,1,5,1:@CIRCLE,100,50,0,20,1:@PAINT,1,2,0,0,0' \
+      '30 @ARC,320,100,0,50,30,0,360,2,1,0:@CHAR,255,1,2,16,8,4,"X"' '40 A=@PIXEL,5,6,0:D$=@DIR$,8:@TEXT' \
+      '50 IF A THEN @ANGLE,0,0,45,0:PRINT "Z"' '60 MODE1=5:@SCALE,0' '70 @ARC,320,100,0,50,30,0,90,10,1,1'
+grep -q '^  ya = 15 : yb = 0 : gosub \(l[0-9]*\) : yb = 2 : ya = 13 : pen 0, ya : border 11 : dot 5, 6 : line 1, 2, 3, 4$' "$D/c8.bas" &&
+grep -q '^  box 10, 10, 50, 10, 55, 40, 15, 40, 0 : circle 100, 50, 20 : paint 1, 2, 0$' "$D/c8.bas" &&
+grep -q '^  ellipse 320, 100, 50, 30 : char 1, 2, 2, 1, 4, "x", \$29000$' "$D/c8.bas" &&
+grep -q '^  a = (-(pixel(5, 6) <> yb)) : d\$ = "" : gosub l[0-9]* : rem @dir\$,8$' "$D/c8.bas" &&
+grep -q '^  if a then : print "z" : rem @angle,0, 0, 45, 0$' "$D/c8.bas" && grep -q '^  mode1 = 5$' "$D/c8.bas" &&
+grep -q '^  y[a-z0-9] = 320 : y[a-z0-9] = 100 : y[a-z0-9] = 50 : y[a-z0-9] = 30 : y[a-z0-9] = 0 : y[a-z0-9] = 90 : y[a-z0-9] = 10 : y[a-z0-9] = 1 : gosub l[0-9]*$' "$D/c8.bas" &&
+grep -q 'screen 640, 200, 4 : palette 0, 0, 0, 0, 0 : palette 0, 1, 5, 5, 5' "$D/c8.bas" && grep -q 'palette 0, 15, 15, 15, 15 : pen 0, ya : return' "$D/c8.bas" &&
+grep -q 'converted from BASIC 8 (C128) by basic45 --convert=basic8' "$D/c8.bas" &&
+grep -q 'line 40: @DIR\$ as a function has no BASIC 65 counterpart: "" instead' "$D/c8.err" && grep -q 'line 50: @ANGLE (3D)' "$D/c8.err" &&
+    pass "--convert=basic8: @MODE, @COLOR (the pen, a VDC border colour), @DOT, @LINE, a sheared @BOX, @CIRCLE, @PAINT, a whole @ARC as ELLIPSE and a part by the subroutine, @CHAR (ROM font, sizes, direction), @PIXEL, @TEXT; the rest in a REM; BASIC 8's names only after @" ||
+    fail "--convert=basic8: $(cat "$D/c8.bas" "$D/c8.err")"
+# a tokenized BASIC 8 program (bytes as BASIC 8 stores them, at $7001): @ and BASIC 7.0's tokens or $FE $30-$5A
+python3 - "$D/c8.prg" <<'PYEOF'
+import sys
+lines = [(10, bytes.fromhex('40FE4D2C303A40FE1A9F2C312C322C332C342C303A40FE3F2C352C362C303A40FE1AA0')),   # @MODE,0:@WINDOWOPEN,1,2,3,4,0:@DOT,5,6,0:@WINDOWCLOSE
+         (20, bytes.fromhex('4DB240FE3E2C322C30')),                                                    # M=@MOUSE,2,0
+         (30, bytes.fromhex('40E02C3235342C312C322C382C382C322C224122'))]                              # @CHAR,254,1,2,8,8,2,"A"
+out = bytearray([0x01, 0x70]); addr = 0x7001
+for n, body in lines:
+    nxt = addr + 4 + len(body) + 1
+    out += bytes([nxt & 255, nxt >> 8, n & 255, n >> 8]) + body + b'\0'; addr = nxt
+open(sys.argv[1], 'wb').write(out + b'\0\0')
+PYEOF
+$B --decompile --convert=basic8 "$D/c8.prg" -o "$D/c8p.bas" 2> "$D/c8p.err"
+grep -q 'gosub l[0-9]* : yc = 1 : yd = 2 : ye = 3 : yf = 4 : dot 5 + yc, 6 + yd : yc = 0 : yd = 0 : ye = 640 : yf = 200$' "$D/c8p.bas" &&
+grep -q '^  m = 0 : rem @mouse,2, 0$' "$D/c8p.bas" && grep -q '^  char 1 + int(yc / 8), 2 + yd, 1, 1, 2, "a"$' "$D/c8p.bas" &&
+! grep -q 'loads at\|unknown token' "$D/c8p.err" && grep -q '@MOUSE as a function' "$D/c8p.err" &&
+    pass "--convert=basic8 of a .prg: \$40 \$FE \$4D is @MODE, \$FE \$1A \$9F @WINDOWOPEN (coordinates from the window's corner), \$40 \$E0 @CHAR; loaded at \$7001" ||
+    fail "--convert=basic8 .prg: $(cat "$D/c8p.bas" "$D/c8p.err")"
 
 echo "basic45 tests: $passed passed, $failed failed"
 [ $failed -eq 0 ]

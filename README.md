@@ -9,6 +9,7 @@ A modern development toolchain for the MEGA65 (45GS02) home computer. It consist
 - **ln45** — Linker (links `.o45` objects and `.lib` archives into flat binaries or PRG executables)
 - **ar45** — Archiver (creates `.lib` static library archives from `.o45` objects)
 - **pack45** — Packer: data packed for the library's `unpack()` (DMA, to any 28-bit address, in place); `ln45 --pack-overlays` uses it too
+- **font45** — Fonts: BDF, PSF, C64 charsets or hand-drawn glyphs to 8x8 text-mode charsets or `<font.h>`'s proportional fonts
 - **tune45** — Music for the tune player: text (or MIDI) to data, play on the PC / in xemu / on a MEGA65, compose
 - **deploy45** — A program or disk image to real hardware: a MEGA65 over Ethernet or the JTAG adapter's serial port (mega65-tools' etherload, m65, mega65_ftp), an Ultimate 64 over its HTTP API
 - **dbg45** — Source-level debugger: a cc45 program in xemu by its C source (breakpoints, stepping, the stack, variables); VS Code through `--dap`
@@ -272,6 +273,7 @@ For detailed information on each tool, refer to:
 - [doc/bin/ln45.md](doc/bin/ln45.md) — Linker Usage and Reference
 - [doc/bin/ar45.md](doc/bin/ar45.md) — Archiver Usage and Reference
 - [doc/bin/pack45.md](doc/bin/pack45.md) — Packer for `unpack()`: Files, Data in a Program, Assembly
+- [doc/bin/font45.md](doc/bin/font45.md) — Fonts: Inputs, Charsets, the Font Format
 - [doc/bin/tune45.md](doc/bin/tune45.md) — Tune Player Data, Playing, Composing, MIDI Import
 - [doc/bin/dbg45.md](doc/bin/dbg45.md) — Debugging in xemu: Commands, VS Code
 - [doc/bin/deploy45.md](doc/bin/deploy45.md) — Programs and Disk Images to a MEGA65 or an Ultimate 64

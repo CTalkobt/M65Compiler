@@ -1,0 +1,7 @@
+# tiny.txt — a 5x5 hand-drawn font (font45's text input, #466): the
+# baseline under the last row; A and B 4 wide, I 1 wide, a space 2 wide
+baseline: 5
+A: 0110 1001 1111 1001 1001
+B: 1110 1001 1110 1001 1110
+I: 1 1 1 1 1
+' ': 00 00 00 00 00

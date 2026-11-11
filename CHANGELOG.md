@@ -19,6 +19,79 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
   signed, e.g. (signed)0)`), once a place. Test:
   `src/test/test_ternary_sign_warning.sh`.
 
+### font45 and <font.h> (#466, phase 1)
+
+- `font45`, a new tool: bitmap fonts (BDF, PSF1/PSF2, C64 charsets,
+  hand-drawn glyphs as text) to 8x8 text-mode charsets (ASCII, screen-code or
+  PETSCII order, 256 or 512 characters) or to `<font.h>` fonts (1, 2 or 4
+  bpp, fixed or proportional; PETSCII codes by default, as cc45's literals,
+  `--encoding ascii|screencode`), as C, ca45 assembly or binary. `--range`,
+  `--map`, `--bold` / `--italic` / `--outline`, `--load-at`; `list`.
+- `<font.h>`: `font_from`, `font_glyph_width`, `font_width`, `font_ramp`,
+  `font_clip`, `font_draw_bitmap` (a string into an 8-bit-a-pixel bitmap
+  anywhere in memory), `font_install`, `font_select`.
+- Docs: `doc/bin/font45.md`, stdlib.md's Fonts section. Tests:
+  `src/test/test_font45.sh` (make test), `test_font_xemu.c`.
+
+### basic45 --convert=basic8: BASIC 8 programs as BASIC 65 (#449)
+
+- BASIC 8 (Walrusoft / Patech, C128): BASIC 7.0 with `@` graphics commands
+  on the VDC's 640 x 200 bit map. Programs are read at `$7001` (`@` followed
+  by BASIC 7.0's tokens or `$FE $30`-`$5A`); in listings BASIC 8's names are
+  tokenized only after an `@`.
+- The commands become BASIC 65 statements on a 640 x 200, 16-colour screen
+  whose palette is the VDC's RGBI colours: `@MODE` / `@WALRUS` / `@TEXT`,
+  `@COLOR`, `@CLEAR`, `@DOT`, `@LINE`, `@BOX` (with its shear), `@CIRCLE`,
+  `@ARC` (`ELLIPSE`, or a subroutine for arcs, polygons and subtends),
+  `@PAINT`, `@CHAR`, `@PIXEL`, `@WINDOWOPEN` / `@WINDOWCLOSE` (the window's
+  corner as the origin). 3D, brushes, patterns, the VDC's RAM, the mouse and
+  printing are kept in a REM with a warning.
+- Docs: basic45.md's BASIC 8 section. Tests: `test_basic45.sh`,
+  `test_convert8_xemu.txt` (run by BASIC 65 on xemu).
+
+### cc45: a compound assignment evaluates its target once (#526)
+
+- In `E1 op= E2` the target's side effects ran twice: once to load the old
+  value and again to store the result, so `a[i++] |= v` stepped `i` twice,
+  read `a[i]` and wrote `a[i+1]` (also `*p++ += v`, a call or an assignment
+  in the subscript; every level, every compound operator). A target that is a
+  subscript or a dereference with a side effect now has its address computed
+  once, and the old value is loaded and the result stored through it (C11
+  6.5.16.2p3). Other targets are compiled as before.
+- Test: `test_compound_once_xemu.c` (ZP, `-fno-zpcall`, `-O0`).
+### lib: load.h, a file from disk to any 28-bit address, packed or not (#444)
+
+- `load_far(name, len, device, lin)`: a file to chip RAM by the KERNAL's
+  `LOAD`, or to attic RAM through a stage (`load_stage`; bank 4 by default) and
+  a DMA copy; it returns the bytes loaded. `load_unpack(...)`: a pack45 stream
+  loaded and unpacked to its destination. `load_error`: the KERNAL's error,
+  `LOAD_TOO_BIG` or `LOAD_NOT_PACKED`. Device 0: the drive the program came
+  from. From the Midwinter demo's `load.c`.
+- Test: `test_load_far_xemu.c` (a D81 test_xemu.sh makes: chip RAM, attic
+  RAM, a packed file, a missing file, one larger than the stage, one not
+  packed; both conventions).
+### basic45 --convert: MOVSPR by distance;angle, RWINDOW(0/1), RLUM (#433)
+
+- BASIC 7.0's `MOVSPR n, distance;angle` (angle 0 up, clockwise) becomes
+  BASIC 65's relative move, `MOVSPR n, +(INT(d * SIN(a) + .5)),
+  +(INT(-d * COS(a) + .5))`, which adds to where the sprite is going.
+- `RWINDOW(0)` / `RWINDOW(1)` (BASIC 7.0: the window's lines / columns) are
+  swapped to BASIC 65's (0 the width, 1 the height). `WINDOW` is no longer
+  warned: its arguments are BASIC 65's.
+- BASIC 3.5's `RLUM(n)` is the luminance `COLOR` last gave source n, kept in an
+  array (when the program uses `RLUM`).
+- Tests: `test_convert7_xemu.txt` (run by BASIC 65), `test_basic45.sh`.
+
+### cc45: a run-time call's second float operand copied straight into __float_b (#485)
+
+- A float result (or an int converted) whose one use is a store to
+  `__float_b` after the first operand's store to `__float_a` (basic45's
+  arguments of `__bas_fdiv` and the like: `INT((N + PE - 1) / PE)`) is copied
+  into `__float_b` at once instead of through a base-page temporary: a 5-byte
+  copy loop less each.
+- `basic45 --compile`'s tests and `games_menu.bas`: 82 bytes smaller, none
+  larger.
+
 ### basic45 --compile: FREEZER and IMPORT (#369)
 
 - `FREEZER` enters the hypervisor's Freezer, as the ROM's (its trap at

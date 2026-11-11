@@ -17,7 +17,7 @@
 - **Calling C** — `--link file.c`: C functions called with `SYS {name}` ([Calling C Functions](#calling-c-functions-link))
 - **Compiling** — `--compile`: the program as machine code, through cc45's IR and code generator; a subset of BASIC 65 so far ([Compiling](#compiling-compile))
 - **Listing, source map, decompiler** — `--list`, `--source-map`, `--decompile` ([Listing, Source Map and Decompiling](#listing-source-map-and-decompiling))
-- **Converting other dialects** — `--convert=basic7`, `basic35`, `simons`: a BASIC 7.0 (C128), BASIC 3.5 (C16 / Plus/4) or Simons' BASIC (C64) program as BASIC 65 source ([Converting BASIC 7.0 Programs](#converting-basic-70-programs-convertbasic7))
+- **Converting other dialects** — `--convert=basic7`, `basic35`, `simons`, `basic8`: a BASIC 7.0 (C128), BASIC 3.5 (C16 / Plus/4), Simons' BASIC (C64) or BASIC 8 (C128) program as BASIC 65 source ([Converting BASIC 7.0 Programs](#converting-basic-70-programs-convertbasic7))
 - **Disk image, emulator, hardware** — `--disk`, `--emulator` (xemu), `--send` (a MEGA65), `--watch`
 - **Formatting** — `--format` ([Formatting](#formatting))
 - **Markdown documentation** of labeled sections (`--docs`)
@@ -30,7 +30,7 @@ See [Known Problems](#known-problems) for the remaining limits.
 basic45 [options] <input.bas> [-o <output.prg>]
 basic45 --decompile <program.prg> [-o <output.bas>]
 basic45 --compile [-O<n>] [--asm <file.s45>] <input.bas|program.prg> [-o <output.prg>]
-basic45 --convert=basic7|basic35|simons [--ntsc] <program.prg|listing.txt> [-o <output.bas>]
+basic45 --convert=basic7|basic35|simons|tsbneo|basic8 [--ntsc] <program.prg|listing.txt> [-o <output.bas>]
 ```
 
 Without `-o` the output is the input name with its extension replaced by `.prg` (`.bas` when decompiling; `-o -` writes the source to standard output; `-compiled.prg` for a `.prg` given to `--compile`). A `.prg` input is decompiled (with `--compile`: compiled). With no input file, the usage text is printed and the exit status is 1. Unrecognised options starting with `-` are ignored silently.
@@ -74,7 +74,7 @@ Without `-o` the output is the input name with its extension replaced by `.prg` 
 | `--checks` | `--compile`: the checks of the program's own values and flow, as the interpreter's: ranges (`?ILLEGAL QUANTITY`), subscripts, `?SYNTAX ERROR` found when run, `RETURN` / `NEXT` / `RESUME` without their match, the `GOSUB` stack, `DEF FN` not defined. Off by default: none of them is compiled, a program is taken to be tested already (undefined behaviour: it goes on with the next statement); errors of files, the disk and memory stay, and `TRAP` without `--checks` warns (#489) |
 | `--line-numbers` | `--compile`: each line that can raise an error records its number, for the messages' ` IN line` and `EL` (as the interpreter's). Off by default: smaller and faster code (8 bytes a line), an error's message without ` IN line` and `EL` 65535 (#483) |
 | `--speed`, `-Ospeed` | `--compile`: `-O3` and float `+ - * /` and comparisons by the library's RAM routines (`float_fast.s45`) instead of the ROM's: faster, with the ROM's rounding fixes (see Compiling) |
-| `--convert=<dialect>` | Another BASIC's `.prg` or text listing as BASIC 65 basic45 source, with warnings for what needs a hand: `basic7` (C128 BASIC 7.0), `basic35` (C16 / Plus/4 BASIC 3.5), `simons` (C64 Simons' BASIC and TSB), `tsbneo` (TSBneo: `AT(row, column)`) ([Converting BASIC 7.0 Programs](#converting-basic-70-programs-convertbasic7)) |
+| `--convert=<dialect>` | Another BASIC's `.prg` or text listing as BASIC 65 basic45 source, with warnings for what needs a hand: `basic7` (C128 BASIC 7.0), `basic35` (C16 / Plus/4 BASIC 3.5), `simons` (C64 Simons' BASIC and TSB), `tsbneo` (TSBneo: `AT(row, column)`), `basic8` (C128 BASIC 8) ([Converting BASIC 7.0 Programs](#converting-basic-70-programs-convertbasic7)) |
 | `--ntsc`, `--pal` | With `--convert`: the source machine's video timing, for `TEMPO` and BASIC 3.5's `SOUND` (default `--pal`) |
 | `--data-loader` | The input is machine code (a `.prg`, or a binary with `--load-at`): write a BASIC program that POKEs it from `DATA` lines and SYSes it, a type-in listing ([DATA Loaders](#data-loaders-data-loader)); with `--hex`, `--checksum`, `--per-line <n>`, `--start <line>`, `--increment <n>`, `--no-sys`, `--load-at <addr>` |
 | `--list-tokens` | List all keywords with their token values and exit |
@@ -769,7 +769,9 @@ differs — checked against BASIC 65's own source and the C128 System Guide, the
 | `POKE 53265, v` (`$D011`) | bit 7 written: the raster compare's bit 8 (read, the raster line's; the C128's KERNAL runs on its own raster IRQ, the C64's on a CIA timer) | the KERNAL's IRQ is the raster IRQ at line 255: a compare of 256 or more (a `PEEK(53265)` written back while the raster is past line 255) is a line that never comes, and every IRQ stops — `PLAY`, `TI`'s clock, the keyboard | `POKE 53265, (v) and 127` (a number: its value and 127); the conversion's own `$D011` writes too |
 | `SSHAPE a$, x1, y1 [, x2, y2]` / `GSHAPE a$ [, x, y] [, mode]` | an area saved in a string / drawn back (mode 0 as it is, 1 inverted, 2 OR, 3 AND, 4 XOR) | `GCOPY x, y, width, height` / `PASTE x, y`: one buffer, under 1024 pixels on a 16-colour screen (`?ILLEGAL QUANTITY`) | when the program keeps one shape (one string): `GCOPY` / `PASTE` (the pixel cursor for an omitted corner or place); a mode other than 0, an area known to be too large, several shapes warned |
 | No counterpart | `WIDTH` (BASIC 65's `DMODE` thickness is not implemented), `PUDEF`, `SPRDEF`, `QUIT` | | left as written, warned |
-| Other arguments | `BANK`, `WINDOW`, `RWINDOW(0/1)`, `MOVSPR n, distance;angle`, `PLAY` of a string variable | | warned |
+| `MOVSPR n, distance;angle` | a move by a distance at an angle (0 up, clockwise) | `MOVSPR n, +dx, +dy` | `+(INT(d * SIN(a) + .5)), +(INT(-d * COS(a) + .5))`: BASIC 65's relative move (from where the sprite is going) |
+| `RWINDOW(0)` / `RWINDOW(1)` | the window's lines / columns | `RWINDOW(1)` / `RWINDOW(0)` | swapped (BASIC 65: 0 the width, 1 the height); of an expression warned |
+| Other arguments | `BANK` (the C128's bank numbers), `PLAY` of a string variable (its voices timed together only for a literal) | | warned |
 
 The conversion keeps a little state where BASIC 7.0 has some and BASIC 65 has not, in names the program does not use
 (two letters, as `zc`, `zx`, `zy`): the colour sources 0–6 (`zc(n)`, colours 0–15, set by `COLOR`, used by the drawing
@@ -798,7 +800,7 @@ converted by the rules above. It has no sprites, `PLAY` or `TEMPO`. What the TED
 |---|---|---|---|
 | Colours | the TED's 16 hues (1–16) × 8 luminances (`COLOR source, colour [, luminance]`) | 16 colours (0–15) | the nearest: hues 1–10 the same, yellow-green and light green → light green, pink → light red, blue-green → cyan, dark blue → blue; white's luminances the greys (0–1 dark, 2–4 middle, 5–6 light, 7 white), red's, green's and blue's 5–7 their light colours; a colour expression through a table (`val(mid$("0001…", c * 2 - 1, 2))`, its luminance warned) |
 | Colour codes in strings | `$96`–`$9B`: yellow-green, pink, blue-green, light blue, dark blue, light green; `$82` / `$84` flash on / off | light red, dark grey, grey, light green, light blue, light grey; `$82` underline off; flash `$0F` / `$8F` | rewritten to the nearest colour's code, the flash codes to BASIC 65's (`CHR$(n)` of a literal too) |
-| `RLUM(n)` | a source's luminance | — | left as written, warned |
+| `RLUM(n)` | a source's luminance | — | the luminance `COLOR` last gave source n, kept in an array (0 before any) |
 | `SOUND v, f, d` | voices 1–2 tones, 3 noise (on voice 2); f the TED's register (Hz = 110840.4375 / (1024 − f) on PAL, 111860.781 on NTSC); waits while the voice still sounds | voices 1–6, the SID's frequency (16.519 counts per Hz on PAL, 16.404 on NTSC: the clock of `b65.src`'s note tables); returns at once | the frequency converted (by the MEGA65's video mode, `$D06F` bit 7, read at the start), voice 3 → noise (waveform 3) on voice 2, a wait for the voice first (`SOUND`'s counter at `$12C4` + v − 1, busy below 128); `--ntsc`: durations × 5/6 |
 | `VOL n` | 0–8 | 0–15 | n × 15/8 |
 | `SCNCLR` | clears the screen in use (the bit map in graphics) | `SCNCLR colour` clears a graphics screen | `SCNCLR` with a screen open → `SCNCLR` with the background colour |
@@ -893,6 +895,54 @@ and of a sprite, `FLASH`, `DUP`, `LOCAL`/`GLOBAL`, `DETECT`/`CHECK`, `ROT`/`DRAW
 `src/test-resources/test_tsbneo_xemu.txt` (TSBneo's forms). TSB's example game (`REACTOR TSB`, from its `reactor_tsb.d64`,
 a TSBneo program) converts with `--convert=tsbneo` and builds; what is warned is what does not carry over (its machine
 code at `$7A00`, `D!PEEK` of the C64's zero page, `CSET 2`, `TEXT`'s spacing).
+
+### BASIC 8 (`--convert=basic8`)
+
+```bash
+basic45 --convert=basic8 game.prg -o game.bas      # a C128 program using BASIC 8 ($7001)
+```
+
+BASIC 8 (Walrusoft / Patech, 1986) adds graphics on the C128's 80-column VDC bit map to BASIC 7.0. Its commands are
+written `@NAME, arguments`. In a `.prg` they are `@` followed by a BASIC 7.0 token (`@BOX` is `$40 $E1`, `@WINDOWOPEN`
+`$40 $FE $1A $9F`) or one of BASIC 8's own, `$FE $30`–`$5A` (`@MODE,0` is `$40 $FE $4D $2C $30`); its programs load at
+`$7001`. In a text listing, BASIC 8's names are tokenized only right after an `@`. The rest of the program is BASIC 7.0
+and is converted by the rules above. Reference: the BASIC 8 manual (`project64.c64.org/Software/basic8.txt`).
+
+The drawing goes to a 640 x 200, 16-colour screen (`SCREEN 640, 200, 4`, opened by a subroutine the conversion adds).
+Its palette is set to the VDC's RGBI colours, so BASIC 8's colour numbers 0–15 are BASIC 65 pens as they are,
+expressions included. Two variables keep the pen and background colours. A program that opens windows has four more
+for the window's corner and size: `@WINDOWOPEN` moves the origin to its corner, as BASIC 8 does, but drawing is not
+clipped to the window. The z coordinates are dropped.
+
+| BASIC 8 | BASIC 65 |
+|---|---|
+| `@WALRUS`, `@MODE` | the screen opened (closed first if open). `@MODE`'s interlace is warned |
+| `@SCREEN d [, v]` | dropped: one screen. A different view screen is warned |
+| `@TEXT` | the screen closed |
+| `@COLOR bg, fg [, border]` | `PEN 0, fg`, the background kept for `@CLEAR`, `BORDER` the nearest VIC colour |
+| `@CLEAR fill [, bg, fg]` | `SCNCLR` with the background (fill 0) or the pen (255); in a window, a filled `BOX` over it. Fill 1 sets only the colours; other fills (stripes) are warned and clear |
+| `@DOT x, y, z` | `DOT x, y` |
+| `@LINE x1, y1, z1, x2, y2, z2 [, thickness]` | `LINE x1, y1, x2, y2` |
+| `@BOX x1, y1, z1, x2, y2, z2, shear, value [, thickness]` | `BOX` with its four corners: an X shear moves corners 3 and 4 across, a Y shear moves 2 and 3 down |
+| `@CIRCLE x, y, z, r [, thickness]` | `CIRCLE x, y, r` |
+| `@ARC x, y, z, xr, yr, start, end, increment [, thickness, subtend]` | a whole ellipse (a multiple of 360 degrees, increment up to 10) → `ELLIPSE x, y, xr, yr`; otherwise a subroutine draws lines every increment (polygons too) and the subtend's lines to the centre. Angles are taken as BASIC 7.0's (0 up, clockwise); the manual does not say |
+| `@PAINT x, y, ...` | `PAINT x, y, 0` (BASIC 65's own stack) |
+| `@CHAR font, column, row, height, width, direction, text` | `CHAR`: sizes in pixels as factors of 8, directions 0/2/4/6 → 1/2/4/8 (diagonals the next clockwise, warned), font 255 → the upper case / graphics set at `$29000`, 254 → the default; a font of the program's own is warned |
+| `@PIXEL, x, y [, mode]` | `-(PIXEL(x, y) <> background)` (1 / 0); mode 1 → `PIXEL(x, y) + 16 * background` |
+| `@WINDOWOPEN x, y, w, h [, border]`, `@WINDOWCLOSE` | the window's corner and size set (and its border drawn) / reset to the screen |
+| `@SCALE 0` | dropped |
+
+Everything else is removed from its statement and kept in a REM at the end of its line, with a warning: 3D
+(`@ANGLE`, `@ORIGIN`, `@VIEW`, `@GROW`, `@DRWMODB`, `@STYLE`, `@SPHERE`, `@CYLNDR`, `@TOROID`), `@SCALE` 1 and 2,
+drawing modes (`@DRWMODA`), patterns and brushes (`@PATTERN`, `@BRUSHPATRN`, `@CBRUSH`, `@STORE`, `@DISPLAY`), the
+VDC's memory (`@STASH`, `@FETCH`, `@COPY`, `@BUFFER`), structures and fonts (`@STRUCT`, `@SDAT`, `@LSTRUCT`,
+`@SSTRUCT`, `@FONT`), `@SCRDEF`, `@SCROLL`, `@ZOOM`, `@FLASH`, the mouse and pointer (`@MOUSE`, `@PTR`), printing
+(`@HCOPY`, `@SPOOL`, `@SEND`), `@LOGO`, `@SCLIP`. A statement after `THEN` that is removed leaves `THEN :` (an empty
+statement), so the rest of the line still belongs to the `IF`. A command used as a function (`AD = @STASH, ...`,
+`M = @MOUSE, 2, 0`, `@DIR$`) is replaced by 0 (`""` for `@DIR$`) and warned.
+
+Tests: `src/test/test_basic45.sh` (a listing, and a `.prg` written byte by byte), `src/test-resources/test_convert8_xemu.txt`
+(a BASIC 8 listing run by BASIC 65 on xemu: each command's pixels read back with `@PIXEL`, the window, `THEN :`).
 
 ## Preprocessor
 

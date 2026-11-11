@@ -229,7 +229,8 @@ static void printUsage(const char* progName) {
     std::cout << "  --convert=<dialect> Another BASIC's program (a .prg, or a text listing) as BASIC 65 basic45" << std::endl;
     std::cout << "                      source: keywords renamed, statements rewritten, warnings for the rest;" << std::endl;
     std::cout << "                      basic7 (C128 BASIC 7.0), basic35 (C16 / Plus/4 BASIC 3.5), simons" << std::endl;
-    std::cout << "                      (C64 Simons' BASIC and TSB), tsbneo (TSBneo: AT(row, column))" << std::endl;
+    std::cout << "                      (C64 Simons' BASIC and TSB), tsbneo (TSBneo: AT(row, column)), basic8" << std::endl;
+    std::cout << "                      (C128 BASIC 8: BASIC 7.0 and its @ graphics commands)" << std::endl;
     std::cout << "  --ntsc, --pal       --convert: the source machine's timing (TEMPO, SOUND; default --pal)" << std::endl;
     std::cout << "  --data-loader       The input (machine code: a .prg, or a binary with --load-at) as a" << std::endl;
     std::cout << "                      BASIC program that POKEs it from DATA lines and SYSes it; -o x.bas" << std::endl;
@@ -337,8 +338,8 @@ static Options parseArgs(int argc, char* argv[]) {
             opts.optLevel = 3;
         } else if (arg.rfind("--convert=", 0) == 0 || (arg == "--convert" && i + 1 < argc)) {
             opts.convert = arg == "--convert" ? argv[++i] : arg.substr(10);
-            if (opts.convert != "basic7" && opts.convert != "basic35" && opts.convert != "simons" && opts.convert != "tsbneo") {
-                std::cerr << "basic45: --convert=" << opts.convert << ": not a dialect it converts (basic7, basic35, simons, tsbneo)"
+            if (opts.convert != "basic7" && opts.convert != "basic35" && opts.convert != "simons" && opts.convert != "tsbneo" && opts.convert != "basic8") {
+                std::cerr << "basic45: --convert=" << opts.convert << ": not a dialect it converts (basic7, basic35, simons, tsbneo, basic8)"
                           << std::endl;
                 exit(1);
             }
@@ -747,13 +748,17 @@ int main(int argc, char* argv[]) {
         BasicDecompileOptions dopts;
         if (opts.convert == "basic7") dopts.source = BasicSource::V7;
         if (opts.convert == "basic35") dopts.source = BasicSource::V35;
+        if (opts.convert == "basic8") dopts.source = BasicSource::B8;
         if (opts.convert == "simons" || opts.convert == "tsbneo") dopts.source = BasicSource::SIMONS;
         dopts.tsbneo = opts.convert == "tsbneo";
         // the dialect's tokens and its machine's BASIC start
         const CbmBasic cbm = dopts.source == BasicSource::V35 ? CbmBasic::V35
-                           : dopts.source == BasicSource::SIMONS ? CbmBasic::SIMONS : CbmBasic::V7;
-        const uint16_t start = cbm == CbmBasic::V35 ? 0x1001 : cbm == CbmBasic::SIMONS ? 0x0801 : 0x1C01;
-        const char* dialectName = cbm == CbmBasic::V35 ? "BASIC 3.5's" : cbm == CbmBasic::SIMONS ? "the C64's" : "BASIC 7.0's";
+                           : dopts.source == BasicSource::SIMONS ? CbmBasic::SIMONS
+                           : dopts.source == BasicSource::B8 ? CbmBasic::B8 : CbmBasic::V7;
+        // (BASIC 8 moves BASIC's start above its own code: its programs load at $7001)
+        const uint16_t start = cbm == CbmBasic::V35 ? 0x1001 : cbm == CbmBasic::SIMONS ? 0x0801 : cbm == CbmBasic::B8 ? 0x7001 : 0x1C01;
+        const char* dialectName = cbm == CbmBasic::V35 ? "BASIC 3.5's" : cbm == CbmBasic::SIMONS ? "the C64's"
+                                : cbm == CbmBasic::B8 ? "BASIC 8's" : "BASIC 7.0's";
         dopts.ntsc = opts.ntsc;
         bool isPrg = opts.inputFile.size() > 4 && (opts.inputFile.compare(opts.inputFile.size() - 4, 4, ".prg") == 0 ||
                                                    opts.inputFile.compare(opts.inputFile.size() - 4, 4, ".PRG") == 0);

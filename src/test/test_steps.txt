@@ -21,6 +21,7 @@ Running inline control tests...|bash src/test/test_inline_control.sh
 Running ?: sign warning tests...|bash src/test/test_ternary_sign_warning.sh
 Running optimization switch tests...|bash src/test/test_optimizations.sh
 Running tune45 tests...|bash src/test/test_tune45.sh
+Running font45 tests...|bash src/test/test_font45.sh
 Running debug information tests...|bash src/test/test_debug_info.sh
 Running logging tests...|bash src/test/test_logging.sh
 Running configuration tests...|bash src/test/test_config.sh

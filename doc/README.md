@@ -24,6 +24,7 @@ Documents are separated by their function and scope:
 | `ar45` | Archiver for `.lib` static libraries | [bin/ar45.md](bin/ar45.md) |
 | `nm45` | Symbol lister for `.o45`/`.o65` objects | [bin/nm45.md](bin/nm45.md) |
 | `pack45` | Packer for the library's `unpack()` (`<unpack.h>`) | [bin/pack45.md](bin/pack45.md) |
+| `font45` | Fonts: bitmap fonts to 8x8 charsets or `<font.h>` fonts | [bin/font45.md](bin/font45.md) |
 | `deploy45` | A program or disk image to a MEGA65 (Ethernet, JTAG serial) or an Ultimate 64 | [bin/deploy45.md](bin/deploy45.md) |
 | `objdump45` | Object file disassembler | [bin/objdump45.md](bin/objdump45.md) |
 | `disk45` | CBM disk/tape image utility | [bin/disk45.md](bin/disk45.md) |
@@ -83,6 +84,7 @@ All documentation must follow these directory rules to keep it clean and avoid b
   - `nm45.md` (Symbol Lister)
   - `objdump45.md` (Object Disassembler)
   - `pack45.md` (Packer)
+  - `font45.md` (Fonts)
   - `deploy45.md` (Deployment to hardware)
   - `CONFIGURATION.md` (Shared configuration file specification)
 - **`doc/architecture/`** contains only markdown files (`.md`); the only allowed subdirectory is `bug/`.
