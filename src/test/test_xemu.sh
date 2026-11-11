@@ -398,6 +398,10 @@ xemu_case "FAIL: test_float_ptr_xemu.c -fno-float-copy-call (compilation/linking
 echo "Testing test_cmp_const_xemu.c (comparisons of two constants folded in the IR)..."
 xemu_case "FAIL: test_cmp_const_xemu.c (compilation/linking failed)" "src/test-resources/test_cmp_const_xemu.c" "build/test/test_cmp_const_xemu.prg" -- "test_cmp_const" "build/test/test_cmp_const_xemu.prg" "C0C0" 8 "01 02 03 04 05 06 07 AA"
 xemu_case "FAIL: test_cmp_const_xemu.c -fno-zpcall (compilation/linking failed)" "src/test-resources/test_cmp_const_xemu.c" "build/test/test_cmp_const_stack_xemu.prg" "-fno-zpcall" -- "test_cmp_const_stack" "build/test/test_cmp_const_stack_xemu.prg" "C0C0" 8 "01 02 03 04 05 06 07 AA"
+echo "Testing test_compound_once_xemu.c (a compound assignment's target evaluated once; #526)..."
+xemu_case "FAIL: test_compound_once_xemu.c (compilation/linking failed)" "src/test-resources/test_compound_once_xemu.c" "build/test/test_compound_once_xemu.prg" -- "test_compound_once" "build/test/test_compound_once_xemu.prg" "C0C0" 9 "01 02 03 04 05 06 07 08 AA"
+xemu_case "FAIL: test_compound_once_xemu.c -fno-zpcall (compilation/linking failed)" "src/test-resources/test_compound_once_xemu.c" "build/test/test_compound_once_stack_xemu.prg" "-fno-zpcall" -- "test_compound_once_stack" "build/test/test_compound_once_stack_xemu.prg" "C0C0" 9 "01 02 03 04 05 06 07 08 AA"
+xemu_case "FAIL: test_compound_once_xemu.c -O0 (compilation/linking failed)" "src/test-resources/test_compound_once_xemu.c" "build/test/test_compound_once_O0_xemu.prg" "-O0" -- "test_compound_once_O0" "build/test/test_compound_once_O0_xemu.prg" "C0C0" 9 "01 02 03 04 05 06 07 08 AA"
 echo "Testing test_float_copy_xemu.c (float copies left out, __f32cpy; #485)..."
 xemu_case "FAIL: test_float_copy_xemu.c (compilation/linking failed)" "src/test-resources/test_float_copy_xemu.c" "build/test/test_float_copy_xemu.prg" -- "test_float_copy" "build/test/test_float_copy_xemu.prg" "C0C0" 25 "01 02 03 04 05 06 07 08 09 0A 0B 0C 0D 0E 0F 10 11 12 13 14 15 16 17 18 AA"
 xemu_case "FAIL: test_float_copy_xemu.c -fno-zpcall (compilation/linking failed)" "src/test-resources/test_float_copy_xemu.c" "build/test/test_float_copy_stack_xemu.prg" "-fno-zpcall" -- "test_float_copy_stack" "build/test/test_float_copy_stack_xemu.prg" "C0C0" 25 "01 02 03 04 05 06 07 08 09 0A 0B 0C 0D 0E 0F 10 11 12 13 14 15 16 17 18 AA"
@@ -2317,6 +2321,32 @@ for upmode in "stack|-fno-zpcall" "zp|"; do
     IFS='|' read -r upname upflags <<< "$upmode"
     xemu_case "FAIL: test_unpack_xemu.c $upname (compilation/linking failed)" "src/test-resources/test_unpack_xemu.c" "build/test/test_unpack_${upname}_xemu.prg" "$upflags -Ibuild/test" -- "test_unpack_$upname" "build/test/test_unpack_${upname}_xemu.prg" "C0C0" 7 "01 01 01 01 01 01 AA"
 done
+
+# <load.h> (#444): files from a D81 to chip RAM, to attic RAM through the
+# stage, unpacked; a missing file, one larger than the stage, one not packed
+python3 - <<'PYEOF'
+N = 3000
+def e(i):
+    b = (i >> 8) % 3
+    return (i * 7) & 255 if b == 0 else (0x41 + i % 13) if b == 1 else 0x55
+data = bytes(e(i) for i in range(N))
+open('build/test/load_data.bin', 'wb').write(data)
+open('build/test/load_data.prg', 'wb').write(b'\x00\x00' + data)
+PYEOF
+rm -f build/test/test_load_far.d81
+if ./bin/pack45 build/test/load_data.bin build/test/load_pack.prg -d 0x48000 >/dev/null 2>&1 &&
+   ./bin/disk45 create build/test/test_load_far.d81 -n LOAD >/dev/null 2>&1 &&
+   ./bin/disk45 add build/test/test_load_far.d81 build/test/load_data.prg LDATA -p >/dev/null 2>&1 &&
+   ./bin/disk45 add build/test/test_load_far.d81 build/test/load_pack.prg LPACK -p >/dev/null 2>&1; then
+    for lfmode in "zp|" "stack|-fno-zpcall"; do
+        IFS='|' read -r lfname lfflags <<< "$lfmode"
+        echo "Testing test_load_far_xemu.c ($lfname)..."
+        xemu_case "FAIL: test_load_far_xemu.c $lfname (compilation/linking failed)" "src/test-resources/test_load_far_xemu.c" "build/test/test_load_far_${lfname}_xemu.prg" "$lfflags" -- "test_load_far_$lfname" "build/test/test_load_far_${lfname}_xemu.prg" "C0C0" 7 "01 01 01 01 01 01 AA" -8 "$PWD/build/test/test_load_far.d81"
+    done
+else
+    echo "FAIL: test_load_far (its disk: pack45 or disk45 failed)"
+    failed=$((failed + 1))
+fi
 
 # __bank(n) (#69): variables and functions kept in banks 4, 5 and attic
 # RAM, in the overlay files (three: bank 5, attic RAM through bank 5, bank
