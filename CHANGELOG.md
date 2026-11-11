@@ -4,6 +4,20 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### font45: TrueType, images, ROM images, its own fonts, preview (#466, phase 2)
+
+- TrueType / OpenType fonts at `--size` pixels (stb_truetype, vendored in
+  `third_party/stb`), anti-aliased.
+- Images (PNG, BMP, GIF, JPEG, TGA: stb_image) as glyph sheets: `--grid WxH`
+  with `--first` and `--order`, or `--marker` for proportional sheets;
+  `--invert`, `--baseline`.
+- A MEGA65 ROM image's character set (`$29800`, or `--upper` `$29000`).
+- font45's own fonts read back (binary, C or assembly): converted again,
+  listed, previewed.
+- `font45 preview`: a PNG of the glyphs and a sample line (stb_image_write).
+- Tests: a TrueType font `make_ttf.py` writes, against a golden file;
+  BMP sheets; a ROM image; the read-backs; the preview.
+
 ### cc45: ?: sign-extends a signed char operand; a warning for a signed and a plain operand
 
 - Each operand of `?:` is widened to the result by its own type's

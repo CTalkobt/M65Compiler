@@ -89,6 +89,56 @@ $F convert $D/sc.bin --charset ascii -o $D/sc2.bin >/dev/null && [ "$(xxd -s $((
     $F convert $D/sc.bin --charset screencode -o $D/sc3.bin >/dev/null && cmp -s $D/sc.bin $D/sc3.bin &&
     pass "--from screencode (the default): a C64 charset decoded, and written back the same" || fail "--from screencode"
 
+# TrueType (a font make_ttf.py writes: I a bar, L, O with a hole), 10 pixels: the golden file
+python3 $T/make_ttf.py $D/tiny.ttf &&
+    $F convert $D/tiny.ttf --size 10 --bpp 1 --proportional --encoding ascii -o $D/ttf.bin >/dev/null && cmp -s $D/ttf.bin $T/tinyttf_p1.golden &&
+    [ "$(xxd -s $((12 + 48 + 41*10)) -l 10 -p $D/ttf.bin)" = "00606060606060600000" ] &&
+    [ "$(xxd -s $((12 + 48 + 47*10)) -l 10 -p $D/ttf.bin)" = "007c7c6c6c6c7c7c0000" ] &&
+    $F list $D/tiny.ttf --size 10 | grep -q '32:3 73:4 76:7 79:7' &&
+    pass "TrueType: rasterized at --size 10 (ascent 8), the advances, O's hole" || fail "TrueType: $(xxd -l 16 -p $D/ttf.bin)"
+# an image: a BMP sheet of 4x5 cells, 2 across and 1 down (A, B), and a marker sheet
+python3 - "$D" <<'PYEOF'
+import sys, struct
+d = sys.argv[1]
+def bmp(path, rows):          # rows: strings of '.' / '#', top row first; 24-bit, bottom-up
+    h, w = len(rows), len(rows[0])
+    pad = (-w * 3) % 4
+    px = b''.join(b''.join(b'\xff\xff\xff' if c == '#' else b'\x00\x00\x00' for c in r) + b'\0' * pad for r in reversed(rows))
+    open(path, 'wb').write(b'BM' + struct.pack('<IHHI', 54 + len(px), 0, 0, 54) +
+                           struct.pack('<IiiHHIIiiII', 40, w, h, 1, 24, 0, len(px), 2835, 2835, 0, 0) + px)
+bmp(d + '/grid.bmp', ['.##.###.', '#..##..#', '#####.#.', '#..##..#', '#..####.'] + ['........'] * 5)
+bmp(d + '/mark.bmp', ['#..#.#......', '#..##.......', '##.##.......', '#..##.......', '#..##.......'])
+PYEOF
+$F convert $D/grid.bmp --grid 4x5 --first 65 --bpp 1 --proportional --encoding ascii -o $D/grid.bin >/dev/null &&
+    [ "$(hexof $D/grid.bin)" = "463401050541440101040100""05050202""6090f09090""e090a090e0""0000000000""0000000000" ] &&
+    $F convert $D/mark.bmp --marker --first 65 --bpp 1 --proportional --encoding ascii -o $D/mark.bin >/dev/null &&
+    [ "$(xxd -s 6 -l 1 -p $D/mark.bin)" = "43" ] && [ "$(xxd -s 12 -l 3 -p $D/mark.bin)" = "030207" ] &&
+    pass "images: a BMP sheet on --grid 4x5 (A, B and two blank cells; widths from the lit columns, a blank one half the cell), a --marker sheet (three glyphs 3, 2, 7 wide)" ||
+    fail "images: $(hexof $D/grid.bin) / $(hexof $D/mark.bin)"
+# a MEGA65 ROM image: its lower / upper case set at $29800 (--upper: $29000), in screen-code order
+python3 - "$D" <<'PYEOF'
+import sys
+d = bytearray(131072)
+d[0x9800 + 8:0x9800 + 16] = bytes([0, 0, 0x3c, 0x06, 0x3e, 0x66, 0x3e, 0])          # screen code 1 there: a
+d[0x9000 + 8:0x9000 + 16] = bytes([0x18, 0x3c, 0x66, 0x7e, 0x66, 0x66, 0x66, 0])    # and here: A
+open(sys.argv[1] + '/m65.rom', 'wb').write(d)
+PYEOF
+$F convert $D/m65.rom --charset ascii -o $D/rom.bin >/dev/null && [ "$(xxd -s $((97*8)) -l 8 -p $D/rom.bin)" = "00003c063e663e00" ] &&
+    $F convert $D/m65.rom --upper --charset ascii -o $D/romu.bin >/dev/null && [ "$(xxd -s $((97*8)) -l 8 -p $D/romu.bin)" = "183c667e66666600" ] &&
+    pass "a ROM image (128 KB): its character set at \$29800, --upper \$29000, decoded from screen codes" || fail "ROM: $(xxd -s $((97*8)) -l 8 -p $D/rom.bin)"
+# font45's own fonts read back: binary (with a load address), C, assembly
+$F convert $D/ttf.bin --bpp 1 --proportional -o $D/back.bin >/dev/null && cmp -s $D/ttf.bin $D/back.bin &&
+    $F convert $D/tiny.ttf --size 10 --bpp 1 --proportional --encoding ascii -o $D/ttfc.c >/dev/null &&
+    $F convert $D/ttfc.c --bpp 1 --proportional -o $D/backc.bin >/dev/null && cmp -s $D/ttf.bin $D/backc.bin &&
+    $F convert $D/tiny.ttf --size 10 --bpp 2 --encoding ascii -o $D/ttfa.s45 >/dev/null &&
+    $F convert $D/tiny.ttf --size 10 --bpp 2 --encoding ascii -o $D/ttfa.bin >/dev/null &&
+    $F convert $D/ttfa.s45 --bpp 2 -o $D/backa.bin >/dev/null && cmp -s $D/ttfa.bin $D/backa.bin &&
+    $F convert $D/ttf.bin --bpp 1 --proportional --load-at 0x2000 -o $D/la.prg >/dev/null && $F list $D/la.prg | grep -q 'glyphs:   4' &&
+    pass "font45's own fonts read back (binary, a load address, C, assembly): the same bytes again" || fail "read back"
+# the preview: a PNG
+$F preview $D/tiny.ttf --size 10 --text OIL --scale 2 -o $D/p.png >/dev/null && [ "$(head -c 8 $D/p.png | xxd -p)" = "89504e470d0a1a0a" ] &&
+    pass "preview: a PNG of the glyphs and a sample line" || fail "preview"
+
 # list and the errors
 $F list $T/tiny.bdf | grep -q 'glyphs:   2 (codes 65-106)' && pass "list: the glyphs and their codes" || fail "list"
 printf 'A: 01z0\n' > $D/bad.txt

@@ -39,9 +39,36 @@ bool readCharset(const std::vector<uint8_t>& data, Font& f, std::string& err);
 // or ./#, separated by spaces), as xmas/tools/font5x7.py writes them
 bool readGlyphText(const std::string& text, Font& f, std::string& err);
 
-// the format by the name's extension (.bdf .psf .psfu .bin .64c .chr .txt);
-// "" when unknown
+// TrueType / OpenType (stb_truetype, not hinted): ASCII, Latin-1 and the
+// arrows and pi PETSCII has, at a line height of pixelSize pixels; coverage
+// 0-255 from the rasterizer
+bool readTrueType(const std::vector<uint8_t>& data, int pixelSize, Font& f, std::string& err);
+// an image (PNG, BMP, GIF, ... : stb_image) as a glyph sheet: cells of
+// cellW x cellH on a grid, rows first (or columns), codes from first; or
+// (marker) one row of glyphs under a top row whose marks start each glyph.
+// A pixel's coverage is its brightness's difference from the commonest
+// brightness (transparent pixels are background), scaled to the image's largest
+struct ImageOptions {
+    int cellW = 0, cellH = 0, first = 32, baseline = -1;
+    bool columns = false, marker = false, proportional = false, invert = false;   // invert: the commonest colour is the ink
+};
+bool readImage(const std::vector<uint8_t>& data, const ImageOptions& o, Font& f, std::string& err);
+// a MEGA65 ROM image (128 KB): its character set at $29800 (lower / upper
+// case; upper: $29000, upper case / graphics), 256 characters in screen-code
+// order, as readCharset reads one
+bool readRom(const std::vector<uint8_t>& data, bool upperSet, Font& f, std::string& err);
+// font45's own fonts (format 1): a binary file (with or without a load
+// address), or the C or assembly font45 wrote (its bytes read back)
+bool readFont45(const std::vector<uint8_t>& data, Font& f, std::string& err);
+bool readFont45Source(const std::string& text, Font& f, std::string& err);
+
+// the format by the name's extension (.bdf .psf .psfu .bin .64c .chr .txt
+// .ttf .otf .png .bmp .gif .jpg .tga .rom .c .h .s45 .asm); "" when unknown
 std::string formatOf(const std::string& path);
+
+// the preview: every glyph on a grid and a sample text below, scale pixels
+// a pixel, coverage shaded in levels steps (0: as it is), as PNG
+bool writePreview(const Font& f, int levels, int scale, const std::string& text, std::vector<uint8_t>& png, std::string& err);
 
 // --- transforms ---
 // keep only codes lo..hi

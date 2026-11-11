@@ -52,12 +52,16 @@ bool parseNum(const std::string& s, long& v) {
 void usage() {
     std::cout <<
         "Usage: font45 convert <font> [options] -o <output>\n"
-        "       font45 list <font>\n"
+        "       font45 list <font> [options]\n"
+        "       font45 preview <font> [options] -o <image.png>\n"
         "Fonts for the MEGA65 (#466): a bitmap font as an 8x8 text-mode charset, or as\n"
         "<font.h>'s proportional font (font_from, font_draw_bitmap).\n"
         "Inputs (by extension, or --format): .bdf (X11), .psf / .psfu (PSF1 / PSF2),\n"
         ".bin / .64c / .chr (a C64 / C65 charset, 2048 or 4096 bytes, load address or not),\n"
-        ".txt (hand-drawn glyphs: \"<code>: 01110 10001 ...\", a row of 0/1 or ./# each).\n"
+        ".txt (hand-drawn glyphs: \"<code>: 01110 10001 ...\", a row of 0/1 or ./# each),\n"
+        ".ttf / .otf (TrueType, OpenType: --size), .png / .bmp / .gif / .jpg / .tga (a glyph\n"
+        "sheet: --grid or --marker), a MEGA65 ROM image (128 KB: its character set), and\n"
+        "font45's own fonts (a binary file, or the .c / .s45 it wrote).\n"
         "  -o FILE            the output: .c (and its .h), .s45 / .asm, .bin / .prg (binary)\n"
         "  --c, --asm, --bin  the output's form, whatever its name\n"
         "  --name NAME        the array's / label's name (default: the output's base name)\n"
@@ -73,8 +77,16 @@ void usage() {
         "  --map FROM=TO      a code's glyph also under another code (repeatable)\n"
         "  --bold, --italic, --outline   a derived variant\n"
         "  --load-at ADDR     binary: a two-byte load address in front (cbm_load / load_far)\n"
-        "  --format F         the input's format: bdf, psf, charset, text\n"
+        "  --format F         the input's format: bdf, psf, charset, text, truetype, image, rom, font45\n"
         "  --from ORDER       a charset input's order: screencode (default), petscii, ascii\n"
+        "  --size N           TrueType: the line's height in pixels (default 16)\n"
+        "  --grid WxH         an image: glyph cells W x H pixels, rows first (--order columns)\n"
+        "  --first N          an image: the first glyph's code (default 32)\n"
+        "  --marker           an image: one row of glyphs, each starting at a mark in the top row\n"
+        "  --invert           an image: its commonest colour is the ink, not the background\n"
+        "  --baseline N       an image: the baseline's row (default: under the cell)\n"
+        "  --upper            a ROM image: the upper case / graphics set ($29000), not lower / upper\n"
+        "  --scale N          preview: pixels a pixel (default 4); --text \"...\": a sample line\n"
         "  -V, --version      the version\n";
 }
 
@@ -106,9 +118,12 @@ int main(int argc, char** argv) {
     std::string cmd = argv[1];
     if (cmd == "-h" || cmd == "--help") { usage(); return 0; }
     if (cmd == "-V" || cmd == "--version") { std::cout << suiteVersionString("font45") << std::endl; return 0; }
-    if (cmd != "convert" && cmd != "list") { std::cerr << "font45: unknown command " << cmd << " (convert, list)\n"; return 1; }
+    if (cmd != "convert" && cmd != "list" && cmd != "preview") { std::cerr << "font45: unknown command " << cmd << " (convert, list, preview)\n"; return 1; }
 
-    std::string input, output, name, format, form, charset, encoding = "petscii", from = "screencode";
+    std::string input, output, name, format, form, charset, encoding = "petscii", from = "screencode", text = "The quick brown fox";
+    int size = 16, scale = 4;
+    bool upperSet = false;
+    font45::ImageOptions img;
     int bpp = 0, count = 256, fixedW = 0;
     long loadAt = -1, lo = -1, hi = -1;
     bool proportional = false, bold = false, italic = false, outline = false;
@@ -123,6 +138,24 @@ int main(int argc, char** argv) {
         else if (a == "--name") name = need("a name");
         else if (a == "--format") format = need("a format (bdf, psf, charset, text)");
         else if (a == "--c" || a == "--asm" || a == "--bin") form = a.substr(2);
+        else if (a == "--size") { long v; if (!parseNum(need("pixels"), v) || v < 4 || v > 255) { std::cerr << "font45: --size is 4-255 pixels\n"; return 1; } size = (int)v; }
+        else if (a == "--grid") {
+            std::string g = need("WxH");
+            auto x = g.find_first_of("xX");
+            long w, h;
+            if (x == std::string::npos || !parseNum(g.substr(0, x), w) || !parseNum(g.substr(x + 1), h) || w < 1 || h < 1 || w > 255 || h > 255) {
+                std::cerr << "font45: --grid needs WxH (1-255)\n"; return 1;
+            }
+            img.cellW = (int)w; img.cellH = (int)h;
+        }
+        else if (a == "--first") { long v; if (!parseNum(need("a code"), v) || v < 0 || v > 0xFFFF) { std::cerr << "font45: --first needs a code\n"; return 1; } img.first = (int)v; }
+        else if (a == "--order") { std::string o = need("rows or columns"); if (o != "rows" && o != "columns") { std::cerr << "font45: --order is rows or columns\n"; return 1; } img.columns = o == "columns"; }
+        else if (a == "--marker") img.marker = true;
+        else if (a == "--invert") img.invert = true;
+        else if (a == "--baseline") { long v; if (!parseNum(need("a row"), v) || v < 0 || v > 255) { std::cerr << "font45: --baseline needs a row\n"; return 1; } img.baseline = (int)v; }
+        else if (a == "--upper") upperSet = true;
+        else if (a == "--scale") { long v; if (!parseNum(need("1-16"), v) || v < 1 || v > 16) { std::cerr << "font45: --scale is 1-16\n"; return 1; } scale = (int)v; }
+        else if (a == "--text") text = need("a sample line");
         else if (a == "--encoding") encoding = need("an encoding (petscii, ascii, screencode)");
         else if (a == "--from") from = need("an order (screencode, petscii, ascii)");
         else if (a == "--charset") charset = need("an order (ascii, screencode, petscii)");
@@ -160,19 +193,31 @@ int main(int argc, char** argv) {
     font45::Font f;
     std::string err;
     bool ok;
+    img.proportional = proportional;
+    // (font45's own binary fonts and MEGA65 ROM images have charsets' extensions)
+    bool f4 = data.size() > 4 && ((data[0] == 'F' && data[1] == '4') || (data[2] == 'F' && data[3] == '4'));
+    if (format == "charset" && f4) format = "font45bin";
+    if (format == "charset" && data.size() == 131072) format = "rom";
     if (format == "bdf") ok = font45::readBDF(data, f, err);
+    else if (format == "truetype") ok = font45::readTrueType(data, size, f, err);
+    else if (format == "image") ok = font45::readImage(data, img, f, err);
+    else if (format == "rom") ok = font45::readRom(data, upperSet, f, err);
+    else if (format == "font45bin") ok = font45::readFont45(data, f, err);
+    else if (format == "font45") ok = font45::readFont45Source(std::string(data.begin(), data.end()), f, err);
     else if (format == "psf") ok = font45::readPSF(data, f, err);
     else if (format == "charset") ok = font45::readCharset(data, f, err);
     else if (format == "text") ok = font45::readGlyphText(std::string(data.begin(), data.end()), f, err);
-    else { std::cerr << "font45: " << input << ": an unknown format (--format bdf, psf, charset, text)\n"; return 1; }
+    else { std::cerr << "font45: " << input << ": an unknown format (--format bdf, psf, charset, text, truetype, image, rom, font45)\n"; return 1; }
     if (!ok) { std::cerr << "font45: " << input << ": " << err << "\n"; return 1; }
     font45::Order fromOrder, encOrder;
     if (!parseOrder(from, fromOrder)) { std::cerr << "font45: --from is screencode, petscii or ascii\n"; return 1; }
     if (!parseOrder(encoding, encOrder)) { std::cerr << "font45: --encoding is petscii, ascii or screencode\n"; return 1; }
-    if (format == "charset") font45::decodeCharset(f, fromOrder);
+    if (format == "charset" || format == "rom") font45::decodeCharset(f, format == "rom" ? font45::Order::ScreenCode : fromOrder);
     // (a <font.h> font's codes are the program's: PETSCII unless told; an 8x8
     // charset's order is --charset's, from the character codes)
-    if (charset.empty() && cmd == "convert") font45::reencode(f, encOrder);
+    // (font45's own fonts are in their codes already)
+    bool own = format == "font45" || format == "font45bin";
+    if (charset.empty() && cmd == "convert" && !own) font45::reencode(f, encOrder);
 
     for (auto [from, to] : maps) font45::remap(f, from, to);
     if (lo >= 0) font45::keepRange(f, (int)lo, (int)hi);
@@ -181,6 +226,26 @@ int main(int argc, char** argv) {
     if (outline) font45::makeOutline(f);
 
     if (cmd == "list") { std::cout << font45::describe(f); return 0; }
+    if (cmd == "preview") {
+        if (output.empty()) { std::cerr << "font45: no output (-o FILE.png)\n"; return 1; }
+        if (f.glyphs.empty()) { std::cerr << "font45: no glyphs left (--range)\n"; return 1; }
+        // (a sample text in the font's codes: PETSCII's letters for font45's PETSCII fonts)
+        std::string sample = text;
+        if (own) {
+            bool petscii = f.glyphs.count(0xC1) && !f.glyphs.count('a');
+            if (petscii)
+                for (auto& ch : sample) {
+                    unsigned char u = (unsigned char)ch;
+                    if (u >= 'A' && u <= 'Z') ch = (char)(u - 'A' + 0xC1);
+                    else if (u >= 'a' && u <= 'z') ch = (char)(u - 'a' + 'A');
+                }
+        }
+        std::vector<uint8_t> png;
+        if (!font45::writePreview(f, bpp ? (1 << bpp) - 1 : 0, scale, sample, png, err)) { std::cerr << "font45: " << err << "\n"; return 1; }
+        if (!writeBytes(output, png)) { std::cerr << "font45: cannot write " << output << "\n"; return 1; }
+        std::cout << "font45: " << input << ": " << f.glyphs.size() << " glyphs -> " << output << std::endl;
+        return 0;
+    }
 
     if (output.empty()) { std::cerr << "font45: no output (-o FILE)\n"; return 1; }
     if (form.empty()) {
