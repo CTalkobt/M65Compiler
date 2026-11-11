@@ -14,6 +14,27 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
   once, and the old value is loaded and the result stored through it (C11
   6.5.16.2p3). Other targets are compiled as before.
 - Test: `test_compound_once_xemu.c` (ZP, `-fno-zpcall`, `-O0`).
+### basic45 --convert: MOVSPR by distance;angle, RWINDOW(0/1), RLUM (#433)
+
+- BASIC 7.0's `MOVSPR n, distance;angle` (angle 0 up, clockwise) becomes
+  BASIC 65's relative move, `MOVSPR n, +(INT(d * SIN(a) + .5)),
+  +(INT(-d * COS(a) + .5))`, which adds to where the sprite is going.
+- `RWINDOW(0)` / `RWINDOW(1)` (BASIC 7.0: the window's lines / columns) are
+  swapped to BASIC 65's (0 the width, 1 the height). `WINDOW` is no longer
+  warned: its arguments are BASIC 65's.
+- BASIC 3.5's `RLUM(n)` is the luminance `COLOR` last gave source n, kept in an
+  array (when the program uses `RLUM`).
+- Tests: `test_convert7_xemu.txt` (run by BASIC 65), `test_basic45.sh`.
+
+### cc45: a run-time call's second float operand copied straight into __float_b (#485)
+
+- A float result (or an int converted) whose one use is a store to
+  `__float_b` after the first operand's store to `__float_a` (basic45's
+  arguments of `__bas_fdiv` and the like: `INT((N + PE - 1) / PE)`) is copied
+  into `__float_b` at once instead of through a base-page temporary: a 5-byte
+  copy loop less each.
+- `basic45 --compile`'s tests and `games_menu.bas`: 82 bytes smaller, none
+  larger.
 
 ### basic45 --compile: FREEZER and IMPORT (#369)
 
