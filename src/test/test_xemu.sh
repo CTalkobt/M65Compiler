@@ -771,6 +771,16 @@ else
     echo "FAIL: test_basic_compile_sad_xemu.bas (basic45 or basic45 --compile failed)"
     failed=$((failed + 1))
 fi
+# test_basic_compile_import_xemu.bas: IMPORT in a program is ?DIRECT MODE ONLY
+# (34) when it runs; FREEZER compiles (#369)
+if ./bin/basic45 src/test-resources/test_basic_compile_import_xemu.bas -o build/test/test_basic_compile_import_i.prg >/dev/null 2>&1 &&
+   ./bin/basic45 --compile --checks src/test-resources/test_basic_compile_import_xemu.bas -o build/test/test_basic_compile_import.prg >/dev/null 2>&1; then
+    run_xemu_test "test_basic_compile_import_interpreted" "build/test/test_basic_compile_import_i.prg" "C0C0" 3 "01 22 AA"
+    run_xemu_test "test_basic_compile_import" "build/test/test_basic_compile_import.prg" "C0C0" 3 "01 22 AA"
+else
+    echo "FAIL: test_basic_compile_import_xemu.bas (basic45 or basic45 --compile failed)"
+    failed=$((failed + 1))
+fi
 # test_basic_compile_tron_xemu.bas: TRON / TROFF's "[line]" before each
 # statement (and the one after THEN / ELSE), MEM (#369): the screen's bytes
 BCT_EXP="1B 32 30 1D 1B 32 30 1D 1B 32 30 1D 1B 33 30 1D 1B 33 30 1D 1B 33 30 1D 1B 33 30 1D 1B 34 30 1D 1B 31 30 30 35 1D 1B 31 30 30 35 1D 1B 34 30 1D 20 20 20 20 20 20 20 20 20 20 20 20 AA"
