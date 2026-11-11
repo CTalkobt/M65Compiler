@@ -680,19 +680,37 @@ void IRCodeGen::planF32Aliases(const ir::Function& fn) {
                 // __float_a (the first operand, or FNEG's) or copied straight
                 // into __float_b (the second), #485; only loads and constants
                 // between, which write neither
+                bool passedA = false;   // (a store to __float_a passed: only __float_b now)
                 for (size_t j = k + 1; j < is.size(); j++) {
                     const ir::Inst& u = is[j];
                     bool s1 = u.src1.isVreg() && u.src1.vregId == v, s2 = u.src2.isVreg() && u.src2.vregId == v;
                     if (s1 || s2) {
+                        bool toB = u.op == ir::Op::STORE && u.resultType == ir::Type::F32 && s1 && !s2 &&
+                                   u.args.empty() && u.src2.kind == ir::OperandKind::GLOBAL && u.src2.name == "__float_b";
+                        if (passedA && !toB) break;
                         bool two = u.op == ir::Op::FADD || u.op == ir::Op::FSUB || u.op == ir::Op::FMUL ||
                                    u.op == ir::Op::FDIV || u.op == ir::Op::FCMP;
                         if (two && s1 != s2) f32Alias_[v] = s1 ? "__float_a" : "__float_b";
                         else if (u.op == ir::Op::FNEG && s1) f32Alias_[v] = "__float_a";
+                        // a run-time call's second operand: stored to __float_b
+                        // (after the first's store to __float_a): copied there
+                        // at once, not through a temporary
+                        else if (u.op == ir::Op::STORE && u.resultType == ir::Type::F32 && s1 && !s2 &&
+                                 u.args.empty() && u.src2.kind == ir::OperandKind::GLOBAL &&
+                                 u.src2.name == "__float_b") {
+                            f32Alias_[v] = "__float_b";
+                            f32Skip_.insert(&u);
+                        }
                         // stored (through a pointer: an array element) from __float_a
                         else if (u.op == ir::Op::STORE && u.resultType == ir::Type::F32 && s1 && !s2 && u.args.empty())
                             f32Alias_[v] = "__float_a";
                         break;
                     }
+                    // (a store of another value to __float_a writes neither
+                    // __float_b nor this result: on to its store to __float_b)
+                    bool toA = u.op == ir::Op::STORE && u.resultType == ir::Type::F32 && u.args.empty() &&
+                               u.src2.kind == ir::OperandKind::GLOBAL && u.src2.name == "__float_a";
+                    if (toA && !(u.src1.isVreg() && u.src1.vregId == v)) { passedA = true; continue; }
                     if (u.op != ir::Op::LOAD && u.op != ir::Op::FCONST && u.op != ir::Op::CONST &&
                         u.op != ir::Op::ADDR_GLOBAL && u.op != ir::Op::NOP) break;
                 }
