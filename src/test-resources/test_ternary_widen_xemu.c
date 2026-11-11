@@ -8,12 +8,17 @@
  *   [2] an int and a char arm against a long (zero-extended)
  *   [3] a signed int arm against a signed long (sign-extended: -1)
  *   [4] the ?: kept in a variable, then used
- *   [5] $AA sentinel
+ *   [5] a signed char arm (a global, an array element) sign-extended to an
+ *       int and a long: -1, not 255 (lastValueSigned_ was not set by the
+ *       load); x + (c ? dx[d] : 0) is x - 1
+ *   [6] $AA sentinel
  */
 #define OUT ((volatile unsigned char *)0xC0C0)
 #define NOINLINE __attribute__((noinline))
 
 unsigned long g = 0x12345678UL;
+signed char gsc = -1;
+const signed char dx[2] = { -1, 1 };
 
 NOINLINE static unsigned long pick(unsigned char c, unsigned long x) { return c ? x : 0; }
 NOINLINE static unsigned long pick2(unsigned char c, unsigned long x) { return c ? 0 : x; }
@@ -26,6 +31,10 @@ NOINLINE static unsigned long kept(unsigned char c, unsigned long x) {
     r = c ? r : 0;
     return r + 1;
 }
+NOINLINE static signed int scint(unsigned char c) { return c ? gsc : (signed int)0; }
+NOINLINE static signed long sclong(unsigned char c, unsigned char d) { return c ? dx[d] : (signed long)0; }
+NOINLINE static signed int scadd(unsigned char x, unsigned char d) { return (signed int)x + (d < 8 ? dx[d] : (signed int)0); }
+NOINLINE static unsigned int scplain(unsigned char x, unsigned char d) { return x + (d < 8 ? dx[d] : 0); }
 NOINLINE static void dirty(void) { volatile unsigned long t = 0xFFFFFFFFUL; t++; }
 
 int main(void) {
@@ -39,6 +48,9 @@ int main(void) {
     OUT[3] = picksigned(0, 5, -1) == -1L && picksigned(1, -70000L, -1) == -70000L;
     dirty();
     OUT[4] = kept(0, 0x11223344UL) == 1 && kept(1, 0x11223344UL) == 0xEEDD3345UL;
-    OUT[5] = 0xAA;
+    dirty();
+    OUT[5] = scint(1) == -1 && scint(0) == 0 && sclong(1, 0) == -1L && sclong(1, 1) == 1L &&
+             scadd(5, 0) == 4 && scadd(5, 1) == 6 && scadd(5, 9) == 5 && scplain(5, 0) == 4;
+    OUT[6] = 0xAA;
     return 0;
 }
