@@ -176,6 +176,13 @@ BasicDecompileResult decompileBasic(const std::vector<uint8_t>& prg, const Basic
             }
         }
         flush();
+        // DIR and ECTORY ($FE $29): DIRECTORY, as it was typed
+        for (size_t q = 0; q + 1 < line.pieces.size(); q++)
+            if (line.pieces[q].isKw && line.pieces[q].text == "DIR" && line.pieces[q + 1].isKw &&
+                line.pieces[q + 1].text == "ECTORY") {
+                line.pieces[q].text = "DIRECTORY";
+                line.pieces.erase(line.pieces.begin() + (long)q + 1);
+            }
         lines.push_back(line);
         size_t next = (size_t)link - load + 2;
         if (link < load || next >= prg.size()) {

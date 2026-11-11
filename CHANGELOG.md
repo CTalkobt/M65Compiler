@@ -12,6 +12,8 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
   symbols' addresses (asm labels, `incbin` data). The interpreter's
   `__basic_call` thunk is not used: it fills BSS on its first call.
 - `FORMAT` (`HEADER`'s other name) and `TURBO` (nothing, as the ROM's).
+- `DIRECTORY`: basic45 crunches it as BASIC 65 does (`DIR` and `ECTORY`,
+  `$FE $29`; it was a variable), decompiles it as `DIRECTORY`; compiled as `DIR`.
 - `ST$`, `ER$`, `EL$` and the `%` forms of the reserved names (`TI%` ...)
   are ordinary variables, as in the interpreter (they were refused).
 - `--convert=basic8`: `L = @DIR$` (a number: the entry's length) is 0, not "".

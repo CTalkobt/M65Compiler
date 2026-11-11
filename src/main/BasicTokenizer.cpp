@@ -499,6 +499,11 @@ BasicToken BasicTokenizer::parseIdentifier(const std::string& source, size_t& po
         pos -= 2;
         upper = "GO";
     }
+    // DIRECTORY is DIR and ECTORY ($FE $29), which the ROM's DIR skips
+    if (upper == "DIRECTORY") {
+        pos -= 6;
+        upper = "DIR";
+    }
     // TAB( and SPC( are tokens that include the parenthesis
     if ((upper == "TAB" || upper == "SPC") && pos < source.length() && source[pos] == '(') {
         upper += '(';

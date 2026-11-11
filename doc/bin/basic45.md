@@ -420,7 +420,7 @@ each line goes to the channel (the installed ROM sends only the first there when
 same drive). `FREAD# lf, address, size` / `FWRITE#` move `size` bytes (0: 65536) between the file and the
 28-bit address (`BANK` not used). `LINE INPUT# lf, a$ [, ...]` reads a line into each (up to 160 characters,
 as `InputBuffer`), `LINE INPUT ["prompt";] a$ [, ...]` the rest of the typed line as it is (commas, colons,
-leading spaces). Not compiled: `DIRECTORY` (basic45 does not tokenize it), `DIR` of the SD card (unit 12).
+leading spaces). `DIRECTORY` is `DIR` (basic45 crunches it as BASIC 65 does: `DIR` and the `ECTORY` token, `$FE $29`). Not compiled: `DIR` of the SD card (unit 12).
 `DSAVE`, `SAVE`, `VERIFY` and `DVERIFY` are errors: they save or compare the BASIC program's text, which a compiled
 program does not have.
 

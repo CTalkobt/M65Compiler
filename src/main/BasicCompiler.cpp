@@ -3398,6 +3398,8 @@ void Compiler::dosStmt(int kw) {
     };
     const D* d = nullptr;
     for (const auto& e : table) if (e.kw == kw) d = &e;
+    // DIRECTORY: DIR and the ECTORY token ($FE $29), skipped (b65.src directory)
+    if (kw == T_DIR && peek() && peek()->k == TK::Kw && peek()->kw == 0xFE29) p_++;
     if (kw == T_DELETE && !(peek() && (peek()->k == TK::Str || isCh('('))))
         fail("DELETE of program lines works only in direct mode (?ILLEGAL DIRECT ERROR)");
     std::vector<Val> names;

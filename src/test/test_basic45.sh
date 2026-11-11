@@ -427,5 +427,11 @@ grep -q '^  m = 0 : rem @mouse,2, 0$' "$D/c8p.bas" && grep -q '^  char 1 + int(y
     pass "--convert=basic8 of a .prg: \$40 \$FE \$4D is @MODE, \$FE \$1A \$9F @WINDOWOPEN (coordinates from the window's corner), \$40 \$E0 @CHAR; loaded at \$7001" ||
     fail "--convert=basic8 .prg: $(cat "$D/c8p.bas" "$D/c8p.err")"
 
+# DIRECTORY: DIR and the ECTORY token ($FE $29), as BASIC 65 crunches it; decompiled as it was typed
+printf 'start:\n  directory "x*",u8\n' > "$D/dir.bas"
+$B "$D/dir.bas" -o "$D/dir.prg" > "$D/dir.log" 2>&1 && [ "$(xxd -s 6 -l 3 -p "$D/dir.prg")" = "eefe29" ] &&
+    ! grep -q "not a BASIC 65 keyword" "$D/dir.log" && $B --decompile "$D/dir.prg" -o - 2>/dev/null | grep -q '^  directory "x\*", u8$' &&
+    pass "DIRECTORY: DIR + ECTORY (\$EE \$FE \$29), decompiled as DIRECTORY" || fail "DIRECTORY: $(xxd -l 16 -p "$D/dir.prg") $(cat "$D/dir.log")"
+
 echo "basic45 tests: $passed passed, $failed failed"
 [ $failed -eq 0 ]
