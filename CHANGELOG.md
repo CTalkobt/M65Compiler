@@ -18,6 +18,21 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 - Tests: a TrueType font `make_ttf.py` writes, against a golden file;
   BMP sheets; a ROM image; the read-backs; the preview.
 
+### cc45: ?: sign-extends a signed char operand; a warning for a signed and a plain operand
+
+- Each operand of `?:` is widened to the result by its own type's
+  signedness. A `signed char` operand read from a global or an array
+  element was zero-extended (the signedness of the last load was not set
+  for it): `x + (c ? dx[d] : 0)` added 255, not -1. Test: case [5] of
+  `test_ternary_widen_xemu.c`.
+- A `?:` of a signed operand and one that is unsigned only by cc45's
+  default (a literal with no `U` suffix or cast, or a plain-integer
+  variable) warns: its result is unsigned, so the signed operand is
+  converted (`?: of a signed and a plain (unsigned in cc45) operand is
+  unsigned: the third operand makes the signed one unsigned (cast it to
+  signed, e.g. (signed)0)`), once a place. Test:
+  `src/test/test_ternary_sign_warning.sh`.
+
 ### font45 and <font.h> (#466, phase 1)
 
 - `font45`, a new tool: bitmap fonts (BDF, PSF1/PSF2, C64 charsets,
