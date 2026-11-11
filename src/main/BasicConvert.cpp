@@ -2873,10 +2873,11 @@ void convertBasic8(std::vector<DecompiledLine>& lines, const BasicDecompileOptio
                 continue;
             }
             if (!start) {
-                // a function (MOUSE, DIR$, ER = @PAINT ...): to its statement's end
-                warn(line.num, "@" + k + " as a function has no BASIC 65 counterpart: " + (k == "DIR$" ? "\"\"" : "0") + " instead");
+                // a function (MOUSE, ER = @PAINT ...; DIR$ too: L = @DIR$ is the length of
+                // the entry it puts in the program's first variable): to its statement's end
+                warn(line.num, "@" + k + " as a function has no BASIC 65 counterpart: 0 instead");
                 kept.push_back(written);
-                put(raw(k == "DIR$" ? "\"\"" : "0"));
+                put(raw("0"));
                 continue;
             }
             if (k == "WALRUS" || k == "MODE") {

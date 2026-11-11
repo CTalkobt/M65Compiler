@@ -60,7 +60,7 @@ enum : int {
     T_DOPEN = 0xFE0D, T_APPEND = 0xFE0E, T_DCLOSE = 0xFE0F, T_DLOAD = 0xF0, T_LOAD = 0x93,
     T_HEADER = 0xF1, T_SCRATCH = 0xF2, T_COLLECT = 0xF3, T_COPY = 0xF4, T_RENAME = 0xF5, T_BACKUP = 0xF6,
     T_DELETE = 0xF7, T_RECORD = 0xFE12, T_FREAD = 0xFE1C, T_FWRITE = 0xFE1E, T_LINE = 0xE5,
-    T_BSAVE = 0xFE10, T_BLOAD = 0xFE11, T_BVERIFY = 0xFE28, T_DIR = 0xEE, T_CATALOG = 0xFE0C, T_CONCAT = 0xFE13, T_DCLEAR = 0xFE15, T_ERASE = 0xFE2A,
+    T_FORMAT = 0xFE37, T_TURBO = 0xFE38, T_BSAVE = 0xFE10, T_BLOAD = 0xFE11, T_BVERIFY = 0xFE28, T_DIR = 0xEE, T_CATALOG = 0xFE0C, T_CONCAT = 0xFE13, T_DCLEAR = 0xFE15, T_ERASE = 0xFE2A,
     T_MOVSPR = 0xFE06, T_SPRITE = 0xFE07, T_SPRCOLOR = 0xFE08, T_SPRSAV = 0xFE16, T_COLLISION = 0xFE17,
     T_BUMP = 0xCE03, T_RSPPOS = 0xCE05, T_RSPRITE = 0xCE06, T_RSPCOLOR = 0xCE07, T_CLR = 0x9C, T_SAVE = 0x94,
     T_SCREEN = 0xFE2E, T_SET = 0xFE2D, T_PEN = 0xFE33, T_DMODE = 0xFE35, T_DPAT = 0xFE36, T_DOT = 0xFE4C,
@@ -491,9 +491,12 @@ private:
         std::string base = name;
         if (suffix == '$' || suffix == '%') base.pop_back();
         std::string key = base.substr(0, 2);
+        // (reserved: TI, ST, DS, ER and EL themselves, read above; TI$ and DS$,
+        // whatever follows their two letters. ST$, ER$, EL$ and every % form are
+        // ordinary variables, as in the interpreter)
         static const std::set<std::string> reserved = {"TI", "ST", "DS", "ER", "EL"};
-        if (reserved.count(key) && (base.size() == 2 || suffix == '$'))
-            fail(name + " (a reserved variable) is not supported by --compile yet");
+        bool r = suffix == '$' ? key == "TI" || key == "DS" : suffix != '%' && reserved.count(key) && base.size() == 2;
+        if (r) fail(name + " (a reserved variable) is not supported by --compile yet");
         std::string g;
         ir::Type t;
         if (suffix == '$') { kind = VK::S; g = "__bv_" + key + "_s"; t = ir::Type::PTR; }
@@ -1206,7 +1209,23 @@ private:
         r.op = bin(fop, ir::Type::F32, toF(x), toF(y));
         return r;
     }
+    // --link: a {name} reference's number ($1000000 + its index), or -1
+    int linkIndex(double n, bool whole) const {
+        if (!whole || !chainOpt_ || n < 16777216.0) return -1;
+        double k = n - 16777216.0;
+        return k < (double)chainOpt_->linkSyms.size() ? (int)k : -1;
+    }
     Val number(double n, bool whole) {
+        int li = linkIndex(n, whole);
+        if (li >= 0) {
+            // {name}: the symbol's address (16 bits, as POINTER's)
+            const std::string& sym = chainOpt_->linkSyms[(size_t)li].symbol;
+            externs_.insert(sym);
+            store(ir::Type::PTR, addrGlobal(sym), global("__bas_sr"));
+            Val r; r.k = VK::I; r.bound = 65535;
+            r.op = zext(load(ir::Type::I16, global("__bas_sr")), ir::Type::I16, ir::Type::I32);
+            return r;
+        }
         if (whole && n <= 999999999.0) return constI((int64_t)n);
         Val r; r.k = VK::F; r.isConst = true; r.cval = n; r.op = fconst(n);
         return r;
@@ -2442,7 +2461,7 @@ void Compiler::statement() {
         return;
     }
     case T_OPEN: openStmt(); return;
-    case T_DOPEN: case T_APPEND: case T_DCLOSE: case T_HEADER: case T_SCRATCH: case T_ERASE: case T_DELETE:
+    case T_DOPEN: case T_APPEND: case T_DCLOSE: case T_HEADER: case T_FORMAT: case T_SCRATCH: case T_ERASE: case T_DELETE:
     case T_RENAME: case T_CONCAT: case T_COLLECT: case T_DCLEAR: case T_BACKUP: case T_COPY:
     case T_BLOAD: case T_BVERIFY: case T_BSAVE: case T_DIR: case T_CATALOG: dosStmt(kw); return;
     case T_TYPE: case T_DISK: case T_LOCK: case T_UNLOCK: case T_MKDIR: case T_CHDIR: case T_MOUNT:
@@ -2652,6 +2671,11 @@ void Compiler::statement() {
         return;
     }
     case T_BEND: return;      // the end of a block: nothing to do
+    case T_TURBO:
+        // (b65.src: the token's routine, genlock, is an rts; parameters after it
+        // are a ?SYNTAX ERROR, as in the installed ROM)
+        if (!stmtEnd()) fail("TURBO takes no parameters (?SYNTAX ERROR)");
+        return;
     default:
         fail(tokenName(kw) + " is not supported by --compile yet");
     }
@@ -3228,6 +3252,46 @@ void Compiler::soundCmd() {
 // _jsr_far)
 void Compiler::sysStmt() {
     sysUsed_ = true;
+    {
+        // SYS {name} of a C function linked in (--link): called directly, the
+        // program being C already (no thunk into __basic_call, which would
+        // refill BSS): A, X, Y its first three parameters (16 bits each: the
+        // ZP convention's slots of a char or an int), a missing one the last
+        // value; its result in A / X for RREG
+        auto t = peek();
+        int li = t && t->k == TK::Num ? linkIndex(t->num, t->whole) : -1;
+        if (li >= 0 && chainOpt_->linkSyms[(size_t)li].cfunc) {
+            p_++;
+            const std::string& fn = chainOpt_->linkSyms[(size_t)li].symbol;
+            std::vector<ir::Operand> args;
+            for (int k = 0; k < 3; k++) {
+                Val v;
+                ir::Operand b;
+                if (optByt(v)) b = toByte(v);
+                else b = load(ir::Type::I8, addrElem(addrGlobal("__bas_sregs"), iconst(ir::Type::I16, k), 1));
+                storeAt("__bas_sregs", k, b, ir::Type::I8);
+                args.push_back(zext(b, ir::Type::I8, ir::Type::I16));
+            }
+            for (int k = 3; k < 5; k++) {
+                Val v;
+                if (optByt(v)) storeAt("__bas_sregs", k, toByte(v), ir::Type::I8);
+            }
+            externs_.insert(fn);
+            externs_.insert("__bas_sregs");
+            fn_->originalCallees.insert(fn);
+            raises();
+            auto r = vreg(ir::Type::I16);
+            ir::Inst in; in.op = ir::Op::CALL; in.dest = r; in.resultType = ir::Type::I16;
+            in.src1 = ir::Operand::global(fn); in.callConv = ir::CallConv::ZP;
+            in.args = args;
+            emit(in);
+            store(ir::Type::I16, r, global("__bas_sr"));
+            storeAt("__bas_sregs", 0, load(ir::Type::I8, global("__bas_sr")), ir::Type::I8);
+            storeAt("__bas_sregs", 1, load(ir::Type::I8, addrElem(addrGlobal("__bas_sr"), iconst(ir::Type::I16, 1), 1)),
+                    ir::Type::I8);
+            return;
+        }
+    }
     addr32(expr());
     int mask = 0;
     for (int k = 0; k < 5; k++) {
@@ -3322,7 +3386,7 @@ void Compiler::dosStmt(int kw) {
     struct D { int kw; const char* name; int err; int need; int cmd; };
     static const D table[] = {
         {T_DOPEN, "DOPEN", 0x22, 5, 1},  {T_APPEND, "APPEND", 0xE2, 5, 2}, {T_DCLOSE, "DCLOSE", 0xF3, 0, 3},
-        {T_HEADER, "HEADER", 0xE6, 1, 5}, {T_SCRATCH, "SCRATCH", 0x66, 1, 6}, {T_ERASE, "ERASE", 0x66, 1, 6},
+        {T_HEADER, "HEADER", 0xE6, 1, 5}, {T_FORMAT, "FORMAT", 0xE6, 1, 5}, {T_SCRATCH, "SCRATCH", 0x66, 1, 6}, {T_ERASE, "ERASE", 0x66, 1, 6},
         {T_DELETE, "DELETE", 0x66, 1, 6}, {T_RENAME, "RENAME", 0xE4, 3, 7}, {T_CONCAT, "CONCAT", 0xC4, 3, 8},
         {T_COLLECT, "COLLECT", 0xE7, 0, 9}, {T_DCLEAR, "DCLEAR", 0, 0, 10}, {T_BACKUP, "BACKUP", 0xC7, 0, 11},
         {T_COPY, "COPY", 0, 0, 12},
@@ -3334,6 +3398,8 @@ void Compiler::dosStmt(int kw) {
     };
     const D* d = nullptr;
     for (const auto& e : table) if (e.kw == kw) d = &e;
+    // DIRECTORY: DIR and the ECTORY token ($FE $29), skipped (b65.src directory)
+    if (kw == T_DIR && peek() && peek()->k == TK::Kw && peek()->kw == 0xFE29) p_++;
     if (kw == T_DELETE && !(peek() && (peek()->k == TK::Str || isCh('('))))
         fail("DELETE of program lines works only in direct mode (?ILLEGAL DIRECT ERROR)");
     std::vector<Val> names;

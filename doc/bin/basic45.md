@@ -314,6 +314,14 @@ basic45 --link routines.c menu.bas -o menu.prg
 
 `examples/basic/c_routines` is a complete example; `test_basic45_link_xemu.bas` with `test_basic45_link_xemu.c` is run by BASIC 65 on xemu.
 
+**With `--compile`** (`basic45 --compile --link routines.c menu.bas -o menu.prg`), the compiled program and the
+linked code are one link (`ln45 -basic`): the program already runs as C, so `SYS {name}` calls the function
+directly (no thunk, no `__basic_call`): A, X and Y (a missing one: the last value, as SYS's) its first three
+parameters, its result in A / X for `RREG`. Other `{name}` references are the symbols' addresses (asm blocks'
+labels and `incbin` data too), and `SYS {label}` of assembly is SYS's call with the registers. The C files must
+not define `main` (the program is). Test: the same `test_basic45_link_xemu.bas`, compiled (with and without
+`--checks`).
+
 ## Compiling (`--compile`)
 
 `--compile` (#369) turns the program into machine code instead of tokens for the interpreter. The program is
@@ -336,10 +344,11 @@ status at `$FD`/`$FE` is the error number), after which BASIC's `READY.` follows
 
 | | |
 |---|---|
-| Statements | `LET` and assignments, `PRINT` (`;`, `,`, `TAB(`, `SPC(`), `IF` … `THEN` / `GOTO` (a line number or statements), `ELSE`, `BEGIN` / `BEND`, `GOTO`, `GO TO`, `GOSUB`, `RETURN`, `ON` … `GOTO` / `GOSUB`, `FOR` … `TO` … `STEP` / `NEXT` (a float variable; `NEXT a, b`), `POKE`, `DIM`, `INPUT` (a prompt with `;` or `,`), `GET`, `GETKEY`, `DO` … `LOOP` (`WHILE` / `UNTIL` on either), `EXIT`, `READ`, `DATA`, `RESTORE` (a line number or none), `DEF FN`, `WPOKE`, `WAIT`, `SLEEP`, `SCNCLR` (the text screen), `BANK`, `TRAP` (a line number or none), `RESUME` (none, `NEXT` or a line), `OPEN`, `CLOSE`, `PRINT#`, `INPUT#`, `GET#`, `CMD`, `DOPEN`, `APPEND`, `DCLOSE`, `DLOAD`, `LOAD` (chaining), `HEADER`, `SCRATCH` / `ERASE` / `DELETE "name"`, `RENAME`, `COPY` (on one unit), `CONCAT`, `COLLECT`, `DCLEAR`, `BACKUP`, `RECORD#`, `BLOAD`, `BSAVE`, `BVERIFY`, `DIR` / `CATALOG`, `FREAD#`, `FWRITE#`, `LINE INPUT`, `LINE INPUT#`, `SPRITE` (and `SPRITE CLR`), `SPRCOLOR`, `MOVSPR`, `SPRSAV`, `COLLISION`, `COLOR` / `FOREGROUND`, `BACKGROUND`, `BORDER`, `HIGHLIGHT`, `CURSOR`, `RCURSOR`, `WINDOW`, `SPEED` / `FAST`, `PALETTE COLOR` / `PALETTE RESTORE`, `VSYNC`, `SCREEN`, `PEN`, `DMODE`, `DPAT`, `DOT`, `LINE`, `BOX`, `CIRCLE`, `ELLIPSE`, `POLYGON`, `PALETTE` of a screen, `SCNCLR colour`, `GRAPHIC CLR`, `LOADIFF`, `SAVEIFF`, `SYS`, `RREG`, `DMA`, `EDMA`, `MOUSE`, `RMOUSE`, `PLAY` (string constants), `SOUND`, `TEMPO`, `VOL`, `ENVELOPE`, `FILTER`, `PRINT USING`, `RUN` (a line or a program), `FGOTO`, `FGOSUB`, `KEY`, `FONT`, `CHAR DEF`, `TYPE`, `DISK`, `LOCK`, `UNLOCK`, `MKDIR`, `CHDIR`, `SET DEF` / `DISK` / `VERIFY` / `BIT`, `CLR BIT`, `BOOT` (and `BOOT SYS`), `MOUNT`, `SPRITE SAVE` / `LOAD`, `CLR` (also `CLR` a variable, `ERR$`, `TI`, `ST`, `DS`), `TRON` / `TROFF` (`[line]` before each statement while on, as the interpreter's), `MEM` (its values checked; a compiled program allocates nothing in banks 4-5), `FREEZER`, `IMPORT` (`?DIRECT MODE ONLY` when it runs, as in the interpreter), `END`, `STOP`, `REM`; `POKE` / `WPOKE` with a list of values |
+| Statements | `LET` and assignments, `PRINT` (`;`, `,`, `TAB(`, `SPC(`), `IF` … `THEN` / `GOTO` (a line number or statements), `ELSE`, `BEGIN` / `BEND`, `GOTO`, `GO TO`, `GOSUB`, `RETURN`, `ON` … `GOTO` / `GOSUB`, `FOR` … `TO` … `STEP` / `NEXT` (a float variable; `NEXT a, b`), `POKE`, `DIM`, `INPUT` (a prompt with `;` or `,`), `GET`, `GETKEY`, `DO` … `LOOP` (`WHILE` / `UNTIL` on either), `EXIT`, `READ`, `DATA`, `RESTORE` (a line number or none), `DEF FN`, `WPOKE`, `WAIT`, `SLEEP`, `SCNCLR` (the text screen), `BANK`, `TRAP` (a line number or none), `RESUME` (none, `NEXT` or a line), `OPEN`, `CLOSE`, `PRINT#`, `INPUT#`, `GET#`, `CMD`, `DOPEN`, `APPEND`, `DCLOSE`, `DLOAD`, `LOAD` (chaining), `HEADER`, `SCRATCH` / `ERASE` / `DELETE "name"`, `RENAME`, `COPY` (on one unit), `CONCAT`, `COLLECT`, `DCLEAR`, `BACKUP`, `RECORD#`, `BLOAD`, `BSAVE`, `BVERIFY`, `DIR` / `CATALOG`, `FREAD#`, `FWRITE#`, `LINE INPUT`, `LINE INPUT#`, `SPRITE` (and `SPRITE CLR`), `SPRCOLOR`, `MOVSPR`, `SPRSAV`, `COLLISION`, `COLOR` / `FOREGROUND`, `BACKGROUND`, `BORDER`, `HIGHLIGHT`, `CURSOR`, `RCURSOR`, `WINDOW`, `SPEED` / `FAST`, `PALETTE COLOR` / `PALETTE RESTORE`, `VSYNC`, `SCREEN`, `PEN`, `DMODE`, `DPAT`, `DOT`, `LINE`, `BOX`, `CIRCLE`, `ELLIPSE`, `POLYGON`, `PALETTE` of a screen, `SCNCLR colour`, `GRAPHIC CLR`, `LOADIFF`, `SAVEIFF`, `SYS`, `RREG`, `DMA`, `EDMA`, `MOUSE`, `RMOUSE`, `PLAY` (string constants), `SOUND`, `TEMPO`, `VOL`, `ENVELOPE`, `FILTER`, `PRINT USING`, `RUN` (a line or a program), `FGOTO`, `FGOSUB`, `KEY`, `FONT`, `CHAR DEF`, `TYPE`, `DISK`, `LOCK`, `UNLOCK`, `MKDIR`, `CHDIR`, `SET DEF` / `DISK` / `VERIFY` / `BIT`, `CLR BIT`, `BOOT` (and `BOOT SYS`), `MOUNT`, `SPRITE SAVE` / `LOAD`, `CLR` (also `CLR` a variable, `ERR$`, `TI`, `ST`, `DS`), `TRON` / `TROFF` (`[line]` before each statement while on, as the interpreter's), `MEM` (its values checked; a compiled program allocates nothing in banks 4-5), `FREEZER`, `IMPORT` (`?DIRECT MODE ONLY` when it runs, as in the interpreter), `FORMAT` (`HEADER`'s other name),
+`TURBO` (nothing, as the ROM's: parameters are a `?SYNTAX ERROR`), `SYS {name}` of C linked with `--link`, `END`, `STOP`, `REM`; `POKE` / `WPOKE` with a list of values |
 | Values | floats, `%` integers (-32768..32767), strings (up to 255 characters); arrays of each (`DIM a(n, m)`, up to 8 subscripts; sizes at run time) |
 | Operators | `+ - * / ^`, unary `-`, `= <> < > <= >=` (numbers and strings), `AND`, `OR`, `XOR`, `NOT` (-32768..65535, as BASIC 65's), `<<`, `>>` |
-| Functions | `ABS`, `INT`, `SGN`, `SQR`, `USR`, `FRE`, `JOY`, `POT`, `LPEN`, `RPLAY`, `DECBIN`, `POINTER`, `SIN`, `COS`, `TAN`, `ATN`, `LOG`, `EXP`, `PEEK`, `LEN`, `ASC`, `CHR$`, `STR$`, `LEFT$`, `RIGHT$`, `MID$`, `RND`, `FN`, `POS`, `VAL`, `DEC`, `HEX$`, `STRBIN$`, `INSTR` (a pound sign's pattern too), `MOD`, `WPEEK`, `RPT$`, `ERR$`, `RSPRITE`, `RSPCOLOR`, `RSPPOS`, `BUMP`, `RCOLOR`, `RWINDOW`, `RSPEED`, `RGRAPHIC`, `PIXEL`, `RPEN`, `RPALETTE`, π; the variables `TI`, `TI$`, `ER`, `EL`, `ST`, `DS` and `DS$` |
+| Functions | `ABS`, `INT`, `SGN`, `SQR`, `USR`, `FRE`, `JOY`, `POT`, `LPEN`, `RPLAY`, `DECBIN`, `POINTER`, `SIN`, `COS`, `TAN`, `ATN`, `LOG`, `EXP`, `PEEK`, `LEN`, `ASC`, `CHR$`, `STR$`, `LEFT$`, `RIGHT$`, `MID$`, `RND`, `FN`, `POS`, `VAL`, `DEC`, `HEX$`, `STRBIN$`, `INSTR` (a pound sign's pattern too), `MOD`, `WPEEK`, `RPT$`, `ERR$`, `RSPRITE`, `RSPCOLOR`, `RSPPOS`, `BUMP`, `RCOLOR`, `RWINDOW`, `RSPEED`, `RGRAPHIC`, `PIXEL`, `RPEN`, `RPALETTE`, π; the variables `TI`, `TI$`, `ER`, `EL`, `ST`, `DS` and `DS$` (`ST$`, `ER$`, `EL$` and every `%` form, `TI%` too, are ordinary variables, as in the interpreter) |
 
 **How**: the program is one function; each line and statement starts a block. `GOTO` is a branch; `GOSUB`
 pushes the address of the code after it on BASIC's stack and `RETURN` jumps back to it. `FOR` pushes its
@@ -411,7 +420,7 @@ each line goes to the channel (the installed ROM sends only the first there when
 same drive). `FREAD# lf, address, size` / `FWRITE#` move `size` bytes (0: 65536) between the file and the
 28-bit address (`BANK` not used). `LINE INPUT# lf, a$ [, ...]` reads a line into each (up to 160 characters,
 as `InputBuffer`), `LINE INPUT ["prompt";] a$ [, ...]` the rest of the typed line as it is (commas, colons,
-leading spaces). Not compiled: `DIRECTORY` (basic45 does not tokenize it), `DIR` of the SD card (unit 12).
+leading spaces). `DIRECTORY` is `DIR` (basic45 crunches it as BASIC 65 does: `DIR` and the `ECTORY` token, `$FE $29`). Not compiled: `DIR` of the SD card (unit 12).
 `DSAVE`, `SAVE`, `VERIFY` and `DVERIFY` are errors: they save or compare the BASIC program's text, which a compiled
 program does not have.
 
@@ -939,7 +948,8 @@ VDC's memory (`@STASH`, `@FETCH`, `@COPY`, `@BUFFER`), structures and fonts (`@S
 `@SSTRUCT`, `@FONT`), `@SCRDEF`, `@SCROLL`, `@ZOOM`, `@FLASH`, the mouse and pointer (`@MOUSE`, `@PTR`), printing
 (`@HCOPY`, `@SPOOL`, `@SEND`), `@LOGO`, `@SCLIP`. A statement after `THEN` that is removed leaves `THEN :` (an empty
 statement), so the rest of the line still belongs to the `IF`. A command used as a function (`AD = @STASH, ...`,
-`M = @MOUSE, 2, 0`, `@DIR$`) is replaced by 0 (`""` for `@DIR$`) and warned.
+`M = @MOUSE, 2, 0`, `L = @DIR$`: the length of the entry it puts in the program's first variable) is replaced by 0
+and warned.
 
 Tests: `src/test/test_basic45.sh` (a listing, and a `.prg` written byte by byte), `src/test-resources/test_convert8_xemu.txt`
 (a BASIC 8 listing run by BASIC 65 on xemu: each command's pixels read back with `@PIXEL`, the window, `THEN :`).

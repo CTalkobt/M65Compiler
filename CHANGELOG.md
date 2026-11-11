@@ -4,6 +4,23 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### basic45 --compile: --link, FORMAT, TURBO, ST$ / ER$ / EL$ (#369)
+
+- `--compile` with `--link` (C files, assembly, objects) and asm blocks: one
+  link with the program. `SYS {name}` calls a C function directly (A, X, Y
+  its first three parameters, its result for `RREG`); other `{name}` are the
+  symbols' addresses (asm labels, `incbin` data). The interpreter's
+  `__basic_call` thunk is not used: it fills BSS on its first call.
+- `FORMAT` (`HEADER`'s other name) and `TURBO` (nothing, as the ROM's).
+- `DIRECTORY`: basic45 crunches it as BASIC 65 does (`DIR` and `ECTORY`,
+  `$FE $29`; it was a variable), decompiles it as `DIRECTORY`; compiled as `DIR`.
+- `ST$`, `ER$`, `EL$` and the `%` forms of the reserved names (`TI%` ...)
+  are ordinary variables, as in the interpreter (they were refused).
+- `--convert=basic8`: `L = @DIR$` (a number: the entry's length) is 0, not "".
+- Tests: `test_basic45_link_xemu.bas` compiled (with and without `--checks`),
+  `test_basic_compile7_xemu.bas` (FORMAT, TURBO, interpreted and compiled),
+  `test_basic_compile_xemu.bas` (the variables).
+
 ### <font.h>: glyphs drawn in assembly; examples/c/fonts (#466, phase 4)
 
 - `font_draw_bitmap` draws each glyph's visible rows in assembly

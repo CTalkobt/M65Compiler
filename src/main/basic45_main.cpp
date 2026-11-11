@@ -530,13 +530,16 @@ static void printTokens() {
 // cc45's passes and code generator, ca45, ln45 -basic with c45.lib. The
 // program is replaced by the linked one. where(n): the source of BASIC line n
 static bool compileToMachineCode(const Options& opts, const char* argv0, std::vector<uint8_t>& binary,
-                                 const std::function<std::string(int)>& where) {
+                                 const std::function<std::string(int)>& where,
+                                 const std::vector<BasicChainOptions::LinkSym>& linkSyms = {},
+                                 const std::string& asmBlocks = "") {
     std::string name = fs::path(opts.inputFile).filename().string();
     BasicChainOptions chain;
     chain.importMap = opts.importMap;
     chain.sourceDir = fs::path(opts.inputFile).parent_path().string();
     chain.lineNumbers = opts.lineNumbers;
     chain.checks = opts.checks;
+    chain.linkSyms = linkSyms;
     auto ir = compileBasicToIR(binary, name, opts.speed, &chain);
     for (const auto& [line, msg] : ir.warnings) std::cerr << where(line) << ": warning: " << msg << std::endl;
     if (!ir.ok) {
@@ -587,12 +590,37 @@ static bool compileToMachineCode(const Options& opts, const char* argv0, std::ve
         if (lib.empty()) lib = "c45.lib";   // ln45 searches CC45_LIB
     }
     std::string obj = (tmp / "prog.o45").string(), prg = (tmp / "prog.prg").string();
-    bool ok = step(shellQuote(tools + "/ca45") + " -c " + shellQuote((tmp / "prog.s45").string()) + " -o " + shellQuote(obj),
+    // --link: the C files, assembly files and objects, and the asm blocks,
+    // linked with the program (its functions are called directly)
+    std::string extra;
+    bool ok = true;
+    if (!asmBlocks.empty()) {
+        std::ofstream as(tmp / "inline.s45");
+        as << "; basic45: the program's asm blocks and incbin data\n" << asmBlocks;
+        as.close();
+        std::string o = (tmp / "inline.o45").string();
+        ok = step(shellQuote(tools + "/ca45") + " -c " + shellQuote((tmp / "inline.s45").string()) + " -o " + shellQuote(o),
+                  "assembling the asm blocks");
+        extra += " " + shellQuote(o);
+    }
+    for (size_t i = 0; ok && i < opts.linkFiles.size(); i++) {
+        const std::string& f = opts.linkFiles[i];
+        std::string ext = fs::path(f).extension().string();
+        std::string o = (tmp / ("link" + std::to_string(i) + ".o45")).string();
+        if (ext == ".c")
+            ok = step(shellQuote(tools + "/cc45") + " -c -O2 " + shellQuote(f) + " -o " + shellQuote(o), "compiling " + f);
+        else if (ext == ".s45" || ext == ".s" || ext == ".asm")
+            ok = step(shellQuote(tools + "/ca45") + " -c " + shellQuote(f) + " -o " + shellQuote(o), "assembling " + f);
+        else
+            o = f;
+        extra += " " + shellQuote(o);
+    }
+    ok = ok && step(shellQuote(tools + "/ca45") + " -c " + shellQuote((tmp / "prog.s45").string()) + " -o " + shellQuote(obj),
                    "assembling the compiled program") &&
               // (a 1 KB share for the CPU stack: the run time's functions are statically
               // allocated, nothing recurses; the heap, arrays and strings, gets the rest)
               step(shellQuote(tools + "/ln45") + " -basic --stack-size=1024 -o " + shellQuote(prg) + " " + shellQuote(obj) +
-                       " " + shellQuote(lib),
+                       extra + " " + shellQuote(lib),
                    "linking the compiled program");
     if (ok) binary = readBinary(prg);
     if (!getenv("BASIC45_KEEP_TMP")) fs::remove_all(tmp);
@@ -880,7 +908,46 @@ int main(int argc, char* argv[]) {
 
     std::vector<std::string> sysTargets;
     std::string programText = lowered.text;
-    if (linking) {
+    // --compile with --link or asm blocks (#369): the program is linked with
+    // the code (no thunks, no second pass): each {name} becomes the number
+    // $1000000 + k, which the compiler makes the symbol's address (a SYS's C
+    // function: a direct call)
+    const bool compileLink = opts.compile && linking;
+    std::vector<BasicChainOptions::LinkSym> linkSyms;
+    if (compileLink) {
+        std::regex ref(R"((\bsys\s*)?\{([A-Za-z_]\w*)\})", std::regex::icase);
+        PETSCIIEncoder petscii;
+        std::string out;
+        size_t last = 0;
+        for (auto it = std::sregex_iterator(programText.begin(), programText.end(), ref); it != std::sregex_iterator(); ++it) {
+            const auto& m = *it;
+            size_t lineStart = programText.rfind('\n', m.position(0));
+            lineStart = lineStart == std::string::npos ? 0 : lineStart + 1;
+            std::string before = programText.substr(lineStart, m.position(0) - lineStart);
+            size_t first = before.find_first_not_of(" \t");
+            if (first != std::string::npos && (before[first] == '\'' || before.compare(first, 3, "REM") == 0 ||
+                                               before.compare(first, 3, "rem") == 0))
+                continue;
+            if (std::count(before.begin(), before.end(), '"') % 2) continue;
+            std::string name = m[2].str();
+            std::vector<uint8_t> esc;
+            if (petscii.escapeBytes(name, esc)) continue;     // ({clear}: an escape, not a symbol)
+            bool label = directLabels.count(name) > 0;
+            BasicChainOptions::LinkSym ls;
+            ls.symbol = label || name[0] == '_' ? name : "_" + name;
+            ls.cfunc = m[1].matched && !label;
+            size_t k = 0;
+            while (k < linkSyms.size() && !(linkSyms[k].symbol == ls.symbol && linkSyms[k].cfunc == ls.cfunc)) k++;
+            if (k == linkSyms.size()) linkSyms.push_back(ls);
+            char hex[16];
+            std::snprintf(hex, sizeof hex, "$%X", 0x1000000u + (unsigned)k);
+            out += programText.substr(last, m.position(0) - last) + m[1].str() + hex;
+            last = m.position(0) + m.length(0);
+        }
+        out += programText.substr(last);
+        programText = out;
+    }
+    if (linking && !compileLink) {
         std::regex sysRef(R"((\bsys\s*)\{([A-Za-z_]\w*)\})", std::regex::icase);
         std::string out;
         auto begin = std::sregex_iterator(programText.begin(), programText.end(), sysRef);
@@ -1001,7 +1068,7 @@ int main(int argc, char* argv[]) {
     Build result;
     std::vector<uint8_t> binary;
     uint32_t codeStart = 0, codeEnd = 0;   // the linked code (and data), if any
-    if (!linking) {
+    if (!linking || compileLink) {
         result = build(symbols);
         if (!result.ok) return 1;
         binary = result.binary;
@@ -1152,10 +1219,6 @@ int main(int argc, char* argv[]) {
 
     // --compile: machine code
     if (opts.compile) {
-        if (linking) {
-            std::cerr << "basic45: --compile does not go with --link or asm blocks yet" << std::endl;
-            return 1;
-        }
         std::map<int, int> sourceOf;   // BASIC line -> parsed text line
         for (const auto& el : result.emitter->getEmittedLines()) sourceOf[el.lineNumber] = el.sourceLine;
         if (!compileToMachineCode(opts, argv[0], binary, [&](int line) {
@@ -1164,7 +1227,7 @@ int main(int argc, char* argv[]) {
                 auto o = originOf(result, it->second);
                 return (o.first.empty() ? opts.inputFile : o.first) + ":" + std::to_string(o.second ? o.second : 1) +
                        ":1: (line " + std::to_string(line) + ")";
-            }))
+            }, linkSyms, lowered.asmText))
             return 1;
     }
 

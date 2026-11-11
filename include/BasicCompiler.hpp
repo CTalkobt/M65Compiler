@@ -28,6 +28,16 @@ struct BasicChainOptions {
     // QUANTITY, ?BAD SUBSCRIPT, ?SYNTAX ERROR when run, RETURN without GOSUB,
     // ...); off: none, undefined behaviour instead (#489)
     bool checks = false;
+    // --link (#369): the program's {name} references, each written as the
+    // number $1000000 + its index (BASIC 65 has no such number): the
+    // object's symbol (C's _name, an assembly label as it is) and whether
+    // it is a SYS's C function (a direct call: SYS's A, X, Y its first three
+    // parameters, its result in A / X for RREG)
+    struct LinkSym {
+        std::string symbol;
+        bool cfunc = false;
+    };
+    std::vector<LinkSym> linkSyms;
 };
 
 struct BasicCompileResult {

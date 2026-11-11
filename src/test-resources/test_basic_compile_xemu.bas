@@ -5,7 +5,7 @@
 5 rem [7] on goto, on gosub; [8] if else, nested if, begin/bend; [9] gosub, return drops for
 6 rem [10] print: numbers, comma, tab, spc on the screen; [11] str$ of numbers
 7 rem [12] narrowed variables (whole numbers: integers when compiled) as floats
-8 rem [13] arrays: dim, float / % / $ elements, two subscripts, an array without dim
+8 rem [13] arrays: dim, float / % / $ elements, two subscripts, no dim; st$, er$, el$, ti% ...: variables
 9 rem [14] $aa (input, do / loop, rnd, ti, read: test_basic_compile2_xemu.bas)
 10 a=7:b=2:y=16:if a/b=3.5 and a*b=14 and a^b=49 and a-b=5 and -a=-7 and a+b*2=11 and 2*sqr(y)=8 then 12
 11 goto 20
@@ -50,6 +50,8 @@
 151 for i=0 to 4:c$(i)=chr$(65+i):c$(i)=c$(i)+c$(i):next:x(3)=4:if a(10)=5 and a(3)=1.5 and b%(2,3)=11 then 153
 152 goto 160
 153 if b%(1,0)=4 and c$(4)=chr$(69)+chr$(69) and len(c$(0)+c$(1))=4 and x(3)=4 and x(10)=0 and q$(1)="" then poke 49357,1
+155 st$="ab":er$="cde":el$="f":st%=5:er%=6:ti%=7:ds%=8:el%=9
+157 if len(st$)<>2 or len(er$)<>3 or el$<>"f" or st%+er%+ti%+ds%+el%<>35 then poke 49357,0
 160 poke 49358,170:end
 500 d=d+1:return
 510 d=d+20:return
