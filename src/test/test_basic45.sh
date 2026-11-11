@@ -181,11 +181,11 @@ $B --convert=basic7 "$D/x.prg" -o "$D/x.bas" 2> /dev/null && grep -q 'a = ((1) x
 # --convert=basic35: BASIC 3.5 (C16 / Plus/4), BASIC 7.0's rules plus the TED's colours and sound
 conv35() { printf '%s\n' "$@" > "$D/c35.txt"; $B --convert=basic35 $CONV_OPTS "$D/c35.txt" -o "$D/c35.bas" 2> "$D/c35.err"; }
 conv35 '10 COLOR 0,2,7:COLOR 4,2,2:COLOR 1,12:COLOR 1,C,3:A=RLUM(1)' '20 PRINT "{light-red}{$82}X{$84}";CHR$(154):VOL 8'
-grep -q 'background 1 : border 12 : [a-z][a-z0-9](1) = 10 : [a-z][a-z0-9](1) = val(mid\$("00010203040506070809131003140613", (c) \* 2 - 1, 2))' "$D/c35.bas" &&
+grep -q 'background 1 : [a-z][a-z0-9](0) = 7 : border 12 : [a-z][a-z0-9](4) = 2 : [a-z][a-z0-9](1) = 10 : [a-z][a-z0-9](1) = val(mid\$("00010203040506070809131003140613", (c) \* 2 - 1, 2))' "$D/c35.bas" &&
 grep -q 'print "{light-green}{flash}x{flash-off}"; chr\$(31) : vol 15' "$D/c35.bas" &&
-grep -q 'line 10: RLUM has no BASIC 65 counterpart' "$D/c35.err" && grep -q 'luminance of an expression' "$D/c35.err" &&
+grep -q ' : \([a-z][a-z0-9]\)(1) = 3 : a = \1(1)$' "$D/c35.bas" && ! grep -q 'RLUM' "$D/c35.err" && grep -q 'luminance of an expression' "$D/c35.err" &&
 grep -q 'converted from BASIC 3.5' "$D/c35.bas" &&
-    pass "--convert=basic35: TED colours and luminances (white's greys, pink -> light red, an expression by a table), colour codes and flash in strings, CHR\$ codes, VOL 0-8 -> 0-15, RLUM warned" ||
+    pass "--convert=basic35: TED colours and luminances (white's greys, pink -> light red, an expression by a table), colour codes and flash in strings, CHR\$ codes, VOL 0-8 -> 0-15, RLUM from the luminances COLOR set" ||
     fail "--convert=basic35 colours: $(cat "$D/c35.bas" "$D/c35.err")"
 conv35 '10 SOUND 1,810,30:SOUND 3,600,10:SOUND V,F,D' '20 GRAPHIC 1:CIRCLE 1,100,100,30:SCNCLR:GRAPHIC 0:SCNCLR'
 grep -q 'do while peek(4804) < 128 : loop : sound 1, int(517.946 \* \([a-z][a-z0-9]\)), 30 : do while peek(4805) < 128 : loop : sound 2, int(261.416 \* \1), 10, 0, 0, 0, 3' "$D/c35.bas" &&
@@ -201,8 +201,8 @@ $B "$D/c35.bas" -o "$D/c35.prg" > "$D/c35b.log" 2>&1 && pass "--convert=basic35:
     fail "--convert=basic35 result does not build: $(cat "$D/c35b.log")"
 # a .prg at $1001: $CE is RLUM (BASIC 7.0's prefix), $E7 COLOR
 printf '\x01\x10\x0c\x10\x0a\x00\x41\xb2\xce\x28\x31\x29\x00\x00\x00' > "$D/p4.prg"
-$B --convert=basic35 "$D/p4.prg" -o "$D/p4.bas" 2> "$D/p4.err" && grep -q 'a = rlum(1)' "$D/p4.bas" && ! grep -q 'loads at' "$D/p4.err" &&
-    pass "--convert=basic35: a .prg read with BASIC 3.5's tables (\$CE is RLUM)" || fail "--convert=basic35 .prg: $(cat "$D/p4.bas" "$D/p4.err")"
+$B --convert=basic35 "$D/p4.prg" -o "$D/p4.bas" 2> "$D/p4.err" && grep -q 'a = [a-z][a-z0-9](1)$' "$D/p4.bas" && ! grep -q 'loads at' "$D/p4.err" &&
+    pass "--convert=basic35: a .prg read with BASIC 3.5's tables (\$CE is RLUM, converted to its luminance array)" || fail "--convert=basic35 .prg: $(cat "$D/p4.bas" "$D/p4.err")"
 
 # --convert=simons: Simons' BASIC (C64)
 convs() { printf '%s\n' "$@" > "$D/cs.txt"; $B --convert=simons "$D/cs.txt" -o "$D/cs.bas" 2> "$D/cs.err"; }
