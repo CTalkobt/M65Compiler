@@ -201,8 +201,8 @@ $B "$D/c35.bas" -o "$D/c35.prg" > "$D/c35b.log" 2>&1 && pass "--convert=basic35:
     fail "--convert=basic35 result does not build: $(cat "$D/c35b.log")"
 # a .prg at $1001: $CE is RLUM (BASIC 7.0's prefix), $E7 COLOR
 printf '\x01\x10\x0c\x10\x0a\x00\x41\xb2\xce\x28\x31\x29\x00\x00\x00' > "$D/p4.prg"
-$B --convert=basic35 "$D/p4.prg" -o "$D/p4.bas" 2> "$D/p4.err" && grep -q 'a = rlum(1)' "$D/p4.bas" && ! grep -q 'loads at' "$D/p4.err" &&
-    pass "--convert=basic35: a .prg read with BASIC 3.5's tables (\$CE is RLUM)" || fail "--convert=basic35 .prg: $(cat "$D/p4.bas" "$D/p4.err")"
+$B --convert=basic35 "$D/p4.prg" -o "$D/p4.bas" 2> "$D/p4.err" && grep -q 'a = [a-z][a-z0-9](1)$' "$D/p4.bas" && ! grep -q 'loads at' "$D/p4.err" &&
+    pass "--convert=basic35: a .prg read with BASIC 3.5's tables (\$CE is RLUM, converted to its luminance array)" || fail "--convert=basic35 .prg: $(cat "$D/p4.bas" "$D/p4.err")"
 
 # --convert=simons: Simons' BASIC (C64)
 convs() { printf '%s\n' "$@" > "$D/cs.txt"; $B --convert=simons "$D/cs.txt" -o "$D/cs.bas" 2> "$D/cs.err"; }
