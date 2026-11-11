@@ -38,6 +38,18 @@ const std::map<uint8_t, const char*> V7FE = {
     {0x1B, "BOOT"}, {0x1C, "WIDTH"}, {0x1D, "SPRDEF"}, {0x1E, "QUIT"}, {0x1F, "STASH"},
     {0x21, "FETCH"}, {0x23, "SWAP"}, {0x24, "OFF"}, {0x25, "FAST"}, {0x26, "SLOW"}};
 
+// BASIC 8 (Walrusoft / Patech, C128): commands written @NAME; BASIC 7.0's
+// keywords (@BOX: $40 $E1) or these, $FE $30-$5A (as its programs have them)
+const std::map<uint8_t, const char*> B8FE = {
+    {0x30, "GROW"}, {0x31, "ARC"}, {0x32, "LINE"}, {0x33, "DRWMODA"}, {0x34, "PATTERN"}, {0x35, "BUFFER"},
+    {0x36, "STRUCT"}, {0x37, "SDAT"}, {0x38, "TEXT"}, {0x39, "SCROLL"}, {0x3A, "WALRUS"}, {0x3B, "FONT"},
+    {0x3C, "SCRDEF"}, {0x3D, "PIXEL"}, {0x3E, "MOUSE"}, {0x3F, "DOT"}, {0x40, "SEND"}, {0x41, "HCOPY"},
+    {0x42, "LOGO"}, {0x43, "CBRUSH"}, {0x44, "ANGLE"}, {0x45, "SCALE"}, {0x46, "ORIGIN"}, {0x47, "VIEW"},
+    {0x48, "DRWMODB"}, {0x49, "STORE"}, {0x4A, "DISPLAY"}, {0x4B, "SCREEN"}, {0x4C, "CLEAR"}, {0x4D, "MODE"},
+    {0x4E, "BRUSHPATRN"}, {0x4F, "SPHERE"}, {0x50, "CYLNDR"}, {0x51, "TOROID"}, {0x52, "SPOOL"}, {0x53, "DIR$"},
+    {0x54, "SCLIP"}, {0x55, "STYLE"}, {0x56, "LSTRUCT"}, {0x57, "SSTRUCT"}, {0x58, "PTR"}, {0x59, "FLASH"},
+    {0x5A, "ZOOM"}};
+
 // Simons' BASIC: $64 xx, xx 1-127, as TSB's table (tsb_pt1.a, tabbef) has
 // them; nullptr: the operators' slots (no keyword). TSB's own keywords
 // (not Simons'): DO, CLS, X!, MAP, D!
@@ -114,6 +126,11 @@ bool isTsbOnlyToken(uint8_t xx) { return xx == 34 || xx == 60 || xx == 61 || xx 
 bool decodeCbmToken(const std::vector<uint8_t>& p, size_t& i, std::string& out, CbmBasic d) {
     uint8_t b = p[i];
     if (d == CbmBasic::V7) return decodeV7Token(p, i, out, true);
+    if (d == CbmBasic::B8) {
+        if (b == 0xFE && i + 1 < p.size())
+            if (auto it = B8FE.find(p[i + 1]); it != B8FE.end()) { out = it->second; i += 2; return true; }
+        return decodeV7Token(p, i, out, true);
+    }
     if (d == CbmBasic::SIMONS && b == 0x64) {
         if (i + 1 < p.size() && p[i + 1] < 128 && SIMONS[p[i + 1]]) { out = SIMONS[p[i + 1]]; i += 2; return true; }
         // TSB's slots $3C-$3E are the characters < = >, which BASIC V2's cruncher then turns into its tokens
@@ -221,11 +238,11 @@ std::vector<uint8_t> crunchCbm(const std::string& listing, uint16_t load, std::v
     // name -> token bytes: V2's and the dialect's, the longest first (Simons' first, in its table's order)
     std::vector<std::pair<std::string, std::vector<uint8_t>>> kws;
     for (int i = 0; i < (int)(sizeof V2 / sizeof V2[0]); i++) kws.push_back({V2[i], {(uint8_t)(0x80 + i)}});
-    if (d == CbmBasic::V7 || d == CbmBasic::V35)
+    if (d == CbmBasic::V7 || d == CbmBasic::V35 || d == CbmBasic::B8)
         for (int i = 0; i < (int)(sizeof V7 / sizeof V7[0]); i++)
             if (V7[i]) kws.push_back({V7[i], {(uint8_t)(0xCC + i)}});
     if (d == CbmBasic::V35) kws.push_back({"RLUM", {0xCE}});
-    if (d == CbmBasic::V7) {
+    if (d == CbmBasic::V7 || d == CbmBasic::B8) {
         for (const auto& [b, n] : V7CE) kws.push_back({n, {0xCE, b}});
         for (const auto& [b, n] : V7FE) kws.push_back({n, {0xFE, b}});
     }
@@ -235,6 +252,13 @@ std::vector<uint8_t> crunchCbm(const std::string& listing, uint16_t load, std::v
         for (int i = 1; i < 128; i++)
             if (SIMONS[i] && (tsb || !isTsbOnlyToken((uint8_t)i))) s.push_back({SIMONS[i], {0x64, (uint8_t)i}});
         kws.insert(kws.begin(), s.begin(), s.end());
+    }
+    // BASIC 8's own names: only right after an @ (elsewhere a variable may hold them: DOT1)
+    std::vector<std::pair<std::string, std::vector<uint8_t>>> b8kws;
+    if (d == CbmBasic::B8) {
+        for (const auto& [b, n] : B8FE) b8kws.push_back({n, {0xFE, b}});
+        std::stable_sort(b8kws.begin(), b8kws.end(), [](const auto& a, const auto& b) { return a.first.size() > b.first.size(); });
+        b8kws.insert(b8kws.end(), kws.begin(), kws.end());
     }
     std::map<std::string, uint8_t> esc;
     for (const auto& [b, n] : CONTROL) esc[n] = b;
@@ -306,7 +330,8 @@ std::vector<uint8_t> crunchCbm(const std::string& listing, uint16_t load, std::v
             }
             if (c == '?') { body.push_back(0x99); i++; continue; }   // PRINT
             bool matched = false;
-            for (const auto& [name, tok] : kws) {
+            const auto& table = !b8kws.empty() && !body.empty() && body.back() == '@' ? b8kws : kws;
+            for (const auto& [name, tok] : table) {
                 if (name.size() > text.size() - i) continue;
                 bool eq = true;
                 for (size_t k = 0; k < name.size() && eq; k++)

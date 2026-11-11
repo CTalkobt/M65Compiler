@@ -1320,6 +1320,7 @@ void convertV7(std::vector<DecompiledLine>& lines, const BasicDecompileOptions& 
         }
     }
     if (!simons) notes.push_back(std::string(v35 ? "converted from BASIC 3.5 (C16 / Plus/4) by basic45 --convert=basic35 ("
+                                    : o.source == BasicSource::B8 ? "converted from BASIC 8 (C128) by basic45 --convert=basic8 ("
                                     : "converted from BASIC 7.0 (C128) by basic45 --convert=basic7 (") +
                     std::string(o.ntsc ? "NTSC" : "PAL") + " timing): check the warnings");
 
@@ -2688,10 +2689,362 @@ void convertSimons(std::vector<DecompiledLine>& lines, const BasicDecompileOptio
     notes.push_back("converted from Simons' BASIC (C64) by basic45 --convert=simons: check the warnings");
 }
 
+// ---- BASIC 8 -------------------------------------------------------------------
+
+// BASIC 8 (Walrusoft / Patech, C128): BASIC 7.0 with graphics commands written
+// @NAME, args, drawn on the VDC's 640 x 200 bit map. They become BASIC 65
+// statements on a 640 x 200, 16-colour screen whose palette is the VDC's RGBI
+// colours, so BASIC 8's colour numbers are its pens. The rest of the program
+// is BASIC 7.0, converted by convertV7 after this. Commands without a
+// counterpart (3D, brushes, patterns, fonts, buffers, the mouse) are kept in a
+// REM at the line's end, with a warning.
+void convertBasic8(std::vector<DecompiledLine>& lines, const BasicDecompileOptions& o, std::vector<std::string>& warnings,
+                   std::vector<std::string>& notes) {
+    (void)o;
+    auto warn = [&](uint16_t n, const std::string& m) { warnings.push_back("line " + std::to_string(n) + ": " + m); };
+    const std::string RAD = ".0174533";
+    // a BASIC 8 command at p[i]: "@" and its keyword
+    auto isAt = [](const Pieces& p, size_t i) { return i + 1 < p.size() && !p[i].isKw && p[i].text == "@" && p[i + 1].isKw; };
+    bool any = false, windows = false;
+    std::set<std::string> used;
+    for (const auto& l : lines)
+        for (size_t i = 0; i < l.pieces.size(); i++) {
+            const auto& pc = l.pieces[i];
+            if (isAt(l.pieces, i)) {
+                any = true;
+                if (l.pieces[i + 1].text == "WINDOW") windows = true;
+            }
+            if (!pc.isKw && !pc.text.empty() && std::isalpha((unsigned char)pc.text[0]))
+                used.insert(lower(pc.text.substr(0, std::min<size_t>(2, pc.text.size()))));
+        }
+    if (!any) return;
+    // names for the conversion's variables (convertV7's start with other letters)
+    auto fresh = [&]() {
+        for (char a : std::string("yx"))
+            for (char b : std::string("abcdefghijklmnopqrstuvwxyz0123456789")) {
+                std::string n{a, b};
+                if (!used.count(n)) { used.insert(n); return n; }
+            }
+        return std::string("yy");
+    };
+    // the pen and background colours, the window (its origin added to every coordinate)
+    const std::string FG = fresh(), BG = fresh();
+    const std::string WX = windows ? fresh() : "", WY = windows ? fresh() : "", WW = windows ? fresh() : "",
+                      WH = windows ? fresh() : "";
+
+    // subroutines, after an END at the program's end (as convertSimons' are)
+    const uint16_t last = lines.empty() ? 0 : lines.back().num;
+    std::vector<DecompiledLine> extra;
+    uint32_t nextNum = (uint32_t)last + 2;
+    auto addLine = [&](const Pieces& pc) {
+        if (extra.empty()) extra.push_back({(uint16_t)(last + 1), {{true, "END"}}});
+        if (nextNum > 65535) { warnings.push_back("too many lines added after line " + std::to_string(last)); nextNum = 65535; }
+        uint16_t n = (uint16_t)nextNum++;
+        extra.push_back({n, pc});
+        return n;
+    };
+    auto raw = [](const std::string& t) { return Pieces{{false, t}}; };
+    auto gosub = [](uint16_t n) { return Pieces{{true, "GOSUB"}, {false, std::to_string(n)}}; };
+    // the VDC's RGBI colours 0-15 on the palette's 0-15 scale (12: brown, the VDC's dark yellow)
+    static const int RGBI[16][3] = {{0, 0, 0},   {5, 5, 5},   {0, 0, 10},  {5, 5, 15},  {0, 10, 0},   {5, 15, 5},
+                                    {0, 10, 10}, {5, 15, 15}, {10, 0, 0},  {15, 5, 5},  {10, 0, 10},  {15, 5, 15},
+                                    {10, 5, 0},  {15, 15, 5}, {10, 10, 10}, {15, 15, 15}};
+    // the nearest of the VIC's 16 (BORDER's colours) to each
+    static const char* const BORDER16 = "00110614051303030210040409071501";
+    uint16_t openAt = 0, closeAt = 0, arcAt = 0;
+    auto openSub = [&]() {
+        if (openAt) return openAt;
+        openAt = addLine(raw("if rgraphic(0, 0) = 1 then screen close 0"));
+        std::string s = "screen 640, 200, 4";
+        for (int c = 0; c < 16; c++) {
+            std::string e = "palette 0, " + std::to_string(c) + ", " + std::to_string(RGBI[c][0]) + ", " +
+                            std::to_string(RGBI[c][1]) + ", " + std::to_string(RGBI[c][2]);
+            if (s.size() + e.size() > 72) { addLine(raw(s)); s = e; }
+            else s += " : " + e;
+        }
+        addLine(raw(s + " : pen 0, " + FG + " : return"));
+        return openAt;
+    };
+    auto closeSub = [&]() {
+        if (closeAt) return closeAt;
+        closeAt = addLine(raw("if rgraphic(0, 0) = 1 then screen close 0"));
+        addLine(raw("return"));
+        return closeAt;
+    };
+    // @ARC's arc, angles in degrees (taken as BASIC 7.0's: 0 up, clockwise; the
+    // manual does not say): a line every increment from the start angle to the end
+    // (an end not after the start: + 360), the subtend's lines to the centre
+    std::vector<std::string> arcVar;
+    auto av = [&](size_t k) { while (arcVar.size() <= k) arcVar.push_back(fresh()); return arcVar[k]; };
+    auto arcSub = [&]() {
+        if (arcAt) return arcAt;
+        std::string xc = av(0), yc = av(1), xr = av(2), yr = av(3), sa = av(4), ea = av(5), in = av(6), sf = av(7), b = av(8),
+                    qx = av(9), qy = av(10), px = av(11), py = av(12), x0 = av(13), y0 = av(14), d = av(15);
+        // (each IF ends its line: the IF's false branch skips the rest)
+        const uint16_t at = (uint16_t)nextNum, loop = (uint16_t)(at + 3), point = (uint16_t)(at + 7);
+        arcAt = addLine(raw("if " + ea + " <= " + sa + " then " + ea + " = " + ea + " + 360"));
+        addLine(raw("if " + in + " < 1 then " + in + " = 2"));
+        addLine(Pieces{{false, b + " = " + sa}, {false, ":"}, {true, "GOSUB"}, {false, std::to_string(point)}, {false, ":"},
+                       {false, x0 + " = " + qx + " : " + y0 + " = " + qy + " : " + px + " = " + qx + " : " + py + " = " + qy}});
+        addLine(raw(b + " = " + b + " + " + in + " : if " + b + " > " + ea + " then " + b + " = " + ea));
+        addLine(Pieces{{true, "GOSUB"}, {false, std::to_string(point)}, {false, ":"},
+                       {false, "line " + px + ", " + py + ", " + qx + ", " + qy + " : " + px + " = " + qx + " : " + py + " = " + qy +
+                                   " : if " + b + " < " + ea + " then"},
+                       {true, "GOTO"}, {false, std::to_string(loop)}});
+        addLine(raw("if " + sf + " <> 0 then line " + px + ", " + py + ", " + xc + ", " + yc + ", " + x0 + ", " + y0));
+        addLine(raw("return"));
+        addLine(raw(d + " = " + b + " * " + RAD + " : " + qx + " = int(" + xc + " + " + xr + " * sin(" + d + ") + .5) : " + qy +
+                    " = int(" + yc + " - " + yr + " * cos(" + d + ") + .5) : return"));
+        return arcAt;
+    };
+
+    // an expression with something added (in parentheses when it compares or is a logical one)
+    auto plus = [](const std::string& x, const std::string& y) {
+        if (y.empty()) return x;
+        std::string lx = lower(x);
+        bool low = lx.find('<') != std::string::npos || lx.find('>') != std::string::npos || lx.find('=') != std::string::npos ||
+                   lx.find(" and ") != std::string::npos || lx.find(" or ") != std::string::npos;
+        if (isNumber(x) && x == "0") return y;
+        if (isNumber(x) && isNumber(y)) {
+            std::ostringstream r;
+            r << std::stod(x) + std::stod(y);
+            return r.str();
+        }
+        return (low ? "(" + x + ")" : x) + " + " + y;
+    };
+    auto X = [&](const std::string& x) { return plus(x, WX); };
+    auto Y = [&](const std::string& y) { return plus(y, WY); };
+    auto border = [&](const std::string& c) {
+        if (isNumber(c) && c.find('.') == std::string::npos && std::stoi(c) < 16) return std::to_string(std::stoi(std::string(BORDER16 + 2 * std::stoi(c), 2)));
+        return "val(mid$(\"" + std::string(BORDER16) + "\", (" + c + ") * 2 + 1, 2))";
+    };
+    static const std::set<std::string> THREE_D = {"GROW", "ANGLE", "ORIGIN", "VIEW", "DRWMODB", "STYLE", "SPHERE", "CYLNDR", "TOROID"};
+    bool clipWarned = false;
+
+    for (auto& line : lines) {
+        auto& p = line.pieces;
+        std::vector<std::string> kept;     // commands kept in the line's REM
+        bool data = false;
+        for (size_t i = 0; i < p.size(); i++) {
+            if (p[i].isKw && p[i].text == "REM") break;
+            if (p[i].isKw && p[i].text == "DATA") data = true;
+            if (!p[i].isKw && p[i].text == ":") data = false;
+            if (data || !isAt(p, i)) continue;
+            bool start = i == 0 || (!p[i - 1].isKw && p[i - 1].text == ":") ||
+                         (p[i - 1].isKw && (p[i - 1].text == "THEN" || p[i - 1].text == "ELSE"));
+            std::string k = p[i + 1].text;
+            size_t from = i + 2;
+            if (k == "WINDOW" && from < p.size() && p[from].isKw && (p[from].text == "OPEN" || p[from].text == "CLOSE")) {
+                k += p[from].text;
+                from++;
+            }
+            size_t e = statementEnd(p, from);
+            if (from < e && !p[from].isKw && p[from].text == ",") from++;
+            Args a = from < e ? splitArgs(p, from, e) : Args{};
+            auto at = [&](size_t q) { return q < a.list.size() ? a.list[q] : std::string(); };
+            std::string written = "@" + lower(k) + (a.list.empty() ? "" : "," + joinPieces(p, from, e));
+            auto put = [&](Pieces np) {
+                p.erase(p.begin() + (long)i, p.begin() + (long)e);
+                p.insert(p.begin() + (long)i, np.begin(), np.end());
+                i += np.size() - 1;
+            };
+            auto remove = [&]() {
+                // (the statement gone; the line's colons are tidied below)
+                p.erase(p.begin() + (long)i, p.begin() + (long)e);
+                i--;
+            };
+            auto keep = [&](const std::string& why) {
+                warn(line.num, "@" + k + " " + why + ": kept in a REM");
+                kept.push_back(written);
+                remove();
+            };
+            auto need = [&](size_t n) {
+                if (a.list.size() >= n) return true;
+                warn(line.num, "@" + k + ": " + std::to_string(n) + " arguments expected: kept in a REM");
+                kept.push_back(written);
+                remove();
+                return false;
+            };
+            if (!start && k == "PIXEL" && a.list.size() >= 2) {
+                // @PIXEL, x, y [, mode]: 0 on / off (1 / 0), 1 the cell's colours (foreground + 16 * background)
+                std::string px = "pixel(" + X(at(0)) + ", " + Y(at(1)) + ")", m = at(2).empty() ? "0" : at(2);
+                if (m != "0" && m != "1") warn(line.num, "@PIXEL's mode of an expression: mode 0 (on / off)");
+                put(raw(m == "1" ? "(" + px + " + 16 * " + BG + ")" : "(-(" + px + " <> " + BG + "))"));
+                continue;
+            }
+            if (!start) {
+                // a function (MOUSE, DIR$, ER = @PAINT ...): to its statement's end
+                warn(line.num, "@" + k + " as a function has no BASIC 65 counterpart: " + (k == "DIR$" ? "\"\"" : "0") + " instead");
+                kept.push_back(written);
+                put(raw(k == "DIR$" ? "\"\"" : "0"));
+                continue;
+            }
+            if (k == "WALRUS" || k == "MODE") {
+                if (k == "MODE" && !at(1).empty() && at(1) != "0") warn(line.num, "@MODE's interlace: not converted (640 x 200)");
+                put(gosub(openSub()));
+            } else if (k == "SCREEN") {
+                if (!at(1).empty() && at(1) != at(0)) warn(line.num, "@SCREEN with another view screen: BASIC 65's program draws on the one it shows");
+                remove();
+            } else if (k == "SCRDEF") {
+                warn(line.num, "@SCRDEF: the screen is 640 x 200 (opened by @MODE)");
+                kept.push_back(written);
+                remove();
+            } else if (k == "TEXT") {
+                put(gosub(closeSub()));
+            } else if (k == "COLOR") {
+                if (!need(2)) continue;
+                std::string s = BG + " = " + at(0) + " : " + FG + " = " + at(1) + " : pen 0, " + FG;
+                if (!at(2).empty()) s += " : border " + border(at(2));
+                put(raw(s));
+            } else if (k == "CLEAR") {
+                if (!need(1)) continue;
+                std::string s;
+                if (a.list.size() >= 3) s = BG + " = " + at(1) + " : " + FG + " = " + at(2) + " : pen 0, " + FG + " : ";
+                std::string f = at(0);
+                if (f == "1") { if (s.empty()) remove(); else put(raw(s.substr(0, s.size() - 3))); continue; }
+                if (f != "0" && f != "255") warn(line.num, "@CLEAR " + f + ": " + (isNumber(f) ? "a striped fill" : "a fill of an expression") + " as an empty one");
+                std::string c = f == "255" ? FG : BG;
+                if (windows)
+                    s += "pen 0, " + c + " : box " + WX + ", " + WY + ", " + WX + " + " + WW + " - 1, " + WY + ", " + WX + " + " + WW + " - 1, " +
+                         WY + " + " + WH + " - 1, " + WX + ", " + WY + " + " + WH + " - 1, 1 : pen 0, " + FG;
+                else
+                    s += "scnclr " + c;
+                put(raw(s));
+            } else if (k == "DOT") {
+                if (!need(2)) continue;
+                put(raw("dot " + X(at(0)) + ", " + Y(at(1))));
+            } else if (k == "LINE") {
+                if (!need(5)) continue;
+                put(raw("line " + X(at(0)) + ", " + Y(at(1)) + ", " + X(at(3)) + ", " + Y(at(4))));
+            } else if (k == "BOX") {
+                if (!need(5)) continue;
+                // corners 1-4 clockwise from x1, y1; an X shear moves 3 and 4 across, a Y shear 2 and 3 down
+                std::string x1 = X(at(0)), y1 = Y(at(1)), x2 = X(at(3)), y2 = Y(at(4));
+                std::string x3 = x2, x4 = x1, y2b = y1, y3 = y2;
+                std::string dir = at(6), v = at(7);
+                if (!dir.empty() && dir != "0" && !v.empty() && v != "0") {
+                    if (isNumber(dir)) {
+                        int dv = std::stoi(dir) & 3;
+                        if (dv & 1) { x3 = plus(x3, v); x4 = plus(x4, v); }
+                        if (dv & 2) { y2b = plus(y2b, v); y3 = plus(y3, v); }
+                    } else {
+                        warn(line.num, "@BOX's shear direction of an expression: drawn without the shear");
+                    }
+                }
+                put(raw("box " + x1 + ", " + y1 + ", " + x2 + ", " + y2b + ", " + x3 + ", " + y3 + ", " + x4 + ", " + y2 + ", 0"));
+            } else if (k == "CIRCLE") {
+                if (!need(4)) continue;
+                put(raw("circle " + X(at(0)) + ", " + Y(at(1)) + ", " + at(3)));
+            } else if (k == "ARC") {
+                if (!need(5)) continue;
+                std::string sa = at(5).empty() ? "0" : at(5), ea = at(6).empty() ? "360" : at(6), inc = at(7);
+                bool whole = isNumber(sa) && isNumber(ea) && std::fmod(std::stod(ea) - std::stod(sa), 360.0) == 0 &&
+                             (inc.empty() || (isNumber(inc) && std::stod(inc) <= 10));
+                if (whole) { put(raw("ellipse " + X(at(0)) + ", " + Y(at(1)) + ", " + at(3) + ", " + at(4))); continue; }
+                uint16_t sub = arcSub();
+                std::string s = av(0) + " = " + X(at(0)) + " : " + av(1) + " = " + Y(at(1)) + " : " + av(2) + " = " + at(3) + " : " + av(3) +
+                                " = " + at(4) + " : " + av(4) + " = " + sa + " : " + av(5) + " = " + ea + " : " + av(6) + " = " +
+                                (inc.empty() ? "2" : inc) + " : " + av(7) + " = " + (at(9).empty() ? "0" : at(9));
+                Pieces np = raw(s);
+                np.push_back({false, ":"});
+                Pieces g = gosub(sub);
+                np.insert(np.end(), g.begin(), g.end());
+                put(np);
+            } else if (k == "PAINT") {
+                if (!need(2)) continue;
+                put(raw("paint " + X(at(0)) + ", " + Y(at(1)) + ", 0"));
+            } else if (k == "CHAR") {
+                if (!need(7)) continue;
+                // BASIC 8: a font (254 upper/lower, 255 upper/graphics, others its own), column, row
+                // (pixels), height and width in pixels, direction 0-7 (0 up, clockwise by 45°)
+                std::string font = at(0), addr;
+                if (font == "255") addr = ", $29000";
+                else if (font != "254") warn(line.num, "@CHAR with a font of the program's own: the ROM's upper/lower case set instead");
+                auto factor = [&](const std::string& s) {
+                    if (isNumber(s)) return std::to_string(std::max(1, (int)((std::stod(s) + 7) / 8)));
+                    return "int(((" + s + ") + 7) / 8) - ((" + s + ") < 1)";
+                };
+                std::string d = at(5), dir;
+                if (isNumber(d)) {
+                    int dv = std::stoi(d) & 7;
+                    if (dv & 1) warn(line.num, "@CHAR's diagonal direction " + d + ": the next direction clockwise");
+                    static const char* const D[8] = {"1", "2", "2", "4", "4", "8", "8", "1"};
+                    dir = D[dv];
+                } else {
+                    dir = "2 ^ int(((" + d + ") and 7) / 2)";
+                }
+                std::string col = windows ? plus(at(1), "int(" + WX + " / 8)") : at(1);
+                put(raw("char " + col + ", " + Y(at(2)) + ", " + factor(at(3)) + ", " + factor(at(4)) + ", " + dir + ", " + at(6) + addr));
+            } else if (k == "WINDOWOPEN") {
+                if (!need(4)) continue;
+                if (!clipWarned) { warn(line.num, "@WINDOWOPEN: coordinates start at the window's corner; drawing is not clipped to it"); clipWarned = true; }
+                std::string s = WX + " = " + at(0) + " : " + WY + " = " + at(1) + " : " + WW + " = " + at(2) + " : " + WH + " = " + at(3);
+                if (!at(4).empty() && at(4) != "0")
+                    s += " : box " + WX + ", " + WY + ", " + WX + " + " + WW + " - 1, " + WY + ", " + WX + " + " + WW + " - 1, " + WY + " + " +
+                         WH + " - 1, " + WX + ", " + WY + " + " + WH + " - 1, 0";
+                put(raw(s));
+            } else if (k == "WINDOWCLOSE") {
+                put(raw(WX + " = 0 : " + WY + " = 0 : " + WW + " = 640 : " + WH + " = 200"));
+            } else if (k == "SCALE") {
+                if (at(0) == "0") remove();
+                else keep("(logical coordinates) has no BASIC 65 counterpart");
+            } else if (THREE_D.count(k)) {
+                keep("(3D) has no BASIC 65 counterpart; z coordinates are dropped");
+            } else if (k == "STASH" || k == "FETCH" || k == "COPY" || k == "SWAP") {
+                keep("(the VDC's RAM) has no BASIC 65 counterpart");
+            } else {
+                keep("has no BASIC 65 counterpart");
+            }
+        }
+        // the colons a removed statement leaves: none first, last or doubled (one after THEN / ELSE stays)
+        for (size_t i = 0; i < p.size();) {
+            bool colon = !p[i].isKw && p[i].text == ":";
+            if (colon) {
+                bool afterThen = i > 0 && p[i - 1].isKw && (p[i - 1].text == "THEN" || p[i - 1].text == "ELSE");
+                bool dup = i + 1 < p.size() && !p[i + 1].isKw && p[i + 1].text == ":";
+                bool edge = i == 0 || i + 1 == p.size();
+                if ((dup || edge) && !(afterThen && !dup && i + 1 != p.size())) { p.erase(p.begin() + (long)i); continue; }
+            }
+            if (p[i].isKw && p[i].text == "REM") break;
+            i++;
+        }
+        if (!kept.empty()) {
+            std::string t;
+            for (const auto& s : kept) t += (t.empty() ? " " : "; ") + s;
+            size_t r = 0;
+            while (r < p.size() && !(p[r].isKw && p[r].text == "REM")) r++;
+            if (r < p.size()) {
+                if (r + 1 < p.size()) p[r + 1].text += " (" + t.substr(1) + ")";
+                else p.push_back({false, t});
+            } else {
+                if (!p.empty()) p.push_back({false, ":"});
+                p.push_back({true, "REM"});
+                p.push_back({false, t});
+            }
+        }
+    }
+    // the colours and the window: set before the program
+    if (!lines.empty()) {
+        std::string s = FG + " = 15 : " + BG + " = 0";
+        if (windows) s += " : " + WX + " = 0 : " + WY + " = 0 : " + WW + " = 640 : " + WH + " = 200";
+        auto& p = lines.front().pieces;
+        Pieces np{{false, s}};
+        if (!p.empty()) np.push_back({false, ":"});
+        p.insert(p.begin(), np.begin(), np.end());
+    }
+    lines.insert(lines.end(), extra.begin(), extra.end());
+    notes.push_back("BASIC 8's graphics: a 640 x 200 screen, its palette the VDC's 16 colours (" + FG + ": the pen, " + BG +
+                    ": the background" + (windows ? ", " + WX + " / " + WY + ": the window's corner" : std::string()) + ")");
+}
+
 }  // namespace
 
 void convertBasicLines(std::vector<DecompiledLine>& lines, const BasicDecompileOptions& options,
                        std::vector<std::string>& warnings, std::vector<std::string>& notes) {
+    if (options.source == BasicSource::B8) {
+        convertBasic8(lines, options, warnings, notes);
+        convertV7(lines, options, warnings, notes);
+    }
     if (options.source == BasicSource::V7 || options.source == BasicSource::V35) convertV7(lines, options, warnings, notes);
     if (options.source == BasicSource::SIMONS) {
         convertSimons(lines, options, warnings, notes);
