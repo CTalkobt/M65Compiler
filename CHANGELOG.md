@@ -4,6 +4,17 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### basic45 --compile: DIR of the SD card (U12), in assembly; ca45: abs,Z an error (#369)
+
+- `DIR [pattern,] U12`: the ROM's `dir_sd` ported line by line to
+  assembly (`stdlib_asm/basic_dirsd.s45`): the hypervisor's directory calls,
+  the sizes and names, the pattern's `* ? # $` as the ROM matches them, the
+  page mode's `[MORE]`. Test: the same screen interpreted and compiled, on
+  an SD card image disk45 makes.
+- ca45: an instruction indexed by Z other than `(zp),z` / `[zp],z`
+  (`sbc $1234,z`) was taken for BBR's `zp, target` and assembled into the
+  wrong bytes (a BRK); it is an error now.
+
 ### examples/c/fonts: an animated, larger title (#466)
 
 - The title is 80 pixels (was 30): a 2 bpp font of its five letters alone

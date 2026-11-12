@@ -1,0 +1,22 @@
+; basic_dirhook.s45 — DIR U12's hook (#369): basic_io.c's DIR reaches the SD
+; card's directory (basic_dirsd.s45) through __bas_dirsdp, which only
+; basic_dirsd.s45's __bas_dir (the compiler's DIR / CATALOG) sets, so a
+; program without DIR does not link it. Here, linked with basic_io.c: the
+; pointer, the variables basic_io.c fills, the jump through the pointer.
+
+; (the call through the pointer reaches basic_dirsd.s45, which calls no C)
+.weak cc45.icallinfo
+cc45.icallinfo = 1
+
+.global __bas_dirsdp, __bas_sdcall, __bas_sdlen, __bas_sdpage
+
+.segment "bss"
+__bas_dirsdp:   .res 2  ; __bas_dirsd, once a DIR set it (0: none)
+__bas_sdlen:    .res 1  ; the pattern's length (0: none)
+__bas_sdpage:   .res 1  ; bit 7: page mode; bit 6: stop (pagemo's)
+
+.segment "code"
+
+proc __bas_sdcall
+    jmp (__bas_dirsdp)
+endproc
