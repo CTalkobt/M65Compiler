@@ -2900,6 +2900,22 @@ else
     failed=$((failed + 1))
 fi
 
+# Test: basic45 --compile's number reader in assembly (basic_fin.s45, #369)
+# against the C library's strtof: the same bytes and end for 50 texts
+for bfmode in "zp|" "stack|-fno-zpcall"; do
+    IFS='|' read -r bfname bfflags <<< "$bfmode"
+    echo "Testing test_basic_fin_xemu.c ($bfname)..."
+    xemu_case "FAIL: test_basic_fin_xemu.c $bfname (compilation/linking failed)" "src/test-resources/test_basic_fin_xemu.c" "build/test/test_basic_fin_${bfname}_xemu.prg" "$bfflags" -- "test_basic_fin_$bfname" "build/test/test_basic_fin_${bfname}_xemu.prg" "C0C0" 3 "00 00 AA"
+done
+
+# Test: HEX$ / STRBIN$, DEC, INSTR and the logical operators' integer in
+# assembly (basic_fns.s45, #369) against their former C as the reference
+for bsmode in "zp|" "stack|-fno-zpcall"; do
+    IFS='|' read -r bsname bsflags <<< "$bsmode"
+    echo "Testing test_basic_fns_xemu.c ($bsname)..."
+    xemu_case "FAIL: test_basic_fns_xemu.c $bsname (compilation/linking failed)" "src/test-resources/test_basic_fns_xemu.c" "build/test/test_basic_fns_${bsname}_xemu.prg" "$bsflags" -- "test_basic_fns_$bsname" "build/test/test_basic_fns_${bsname}_xemu.prg" "C0C0" 5 "00 00 00 00 AA"
+done
+
 # Test: tgi_bar's fill patterns (both drivers), gets / gets_s from the
 # KERNAL's keyboard buffer, heapfree, ftoa
 for tpmode in "zp|" "stack|-fno-zpcall"; do

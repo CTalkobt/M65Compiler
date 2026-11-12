@@ -329,8 +329,9 @@ if $B --compile --asm "$D/cf.s45" "$D/cf.bas" -o "$D/cf.prg" > "$D/cf.log" 2>&1 
 else
     fail "--compile counted loops: $(grep -c 'jsr __bas_forpush' "$D/cf.s45") forpush $(cat "$D/cf.log")"
 fi
-# strtof (about 1.7 KB) is linked only by a program INPUTting or READing a
-# number (#484); the link map shows its object
+# The number reader (basic_fin.s45, #484) is linked only by a program
+# INPUTting or READing a number, and strtof by neither: the link maps show
+# the objects
 printf '10 input a$:read b$:print a$;b$\n20 data x\n' > "$D/cis.bas"
 printf '10 input a:read b:print a;b\n20 data 1\n' > "$D/cin.bas"
 for n in cis cin; do
@@ -338,10 +339,11 @@ for n in cis cin; do
         ./bin/ca45 -c "$D/$n.s45" -o "$D/$n.o45" >> "$D/$n.log" 2>&1 &&
         ./bin/ln45 -basic -M "$D/$n.map" -o "$D/$n.m.prg" "$D/$n.o45" lib/build/c45.lib >> "$D/$n.log" 2>&1
 done
-if ! grep -q 'strtof\.o45' "$D/cis.map" && grep -q 'strtof\.o45' "$D/cin.map"; then
-    pass "--compile: INPUT and READ of strings link no number conversion"
+if ! grep -q 'basic_fin\.o45\|strtof\.o45' "$D/cis.map" && grep -q 'basic_fin\.o45' "$D/cin.map" &&
+   ! grep -q 'strtof\.o45' "$D/cin.map"; then
+    pass "--compile: INPUT and READ of strings link no number conversion; of numbers the assembly reader, not strtof"
 else
-    fail "--compile INPUT/READ strings: $(grep -c 'strtof\.o45' "$D/cis.map" "$D/cin.map" | tr '\n' ' ') $(cat "$D/cis.log" "$D/cin.log")"
+    fail "--compile INPUT/READ strings: $(grep -c 'basic_fin\.o45' "$D/cis.map" "$D/cin.map" | tr '\n' ' ') $(cat "$D/cis.log" "$D/cin.log")"
 fi
 # #486: an array element's subscript in A/X and its array after the jsr;
 # PRINT, string assignment and comparison take their strings in A/X / $12

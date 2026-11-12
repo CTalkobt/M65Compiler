@@ -14,6 +14,29 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
   commands it uses. B8.HC.V2: 18195 -> 14689 bytes; even
   `test_basic_compile7_xemu.bas`, with ten of them: 17494 -> 15658.
 
+### basic45 --compile: HEX$, STRBIN$, DEC, INSTR and AND / OR / NOT / XOR in assembly (#369)
+
+- `stdlib_asm/basic_fns.s45`: HEX$ / STRBIN$, DEC, INSTR (its pound-sign
+  patterns too) and the logical operators' integer, in assembly (were
+  `basic_fn.c`'s). The rounding to an integer is done on the float's bits,
+  as the ROM's `getsad` / `facint`: below -2^31 HEX$ now gives what the
+  interpreter gives (`HEX$(-3E9)` is `B2D05E00`; the C's float arithmetic
+  gave `4D2FA200`, and `0002` for -4294967295).
+- Tests: `test_basic_fns_xemu.c` (the assembly against the former C as the
+  reference, with the interpreter's rule below -2^31),
+  `test_basic_compile2_xemu.bas` (HEX$ of -3E9 and -2147483649, interpreted
+  and compiled).
+
+### basic45 --compile: VAL, INPUT and READ's numbers in assembly (#369)
+
+- `stdlib_asm/basic_fin.s45`: the number reader (strtof's algorithm step
+  for step, the same float operations in the same order: the same correctly
+  rounded results), `VAL`'s syntax check and INPUT / READ's number items, in
+  assembly (were `basic_fn.c`'s `_bas_val` and `basic_innum.c`, through the C
+  library's `strtof`). A program reading numbers is about 1.2 KB smaller
+  (`test_basic_compile2_xemu.bas`: 18088 -> 16843 bytes).
+- Test: `test_basic_fin_xemu.c`, the reader against `strtof` on 50 texts.
+
 ### basic45 --compile: DIR of the SD card (U12), in assembly; ca45: abs,Z an error (#369)
 
 - `DIR [pattern,] U12`: the ROM's `dir_sd` ported line by line to

@@ -1,0 +1,481 @@
+; basic_fns.s45 — functions of BASIC 65 programs compiled by basic45
+; --compile (#369), in assembly (were basic_fn.c's): HEX$ / STRBIN$, DEC,
+; INSTR, and the logical operators' integer (AND, OR, NOT, XOR).
+;
+; Arguments in __bas_sa / __bas_sb (strings: a length byte, the characters),
+; __bas_n / __bas_m (16 bits), __float_a; a string result into __bas_sr's
+; buffer, a number into __float_a or __bas_n. Characters as PETSCII codes.
+;
+;   __bas_hex     HEX$(__float_a) (__bas_m 0): 4 digits for 0..65535, else 8
+;                 (a negative number as 32 bits); STRBIN$ (__bas_m 1): 8, 16
+;                 or 32 binary digits
+;   __bas_dec     DEC(__bas_sa): hex digits to the first other character
+;   __bas_instr   INSTR(__bas_sa, __bas_sb, __bas_n): the position, 0 for none;
+;                 a needle starting with a pound sign is a pattern ('.' any
+;                 character, 'c*' none or more of c)
+;   __bas_ayintw  __float_a rounded down to -32768..65535: __bas_n its 16 bits;
+;                 ?ILLEGAL QUANTITY outside
+;
+; The rounding down is done on the float's bits (__fn_floor), as the ROM's
+; getsad / facint do: a CBM float's 32-bit mantissa holds every 32-bit
+; integer, so floor(x) is the mantissa shifted right by $A0 - the exponent, a
+; negative value with bits shifted out one more, then its two's complement;
+; a negative one of 2^31 or more (the exponent $A0) keeps its magnitude
+; (HEX$(-3E9) is B2D05E00, as the interpreter's); 2^32 and up are out of
+; range. (basic_fn.c's float arithmetic differed from the interpreter below
+; -2^31: 80000000 and 0002 for -2147483649 and -4294967295.)
+
+; no calls through pointers here (ln45's call graph)
+.weak cc45.icallinfo
+cc45.icallinfo = 1
+
+.global __bas_hex, __bas_dec, __bas_instr, __bas_ayintw
+.extern __float_a, __float_ultof, __bas_sa, __bas_sb, __bas_sr, __bas_n, __bas_m, __bas_error
+
+P = $08                 ; a string (pointer)
+Q = $0A                 ; another
+
+.segment "bss"
+__fn_u:     .res 4      ; the 32-bit integer (low byte first)
+__fn_frac:  .res 1      ; bits shifted out
+__fn_bits:  .res 1      ; HEX$ / STRBIN$: its digits' bits
+__fn_hl:    .res 1      ; INSTR: the haystack's length
+__fn_nl:    .res 1      ; the needle's
+__fn_pos:   .res 1      ; the position tried (0-based)
+__fn_cnt:   .res 1      ; the characters left from it
+__fn_c:     .res 1      ; a pattern's character
+
+.segment "code"
+
+; __float_a rounded down into __fn_u (32 bits); C set: |x| >= 2^32 (out of range)
+proc __fn_floor
+    lda #0
+    sta __fn_u
+    sta __fn_u+1
+    sta __fn_u+2
+    sta __fn_u+3
+    sta __fn_frac
+    lda __float_a
+    bne @nz
+    clc                     ; zero
+    rts
+@nz:
+    cmp #$A1
+    bcc @fits
+    sec                     ; 2^32 or more
+    rts
+@fits:
+    ; the shift: $A0 - the exponent (more than 32: the integer 0, a fraction)
+    sec
+    lda #$A0
+    sbc __float_a
+    tax
+    cpx #33
+    bcc @mant
+    inc __fn_frac
+    bra @sign
+@mant:
+    lda __float_a+4
+    sta __fn_u
+    lda __float_a+3
+    sta __fn_u+1
+    lda __float_a+2
+    sta __fn_u+2
+    lda __float_a+1
+    ora #$80                ; (the implicit 1)
+    sta __fn_u+3
+    cpx #0
+    beq @sign
+@shift:
+    lsr __fn_u+3
+    ror __fn_u+2
+    ror __fn_u+1
+    ror __fn_u
+    bcc @kept
+    lda #1
+    sta __fn_frac
+@kept:
+    dex
+    bne @shift
+@sign:
+    bit __float_a+1
+    bpl @pos
+    ; (2^31 or more, negative: the magnitude, as the ROM's facint leaves it)
+    lda __float_a
+    cmp #$A0
+    beq @pos
+    ; negative: one more when bits went, then the two's complement
+    lda __fn_frac
+    beq @neg
+    inc __fn_u
+    bne @neg
+    inc __fn_u+1
+    bne @neg
+    inc __fn_u+2
+    bne @neg
+    inc __fn_u+3
+@neg:
+    ; (unrolled: a cpx in a loop would break the borrow's chain)
+    sec
+    lda #0
+    sbc __fn_u
+    sta __fn_u
+    lda #0
+    sbc __fn_u+1
+    sta __fn_u+1
+    lda #0
+    sbc __fn_u+2
+    sta __fn_u+2
+    lda #0
+    sbc __fn_u+3
+    sta __fn_u+3
+@pos:
+    clc
+    rts
+endproc
+
+proc __fn_quantity          ; ?ILLEGAL QUANTITY
+    lda #14
+    sta __bas_n
+    lda #0
+    sta __bas_n+1
+    jmp __bas_error
+endproc
+
+; AND, OR, NOT, XOR's operand: -32768..65535 (a negative one from -32768)
+proc __bas_ayintw
+    lda __float_a           ; (2^31 or more: out of range, whatever its sign)
+    cmp #$A0
+    bcs @bad
+    jsr __fn_floor
+    bcs @bad
+    bit __float_a+1         ; (a value's sign; zero: positive)
+    bpl @pos
+    lda __float_a
+    beq @pos
+    ; negative: $FFFF8000 or more
+    lda __fn_u+3
+    and __fn_u+2
+    cmp #$FF
+    bne @bad
+    lda __fn_u+1
+    bpl @bad
+    bra @ok
+@pos:
+    lda __fn_u+3
+    ora __fn_u+2
+    bne @bad
+@ok:
+    lda __fn_u
+    sta __bas_n
+    lda __fn_u+1
+    sta __bas_n+1
+    rts
+@bad:
+    jmp __fn_quantity
+endproc
+
+; HEX$ (__bas_m 0) / STRBIN$ (1) of __float_a
+proc __bas_hex
+    jsr __fn_floor
+    bcc @ok
+    jmp __fn_quantity
+@ok:
+    lda __bas_sr
+    sta P
+    lda __bas_sr+1
+    sta P+1
+    ; the digits' bits: 32 when the high half is used; else 16, STRBIN$ 8 below 256
+    ldx #32
+    lda __fn_u+3
+    ora __fn_u+2
+    bne @bits
+    ldx #16
+    lda __bas_m
+    beq @bits
+    lda __fn_u+1
+    bne @bits
+    ldx #8
+@bits:
+    stx __fn_bits
+    ; the top digit's bits to bit 31: a shift left by 32 - bits
+    sec
+    lda #32
+    sbc __fn_bits
+    beq @aligned
+    tax
+@al:
+    asl __fn_u
+    rol __fn_u+1
+    rol __fn_u+2
+    rol __fn_u+3
+    dex
+    bne @al
+@aligned:
+    ldy #0
+    lda __bas_m
+    bne @bin
+    ; hex: bits / 4 digits, each the top 4 bits shifted out
+    lda __fn_bits
+    lsr
+    lsr
+    sta (P),y
+    tax
+@hd:
+    phx
+    ldx #4
+    lda #0
+@h4:
+    asl __fn_u
+    rol __fn_u+1
+    rol __fn_u+2
+    rol __fn_u+3
+    rol
+    dex
+    bne @h4
+    cmp #10
+    bcc @dig
+    adc #$41 - 10 - $30 - 1 ; (C set: A-F)
+@dig:
+    adc #$30
+    iny
+    sta (P),y
+    plx
+    dex
+    bne @hd
+    rts
+@bin:
+    lda __fn_bits
+    sta (P),y
+    tax
+@bd:
+    lda #0
+    asl __fn_u
+    rol __fn_u+1
+    rol __fn_u+2
+    rol __fn_u+3
+    adc #$30
+    iny
+    sta (P),y
+    dex
+    bne @bd
+    rts
+endproc
+
+; DEC(__bas_sa): hex digits (0-9, A-F) to the first other character, as an
+; unsigned 32-bit number (more than 8 digits: the last 8)
+proc __bas_dec
+    lda __bas_sa
+    sta P
+    lda __bas_sa+1
+    sta P+1
+    lda #0
+    sta __fn_u
+    sta __fn_u+1
+    sta __fn_u+2
+    sta __fn_u+3
+    ldy #0
+    lda (P),y
+    sta __fn_hl
+@next:
+    cpy __fn_hl
+    bcs @done
+    iny
+    lda (P),y
+    cmp #$30
+    bcc @done
+    cmp #$3A
+    bcc @num
+    cmp #$41
+    bcc @done
+    cmp #$47
+    bcs @done
+    sbc #$41 - 10 - 1       ; (C clear: - $41 + 10)
+    bra @add
+@num:
+    sec
+    sbc #$30
+@add:
+    ldx #4
+@sh:
+    asl __fn_u
+    rol __fn_u+1
+    rol __fn_u+2
+    rol __fn_u+3
+    dex
+    bne @sh
+    ora __fn_u
+    sta __fn_u
+    bra @next
+@done:
+    lda __fn_u
+    ldx __fn_u+1
+    ldy __fn_u+2
+    ldz __fn_u+3
+    jmp __float_ultof       ; (exact: 32 bits fit the mantissa)
+endproc
+
+; INSTR(__bas_sa haystack, __bas_sb needle, __bas_n start): __bas_n the position (1-based), 0 none
+proc __bas_instr
+    lda __bas_sa
+    sta P
+    lda __bas_sa+1
+    sta P+1
+    lda __bas_sb
+    sta Q
+    lda __bas_sb+1
+    sta Q+1
+    ldy #0
+    lda (P),y
+    sta __fn_hl
+    lda (Q),y
+    sta __fn_nl
+    ldx __bas_n
+    dex
+    stx __fn_pos
+    lda #0
+    sta __bas_n
+    sta __bas_n+1
+    lda __fn_hl
+    beq @none
+    lda __fn_nl
+    beq @none
+    ; (P, Q to the first characters)
+    inw P
+    inw Q
+    ldy #0
+    lda (Q),y
+    cmp #92
+    bne @plain
+    jmp __fn_pattern
+@plain:
+    ; pos < hl and nl <= hl - pos
+    lda __fn_pos
+    cmp __fn_hl
+    bcs @none
+    lda __fn_hl
+    sec
+    sbc __fn_pos
+    cmp __fn_nl
+    bcc @none
+@try:
+    ; pos + nl <= hl
+    lda __fn_pos
+    clc
+    adc __fn_nl
+    bcs @none
+    cmp __fn_hl
+    beq @cmp
+    bcs @none
+@cmp:
+    ldz #0
+@c1:
+    cpz __fn_nl
+    beq @found
+    tza
+    clc
+    adc __fn_pos
+    tay
+    lda (P),y
+    sta __fn_c
+    tza
+    tay
+    lda (Q),y
+    cmp __fn_c
+    bne @miss
+    inz
+    bra @c1
+@miss:
+    inc __fn_pos
+    bra @try
+@found:
+    ldx __fn_pos
+    inx
+    stx __bas_n
+@none:
+    rts
+endproc
+
+; INSTR's pattern (the needle after its pound sign): '.' any character, 'c*'
+; none or more of c (basic_fn.c's loop, z and y as there)
+proc __fn_pattern
+    inw Q
+    dec __fn_nl
+    beq @none
+    lda __fn_pos
+    cmp __fn_hl
+    bcs @none
+    lda __fn_hl
+    cmp __fn_nl
+    bcc @none
+@pos:
+    lda __fn_pos
+    cmp __fn_hl
+    bcs @none
+    lda __fn_hl
+    sec
+    sbc __fn_pos
+    sta __fn_cnt
+    ldz #0                  ; z: the haystack's offset from pos
+    ldx #0                  ; y: the needle's index
+@loop:
+    txa
+    tay
+    lda (Q),y
+    sta __fn_c
+    cmp #'.'
+    beq @adv
+    ; 'c*': as many c as follow (none: z wraps to 255, the inz below makes it 0)
+    inx
+    cpx __fn_nl
+    bcs @single
+    txa
+    tay
+    lda (Q),y
+    dex
+    cmp #'*'
+    bne @single1
+@star:
+    cpz __fn_cnt            ; z < hl - pos
+    bcs @stard
+    tza
+    clc
+    adc __fn_pos
+    tay
+    lda (P),y
+    cmp __fn_c
+    bne @stard
+    inz
+    bra @star
+@stard:
+    dez
+    inx
+    bra @adv
+@single:
+    dex
+@single1:
+    tza
+    clc
+    adc __fn_pos
+    tay
+    lda (P),y
+    cmp __fn_c
+    bne @nextpos
+@adv:
+    inx
+    cpx __fn_nl
+    beq @found
+    inz
+    cpz __fn_cnt
+    bcs @none
+    bra @loop
+@nextpos:
+    inc __fn_pos
+    bra @pos
+@found:
+    ldx __fn_pos
+    inx
+    stx __bas_n
+@none:
+    rts
+endproc
