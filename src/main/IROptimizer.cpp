@@ -581,12 +581,25 @@ void optimizeCSE(Module& mod) {
                 // only what is expensive to compute again (a multiply, an
                 // element address, a division): a reused cheap value lives
                 // longer and spills more than it saves
+                // The right-hand side of && / || and the block it guards
+                // (#551): cheap expressions too. A condition repeats its
+                // operands' arithmetic (x + t >= 0 && x + t < 80), and the
+                // value lives only across the short chain of tests
+                auto rhs = [&](size_t x) {
+                    const std::string& l = fn.blocks[x].label;
+                    return l.rfind("and_rhs", 0) == 0 || l.rfind("or_rhs", 0) == 0;
+                };
+                bool shortCircuit = rhs(blockIdx) || rhs(D);
+                for (size_t p2 : predSet[blockIdx]) if (p2 < nb && rhs(p2)) shortCircuit = true;
                 for (const auto& e : endExprs[D]) {
                     Op o = e.first.op;
                     // (measured on vim2 and the library: carrying cheap ones
                     // too, or only from a direct predecessor, is larger)
+                    bool cheap = o == Op::ADD || o == Op::SUB || o == Op::ZEXT || o == Op::SEXT || o == Op::TRUNC ||
+                                 o == Op::AND || o == Op::OR || o == Op::XOR || o == Op::SHL || o == Op::SHR ||
+                                 o == Op::LSL || o == Op::LSR || o == Op::ASR || o == Op::ADDR_GLOBAL;
                     if (!(o == Op::MUL || o == Op::MUL_U || o == Op::ADDR_ELEM || o == Op::DIV ||
-                          o == Op::DIV_U || o == Op::MOD || o == Op::MOD_U || o == Op::LOAD))
+                          o == Op::DIV_U || o == Op::MOD || o == Op::MOD_U || o == Op::LOAD || (shortCircuit && cheap)))
                         continue;
                     // a load of a global: nothing on the way wrote it (#320)
                     if (o == Op::LOAD && (anyStore || stored.count(e.first.base))) continue;
@@ -1854,10 +1867,98 @@ void optimizeTypeNarrowing(Module& mod) {
             }
         };
 
+        // The bits of each temporary its uses need (#547: demanded bits), from
+        // the uses backwards: a byte's use (a truncation, a byte operation)
+        // its low byte; & m those of m; x >> k (logical, k constant) the
+        // needed bits k higher, x << k k lower; + - * and negation every bit
+        // up to the highest one needed (carries go up only); | ^ ~ the same
+        // bits; anything else (a comparison, a store, a call, a division, a
+        // variable, a temporary of several definitions) all of them
+        const uint64_t ALL = ~0ULL;
+        std::map<uint32_t, uint64_t> demand;
+        {
+            std::map<uint32_t, int> nd;
+            for (const auto& block : fn.blocks)
+                for (const auto& in : block.insts)
+                    if (in.dest.isVreg()) nd[in.dest.vregId]++;
+            auto widthMask = [](Type t) -> uint64_t {
+                return t == Type::I8 ? 0xFF : t == Type::I16 || t == Type::PTR ? 0xFFFF : t == Type::I32 ? 0xFFFFFFFFULL : ALL;
+            };
+            auto upTo = [](uint64_t d) -> uint64_t {   // every bit up to d's highest
+                if (!d) return 0;
+                int hb = 63;
+                while (!(d >> hb & 1)) hb--;
+                return hb >= 63 ? ~0ULL : ((1ULL << (hb + 1)) - 1);
+            };
+            for (bool ch = true; ch;) {
+                ch = false;
+                for (auto bi = fn.blocks.rbegin(); bi != fn.blocks.rend(); ++bi)
+                    for (auto ii = bi->insts.rbegin(); ii != bi->insts.rend(); ++ii) {
+                        const Inst& in = *ii;
+                        bool temp = in.dest.isVreg() && nd[in.dest.vregId] == 1 && !fn.localSlotVregs.count(in.dest.vregId);
+                        uint64_t D = temp ? demand[in.dest.vregId] : ALL;
+                        if (!temp || D == ALL) D = ALL;
+                        D &= widthMask(in.resultType);
+                        auto need = [&](const Operand& o, uint64_t m) {
+                            if (!o.isVreg()) return;
+                            uint64_t& cur = demand[o.vregId];
+                            uint64_t nw = cur | (m & widthMask(o.type == Type::VOID ? in.resultType : o.type));
+                            if (fn.localSlotVregs.count(o.vregId) || nd[o.vregId] != 1) nw = ALL;
+                            if (nw != cur) { cur = nw; ch = true; }
+                        };
+                        bool k2 = in.src2.isImm() && in.src2.immVal >= 0 && in.src2.immVal < 64;
+                        int k = k2 ? (int)in.src2.immVal : 0;
+                        switch (in.op) {
+                            case Op::TRUNC: case Op::ZEXT:
+                                need(in.src1, D & 0xFF & widthMask(in.src1.type));
+                                break;
+                            case Op::COPY:
+                                need(in.src1, D);
+                                break;
+                            case Op::SEXT:
+                                need(in.src1, (D & 0xFF) | ((D & ~0xFFULL) ? 0x80 : 0));
+                                break;
+                            case Op::ADD: case Op::SUB: case Op::MUL: case Op::MUL_U: case Op::NEG:
+                                need(in.src1, upTo(D));
+                                need(in.src2, upTo(D));
+                                break;
+                            case Op::AND:
+                                need(in.src1, in.src2.isImm() ? D & (uint64_t)in.src2.immVal : D);
+                                need(in.src2, in.src1.isImm() ? D & (uint64_t)in.src1.immVal : D);
+                                break;
+                            case Op::OR: case Op::XOR: case Op::NOT:
+                                need(in.src1, D);
+                                need(in.src2, D);
+                                break;
+                            case Op::SHL: case Op::LSL:
+                                need(in.src1, k2 ? D >> k : upTo(D));
+                                need(in.src2, ALL);
+                                break;
+                            case Op::SHR: case Op::LSR:
+                                need(in.src1, k2 ? D << k : ALL);
+                                need(in.src2, ALL);
+                                break;
+                            default:
+                                need(in.src1, ALL);
+                                need(in.src2, ALL);
+                                if (in.op == Op::STORE || in.op == Op::STORE_ZP) need(in.dest, ALL);
+                                break;
+                        }
+                        for (const auto& a : in.args) need(a, ALL);
+                        for (const auto& ph : in.phiIncoming) need(ph.first, ALL);
+                    }
+            }
+        }
+        auto demandOf = [&](uint32_t v) -> uint64_t {
+            auto it = demand.find(v);
+            return it == demand.end() ? ALL : it->second;
+        };
+
         // Check if ALL uses of a vreg read only its low byte: TRUNCs to I8,
         // and byte operations whose low byte depends only on their operands'
-        // low bytes (#342: (char)(v << 4 | v >> 4))
-        auto lowByteUse = [](const UseInfo& u) {
+        // low bytes (#342: (char)(v << 4 | v >> 4)); a byte's x >> k whose
+        // needed bits come from x's low byte (#547)
+        auto lowByteUse = [&](const UseInfo& u) {
             if ((u.inst->op == Op::TRUNC || u.inst->op == Op::COPY) && u.inst->resultType == Type::I8 &&
                 u.role == UseInfo::SRC1)
                 return true;
@@ -1868,6 +1969,10 @@ void optimizeTypeNarrowing(Module& mod) {
                     return true;
                 case Op::SHL: case Op::LSL:   // (the value, not the count)
                     return u.role == UseInfo::SRC1;
+                case Op::SHR: case Op::LSR:
+                    return u.role == UseInfo::SRC1 && u.inst->src2.isImm() && u.inst->src2.immVal >= 0 &&
+                           u.inst->src2.immVal < 8 && u.inst->dest.isVreg() &&
+                           ((demandOf(u.inst->dest.vregId) & 0xFF) << u.inst->src2.immVal) <= 0xFF;
                 default:
                     return false;
             }
@@ -1899,7 +2004,11 @@ void optimizeTypeNarrowing(Module& mod) {
                 // (x >> n of a zero-extended byte: its low byte is the byte's)
                 bool shrByte = (inst.op == Op::SHR || inst.op == Op::LSR) && zextByte(inst.src1) &&
                                (inst.src2.isImm() || inst.src2.isVreg());
-                if (!isNarrowable(inst.op) && !shrByte) continue;
+                // (x >> k whose needed bits are bits of x's low byte, #547)
+                bool shrLow = (inst.op == Op::SHR || inst.op == Op::LSR) && inst.src2.isImm() &&
+                              inst.src2.immVal >= 0 && inst.src2.immVal < 8 &&
+                              (demandOf(inst.dest.vregId) << inst.src2.immVal) <= 0xFF;
+                if (!isNarrowable(inst.op) && !shrByte && !shrLow) continue;
 
                 // Don't narrow local slot vregs
                 if (fn.localSlotVregs.count(inst.dest.vregId)) continue;
@@ -3354,6 +3463,24 @@ void optimizeLICM(Module& mod) {
                             ((inst.op == Op::ADD || inst.op == Op::SUB) && inst.src1.kind == OperandKind::GLOBAL &&
                              inst.src2.isImm()))
                             continue;
+                        // An element of a static array by a byte index: the code
+                        // generator reads it as name+off,y (a byte stride, or an
+                        // array of at most 256 bytes); hoisted, the element's
+                        // address would be a pointer kept across the loop and
+                        // copied to zero page for each use (#549)
+                        if (inst.op == Op::ADDR_ELEM && inst.src1.kind == OperandKind::GLOBAL && inst.src2.isVreg() &&
+                            inst.src2.type == Type::I8 && !inst.args.empty() && inst.elemOffset >= 0 &&
+                            inst.elemOffset < 256) {
+                            int stride = (int)inst.args[0].immVal;
+                            int size = 0;
+                            for (const auto& g : mod.globals)
+                                if (g.name == inst.src1.name) { size = g.addressSpace == 0 ? g.size : 0; break; }
+                            if (!size) {
+                                auto es = mod.externSizes.find(inst.src1.name);
+                                if (es != mod.externSizes.end() && !mod.zpExterns.count(inst.src1.name)) size = es->second;
+                            }
+                            if (stride == 1 || (size > 0 && size <= 256 && (stride == 2 || stride == 4))) continue;
+                        }
                         // Likewise anything computed from constants alone (a
                         // conversion of a constant): only an instruction with a
                         // variable operand (k * 7) is worth a variable

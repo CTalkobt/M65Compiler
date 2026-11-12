@@ -2143,6 +2143,9 @@ void IRCodeGen::generate(const ir::Module& mod, uint32_t zpStart, bool relocMode
         symbolAddressSpace_[global.name] = space;
         if (global.size > 0 && global.size <= 256 && space == 0) smallGlobals_.insert(global.name);
     }
+    // (an extern array of a known size too, not in the base page, #549)
+    for (const auto& [name, size] : mod.externSizes)
+        if (size > 0 && size <= 256 && !mod.zpExterns.count(name)) smallGlobals_.insert(name);
     plainExterns_.clear();
     for (const auto& e : mod.externs)
         if (!mod.zpExterns.count(e)) plainExterns_.insert(e);
@@ -4441,6 +4444,36 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
                         ok = false;
                 }
                 if (ok && !storeTargets_.count(d)) zextAlias_[d] = in.src1;
+            }
+        }
+        // #550: (unsigned long)x << k, x a byte or an int in the base page,
+        // the long a temporary whose one use is the shift right after it
+        // (NOPs between), the shift's result in the base page too
+        zext32Shl_.clear();
+        for (size_t b = 0; b < blocks.size(); b++) {
+            const auto& insts = blocks[b]->insts;
+            for (size_t i = 0; i < insts.size(); i++) {
+                const auto& in = insts[i];
+                if (in.op != ir::Op::ZEXT || in.resultType != ir::Type::I32 || !in.dest.isVreg() || !in.src1.isVreg() ||
+                    (in.src1.type != ir::Type::I8 && in.src1.type != ir::Type::I16 && in.src1.type != ir::Type::PTR))
+                    continue;
+                uint32_t d = in.dest.vregId, sv = in.src1.vregId;
+                if (defs[d] != 1 || fn.localSlotVregs.count(d) || fn.memoryVregs.count(d) || fn.memoryVregs.count(sv) ||
+                    storeTargets_.count(d) || alloc_.getAlloc(sv).loc != VRegAllocator::IN_ZP)
+                    continue;
+                auto uit = uses.find(d);
+                if (uit == uses.end() || uit->second.size() != 1 || uit->second[0].blk != b) continue;
+                size_t j = uit->second[0].idx;
+                if (j <= i) continue;
+                bool adjacent = true;
+                for (size_t k = i + 1; k < j && adjacent; k++) adjacent = insts[k].op == ir::Op::NOP;
+                const auto& u = insts[j];
+                if (!adjacent || (u.op != ir::Op::SHL && u.op != ir::Op::LSL) || u.resultType != ir::Type::I32 ||
+                    !u.src1.isVreg() || u.src1.vregId != d || !u.src2.isImm() || u.src2.immVal < 1 ||
+                    u.src2.immVal > 31 || !u.dest.isVreg() || !u.args.empty() ||
+                    alloc_.getAlloc(u.dest.vregId).loc != VRegAllocator::IN_ZP || fn.localSlotVregs.count(u.dest.vregId))
+                    continue;
+                zext32Shl_[d] = in.src1;
             }
         }
         // A long, 16-bit value or byte loaded from a global (of this program,
@@ -6878,6 +6911,52 @@ void IRCodeGen::emitInstBody(const ir::Inst& inst) {
 
         case ir::Op::SHL: {
             bool is32 = (inst.resultType == ir::Type::I32);
+            // (unsigned long)x << k, x a byte or an int (#550): the source's
+            // bytes placed at their byte offset in the destination, the rest
+            // 0, then the remaining bits shifted on the bytes that can be
+            // nonzero: left for 1-3, right from a byte higher for 4-7
+            if (is32 && inst.src1.isVreg() && zext32Shl_.count(inst.src1.vregId) && inst.src2.isImm() &&
+                inst.dest.isVreg()) {
+                const ir::Operand src = zext32Shl_.at(inst.src1.vregId);
+                std::string d = directBase(inst.dest.vregId);
+                if (!d.empty() && d[0] == '$') {
+                    int base = std::stoi(d.substr(1), nullptr, 16);
+                    auto db = [&](int i) { return "$" + hex8((uint8_t)(base + i)); };
+                    int ns = src.type == ir::Type::I8 ? 1 : 2;
+                    int k = (int)inst.src2.immVal, q = k / 8, r = k % 8;
+                    bool right = r >= 4 && q + ns < 4;   // (the source's top byte still inside)
+                    int at = right ? q + 1 : q;           // where the source's byte 0 goes
+                    std::string why = irDesc("a widened value shifted: its bytes");
+                    bool any = false;
+                    for (int i = 0; i < 4; i++) {
+                        int sb = i - at;
+                        if (sb >= 0 && sb < ns) {
+                            emit("lda " + directByte(src, sb), any ? "" : why);
+                            emit("sta " + db(i));
+                            any = true;
+                        }
+                    }
+                    bool zero = false;
+                    for (int i = 0; i < 4; i++) {
+                        int sb = i - at;
+                        if (sb >= 0 && sb < ns) continue;
+                        if (!zero) { emit("lda #0"); zero = true; }
+                        emit("sta " + db(i));
+                    }
+                    int top = std::min(3, at + ns - (right ? 1 : 0));   // the highest byte that can be nonzero
+                    if (right) {
+                        for (int n = 0; n < 8 - r; n++)
+                            for (int i = top; i >= q; i--) emit((i == top ? "lsr " : "ror ") + db(i));
+                    } else {
+                        for (int n = 0; n < r; n++)
+                            for (int i = at; i <= top; i++) emit((i == at ? "asl " : "rol ") + db(i));
+                    }
+                    ms_.invalidateAll();
+                    storeCache_.vreg = UINT32_MAX;
+                    resultInAX_ = -1;
+                    break;
+                }
+            }
             std::string shOp = is32 ? "lsl.32 .AXYZ" : "lsl.16 .AX";
             int shiftCount = -1;
             if (inst.src2.isImm()) {
@@ -9749,6 +9828,7 @@ void IRCodeGen::emitInstBody(const ir::Inst& inst) {
         case ir::Op::ZEXT: {
             // a byte widened only for an element index kept as name+off,y
             if (inst.dest.isVreg() && zextSkip_.count(inst.dest.vregId)) break;
+            if (inst.dest.isVreg() && zext32Shl_.count(inst.dest.vregId)) break;   // (the shift reads its source, #550)
             if (inst.dest.isVreg() && zextAlias_.count(inst.dest.vregId)) {
                 if (!directByte(inst.src1, 0).empty()) break;   // read by its one use
                 zextAlias_.erase(inst.dest.vregId);             // (a stack frame)

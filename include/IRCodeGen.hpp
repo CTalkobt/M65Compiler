@@ -309,6 +309,10 @@ private:
     // A byte ZEXT used once by a 16-bit add/sub, and/xor or compare: not
     // emitted; the use reads the byte where it lives and 0 above it
     std::map<uint32_t, ir::Operand> zextAlias_;
+    // a byte or int widened to a long only to be shifted left by a constant
+    // next (#550): the ZEXT not emitted, the SHL builds the result's bytes
+    // in its destination from the source's (zext32Shl_: ZEXT dest -> source)
+    std::map<uint32_t, ir::Operand> zext32Shl_;
     // the bits of the function's values known to be 0 (#350; #348's
     // zero-extended longs among them): byte-wise operations, no carries
     // where none can happen

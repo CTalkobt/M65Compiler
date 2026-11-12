@@ -4256,6 +4256,8 @@ void IRBuilder::visit(VariableDeclaration& node) {
         if (node.bank >= 0) declareBanked(node);
         if (node.isExtern) {
             module_.externs.push_back("_" + node.name);
+            if (node.pointerLevel == 0 && !node.arrayDims.empty() && node.arraySize() > 0)
+                module_.externSizes["_" + node.name] = getTypeSize(node.type, 0) * node.arraySize();
             if (node.addressSpace == 1)
                 module_.zpExterns["_" + node.name] = getTypeSize(node.type, node.pointerLevel) *
                                                      (node.arraySize() < 0 ? 1 : node.arraySize());

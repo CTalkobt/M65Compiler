@@ -4,6 +4,26 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### cc45: low-byte narrowing, abs,y in loops, widened shifts, CSE across && / || (#547, #549, #550, #551)
+
+- #547: demanded bits: the bits each temporary's uses need are followed
+  backwards (through `& m`, `>> k`, `<< k`, `+ - *`, extensions), so
+  `x >> k` needing only x's low byte is a byte shift and what feeds it
+  narrows: `(char)(((tick + (x >> 2) * 13 + (y >> 1) * 7) >> 3) & 1)` is all
+  8-bit, no multiply calls, 79 -> 44 bytes.
+- #549: LICM leaves an element address of a static array by a byte index
+  in the loop when `name+off,y` reaches it, and an `extern` array's declared
+  size now counts (a small one is read with `lda _a,y` / `ldx _a+1,y`): the
+  issue's loop 144 -> 91 bytes.
+- #550: `(unsigned long)x << k` of a byte or an `int` is built in the
+  result's bytes (no 32-bit shifts, no extension's `stq`/`ldq`): 110 -> 84.
+- #551: CSE carries cheap expressions into the right-hand side of `&&` /
+  `||` and the block it guards: `px + t >= 0 && px + t < 80` adds once,
+  62 -> 46 bytes. (The library and examples: 405 bytes smaller.)
+- Tests: `test_narrow_demand_xemu.c` (both conventions; references through
+  `volatile` full-width values, cases that must stay 16-bit), sizes in
+  `test_compiler.sh`.
+
 ### cc45 / ca45: dead loads and stores, cmp #0, array + offset, p[-k] (#542, #543, #544, #545)
 
 - #542: an `int`'s OR whose high byte is the other side's goes straight into
