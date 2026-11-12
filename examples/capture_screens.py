@@ -22,6 +22,7 @@ DELAY = 2.5
 # the examples to catch later than DELAY (seconds)
 DELAYS = {
     "sprite_demo": 18.0,    # the fish on the line
+    "fonts": 8.0,           # the paragraph typed, the highlight on the title
 }
 OUT = "doc/examples/images"
 

@@ -15,6 +15,16 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
   (`sbc $1234,z`) was taken for BBR's `zp, target` and assembled into the
   wrong bytes (a BRK); it is an error now.
 
+### examples/c/fonts: an animated, larger title (#466)
+
+- The title is 80 pixels (was 30): a 2 bpp font of its five letters alone
+  (`font45 --map`), drawn by `font_draw_bitmap` in layers (a drop shadow, a
+  one-pixel outline, the letters) with a ten-band gradient, then copied into
+  full-colour characters. The letters fade in one after another and a
+  highlight sweeps across them, by the palette alone.
+- The paragraph is typed a letter at a time. The program is 33.7 KB (was
+  37.8).
+
 ### basic45 --compile: --link, FORMAT, TURBO, ST$ / ER$ / EL$ (#369)
 
 - `--compile` with `--link` (C files, assembly, objects) and asm blocks: one
