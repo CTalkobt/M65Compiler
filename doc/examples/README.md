@@ -223,16 +223,19 @@ runs 100 frames, then reads cells back and reports on the screen.
 [font45](../bin/font45.md) and `<font.h>`: the Makefile converts one TrueType
 font (Russo One, SIL Open Font License) three ways and makes a segment
 display's font, and the program shows all four on conio's full-colour screen
-(`fcm_enable`). The title is a glyph set (`--fcm`): each glyph pre-drawn into
-3 x 4 full-colour characters, two colour ramps down it and a drop shadow, put
-on the screen by `font_put_cells`. The paragraph is a proportional 2 bpp font
-drawn by `font_draw_fcm` into a block of characters. The counter is a
-16-segment display's digits (`--segments 16 --fcm`), unlit segments dim, put
-again each frame. conio's own text is in an 8x8 charset made from the same
-font (`--charset screencode --center`, `font_install`, `font_select`). The
-glyph sets are copied to bank 4 so their characters are numbered from 256.
-Any key quits; `make check` runs 50 frames, reads the title's cells and the
-segment font back and reports.
+(`fcm_enable`). The title is 80 pixels, 2 bpp, its five letters alone
+(`--map` moves them to five codes in a row): drawn in layers by
+`font_draw_bitmap` into a buffer (a drop shadow, a one-pixel outline, the
+letters, each letter in its own palette entries, a ten-band gradient down
+them) and copied into full-colour characters. The letters fade in one after
+another, then a highlight sweeps across them again and again: only the
+palette changes. The paragraph, a proportional 2 bpp font, is typed into
+another block of characters a letter at a time by `font_draw_fcm`. The
+counter is a 16-segment display's digits (`--segments 16 --fcm`, a glyph
+set), unlit segments dim, put by `font_put_cells` each frame. conio's own
+text is in an 8x8 charset made from the same font (`--charset screencode
+--center`, `font_install`, `font_select`). Any key quits; `make check` runs
+50 frames, reads the title's cells and colours back and reports.
 
 ![fonts](images/fonts.png)
 

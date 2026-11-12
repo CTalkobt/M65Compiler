@@ -420,7 +420,7 @@ each line goes to the channel (the installed ROM sends only the first there when
 same drive). `FREAD# lf, address, size` / `FWRITE#` move `size` bytes (0: 65536) between the file and the
 28-bit address (`BANK` not used). `LINE INPUT# lf, a$ [, ...]` reads a line into each (up to 160 characters,
 as `InputBuffer`), `LINE INPUT ["prompt";] a$ [, ...]` the rest of the typed line as it is (commas, colons,
-leading spaces). `DIRECTORY` is `DIR` (basic45 crunches it as BASIC 65 does: `DIR` and the `ECTORY` token, `$FE $29`). Not compiled: `DIR` of the SD card (unit 12).
+leading spaces). `DIRECTORY` is `DIR` (basic45 crunches it as BASIC 65 does: `DIR` and the `ECTORY` token, `$FE $29`). `DIR` of the SD card (`U12`) is the ROM's `dir_sd`, ported to assembly (`stdlib_asm/basic_dirsd.s45`, linked only by a program with `DIR` or `CATALOG`): the hypervisor's directory, each entry's size and name, the pattern's `*`, `?`, `#` (a digit) and `$` (a letter) as the ROM matches them, `[MORE]` in the page mode; test `test_dirsd_xemu.bas` (the interpreter's screen and the compiled program's, on a card disk45 makes).
 `DSAVE`, `SAVE`, `VERIFY` and `DVERIFY` are errors: they save or compare the BASIC program's text, which a compiled
 program does not have.
 

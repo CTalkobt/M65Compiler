@@ -1598,6 +1598,45 @@ else
     failed=$((failed + 1))
 fi
 
+# Test: DIR of the SD card (unit 12) interpreted and compiled (#369): the same
+# screen on a card disk45 makes (three files: 300, 20000 and 10 bytes)
+echo "Testing test_dirsd_xemu.bas (DIR U12 interpreted and compiled)..."
+DSC=build/test/test_dirsd.img
+rm -f "$DSC" build/test/test_dirsd_i.txt build/test/test_dirsd_c.txt
+head -c 300 /dev/zero > build/test/test_dirsd_x1.bin
+head -c 20000 /dev/zero > build/test/test_dirsd_y2.bin
+head -c 10 /dev/zero > build/test/test_dirsd_z3.bin
+if ./bin/disk45 sd create "$DSC" 64M --onboarded >/dev/null 2>&1 &&
+   ./bin/disk45 sd add "$DSC" build/test/test_dirsd_x1.bin X1.PRG >/dev/null 2>&1 &&
+   ./bin/disk45 sd add "$DSC" build/test/test_dirsd_y2.bin Y2.SEQ >/dev/null 2>&1 &&
+   ./bin/disk45 sd add "$DSC" build/test/test_dirsd_z3.bin Z3.PRG >/dev/null 2>&1 &&
+   ./bin/basic45 src/test-resources/test_dirsd_xemu.bas -o build/test/test_dirsd_i.prg >/dev/null 2>&1 &&
+   ./bin/basic45 --compile src/test-resources/test_dirsd_xemu.bas -o build/test/test_dirsd_c.prg >/dev/null 2>&1; then
+    xemu_drain
+    for dsv in i c; do
+        flock "$XJ_DIR/../xemu_disk.lock" timeout 20 $XEMU -headless -besure -sleepless -prgmode 65 -prgexit \
+            -sdimg "$PWD/$DSC" -dumpscreen "build/test/test_dirsd_$dsv.txt" -prg "build/test/test_dirsd_$dsv.prg" </dev/null >/dev/null 2>&1
+    done
+    # (the listing between the "--" lines: *.seq is Y2 alone, ?1* X1 alone)
+    dsseq=$(sed -n '/^--$/,/^--$/p' build/test/test_dirsd_c.txt)
+    # (from RUN on: above it the banner's time and the load's size differ)
+    if [ -s build/test/test_dirsd_c.txt ] &&
+       [ "$(sed -n '/RUN:/,$p' build/test/test_dirsd_i.txt)" = "$(sed -n '/RUN:/,$p' build/test/test_dirsd_c.txt)" ] &&
+       grep -q '^    1 "X1.PRG"$' build/test/test_dirsd_c.txt && grep -q '^   78 "Y2.SEQ"$' build/test/test_dirsd_c.txt &&
+       grep -q '^    0 "Z3.PRG"$' build/test/test_dirsd_c.txt && echo "$dsseq" | grep -q 'Y2.SEQ' && ! echo "$dsseq" | grep -q 'X1.PRG' &&
+       grep -q '^END$' build/test/test_dirsd_c.txt; then
+        echo "SUCCESS: DIR U12: the compiled program's screen is the interpreter's"
+        passed=$((passed + 1))
+    else
+        echo "FAIL: DIR U12: the screens differ or entries are missing"
+        diff <(sed -n '/RUN:/,$p' build/test/test_dirsd_i.txt) <(sed -n '/RUN:/,$p' build/test/test_dirsd_c.txt) | head -10
+        failed=$((failed + 1))
+    fi
+else
+    echo "FAIL: test_dirsd_xemu.bas (disk45 or basic45 failed)"
+    failed=$((failed + 1))
+fi
+
 # Test: an SD card image made by disk45: xemu boots from it (the ROM from the
 # card), BASIC reads and writes the card's MEGA65.D81; disk45 then finds the
 # file BASIC wrote. Needs xemu's MEGA65.ROM

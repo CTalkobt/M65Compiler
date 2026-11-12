@@ -2064,6 +2064,13 @@ void AssemblerParser::pass1() {
                                 else if (r == "Y" || r == "y") stmt->instr.mode = AddressingMode::ABSOLUTE_Y;
                                 else if (r == "SP" || r == "sp") stmt->instr.mode = AddressingMode::STACK_RELATIVE;
                                 else {
+                                    // (only bbr/bbs take "zp, target": another instruction with
+                                    // ", z" has no such mode — abs,z does not exist — and would be
+                                    // assembled into the wrong bytes; ", s" is stack relative, below)
+                                    if ((r == "z" || r == "Z") &&
+                                        !AssemblerOpcodeDatabase::isValidMode(stmt->instr.mnemonic, AddressingMode::BASE_PAGE_RELATIVE))
+                                        throwAt(stmt->line, 1, "'" + stmt->instr.mnemonic + " " + o + "," + r +
+                                                "': no such addressing mode (indexed by X or Y; Z only as (zp),z or [zp],z)");
                                     // bbr/bbs zp, target: the target an expression (label+3, *+5)
                                     stmt->instr.bitBranchTokenIndex = (int)pos - 1;
                                     while (peek().type != AssemblerTokenType::NEWLINE && peek().type != AssemblerTokenType::END_OF_FILE)

@@ -1557,6 +1557,22 @@ else
     failed=$((failed + 1))
 fi
 
+# An index other than X / Y / SP on an instruction that is not BBR / BBS
+# (abs,z does not exist: Z indexes only (zp),z and [zp],z) is an error; it
+# was taken for BBR's "zp, target" and assembled into the wrong bytes
+echo "Testing a Z index outside (zp),z / [zp],z..."
+printf '    sbc $1234,z\n' > build/test/asm_absz.s45
+printf '    bbr3 $12,lab\n    lda ($10),z\nlab:\n    lda [$10],z\n' > build/test/asm_absz2.s45
+if ! ./bin/ca45 build/test/asm_absz.s45 -o build/test/asm_absz.bin 2>build/test/asm_absz.err &&
+   grep -q "'sbc \$1234,z': no such addressing mode" build/test/asm_absz.err &&
+   ./bin/ca45 build/test/asm_absz2.s45 -o build/test/asm_absz2.bin >/dev/null 2>&1 &&
+   [ "$(xxd -p build/test/asm_absz2.bin)" = "3f1202b210eab210" ]; then
+    echo "SUCCESS: sbc abs,z is an error; bbr, (zp),z and [zp],z assemble"
+else
+    echo "FAIL: abs,z: $(cat build/test/asm_absz.err) $(xxd -p build/test/asm_absz2.bin)"
+    failed=$((failed + 1))
+fi
+
 if [ $failed -eq 0 ]; then
     echo "All assembler feature tests passed!"
     exit 0
