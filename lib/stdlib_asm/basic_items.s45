@@ -1,0 +1,405 @@
+; basic_items.s45 — INPUT's and READ's items of BASIC 65 programs compiled by
+; basic45 --compile (#369), in assembly (were basic_in.c's _bas_iitem,
+; _bas_read and _bas_restore; the line itself, GET, TI stay there).
+;
+;   __bas_iitem   the next item of INPUT's line (__bas_ibuf from __bas_ipos)
+;                 into __bas_sr's buffer: __bas_m bit 1 a number's text (no
+;                 quotes, trailing spaces cut, at most 80 characters), bit 2
+;                 LINE INPUT (the rest of the line as it is). Leading spaces
+;                 skipped; the line used up (its end or a ':'): another
+;                 (__bas_morein, "?? "). A string in quotes runs to the next
+;                 quote, one without to the next ',' or ':'; after a quoted
+;                 one only spaces, then ',' / ':' / the end, else ?REDO FROM
+;                 START (__bas_iredo). __bas_n := 0.
+;   __bas_read    the next DATA item (__bas_data: the statements' texts, a
+;                 length byte each, $FF after the last) as INPUT's; after a
+;                 statement's last item the next statement's; none left:
+;                 ?OUT OF DATA; a quoted item followed by more: ?TYPE MISMATCH
+;   __bas_restore READ from the statement at offset __bas_n of __bas_data
+; Characters as PETSCII codes (' ', '"', ',', ':' as ASCII's).
+
+; no calls through pointers here (ln45's call graph)
+.weak cc45.icallinfo
+cc45.icallinfo = 1
+
+.global __bas_iitem, __bas_read, __bas_restore
+.extern __bas_ibuf, __bas_ipos, __bas_morein, __bas_iredo
+.extern __bas_sr, __bas_m, __bas_n, __bas_data, __bas_error
+
+NUMLEN = 80             ; a number item's characters at most (basic_fin.s45's buffer)
+R = $08                 ; the result's buffer
+T = $0A                 ; READ's statement (its length byte)
+
+.segment "bss"
+__it_start: .res 1      ; the item's first character
+__it_n:     .res 1      ; its length
+__rd_rec:   .res 2      ; READ's statement (0: none yet)
+__rd_pos:   .res 1      ; its position in the statement's text
+__rd_need:  .res 1      ; 1: the next statement first; 2: __rd_rec is it
+__rd_len:   .res 1      ; the statement's length
+
+.segment "code"
+
+; --- INPUT ---
+
+proc __it_skipsp            ; past the line's spaces
+    ldx __bas_ipos
+@l: lda __bas_ibuf,x
+    cmp #' '
+    bne @done
+    inx
+    bra @l
+@done:
+    stx __bas_ipos
+    rts
+endproc
+
+proc __bas_iitem
+    lda __bas_sr
+    sta R
+    lda __bas_sr+1
+    sta R+1
+    lda __bas_m
+    and #4
+    beq @item
+    ; LINE INPUT: the rest of the line as it is (another when it is used up)
+    ldx __bas_ipos
+    lda __bas_ibuf,x
+    bne @lrest
+    jsr __bas_morein
+@lrest:
+    ldy #0
+    ldx __bas_ipos
+@l1:
+    lda __bas_ibuf,x
+    beq @l2
+    iny
+    sta (R),y
+    inx
+    bra @l1
+@l2:
+    stx __bas_ipos
+    tya
+    ldy #0
+    sta (R),y
+    jmp __it_done
+@item:
+    jsr __it_skipsp
+    lda __bas_ibuf,x
+    beq @more
+    cmp #':'
+    bne @have
+@more:
+    jsr __bas_morein
+    jsr __it_skipsp
+@have:
+    ldx __bas_ipos
+    lda __bas_m
+    and #2
+    bne @plain
+    lda __bas_ibuf,x
+    cmp #'"'
+    bne @plain
+    ; in quotes: to the next quote
+    inx
+    stx __it_start
+@q1:
+    lda __bas_ibuf,x
+    beq @q2
+    cmp #'"'
+    beq @q2
+    inx
+    bra @q1
+@q2:
+    txa
+    sec
+    sbc __it_start
+    sta __it_n
+    lda __bas_ibuf,x
+    cmp #'"'
+    bne @q3
+    inx
+@q3:
+    stx __bas_ipos
+    jsr __it_skipsp
+    lda __bas_ibuf,x
+    beq @copy
+    cmp #','
+    beq @copy
+    cmp #':'
+    beq @copy
+    jmp __bas_iredo         ; ?REDO FROM START
+@plain:
+    ; without quotes: to the next ',' or ':'
+    stx __it_start
+@p1:
+    lda __bas_ibuf,x
+    beq @p2
+    cmp #','
+    beq @p2
+    cmp #':'
+    beq @p2
+    inx
+    bra @p1
+@p2:
+    stx __bas_ipos
+    txa
+    sec
+    sbc __it_start
+    sta __it_n
+    lda __bas_m
+    and #2
+    beq @copy
+    ; a number's text: trailing spaces cut, at most NUMLEN characters
+@t1:
+    lda __it_n
+    beq @t2
+    clc
+    adc __it_start
+    tax
+    lda __bas_ibuf-1,x
+    cmp #' '
+    bne @t2
+    dec __it_n
+    bra @t1
+@t2:
+    lda __it_n
+    cmp #NUMLEN+1
+    bcc @copy
+    lda #NUMLEN
+    sta __it_n
+@copy:
+    ldy #0
+    lda __it_n
+    sta (R),y
+    ldx __it_start
+@c1:
+    cpy __it_n
+    beq @c2
+    lda __bas_ibuf,x
+    iny
+    sta (R),y
+    inx
+    bra @c1
+@c2:
+    ldx __bas_ipos
+    lda __bas_ibuf,x
+    cmp #','
+    bne @n0
+    inc __bas_ipos
+@n0:
+    jmp __it_done
+endproc
+
+proc __it_done              ; __bas_n := 0
+    lda #0
+    sta __bas_n
+    sta __bas_n+1
+    rts
+endproc
+
+; --- READ ---
+
+proc __bas_restore
+    clc
+    lda #<__bas_data
+    adc __bas_n
+    sta __rd_rec
+    lda #>__bas_data
+    adc __bas_n+1
+    sta __rd_rec+1
+    lda #2                  ; (the statement itself is the next)
+    sta __rd_need
+    rts
+endproc
+
+proc __rd_raise             ; error A
+    sta __bas_n
+    lda #0
+    sta __bas_n+1
+    jmp __bas_error
+endproc
+
+; A := the statement's text at __rd_pos (Y its index: __rd_pos + 1); C set:
+; past the statement's end
+proc __rd_char
+    ldx __rd_pos
+    cpx __rd_len
+    bcs @end
+    txa
+    tay
+    iny
+    lda (T),y
+    clc
+@end:
+    rts
+endproc
+
+proc __bas_read
+    lda __bas_sr
+    sta R
+    lda __bas_sr+1
+    sta R+1
+    lda __rd_rec
+    ora __rd_rec+1
+    bne @have
+    lda #<__bas_data        ; the first READ: the first statement
+    sta __rd_rec
+    lda #>__bas_data
+    sta __rd_rec+1
+    lda #2
+    sta __rd_need
+@have:
+    lda __rd_rec
+    sta T
+    lda __rd_rec+1
+    sta T+1
+    lda __rd_need
+    beq @in
+    cmp #1
+    bne @check
+    ; the next statement (not past the end mark)
+    ldy #0
+    lda (T),y
+    cmp #$FF
+    beq @check
+    sec                     ; (its length and the length byte)
+    adc T
+    sta T
+    sta __rd_rec
+    lda T+1
+    adc #0
+    sta T+1
+    sta __rd_rec+1
+@check:
+    ldy #0
+    lda (T),y
+    cmp #$FF
+    bne @first
+    lda #13                 ; ?OUT OF DATA
+    jmp __rd_raise
+@first:
+    lda #0
+    sta __rd_pos
+    sta __rd_need
+@in:
+    ldy #0
+    lda (T),y
+    sta __rd_len
+@sp:
+    jsr __rd_char
+    bcs @sp2
+    cmp #' '
+    bne @sp2
+    inc __rd_pos
+    bra @sp
+@sp2:
+    lda __bas_m
+    and #2
+    bne @plain
+    jsr __rd_char
+    bcs @plain
+    cmp #'"'
+    bne @plain
+    ; in quotes: to the next quote
+    inc __rd_pos
+    lda __rd_pos
+    sta __it_start
+@q1:
+    jsr __rd_char
+    bcs @q2
+    cmp #'"'
+    beq @q2
+    inc __rd_pos
+    bra @q1
+@q2:
+    lda __rd_pos
+    sec
+    sbc __it_start
+    sta __it_n
+    lda __rd_pos
+    cmp __rd_len
+    bcs @q3
+    inc __rd_pos            ; (the closing quote)
+@q3:
+    jsr __rd_char
+    bcs @copy
+    cmp #' '
+    bne @q4
+    inc __rd_pos
+    bra @q3
+@q4:
+    cmp #','
+    beq @copy
+    lda #22                 ; ?TYPE MISMATCH
+    jmp __rd_raise
+@plain:
+    lda __rd_pos
+    sta __it_start
+@p1:
+    jsr __rd_char
+    bcs @p2
+    cmp #','
+    beq @p2
+    inc __rd_pos
+    bra @p1
+@p2:
+    lda __rd_pos
+    sec
+    sbc __it_start
+    sta __it_n
+    lda __bas_m
+    and #2
+    beq @copy
+    ; a number's text: trailing spaces cut, at most NUMLEN characters
+@t1:
+    lda __it_n
+    beq @t2
+    clc
+    adc __it_start
+    tay                     ; (the text's index of the last: start + n - 1, + 1 for the length byte)
+    lda (T),y
+    cmp #' '
+    bne @t2
+    dec __it_n
+    bra @t1
+@t2:
+    lda __it_n
+    cmp #NUMLEN+1
+    bcc @copy
+    lda #NUMLEN
+    sta __it_n
+@copy:
+    ldy #0
+    lda __it_n
+    sta (R),y
+    ldx #0
+@c1:
+    cpx __it_n
+    beq @c2
+    txa
+    clc
+    adc __it_start
+    tay
+    iny
+    lda (T),y
+    pha
+    txa
+    tay
+    iny
+    pla
+    sta (R),y
+    inx
+    bra @c1
+@c2:
+    ; the ',' after it, or the statement's end: the next statement next time
+    lda __rd_pos
+    cmp __rd_len
+    bcs @last
+    inc __rd_pos
+    rts
+@last:
+    lda #1
+    sta __rd_need
+    rts
+endproc

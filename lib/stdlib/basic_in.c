@@ -4,25 +4,13 @@
  *   _bas_iline: a line from the keyboard (KERNAL BASIN: the screen editor),
  *     "? " first when __bas_n is 1, a carriage return after it. __bas_n := 1
  *     for an empty line (the INPUT ends, its variables unchanged), else 0.
- *   _bas_iitem: the next item of the line for a string variable, into
- *     __bas_sr's buffer (__bas_m bit 0; bit 1: a number's text, no quotes,
- *     trailing spaces cut: _bas_iitemn of basic_fin.s45, which converts it
- *     into __float_a, so strtof is linked only by a program reading numbers,
- *     #484). Leading spaces are
- *     skipped; the line used up (its end or a ':') asks for another with
- *     "?? ". A string in quotes runs to the next quote, one without to the next
- *     ',' or ':'. After the item only spaces, then ',', ':' or the end may
- *     follow, else "?REDO FROM START" and __bas_n := 1 (the INPUT starts
- *     again); else __bas_n := 0. Input left over is ignored (as BASIC 65:
- *     no ?EXTRA IGNORED).
+ *   _bas_iitem (INPUT's items), _bas_read, _bas_restore (READ's DATA items):
+ *     basic_items.s45, in assembly; the line in _bas_ibuf from _bas_ipos, the
+ *     line used up: _bas_morein ("?? ", another), bad data: _bas_iredo.
+ *     Input left over is ignored (as BASIC 65: no ?EXTRA IGNORED).
  *   _bas_get: a key (KERNAL GETIN): __bas_n := its code, 0 for none;
  *     __bas_m bit 0 (GETKEY): waits for one; bit 1: also the string of it
  *     ("" for none) into __bas_sr's buffer.
- *   _bas_read: the next DATA item for a variable (__bas_m as _bas_iitem's):
- *     items as INPUT's, from __bas_data (the DATA statements' text, basic45
- *     makes it); after the last of a statement the next statement's; none
- *     left: ?OUT OF DATA; not a number (or more after one): ?TYPE MISMATCH.
- *   _bas_restore: READ from the DATA at offset __bas_n of __bas_data.
  *   _bas_ti: TI into __float_a: CIA 2's timers A and B (one 32-bit count,
  *     started if they do not run) in seconds, as BASIC 65's Get_TI_CIA.
  *   _bas_tis: TI$ ("hh:mm:ss", the RTC) into __bas_sr's buffer.
@@ -51,8 +39,11 @@ static void raise(int n) {
 
 #define LINE 160
 #define NUMLEN 80     /* a number item: its first 80 characters (basic_fin.s45) */
-static unsigned char line[LINE + 1];
-static unsigned char pos;
+/* the line INPUT reads and its position (basic_items.s45's items too) */
+unsigned char _bas_ibuf[LINE + 1];
+unsigned char _bas_ipos;
+#define line _bas_ibuf
+#define pos _bas_ipos
 
 static void out(const char *s) {
     while (*s) cbm_k_bsout((unsigned char)*s++);
@@ -100,9 +91,6 @@ void _bas_iline(void) {
     _bas_n = line[0] == 0;
 }
 
-static void skipsp(void) {
-    while (line[pos] == ' ') pos++;
-}
 
 /* LINE INPUT# (the ROM's linputn): a line (InputBuffer) into __bas_sr's buffer */
 void _bas_lin(void) {
@@ -114,56 +102,10 @@ void _bas_lin(void) {
     for (k = 0; k < n; k++) r[k + 1] = line[k];
 }
 
-void _bas_iredo(void);
-void _bas_iitem(void) {
-    unsigned char c, start, n;
-    if (_bas_m & 4) {
-        /* LINE INPUT: the rest of the line as it is (leading spaces, commas,
-         * colons; count_to_eol), another line when it is used up */
-        unsigned char *r = _bas_sr;
-        if (!line[pos]) {
-            if (!_bas_chan) out("?? ");
-            readline();
-        }
-        n = 0;
-        while (line[pos]) r[++n] = line[pos++];
-        r[0] = n;
-        _bas_n = 0;
-        return;
-    }
-    skipsp();
-    if (line[pos] == 0 || line[pos] == ':') {
-        if (!_bas_chan) out("?? ");
-        readline();
-        skipsp();
-    }
-    {
-        unsigned char *r = _bas_sr;
-        if (!(_bas_m & 2) && line[pos] == '"') {
-            start = ++pos;
-            while (line[pos] && line[pos] != '"') pos++;
-            n = pos - start;
-            if (line[pos] == '"') pos++;
-            skipsp();
-            c = line[pos];
-            if (c && c != ',' && c != ':') goto redo;
-        } else {
-            start = pos;
-            while (line[pos] && line[pos] != ',' && line[pos] != ':') pos++;
-            n = pos - start;
-            if (_bas_m & 2) {
-                while (n && line[start + n - 1] == ' ') n--;
-                if (n > NUMLEN) n = NUMLEN;
-            }
-        }
-        r[0] = n;
-        for (c = 0; c < n; c++) r[c + 1] = line[start + c];
-    }
-    if (line[pos] == ',') pos++;
-    _bas_n = 0;
-    return;
-redo:
-    _bas_iredo();
+/* the line used up: another ("?? " first, from the keyboard) (basic_items.s45) */
+void _bas_morein(void) {
+    if (!_bas_chan) out("?? ");
+    readline();
 }
 
 /* bad data for an INPUT item: ?REDO FROM START (__bas_n 1: the INPUT again) */
@@ -234,47 +176,4 @@ void _bas_tis(void) {
     }
 }
 
-static unsigned char *drec;      /* the DATA statement READ is in (0: none yet) */
-static unsigned char dpos, dneed = 1;
-
-void _bas_restore(void) {
-    drec = _bas_data + _bas_n;
-    dneed = 2;                   /* (2: drec itself is the next statement) */
-}
-
-void _bas_read(void) {
-    unsigned char *t, len, start, n, c;
-    if (!drec) { drec = _bas_data; dneed = 2; }
-    if (dneed) {
-        if (dneed == 1 && drec[0] != 0xFF) drec += drec[0] + 1;
-        if (drec[0] == 0xFF) raise(13);
-        dpos = 0;
-        dneed = 0;
-    }
-    len = drec[0];
-    t = drec + 1;
-    while (dpos < len && t[dpos] == ' ') dpos++;
-    {
-        unsigned char *r = _bas_sr;
-        if (!(_bas_m & 2) && dpos < len && t[dpos] == '"') {
-            start = ++dpos;
-            while (dpos < len && t[dpos] != '"') dpos++;
-            n = dpos - start;
-            if (dpos < len) dpos++;
-            while (dpos < len && t[dpos] == ' ') dpos++;
-            if (dpos < len && t[dpos] != ',') raise(22);
-        } else {
-            start = dpos;
-            while (dpos < len && t[dpos] != ',') dpos++;
-            n = dpos - start;
-            if (_bas_m & 2) {
-                while (n && t[start + n - 1] == ' ') n--;
-                if (n > NUMLEN) n = NUMLEN;
-            }
-        }
-        r[0] = n;
-        for (c = 0; c < n; c++) r[c + 1] = t[start + c];
-    }
-    if (dpos < len) dpos++;          /* the ',' */
-    else dneed = 1;
-}
+/* (READ, RESTORE and INPUT's items: basic_items.s45) */
