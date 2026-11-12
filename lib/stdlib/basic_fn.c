@@ -4,10 +4,7 @@
  * As BASIC 65's (b65.src): the arguments in __bas_sa / __bas_sb (strings),
  * __bas_n / __bas_m (16-bit numbers), __float_a (a number); a string result
  * into __bas_sr's buffer, a number into __float_a or __bas_n.
- *   _bas_val     VAL(__bas_sa): its get_number's syntax (a sign, digits, one
- *                point, one E with a sign right after it; it ends at another
- *                character; a second point or E, or an E without digits: 0;
- *                a sign alone: -0); the value by strtof (correctly rounded)
+ *   (VAL: basic_fin.s45, in assembly)
  *   _bas_hex     HEX$(__float_a): 4 digits for 0..65535, else 8 (a negative
  *                number as 32 bits); STRBIN$: 8, 16 or 32 binary digits
  *   _bas_dec     DEC(__bas_sa): hex digits to the first other character
@@ -45,41 +42,7 @@ static void seta(float f) {
     for (k = 0; k < 5; k++) _float_a[k] = ((unsigned char *)&f)[k];
 }
 
-void _bas_val(void) {
-    unsigned char *s = _bas_sa, n = s[0], i = 1, start, neg = 0, dot = 0, e = 0, edigits = 0;
-    char buf[40];
-    unsigned char k = 0;
-    float f;
-    while (i <= n && s[i] == 0x20) i++;
-    if (i <= n && (s[i] == 0x2B || s[i] == 0x2D)) { neg = s[i] == 0x2D; i++; }
-    start = i;
-    for (; i <= n; i++) {
-        unsigned char c = s[i];
-        if (c == 0x2E) {
-            if (dot || e) { seta(0.0); return; }
-            dot = 1;
-        } else if (c == 0x45) {          /* E (PETSCII: a C 'E' is shifted) */
-            if (e) { seta(0.0); return; }
-            e = 1;
-        } else if (c == 0x2B || c == 0x2D) {
-            if (!e) break;
-            if (s[i - 1] != 0x45) { seta(0.0); return; }
-        } else if (c >= 0x30 && c <= 0x39) {
-            if (e) edigits = 1;
-        } else break;
-        if (k < sizeof buf - 1) buf[k++] = c;
-    }
-    buf[k] = 0;
-    if (e && !edigits) { seta(0.0); return; }
-    /* (one character, "." or "0": zero without the sign) */
-    if (i - start == 1 && (buf[0] == 0x2E || buf[0] == 0x30)) { seta(0.0); return; }
-    f = strtof(buf, 0);
-    if (neg) {
-        f = -f;
-        if (f == 0.0) { seta(0.0); _float_a[1] = 0x80; return; }   /* -0 */
-    }
-    seta(f);
-}
+/* (_bas_val: basic_fin.s45) */
 
 /* __float_a rounded down, as 32 bits (|x| < 2^32, ?ILLEGAL QUANTITY else) */
 static unsigned long int32(void) {

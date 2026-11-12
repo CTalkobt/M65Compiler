@@ -6,7 +6,7 @@
  *     for an empty line (the INPUT ends, its variables unchanged), else 0.
  *   _bas_iitem: the next item of the line for a string variable, into
  *     __bas_sr's buffer (__bas_m bit 0; bit 1: a number's text, no quotes,
- *     trailing spaces cut: _bas_iitemn of basic_innum.c, which converts it
+ *     trailing spaces cut: _bas_iitemn of basic_fin.s45, which converts it
  *     into __float_a, so strtof is linked only by a program reading numbers,
  *     #484). Leading spaces are
  *     skipped; the line used up (its end or a ':') asks for another with
@@ -32,7 +32,7 @@
  * echoed carriage return, a line as BASIC's InputBuffer, bad data ?FILE DATA
  * instead of ?REDO FROM START, a bad status (ST AND $87) ends the INPUT#;
  * GET# never waits, a 0 is CHR$(0).
- * Numbers are read by strtof (basic_innum.c; correctly rounded: the ROM's own
+ * Numbers are read as strtof reads them (basic_fin.s45; correctly rounded: the ROM's own
  * conversion can differ in the last bit).
  */
 #include <cbm.h>
@@ -50,7 +50,7 @@ static void raise(int n) {
 }
 
 #define LINE 160
-#define NUMLEN 80     /* a number item: its first 80 characters (basic_innum.c) */
+#define NUMLEN 80     /* a number item: its first 80 characters (basic_fin.s45) */
 static unsigned char line[LINE + 1];
 static unsigned char pos;
 

@@ -4,6 +4,16 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### basic45 --compile: VAL, INPUT and READ's numbers in assembly (#369)
+
+- `stdlib_asm/basic_fin.s45`: the number reader (strtof's algorithm step
+  for step, the same float operations in the same order: the same correctly
+  rounded results), `VAL`'s syntax check and INPUT / READ's number items, in
+  assembly (were `basic_fn.c`'s `_bas_val` and `basic_innum.c`, through the C
+  library's `strtof`). A program reading numbers is about 1.2 KB smaller
+  (`test_basic_compile2_xemu.bas`: 18088 -> 16843 bytes).
+- Test: `test_basic_fin_xemu.c`, the reader against `strtof` on 50 texts.
+
 ### basic45 --compile: --link, FORMAT, TURBO, ST$ / ER$ / EL$ (#369)
 
 - `--compile` with `--link` (C files, assembly, objects) and asm blocks: one
