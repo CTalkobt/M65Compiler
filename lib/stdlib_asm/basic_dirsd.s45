@@ -1,0 +1,314 @@
+; basic_dirsd.s45 — basic45 --compile's DIR of the SD card (unit 12, #369),
+; as BASIC 65's dir_sd (b65.src V920413: dir_sd, dir_sd_match,
+; dir_sd_match_slide, dir_sd_match_single, format_xy, paginate_pause),
+; ported line by line: the hypervisor's directory calls, the pattern's * ? #
+; (a digit) $ (a letter) as the ROM matches them, the sizes and names.
+;
+; __bas_dirsd (from basic_io.c's DIR): the pattern at $0400 (BASIC's hdosfn),
+; __bas_sdlen its length (0: none), __bas_sdpage bit 7 the page mode
+; ([MORE] at the screen's last row). Output through __bas_out (CMD's
+; channel too). The transfer area is BASIC's dosstr ($1300).
+
+; no calls through pointers here (ln45's call graph)
+.weak cc45.icallinfo
+cc45.icallinfo = 1
+
+.global __bas_dirsd, __bas_sdlen, __bas_sdpage
+.extern __bas_out, __bas_hyv, __bp_rom, __bp_prog
+
+DSTR = $1300            ; the directory entry (the hypervisor's transfer area)
+PAT = $0400             ; the pattern
+HYV_OPENDIR = $12
+HYV_READDIR = $14
+HYV_CLOSDIR = $16
+PLOT = $FFF0
+
+.segment "bss"
+__bas_sdlen:    .res 1  ; the pattern's length (0: none)
+__bas_sdpage:   .res 1  ; bit 7: page mode; bit 6: stop (pagemo's)
+__sd_fd:        .res 1  ; the directory's descriptor
+__sd_bp:        .res 1  ; slide's beginpat
+__sd_bn:        .res 1  ; slide's beginame
+__sd_num:       .res 2  ; the size
+__sd_cnt:       .res 1  ; its digits' count
+__sd_dig:       .res 7  ; its digits (formats+1), 0 after them
+
+.segment "code"
+
+proc __bas_dirsd
+    ldx #0
+@title:
+    lda __sd_title,x
+    beq @open
+    jsr __bas_out
+    inx
+    bra @title
+@open:
+    lda #HYV_OPENDIR
+    jsr __bas_hyv
+    sta __sd_fd
+@next:
+    ldx __sd_fd
+    ldy #>DSTR
+    lda #HYV_READDIR
+    jsr __bas_hyv
+    bcc @close
+    ; a pattern: the name must match it
+    lda __bas_sdlen
+    beq @show
+    jsr __sd_match
+    bcc @next
+@show:
+    ; the size, left-padded with spaces (5 - its digits of them)
+    ldx DSTR+$53
+    ldy DSTR+$54
+    jsr __sd_format
+@pad:
+    inx
+    cpx #6
+    bcs @digits
+    lda #' '
+    jsr __bas_out
+    bra @pad
+@digits:
+    ldx #0
+@d1:
+    lda __sd_dig,x
+    beq @d2
+    jsr __bas_out
+    inx
+    bpl @d1
+@d2:
+    lda #' '
+    jsr __bas_out
+    lda #'"'
+    jsr __bas_out
+    ldx #0
+@name:
+    lda DSTR,x
+    cmp #' '
+    bcc @named
+    jsr __bas_out
+    inx
+    bne @name
+@named:
+    lda #'"'
+    jsr __bas_out
+    lda #13
+    jsr __bas_out
+    jsr __sd_pause
+    bit __bas_sdpage        ; (bit 6: stop asked for)
+    bvs @close
+    bra @next
+@close:
+    ldx __sd_fd
+    lda #HYV_CLOSDIR
+    jmp __bas_hyv
+endproc
+
+__sd_title:
+    .byte 18
+    .ascii "SD-CARD DIRECTORY"
+    .byte 13, 0
+
+; C set: the name at DSTR matches the pattern (dir_sd_match)
+proc __sd_match
+    ldx #0                  ; the pattern's index
+    ldy #0                  ; the name's
+@loop:
+    cpx __bas_sdlen
+    bcc @more
+    lda DSTR,y
+    cmp #' '
+    bcs @no                 ; the pattern ended before the name
+    bra @yes                ; both ended
+@more:
+    lda DSTR,y
+    cmp #' '
+    bcc @no                 ; the name ended before the pattern
+    lda PAT,x
+    cmp #'*'
+    bne @single
+    inx
+    cpx __bas_sdlen
+    beq @yes                ; a star last: a match
+    jsr __sd_slide
+    bcc @no
+    bra @loop
+@single:
+    jsr __sd_single
+    bcc @no
+    inx
+    iny
+    bra @loop
+@yes:
+    sec
+    rts
+@no:
+    clc
+    rts
+endproc
+
+; A * and the singles after it up to the next * or the pattern's end
+; (dir_sd_match_slide): X one past the star, Y where the name goes on
+proc __sd_slide
+    stx __sd_bp
+    sty __sd_bn
+@restart:
+    ldx __sd_bp
+@pat:
+    lda PAT,x
+    cmp #'*'
+    beq @yes                ; another *: this part matched
+    jsr __sd_single
+    bcc @consume
+    iny
+    cpx __bas_sdlen
+    inx
+    bcc @pat
+    lda DSTR,y
+    cmp #' '
+    bcc @yes                ; the whole name taken by singles
+@consume:
+    ; a name character taken by the *, the sub-pattern again
+    inc __sd_bn
+    ldy __sd_bn
+    lda DSTR,y
+    cmp #' '
+    bcs @restart
+    clc                     ; the name ended before the pattern
+    rts
+@yes:
+    sec
+    rts
+endproc
+
+; C set: the pattern's character X matches the name's Y (dir_sd_match_single):
+; ? any, # a digit, $ a letter, else itself
+proc __sd_single
+    lda PAT,x
+    cmp #'?'
+    beq @yes
+    cmp DSTR,y
+    beq @yes
+    cmp #'#'
+    bne @letter
+    lda DSTR,y
+    cmp #'9'+1
+    bcs @no
+    cmp #'0'
+    rts                     ; (C set: a digit)
+@letter:
+    cmp #'$'
+    bne @no
+    lda DSTR,y
+    cmp #'Z'+1
+    bcs @no
+    cmp #'A'
+    rts                     ; (C set: a letter)
+@yes:
+    sec
+    rts
+@no:
+    clc
+    rts
+endproc
+
+; X + 256 * Y as decimal digits at __sd_dig, no leading zeros (one 0 for
+; zero), 0 after them; X their count (format_xy)
+proc __sd_format
+    stx __sd_num
+    sty __sd_num+1
+    ldx #0                  ; the power's index
+    stx __sd_cnt            ; the digits written
+@power:
+    ldy #'0'
+@sub:
+    ; the power of ten subtracted while it fits
+    lda __sd_num
+    sec
+    sbc __sd_plo,x
+    pha
+    lda __sd_num+1
+    sbc __sd_phi,x
+    bcc @fits
+    sta __sd_num+1
+    pla
+    sta __sd_num
+    iny
+    bra @sub
+@fits:
+    pla
+    tya                     ; (the digit)
+    cpx #4                  ; the units: always
+    beq @put
+    cpy #'0'
+    bne @put
+    ldy __sd_cnt
+    beq @skip               ; a leading zero
+@put:
+    ldy __sd_cnt
+    sta __sd_dig,y
+    inc __sd_cnt
+@skip:
+    inx
+    cpx #5
+    bne @power
+    ldy __sd_cnt
+    lda #0
+    sta __sd_dig,y
+    ldx __sd_cnt
+    rts
+endproc
+
+__sd_plo:   .byte <10000, <1000, <100, <10, <1
+__sd_phi:   .byte >10000, >1000, >100, >10, >1
+
+; The page mode's pause (paginate_pause): at the screen's last row, [MORE]
+; and a key from the typing queue ($D610); STOP or Q: stop (bit 6)
+proc __sd_pause
+    bit __bas_sdpage
+    bpl @done
+    jsr __bp_rom
+    sec
+    jsr PLOT                ; X: the cursor's row
+    jsr __bp_prog
+    cpx #24
+    bne @done
+    ldx #0
+@more:
+    lda __sd_more,x
+    beq @key
+    jsr __bas_out
+    inx
+    bra @more
+@key:
+    lda $D610
+    beq @key
+    lda $D619               ; (its PETSCII; a write takes it off)
+    sta $D610
+    pha
+    lda #27
+    jsr __bas_out
+    lda #'D'
+    jsr __bas_out
+    pla
+    cmp #3
+    beq @stop
+    cmp #'Q'
+    bne @clear
+@stop:
+    lda #$40
+    tsb __bas_sdpage
+    rts
+@clear:
+    lda #147
+    jsr __bas_out
+@done:
+    rts
+endproc
+
+__sd_more:
+    .byte 18
+    .ascii "[MORE]"
+    .byte 146, 27, 'J', 0
