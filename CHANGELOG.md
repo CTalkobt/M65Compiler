@@ -4,6 +4,16 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### basic45 --compile: a function per DOS command (#369)
+
+- `basic_io.c`'s DOS commands 1-19 (DOPEN / APPEND, DCLOSE, HEADER,
+  SCRATCH, RENAME, CONCAT, COLLECT, DCLEAR, BACKUP, COPY, BLOAD / BVERIFY,
+  BSAVE, DIR / CATALOG, LOADIFF / SAVEIFF) were one function, so a program
+  using any of them linked all of them; now a function each (`_bas_dosN`,
+  as 20 and up were), which the compiler calls: a program links the
+  commands it uses. B8.HC.V2: 18195 -> 14689 bytes; even
+  `test_basic_compile7_xemu.bas`, with ten of them: 17494 -> 15658.
+
 ### basic45 --compile: DIR of the SD card (U12), in assembly; ca45: abs,Z an error (#369)
 
 - `DIR [pattern,] U12`: the ROM's `dir_sd` ported line by line to

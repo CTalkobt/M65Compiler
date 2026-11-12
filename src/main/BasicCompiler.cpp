@@ -3118,7 +3118,7 @@ void Compiler::keyStmt() {
             store(ir::Type::I8, iconst(ir::Type::I8, 0), global("__bas_dbnk"));
             store(ir::Type::I8, iconst(ir::Type::I8, 7), global("__bas_daux"));
             store(ir::Type::I16, iconst(ir::Type::I16, 15), global("__bas_m"));
-            call("__bas_dos");
+            call("__bas_dos15");
         } else {
             store(ir::Type::I16, iconst(ir::Type::I16, 0x110), global("__bas_n"));    // ($1000, a page)
             call("__bas_dos20");
@@ -3218,7 +3218,7 @@ void Compiler::bootStmt() {
     int par = dosArgs("BOOT", 0xE6, names, 3);
     if (!(par & 1)) fail("BOOT needs a file name (?SYNTAX ERROR)");
     store(ir::Type::I16, iconst(ir::Type::I16, 13), global("__bas_m"));
-    call("__bas_dos");
+    call("__bas_dos13");
     sysUsed_ = true;
     call("__bas_boot");
     for (auto it = names.rbegin(); it != names.rend(); ++it) freeVal(*it);
@@ -3374,10 +3374,10 @@ void Compiler::iffStmt(int kw) {
     int par = dosArgs(load ? "LOADIFF" : "SAVEIFF", load ? 0xE6 : 0x66, names, 0);
     if (!(par & 1)) fail(std::string(load ? "LOADIFF" : "SAVEIFF") + ": a file name is required (?SYNTAX ERROR)");
     store(ir::Type::I16, iconst(ir::Type::I16, load ? 17 : 18), global("__bas_m"));
-    call("__bas_dos");
+    call("__bas_dos17");
     call(load ? "__bas_gloadiff" : "__bas_gsaveiff");
     store(ir::Type::I16, iconst(ir::Type::I16, 19), global("__bas_m"));
-    call("__bas_dos");
+    call("__bas_dos19");
     for (auto it = names.rbegin(); it != names.rend(); ++it) freeVal(*it);
 }
 
@@ -3423,8 +3423,12 @@ void Compiler::dosStmt(int kw) {
     store(ir::Type::I16, iconst(ir::Type::I16, d->cmd), global("__bas_m"));
     // (commands from 20 on are functions of their own: a program links those it uses)
     // (DIR / CATALOG: __bas_dir, which links the SD card's directory, basic_dirsd.s45)
-    call(d->cmd >= 20 ? "__bas_dos" + std::to_string(d->cmd == 24 ? 23 : d->cmd) : d->cmd == 16 ? std::string("__bas_dir")
-                                                                                                  : std::string("__bas_dos"));
+    // (a function each, the run time's _bas_dosN: a program links the commands it uses; the
+    // ones a function shares go to its first: 2 to 1, 14 to 13, 24 to 23; DIR / CATALOG:
+    // __bas_dir, which links the SD card's directory, basic_dirsd.s45, then _bas_dos16)
+    static const std::map<int, int> shared = {{2, 1}, {14, 13}, {24, 23}};
+    int fnum = shared.count(d->cmd) ? shared.at(d->cmd) : d->cmd;
+    call(d->cmd == 16 ? std::string("__bas_dir") : "__bas_dos" + std::to_string(fnum));
     for (auto it = names.rbegin(); it != names.rend(); ++it) freeVal(*it);
 }
 
@@ -3525,7 +3529,7 @@ void Compiler::spriteStmt() {
             for (auto it = names.rbegin(); it != names.rend(); ++it) freeVal(*it);
             return;
         }
-        call("__bas_dos");
+        call("__bas_dos15");
         for (auto it = names.rbegin(); it != names.rend(); ++it) freeVal(*it);
         return;
     }

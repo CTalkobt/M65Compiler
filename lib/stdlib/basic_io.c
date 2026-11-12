@@ -10,14 +10,15 @@
  *   _bas_st: ST (the KERNAL's I/O status, READST) into __bas_n.
  * As BASIC 65's DOS statements (b65.src: dopen, append, dclose, dosprs,
  * sendp's tabld, Read_DS, Get_DS):
- *   _bas_dos: the DOS statement __bas_m (1 DOPEN, 2 APPEND, 3 DCLOSE, 5
+ *   _bas_dosN: the DOS statement N, a function each (a program links those it
+ *   uses; __bas_m still tells the ones a function shares apart) (1 DOPEN, 2 APPEND, 3 DCLOSE, 5
  *     HEADER, 6 SCRATCH / ERASE / DELETE "name", 7 RENAME, 8 CONCAT, 9
  *     COLLECT, 10 DCLEAR, 11 BACKUP, 12 COPY on one unit) with the
  *     parameters basic45 parsed (dosprs below): the ROM's command string on
  *     the command channel (trans), or DOPEN / APPEND's file opened on a free
  *     secondary address $62-$6E (?TOO MANY FILES). DOPEN forgets DS$.
  *   _bas_record: RECORD# lf, record, byte (P on the file's unit).
- *   _bas_dos 16: DIR / CATALOG [name] [, D] [, U] [, R] [, W] [, P] (directory,
+ *   _bas_dos16: DIR / CATALOG [name] [, D] [, U] [, R] [, W] [, P] (directory,
  *     ldir): "$0:name" ("_" with R) loaded on lf 0, secondary address $60, a
  *     line per entry (the blocks right-aligned in 4, the rest as the drive
  *     sends it); W: 20 characters each in columns of 21 rows below the
@@ -467,11 +468,11 @@ void _bas_dos30(void) {
     if (!__jsr_raw(_bas_hyv, .A = dosfa == 9 ? 0x46 : 0x40, .X = dosfa).Carry) kerr(4);
 }
 
-void _bas_dos(void) {
+/* DOS command 1 / 2 DOPEN APPEND */
+void _bas_dos1(void) {
     unsigned char e, sa, n;
-    switch ((unsigned char)_bas_m) {
-    case 1:     /* DOPEN */
-    case 2:     /* APPEND */
+    (void)e; (void)sa; (void)n;
+    do {
         if (_bas_m == 1) ds[0] = 0;
         dosprs(0);
         for (sa = 0x62; ; sa++) {               /* find_sa */
@@ -486,8 +487,14 @@ void _bas_dos(void) {
         cbm_setbnk(0, 0);
         if (__jsr(0xFFC0, .A -> e).Carry) kerr(e);
         break;
-    case 17:    /* LOADIFF, SAVEIFF: the file opened (as DLOAD / DSAVE: sa 0 / 1), the */
-    case 18: {  /* channel in / out; __bas_gloadiff / gsaveiff, then 19 */
+    } while (0);
+}
+
+/* DOS command 17 / 18 LOADIFF, SAVEIFF: the file opened (as DLOAD / DSAVE: sa 0 / 1), the channel in / out; __bas_gloadiff / gsaveiff, then 19 */
+void _bas_dos17(void) {
+    unsigned char e, sa, n;
+    (void)e; (void)sa; (void)n;
+    do {
         unsigned char la = 0;
         dosprs(0);
         dossa = (unsigned char)(_bas_m - 17);
@@ -505,43 +512,107 @@ void _bas_dos(void) {
             if (__jsr(0xFFC6, .X = dosla, .A -> e).Carry) kerr(e);
         } else if (__jsr(0xFFC9, .X = dosla, .A -> e).Carry) kerr(e);
         break;
-    }
-    case 19:    /* exit_GKI_disk_op: closed; STOP down: BREAK */
+    } while (0);
+}
+
+/* DOS command 19 exit_GKI_disk_op: closed; STOP down: BREAK */
+void _bas_dos19(void) {
+    unsigned char e, sa, n;
+    (void)e; (void)sa; (void)n;
+    do {
         _bas_iffclose();
         if (__jsr(0xFFE1).Zero) {
             while (__jsr(0xFFE1).Zero) {}
             kerr(0);
         }
         break;
-    case 3:     /* DCLOSE */
+    } while (0);
+}
+
+/* DOS command 3 DCLOSE */
+void _bas_dos3(void) {
+    unsigned char e, sa, n;
+    (void)e; (void)sa; (void)n;
+    do {
         dosprs(0);
         if (par & 4) {
             if (__jsr(0xFFC3, .A = dosla, .Carry = 0, .A -> e).Carry) kerr(e);
         } else closeall();
         break;
-    case 5:     /* HEADER */
+    } while (0);
+}
+
+/* DOS command 5 HEADER */
+void _bas_dos5(void) {
+    unsigned char e, sa, n;
+    (void)e; (void)sa; (void)n;
+    do {
         dosprs(0);
         clall();
         trans(t_fhed, did[0] ? 6 : 4);
         break;
-    case 6:     /* SCRATCH (ERASE, DELETE "name"): R recovers */
+    } while (0);
+}
+
+/* DOS command 6 SCRATCH (ERASE, DELETE "name"): R recovers */
+void _bas_dos6(void) {
+    unsigned char e, sa, n;
+    (void)e; (void)sa; (void)n;
+    do {
         dosprs(0);
         if (_bas_dflx & 0x40) trans(t_frscr, 7);
         else trans(t_fscr, 5);
         break;
-    case 7: dosprs(0); trans(t_fren, 8); break;          /* RENAME */
-    case 8: dosprs(0); trans(t_fconc, 12); break;        /* CONCAT */
-    case 9:     /* COLLECT */
+    } while (0);
+}
+
+/* DOS command 7 */
+void _bas_dos7(void) {
+    unsigned char e, sa, n;
+    (void)e; (void)sa; (void)n;
+    do {
+        dosprs(0); trans(t_fren, 8); break;          /* RENAME */
+    } while (0);
+}
+
+/* DOS command 8 */
+void _bas_dos8(void) {
+    unsigned char e, sa, n;
+    (void)e; (void)sa; (void)n;
+    do {
+        dosprs(0); trans(t_fconc, 12); break;        /* CONCAT */
+    } while (0);
+}
+
+/* DOS command 9 COLLECT */
+void _bas_dos9(void) {
+    unsigned char e, sa, n;
+    (void)e; (void)sa; (void)n;
+    do {
         dosprs(0);
         clall();
         trans(t_fcoll, par & 0x10 ? 2 : 1);
         break;
-    case 10:    /* DCLEAR */
+    } while (0);
+}
+
+/* DOS command 10 DCLEAR */
+void _bas_dos10(void) {
+    unsigned char e, sa, n;
+    (void)e; (void)sa; (void)n;
+    do {
         dosprs(0);
         trans(t_finit, 2);
         closeall();
         break;
-    case 11:    /* BACKUP: D TO D, or U TO U (the units as drives 0 / 1) */
+    } while (0);
+}
+
+/* DOS command 11 BACKUP: D TO D, or U TO U (the units as drives 0 / 1) */
+void _bas_dos11(void) {
+    unsigned char e, sa, n;
+    (void)e; (void)sa; (void)n;
+    do {
         dosprs(0);
         if ((par & 0x30) != 0x30) {
             ds1 = dosfa - 8;
@@ -551,8 +622,14 @@ void _bas_dos(void) {
         closeall();
         trans(t_fbak, 4);
         break;
-    case 13:    /* BLOAD, BVERIFY (bload_boot): at P or the file's address */
-    case 14: {
+    } while (0);
+}
+
+/* DOS command 13 / 14 BLOAD, BVERIFY (bload_boot): at P or the file's address */
+void _bas_dos13(void) {
+    unsigned char e, sa, n;
+    (void)e; (void)sa; (void)n;
+    do {
         unsigned char bnk = _bas_daux & 1 ? _bas_dbnk : _bas_bankx ^ 128, a, y, st, lo, hi;
         unsigned long at = _bas_daux & 2 ? _bas_dofl : 0xFFFFUL;
         dosprs(0);
@@ -585,8 +662,14 @@ void _bas_dos(void) {
             }
         } else if (st & 0xBF) kerr(29);             /* ?LOAD ERROR */
         break;
-    }
-    case 15: {  /* BSAVE: P start TO P end (end not saved), as KERNAL SAVE writes it */
+    } while (0);
+}
+
+/* DOS command 15 BSAVE: P start TO P end (end not saved), as KERNAL SAVE writes it */
+void _bas_dos15(void) {
+    unsigned char e, sa, n;
+    (void)e; (void)sa; (void)n;
+    do {
         unsigned char bnk = _bas_daux & 1 ? _bas_dbnk : _bas_bankx ^ 128;
         unsigned long p = _bas_dofl, end = _bas_dofh;
         unsigned char __far *q;
@@ -605,8 +688,14 @@ void _bas_dos(void) {
         cbm_clrchn();
         __jsr(0xFFC3, .A = 0, .Carry = 0);
         break;
-    }
-    case 16: {  /* DIR / CATALOG */
+    } while (0);
+}
+
+/* DOS command 16 DIR / CATALOG */
+void _bas_dos16(void) {
+    unsigned char e, sa, n;
+    (void)e; (void)sa; (void)n;
+    do {
         static unsigned char line[64];
         unsigned char wide, page, k, x, col, row, c, y;
         int integr = -2;
@@ -709,8 +798,14 @@ void _bas_dos(void) {
         if (__jsr(0xFFC3, .A = 0, .Carry = 0, .A -> e).Carry) kerr(e);
         if (_bas_chan) __jsr(0xFFC9, .X = _bas_chan);
         break;
-    }
-    case 12: {  /* COPY: on one unit by its DOS (the internal drives' units as drives 0 / 1) */
+    } while (0);
+}
+
+/* DOS command 12 COPY: on one unit by its DOS (the internal drives' units as drives 0 / 1) */
+void _bas_dos12(void) {
+    unsigned char e, sa, n;
+    (void)e; (void)sa; (void)n;
+    do {
         unsigned char c0 = CBDOS0, c1 = CBDOS1, iec = 0;
         static const unsigned char star[] = {1, '*'};
         dosprs(1);
@@ -723,8 +818,7 @@ void _bas_dos(void) {
         if (dosfa != dosun) kerr(9);             /* (a copy between IEC units: not compiled) */
         trans(t_fcopy, 8);
         break;
-    }
-    }
+    } while (0);
 }
 
 /* RECORD# __bas_dlf, __bas_n [, __bas_drcl]: the file's position (P on the
