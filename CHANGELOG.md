@@ -29,6 +29,15 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
   caller's caller): cc45 keeps such calls a `jsr`.
 - Tests: `test_codegen_waste_xemu.c` (both conventions), sizes in
   `test_compiler.sh`.
+### basic45 --compile: INPUT's and READ's items in assembly (#369)
+
+- `stdlib_asm/basic_items.s45`: INPUT's items (quoted strings, numbers'
+  text, LINE INPUT's rest of the line, ?REDO FROM START), READ's DATA items
+  and RESTORE, in assembly (were `basic_in.c`'s `_bas_iitem`, `_bas_read`,
+  `_bas_restore`). A program that INPUTs or READs is 315-540 bytes smaller
+  (`test_basic_compile2_xemu.bas` 15739 -> 15198).
+- Test: `test_basic_items_xemu.c` (the assembly against the former C as the
+  reference: items, positions, errors, DATA statements and RESTORE).
 
 ### basic45 --compile: a function per DOS command (#369)
 

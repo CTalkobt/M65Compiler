@@ -2924,6 +2924,14 @@ for bsmode in "zp|" "stack|-fno-zpcall"; do
     xemu_case "FAIL: test_basic_fns_xemu.c $bsname (compilation/linking failed)" "src/test-resources/test_basic_fns_xemu.c" "build/test/test_basic_fns_${bsname}_xemu.prg" "$bsflags" -- "test_basic_fns_$bsname" "build/test/test_basic_fns_${bsname}_xemu.prg" "C0C0" 5 "00 00 00 00 AA"
 done
 
+# Test: INPUT's and READ's items in assembly (basic_items.s45, #369) against
+# their former C as the reference
+for bimode in "zp|" "stack|-fno-zpcall"; do
+    IFS='|' read -r biname biflags <<< "$bimode"
+    echo "Testing test_basic_items_xemu.c ($biname)..."
+    xemu_case "FAIL: test_basic_items_xemu.c $biname (compilation/linking failed)" "src/test-resources/test_basic_items_xemu.c" "build/test/test_basic_items_${biname}_xemu.prg" "$biflags" -- "test_basic_items_$biname" "build/test/test_basic_items_${biname}_xemu.prg" "C0C0" 3 "00 00 AA"
+done
+
 # Test: tgi_bar's fill patterns (both drivers), gets / gets_s from the
 # KERNAL's keyboard buffer, heapfree, ftoa
 for tpmode in "zp|" "stack|-fno-zpcall"; do
