@@ -4,6 +4,19 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### basic45 --compile: HEX$, STRBIN$, DEC, INSTR and AND / OR / NOT / XOR in assembly (#369)
+
+- `stdlib_asm/basic_fns.s45`: HEX$ / STRBIN$, DEC, INSTR (its pound-sign
+  patterns too) and the logical operators' integer, in assembly (were
+  `basic_fn.c`'s). The rounding to an integer is done on the float's bits,
+  as the ROM's `getsad` / `facint`: below -2^31 HEX$ now gives what the
+  interpreter gives (`HEX$(-3E9)` is `B2D05E00`; the C's float arithmetic
+  gave `4D2FA200`, and `0002` for -4294967295).
+- Tests: `test_basic_fns_xemu.c` (the assembly against the former C as the
+  reference, with the interpreter's rule below -2^31),
+  `test_basic_compile2_xemu.bas` (HEX$ of -3E9 and -2147483649, interpreted
+  and compiled).
+
 ### basic45 --compile: VAL, INPUT and READ's numbers in assembly (#369)
 
 - `stdlib_asm/basic_fin.s45`: the number reader (strtof's algorithm step

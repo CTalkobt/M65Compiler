@@ -26,7 +26,7 @@
 212 if (3 xor 5)=6 and (5 xor 3 and 1)=4 and (1<<4)=16 and (-16>>2)=-4 and (32767<<1)=-2 then 214
 213 goto 220
 214 if mod(7,3)=1 and mod(-7,3)=2 and mod(7.5,2)=1.5 and mod(7,-3)=-2 then poke 49349,1
-220 if hex$(255)="00ff" and hex$(65536)="00010000" and hex$(-1)="ffffffff" and dec("ff")=255 then 222
+220 if hex$(255)="00ff" and hex$(65536)="00010000" and hex$(-1)="ffffffff" and hex$(-3e9)="b2d05e00" and hex$(-2147483649)="80000001" and dec("ff")=255 then 222
 221 goto 230
 222 if dec("1g")=1 and strbin$(5)="00000101" and val("12ab")=12 and val("1e5x")=100000 and val("1.2.3")=0 then 224
 223 goto 230
