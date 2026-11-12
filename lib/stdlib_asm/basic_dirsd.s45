@@ -5,7 +5,7 @@
 ; (a digit) $ (a letter) as the ROM matches them, the sizes and names.
 ;
 ; __bas_dir (the compiler's DIR / CATALOG): __bas_dirsd made reachable from
-; basic_io.c's DIR (basic_dirhook.s45's pointer), then __bas_dos; a program
+; basic_io.c's DIR (basic_dirhook.s45's pointer), then __bas_dos16; a program
 ; without DIR does not link this file.
 ; __bas_dirsd (from basic_io.c's DIR): the pattern at $0400 (BASIC's hdosfn),
 ; __bas_sdlen its length (0: none), __bas_sdpage bit 7 the page mode
@@ -17,7 +17,7 @@
 cc45.icallinfo = 1
 
 .global __bas_dirsd, __bas_dir
-.extern __bas_out, __bas_hyv, __bp_rom, __bp_prog, __bas_dos
+.extern __bas_out, __bas_hyv, __bp_rom, __bp_prog, __bas_dos16
 .extern __bas_sdlen, __bas_sdpage, __bas_dirsdp    ; (basic_dirhook.s45)
 
 DSTR = $1300            ; the directory entry (the hypervisor's transfer area)
@@ -42,7 +42,7 @@ proc __bas_dir
     sta __bas_dirsdp
     lda #>__bas_dirsd
     sta __bas_dirsdp+1
-    jmp __bas_dos
+    jmp __bas_dos16
 endproc
 
 proc __bas_dirsd
