@@ -166,6 +166,20 @@ through a far pointer next (its only use) is added byte by byte as it is
 stored. A game's map accessors: 89 → 70 and 278 → 170 bytes
 (`test_compiler.sh`; runtime `test_far_offsets_xemu.c`).
 
+`foldNegOffset` (`IROptimizer.cpp`, after `foldFarOffset`; tag `negoff`;
+under `addr-elem-fusion`'s switch; #545) gives a near load or store at
+`p - k` (`k` 1..255, at least the access's size; the add right before it,
+its only use) the address `(p - 256) + (256 - k)`: one `p - 256` per pointer
+in a block while `p` is unchanged (`lda p; sta q; lda p+1; dec a; sta q+1`),
+each access `ldy #256-k; lda (q),y`, not a 16-bit add per access. A folded
+`(q),y` offset may be up to 255 less the access's size (was 250).
+
+The code generator also: loads an `int` OR's high byte straight into X when
+the other side's is known 0 (no `sta T; txa; tax; lda T`, #542); leaves out
+the `cmp #0` of a byte's `= 0` / `<> 0` when the load set N/Z (#543); and
+adds a symbol's address to a value as immediates, into the local it is
+stored to (`map + offset`: no second temporary pair, #544).
+
 **Known bits** (#350, `KnownBits.cpp`, computed per function by
 `IRCodeGen`; `CC45_NO_KNOWN_BITS=1` turns it off): for each vreg defined
 once, and each local assigned once (one store, its address not taken, not
@@ -265,7 +279,10 @@ tested by them) and one whose result has X (`.var cc45.retx = 1`: wider than
 a byte), and any with inline asm, `__cpu` / `__flags` writes or an
 interrupt's `rti` both ways. ca45 takes the `rts` of any other cc45 proc as
 reading neither: a reload kept for its N / Z before a `void` / `int`
-function's return goes, and so does a dead `ldx #0` (the dead-LDX pass).
+function's return goes, and so does a dead `ldx #0` (the dead-LDX pass; it
+also drops a dead `lda` / `ldy` of an immediate or a base-page byte, and an
+`inx; dex` / `iny; dey` whose flags nothing reads, #542: `dead-lda`,
+`dead-ldy`, `dead-incdec`).
 Examples: 737 bytes.
 
 `foldGlobalOffsetAccess` (`IROptimizer.cpp`, after `foldElemIndexOffset`;
@@ -551,7 +568,7 @@ order after `-O`). `-Roptimizer` prints every change
 | `BranchInvert` | `branch-invert` | `Bcc skip / BRA target / skip:` → inverted branch |
 | `JmpBra` | `jmp-bra` | `JMP` → `BRA` when in range |
 | `CmpElimination` | `cmp-repeat` | A `CMP`/`CPX`/`CPY`/`CPZ` at a label that only one conditional branch reaches, that branch right after the same compare, with no fall into the label: the flags are still that compare's (#341) |
-| `RedundantLoad` | `dead-store` (base page) | A store into the proc's own base-page block (`.zar`), or in a cc45 proc into the register pool, that nothing in the proc reads is dropped (#341), and one that the straight path from it overwrites or leaves the proc by `rts`/`rti` before reading (#348; not in a proc with subroutines of its own, `bsr __seqx_N`: their `rts` returns into it). 16/32-bit operations (`ora.16 .AX, $34`) read their operands. A labelled store stays (its label may start a SeqExtract routine). Registers known at a branch include a byte they were stored to (`sta k` then `bne @l`: at `@l`, A is `k`) |
+| `RedundantLoad` | `dead-store` (base page) | A store into the proc's own base-page block (`.zar`), or in a cc45 proc into the register pool, that nothing in the proc reads is dropped (#341), and one that the straight path from it overwrites or leaves the proc by `rts`/`rti` before reading (#348; not in a proc with subroutines of its own, `bsr __seqx_N`: their `rts` returns into it). 16/32-bit operations (`ora.16 .AX, $34`) read their operands. A labelled store stays (its label may start a SeqExtract routine). An imported table indexed (`lda _tbl,y`) and an imported symbol's immediate (`adc #<_map`) are not reads of the block (#542, #544: an absolute address is never the relocated base page). Registers known at a branch include a byte they were stored to (`sta k` then `bne @l`: at `@l`, A is `k`) |
 | `JmpBra` | `jump-rts`, `jump-chain`, `dead-rts` | Jump threading (#340): a `BRA`/`JMP` to an `RTS` becomes the `RTS`; a branch to a `BRA`/`JMP` goes to its target (a relative one when in range); an `RTS` right after a `JMP`/`BRA`/`RTS` whose labels are local and named nowhere is dropped (not in a proc that branches by `*+n`). `endproc` adds no `RTS` after a final `JMP`/`BRA` either |
 | `JSRRelocate` | `jsr-bsr` | `JSR` → `BSR` when the target is a resolved, non-relocatable label within ±32 KB (rare in `-c` objects) |
 | `DeadStore` | `dead-store` | Removes dead `STW.SP` stores |

@@ -215,6 +215,7 @@ void CodegenStage::optimizeIR() {
     if (ranAny) {
         ir::foldGlobalOffsetAccess(*irModule_);
         ir::foldFarOffset(*irModule_);
+        ir::foldNegOffset(*irModule_);
         ir::removeDeadTemps(*irModule_);
         ir::orderCommutativeOperands(*irModule_);
     }

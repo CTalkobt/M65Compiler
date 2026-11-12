@@ -693,6 +693,35 @@ else
     failed=$((failed + 1))
 fi
 
+# #542-#545: a 16-bit value from two bytes without dead loads / stores or
+# no-op sequences (was 23 bytes), = 0 / <> 0 without cmp #0 (35), an array +
+# a 16-bit offset with the base added as immediates (62), p[-k] through one
+# p - 256 (40)
+cw=build/test/codegen_waste
+mkdir -p $cw
+printf 'extern unsigned char tbl[8];\nunsigned int f(const unsigned char *p, unsigned char i) { return ((unsigned int)p[4] << 8) | tbl[i]; }\n' > $cw/a.c
+printf 'extern unsigned char n;\nenum { K_COLONIST, K_SOLDIER };\nvoid f(unsigned char fight, const unsigned char *p) { if (fight != 0) n = 1; if (p[1] == K_COLONIST) n = 2; if (fight) n = 3; }\n' > $cw/b.c
+printf 'extern unsigned char map[64 * 40];\nunsigned char at(unsigned char x, unsigned char y) { const unsigned char *p = map + (((unsigned int)y << 6) | x); return p[1] + p[64]; }\n' > $cw/c.c
+printf 'unsigned char before(const unsigned char *p) { return p[-1] + p[-64]; }\n' > $cw/d.c
+cw_sizes=""
+cw_ok=1
+for t in a:11 b:31 c:43 d:23; do
+    f=${t%%:*}; max=${t##*:}
+    if ./bin/cc45 -O2 -c $cw/$f.c -o $cw/$f.o45 >/dev/null 2>&1; then
+        sz=$((16#$(./bin/objdump45 -h $cw/$f.o45 | awk '$2 == "TEXT" {print $3}')))
+    else
+        sz=999
+    fi
+    cw_sizes="$cw_sizes $f=$sz"
+    [ $sz -le $max ] || cw_ok=0
+done
+if [ $cw_ok = 1 ]; then
+    echo "SUCCESS: no dead loads, cmp #0, second temp pair or per-access p[-k] add (#542-#545:$cw_sizes)"
+else
+    echo "FAIL: #542-#545 code sizes:$cw_sizes (at most a=11 b=31 c=43 d=23)"
+    failed=$((failed + 1))
+fi
+
 # #351: a global struct's array member at a constant index is one absolute
 # address (was 22 and 33 bytes through a pointer built at run time)
 cs=build/test/const_chain

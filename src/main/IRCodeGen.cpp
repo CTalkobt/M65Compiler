@@ -1311,6 +1311,15 @@ bool IRCodeGen::vregUsedOutside(uint32_t id, const ir::Inst* a, const ir::Inst* 
     return false;
 }
 
+// A call; to a function reading __builtin_return_address(0), kept a jsr
+// (no tail jump: the address it reads is this call's)
+void IRCodeGen::emitJsr(const std::string& target, const std::string& fn) {
+    bool keep = retAddrFns_.count(fn) && !(currentFn_ && currentFn_->noOptimize);
+    if (keep) emit(".noopt_start");
+    emit("jsr " + target);
+    if (keep) emit(".noopt_end");
+}
+
 void IRCodeGen::restoreFlags() {
     char r = staleFlags_;
     staleFlags_ = 0;
@@ -2196,6 +2205,9 @@ void IRCodeGen::generate(const ir::Module& mod, uint32_t zpStart, bool relocMode
     // First pass: compute base clobbers for all functions
     std::map<std::string, FuncClobbers> baseClobbers;
     functionClobberMasks_.clear();
+    retAddrFns_.clear();
+    for (const auto& fn : mod.functions)
+        if (fn.retAddrSlot >= 0) retAddrFns_.insert(fn.name);
     functionFlagClobberMasks_.clear();
     functionClobberInfo_.clear();
     for (const auto& fn : mod.functions) {
@@ -4177,7 +4189,7 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
                 // (a COPY of a pointer: offset 0)
                 bool isCopy = (in.op == ir::Op::COPY || in.op == ir::Op::DEREF) && in.resultType == ir::Type::PTR;
                 if (!isCopy && (in.op != ir::Op::ADD || in.resultType != ir::Type::PTR ||
-                    !in.src2.isImm() || in.src2.immVal < 0 || in.src2.immVal > 250))
+                    !in.src2.isImm() || in.src2.immVal < 0 || in.src2.immVal > 255))
                     continue;
                 if (!in.dest.isVreg() || !in.src1.isVreg()) continue;
                 uint32_t d = in.dest.vregId, base = in.src1.vregId;
@@ -4193,6 +4205,13 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
                 for (const auto& u : uit->second) {
                     if (!u.addrOnly || u.blk != b || u.idx <= i) { ok = false; break; }
                     last = std::max(last, u.idx);
+                    // (the access's last byte at most (p),255: ldy #off + size - 1)
+                    if (!isCopy) {
+                        ir::Type t = insts[u.idx].resultType;
+                        int size = t == ir::Type::I8 ? 1 : (t == ir::Type::I16 || t == ir::Type::PTR) ? 2
+                                 : t == ir::Type::I32 ? 4 : 16;
+                        if (in.src2.immVal + size - 1 > 255) { ok = false; break; }
+                    }
                 }
                 if (!ok) continue;
                 // A temporary base lives (for the allocator) only up to the
@@ -6361,6 +6380,10 @@ void IRCodeGen::emitInstBody(const ir::Inst& inst) {
                             } else if (!carryIn && (a & b) == 0 && sb[0] == '#') {
                                 emit("lda " + sa, k == 0 ? r : "");
                                 emit("ora " + sb);
+                            } else if (!carryIn && k == nb - 1 && (sb == "#255" || sb == "#1")) {
+                                // the top byte + 255 / + 1, no carry in or out: dec / inc (#545: p - 256)
+                                emit("lda " + sa, k == 0 ? r : "");
+                                emit(sb == "#1" ? "inc a" : "dec a");
                             } else {
                                 emit("lda " + sa, k == 0 ? r : "");
                                 if (!carryIn && !cleared) { emit("clc"); cleared = true; }
@@ -6563,16 +6586,40 @@ void IRCodeGen::emitInstBody(const ir::Inst& inst) {
                 loadOperand(inst.src1);
                 emit(mn + " " + reg + ", " + hex8(safeZP));
             } else {
+                // a symbol's address + a value (array + offset, #544): the
+                // value into A/X, the address added as immediates (not put in
+                // A/X and the value added from memory)
+                std::string dbase = inst.dest.isVreg() ? directBase(inst.dest.vregId) : "";
+                auto plainSym = [](const ir::Operand& o) {
+                    return o.kind == ir::OperandKind::GLOBAL && !o.name.empty() &&
+                           o.name.find_first_of("+-()<> ") == std::string::npos;
+                };
+                bool symBase = inst.op == ir::Op::ADD && !dbase.empty() && inst.resultType != ir::Type::I32 &&
+                               ((plainSym(inst.src1) && inst.src2.isVreg()) || (plainSym(inst.src2) && inst.src1.isVreg()));
+                // (stored next into a local in ZP, its only use: into the local)
+                bool symToSlot = false;
+                if (symBase) {
+                    auto* nx = peekNextInst();
+                    if (nx && nx->op == ir::Op::STORE && nx->src1.isVreg() && nx->src1.vregId == inst.dest.vregId &&
+                        nx->src2.isVreg() && localSlotVregs_.count(nx->src2.vregId) &&
+                        alloc_.getAlloc(nx->src2.vregId).loc == VRegAllocator::IN_ZP &&
+                        !vregUsedOutside(inst.dest.vregId, &inst, nx) && !multiDefVregs_.count(inst.dest.vregId)) {
+                        dbase = "$" + hex8((uint8_t)alloc_.getAlloc(nx->src2.vregId).offset);
+                        symToSlot = true;
+                    }
+                }
                 // Swap for an ADD: load src2 into AX, use src1 as memory operand
-                bool swap = inst.op == ir::Op::ADD && src2InFrame && !src1InFrame;
-                std::string mem = src2MemOperand(swap ? inst.src1 : inst.src2);
+                bool swap = inst.op == ir::Op::ADD && ((src2InFrame && !src1InFrame) || (symBase && plainSym(inst.src1)));
+                std::string mem = symBase ? "#" + (swap ? inst.src1 : inst.src2).name : src2MemOperand(swap ? inst.src1 : inst.src2);
                 loadOperand(swap ? inst.src2 : inst.src1);
                 // 16 bits into a destination in ZP or static storage: computed
                 // into it, without add.16's pha/pla (A/X do not keep the result)
-                std::string dbase = inst.dest.isVreg() ? directBase(inst.dest.vregId) : "";
                 if (inst.resultType != ir::Type::I32 && !dbase.empty() && !mem.empty()) {
                     std::string lo = mem, hi = mem + "+1";
-                    if (mem[0] == '#') {
+                    if (symBase) {
+                        lo = "#<" + mem.substr(1);
+                        hi = "#>" + mem.substr(1);
+                    } else if (mem[0] == '#') {
                         long v = std::stol(mem.substr(1));
                         lo = "#" + std::to_string(v & 0xFF);
                         hi = "#" + std::to_string((v >> 8) & 0xFF);
@@ -6589,7 +6636,7 @@ void IRCodeGen::emitInstBody(const ir::Inst& inst) {
                     emit("sta " + d1);
                     ms_.invalidateAll();
                     storeCache_.vreg = UINT32_MAX;
-                    resultInAX_ = -1;
+                    resultInAX_ = symToSlot ? -2 : -1;   // (-2: the STORE done)
                     break;
                 }
                 emit(mn + " " + reg + ", " + mem);
@@ -6754,8 +6801,17 @@ void IRCodeGen::emitInstBody(const ir::Inst& inst) {
                         emit("lda " + directByte(inst.src1, k), k ? irDesc("bytes known 0") : "");
                         emit(mn8 + directByte(inst.src2, k));
                     };
-                    byteTo(1);
-                    emit("tax");
+                    // the high byte a plain operand: straight into X (#542: not
+                    // through A, which may hold the low byte already)
+                    const std::string& hb = byteCode[1];
+                    bool xLoad = !hb.empty() && hb.find_first_of("(,") == std::string::npos &&
+                                 hb.find(".sp") == std::string::npos && hb.find('[') == std::string::npos;
+                    if (xLoad) {
+                        emit("ldx " + hb, irDesc("bytes known 0"));
+                    } else {
+                        byteTo(1);
+                        emit("tax");
+                    }
                     byteTo(0);
                     ms_.invalidateAll();
                     storeVreg(inst.dest.vregId);
@@ -7340,7 +7396,9 @@ void IRCodeGen::emitInstBody(const ir::Inst& inst) {
                 inst.src1.type != ir::Type::I32) {
                 if (inst.src1.type == ir::Type::I8) {
                     loadOperandA(inst.src1);   // (a byte: A only, no ldx #0, #341)
-                    emit("cmp #0");
+                    // (the load set Z: no cmp #0, #543; = / <> read only Z)
+                    if (flagReg_ != 'A' || staleFlags_) emit("cmp #0");
+                    staleFlags_ = 0;
                 } else if (inst.src1.isVreg() && globalLoadAlias_.count(inst.src1.vregId)) {
                     emit("lda " + directByte(inst.src1, 0));
                     emit("ora " + directByte(inst.src1, 1));
@@ -9509,7 +9567,7 @@ void IRCodeGen::emitInstBody(const ir::Inst& inst) {
                     if (inst.src1.kind == ir::OperandKind::GLOBAL) {
                         std::string target = inst.src1.name;
                         if (isCallingSAC) target += "__sac";
-                        emit("jsr " + target);
+                        emitJsr(target, inst.src1.name);
                     }
                 } else {
                     // CALL_INDIRECT
@@ -9560,7 +9618,7 @@ void IRCodeGen::emitInstBody(const ir::Inst& inst) {
                     auto cm = functionClobberMasks_.find(inst.src1.name);
                     bool clobbersX = cm == functionClobberMasks_.end() || (cm->second & (1 << REG_X));
                     if (!inst.isRegparm && clobbersX) emitComment(kXFreeCall);
-                    emit("jsr " + inst.src1.name);
+                    emitJsr(inst.src1.name, inst.src1.name);
                     // (a call's data after the jsr, which the routine returns past:
                     // basic45's array accesses, #486)
                     if (!inst.asmText.empty()) emit(inst.asmText);

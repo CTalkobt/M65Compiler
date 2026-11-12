@@ -2908,6 +2908,14 @@ for bfmode in "zp|" "stack|-fno-zpcall"; do
     xemu_case "FAIL: test_basic_fin_xemu.c $bfname (compilation/linking failed)" "src/test-resources/test_basic_fin_xemu.c" "build/test/test_basic_fin_${bfname}_xemu.prg" "$bfflags" -- "test_basic_fin_$bfname" "build/test/test_basic_fin_${bfname}_xemu.prg" "C0C0" 3 "00 00 AA"
 done
 
+# Test: the code #542-#545 made smaller (dead loads, cmp #0, array + offset,
+# p[-k] through p - 256) computes the same
+for cwmode in "zp|" "stack|-fno-zpcall"; do
+    IFS='|' read -r cwname cwflags <<< "$cwmode"
+    echo "Testing test_codegen_waste_xemu.c ($cwname)..."
+    xemu_case "FAIL: test_codegen_waste_xemu.c $cwname (compilation/linking failed)" "src/test-resources/test_codegen_waste_xemu.c" "build/test/test_codegen_waste_${cwname}_xemu.prg" "$cwflags" -- "test_codegen_waste_$cwname" "build/test/test_codegen_waste_${cwname}_xemu.prg" "C0C0" 17 "00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 AA"
+done
+
 # Test: HEX$ / STRBIN$, DEC, INSTR and the logical operators' integer in
 # assembly (basic_fns.s45, #369) against their former C as the reference
 for bsmode in "zp|" "stack|-fno-zpcall"; do

@@ -4531,6 +4531,79 @@ void foldFarOffset(Module& mod) {
     }
 }
 
+// p[-k], k 1..255, through a near pointer: p - k is (p - 256) + (256 - k),
+// so one p - 256 serves every such access of the block while p is
+// unchanged, and each is ldy #256-k / (q),y (IRCodeGen's folded addresses)
+// instead of a 16-bit add per access (#545). Only an address used once, by
+// the load or store right after its add (the fold IRCodeGen makes).
+void foldNegOffset(Module& mod) {
+    for (auto& fn : mod.functions) {
+        if (!runOn(fn, "AddrElemFusion")) continue;
+        std::map<uint32_t, int> defCount, useCount;
+        for (const auto& b : fn.blocks)
+            for (const auto& in : b.insts) {
+                if (in.dest.isVreg()) defCount[in.dest.vregId]++;
+                auto u = [&](const Operand& o) { if (o.isVreg()) useCount[o.vregId]++; };
+                u(in.src1);
+                u(in.src2);
+                if (in.op == Op::STORE) u(in.dest);
+                for (const auto& a : in.args) u(a);
+                for (const auto& ph : in.phiIncoming) u(ph.first);
+            }
+        for (auto& b : fn.blocks) {
+            std::map<uint32_t, std::pair<uint32_t, size_t>> made;   // p -> (p - 256, where)
+            auto writes = [&](const Inst& w, uint32_t v) {
+                return (w.dest.isVreg() && w.dest.vregId == v) ||
+                       (w.op == Op::STORE && w.src2.isVreg() && w.src2.vregId == v && w.args.empty()) ||
+                       w.op == Op::CALL || w.op == Op::CALL_VOID || w.op == Op::CALL_INDIRECT || w.op == Op::ASM_INLINE;
+            };
+            for (size_t ui = 1; ui < b.insts.size(); ui++) {
+                const Inst& use = b.insts[ui];
+                if (!use.args.empty() || use.resultType == Type::F32) continue;
+                Operand addr;
+                if (use.op == Op::LOAD) addr = use.src1;
+                else if (use.op == Op::STORE && !(use.src1.isVreg() && use.src2.isVreg() && use.src1.vregId == use.src2.vregId))
+                    addr = use.src2;
+                else continue;
+                if (!addr.isVreg() || defCount[addr.vregId] != 1 || useCount[addr.vregId] != 1) continue;
+                size_t di = ui - 1;
+                const Inst& def = b.insts[di];
+                if (def.op != Op::ADD || def.resultType != Type::PTR || !def.dest.isVreg() ||
+                    def.dest.vregId != addr.vregId || !def.src1.isVreg() || !def.src2.isImm())
+                    continue;
+                int64_t c = def.src2.immVal;
+                if (c > 0x7FFF) c -= 0x10000;
+                int size = use.resultType == Type::I8 ? 1 : use.resultType == Type::I32 ? 4 : 2;
+                if (c >= 0 || c < -255 || -c < size) continue;   // ((q),y + size - 1 within the page)
+                uint32_t base = def.src1.vregId;
+                if (fn.memoryVregs.count(base) || fn.localSlotVregs.count(addr.vregId)) continue;
+                uint32_t q;
+                auto m = made.find(base);
+                bool reuse = m != made.end();
+                for (size_t k = reuse ? m->second.second + 1 : di; reuse && k < di; k++)
+                    if (writes(b.insts[k], base) || writes(b.insts[k], m->second.first)) reuse = false;
+                if (reuse) {
+                    q = m->second.first;
+                } else {
+                    q = fn.allocVreg();
+                    Inst qi = def;
+                    qi.dest = Operand::vreg(q, Type::PTR);
+                    qi.src2 = Operand::imm(-256, def.src2.type);
+                    b.insts.insert(b.insts.begin() + di, qi);
+                    di++;
+                    ui++;
+                    made[base] = {q, di - 1};
+                }
+                Inst& d = b.insts[di];
+                d.src1 = Operand::vreg(q, Type::PTR);
+                d.src2 = Operand::imm(256 + c, d.src2.type);
+                trace("negoff", fn.name, "v" + std::to_string(base) + " - " + std::to_string(-c) + " as (v" +
+                      std::to_string(q) + " = v" + std::to_string(base) + " - 256) + " + std::to_string(256 + c), d.loc);
+            }
+        }
+    }
+}
+
 // a[x + c] (also a[x - c]) with a global base: element x of the array
 // shifted by c*stride bytes, so the index is x itself and the base address
 // carries the constant (bubble sort's a[j] / a[j + 1] use the same index).
