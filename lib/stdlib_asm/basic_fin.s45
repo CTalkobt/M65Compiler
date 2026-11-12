@@ -1,0 +1,632 @@
+; basic_fin.s45 — basic45 --compile's number reading (#369): VAL, and the
+; numbers of INPUT and READ, in assembly (were basic_fn.c's _bas_val and
+; basic_innum.c, through the C library's strtof).
+;
+; __bas_fin reads the number in __fin_buf (0 after it) as strtof does, step
+; for step and with the same float operations in the same order (so the
+; same, correctly rounded, results): [spaces] [sign] digits (an exact
+; integer while below 10^9: later integer digits only raise the exponent,
+; later fraction digits are dropped) [.digits] [E [sign] digits], then
+; scaled by powers of ten up to 10^9 at a time. Its value in __float_a,
+; __fin_i the index after it (0: no number). The characters are strtof's as
+; cc45 compiles them: PETSCII, an E $45 or $C5.
+;
+;   __bas_val     VAL(__bas_sa): get_number's syntax (b65.src), checked first
+;   __bas_iitemn  INPUT's next item for a number variable (?REDO FROM START)
+;   __bas_readn   READ's next DATA item for one (?TYPE MISMATCH)
+
+; no calls through pointers here (ln45's call graph)
+.weak cc45.icallinfo
+cc45.icallinfo = 1
+
+.global __bas_fin, __bas_val, __bas_iitemn, __bas_readn
+.global __fin_buf, __fin_i            ; (the reader's text and end: test_basic_fin_xemu.c)
+.extern __float_a, __float_b, __float_mul, __float_div, __float_add, __float_sub, __float_lt, __float_neg
+.extern __float_utof
+.extern __bas_sa, __bas_sr, __bas_m, __bas_n, __bas_error, __bas_iitem, __bas_read, __bas_iredo
+
+S = $08                 ; VAL's string (a pointer: no float calls while it is read)
+
+.segment "bss"
+__fin_len:  .res 1      ; (INPUT / READ: the item's length, its text after it)
+__fin_buf:  .res 82     ; the text read, 0 after it
+__fin_r:    .res 5      ; the value so far
+__fin_d:    .res 5      ; a digit's value
+__fin_i:    .res 1      ; the text's index
+__fin_dot:  .res 1      ; the dot's index
+__fin_got:  .res 1      ; a digit seen
+__fin_neg:  .res 1      ; a minus sign
+__fin_eneg: .res 1      ; the exponent's minus sign
+__fin_e10:  .res 2      ; the power of ten the digits are scaled by (signed)
+__fin_x:    .res 2      ; the exponent written
+__fin_k:    .res 1      ; a scaling step (1-9)
+__val_n:    .res 1      ; VAL: the string's length
+__val_st:   .res 1      ; the first character after the sign
+__val_fl:   .res 1      ; bit 0 a dot, 1 an E, 2 a digit after the E, 7 a minus
+
+.segment "code"
+
+; --- the value so far and the float run time's operands ---
+
+proc __fin_ra               ; __float_a := the value
+    ldx #4
+@l: lda __fin_r,x
+    sta __float_a,x
+    dex
+    bpl @l
+    rts
+endproc
+
+proc __fin_ar               ; the value := __float_a
+    ldx #4
+@l: lda __float_a,x
+    sta __fin_r,x
+    dex
+    bpl @l
+    rts
+endproc
+
+proc __fin_kb               ; __float_b := 10^X (X 0-9)
+    txa
+    asl
+    asl
+    stx __fin_k
+    clc
+    adc __fin_k             ; (X * 5)
+    tay
+    ldx #0
+@l: lda __fin_p10,y
+    sta __float_b,x
+    iny
+    inx
+    cpx #5
+    bne @l
+    rts
+endproc
+
+proc __fin_zero             ; __float_a := 0
+    lda #0
+    ldx #4
+@l: sta __float_a,x
+    dex
+    bpl @l
+    rts
+endproc
+
+; C set: the value is the largest float (strtof's sf_is_max: an overflow saturated)
+proc __fin_ismax
+    lda __fin_r
+    cmp #$FF
+    bne @no
+    lda __fin_r+1
+    and #$7F
+    cmp #$7F
+    bne @no
+    lda __fin_r+2
+    and __fin_r+3
+    and __fin_r+4
+    cmp #$FF
+    bne @no
+    sec
+    rts
+@no:
+    clc
+    rts
+endproc
+
+; A digit (A its character): while the value is below 10^9 it becomes
+; value * 10 + digit (Z 1: then e10 - 1, a fraction's digit); else (Z 0)
+; e10 + 1, an integer's. The text's index moves on.
+proc __fin_digit
+    sec
+    sbc #'0'
+    sta __fin_d
+    phz
+    jsr __fin_ra
+    ldx #9
+    jsr __fin_kb
+    jsr __float_lt          ; value < 10^9
+    plz
+    cmp #0
+    beq @over
+    phz
+    ldx #1
+    jsr __fin_kb
+    jsr __fin_ra
+    jsr __float_mul         ; value * 10
+    jsr __fin_ar
+    lda __fin_d
+    ldx #0
+    jsr __float_utof        ; the digit
+    ldx #4
+@b: lda __float_a,x
+    sta __float_b,x
+    dex
+    bpl @b
+    jsr __fin_ra
+    jsr __float_add
+    jsr __fin_ar
+    plz
+    cpz #0
+    beq @next
+    ; (a fraction's digit: e10 - 1)
+    lda __fin_e10
+    bne @dl
+    dec __fin_e10+1
+@dl:
+    dec __fin_e10
+    bra @next
+@over:
+    cpz #0
+    bne @next               ; (a fraction's digit past the tenth: dropped)
+    inc __fin_e10
+    bne @next
+    inc __fin_e10+1
+@next:
+    lda #1
+    sta __fin_got
+    inc __fin_i
+    rts
+endproc
+
+; --- strtof's reading of __fin_buf ---
+
+proc __bas_fin
+    ldx #0
+@ws:
+    lda __fin_buf,x         ; spaces (' ' and 9-13)
+    cmp #' '
+    beq @wsn
+    cmp #9
+    bcc @sign
+    cmp #14
+    bcs @sign
+@wsn:
+    inx
+    bra @ws
+@sign:
+    ldy #0
+    lda __fin_buf,x
+    cmp #'-'
+    bne @plus
+    iny
+    inx
+    bra @start
+@plus:
+    cmp #'+'
+    bne @start
+    inx
+@start:
+    sty __fin_neg
+    stx __fin_i
+    lda #0
+    sta __fin_got
+    sta __fin_e10
+    sta __fin_e10+1
+    ldx #4
+@z: sta __fin_r,x
+    dex
+    bpl @z
+@int:
+    ldx __fin_i
+    lda __fin_buf,x
+    cmp #'0'
+    bcc @dot
+    cmp #'9'+1
+    bcs @dot
+    ldz #0
+    jsr __fin_digit
+    bra @int
+@dot:
+    ldx __fin_i
+    lda __fin_buf,x
+    cmp #'.'
+    bne @digits
+    stx __fin_dot
+    inc __fin_i
+@frac:
+    ldx __fin_i
+    lda __fin_buf,x
+    cmp #'0'
+    bcc @fracend
+    cmp #'9'+1
+    bcs @fracend
+    ldz #1
+    jsr __fin_digit
+    bra @frac
+@fracend:
+    lda __fin_got
+    bne @digits
+    lda __fin_dot           ; (a dot without digits: not taken)
+    sta __fin_i
+@digits:
+    lda __fin_got
+    bne @exp
+    lda #0                  ; no digits: 0, nothing read
+    sta __fin_i
+    jmp __fin_zero
+@exp:
+    ; E [sign] digits (only when digits follow it)
+    ldx __fin_i
+    lda __fin_buf,x
+    cmp #$45
+    beq @e
+    cmp #$C5
+    bne @scale
+@e:
+    inx
+    ldy #0
+    lda __fin_buf,x
+    cmp #'-'
+    bne @ep
+    iny
+    inx
+    bra @ed
+@ep:
+    cmp #'+'
+    bne @ed
+    inx
+@ed:
+    sty __fin_eneg
+    lda __fin_buf,x
+    cmp #'0'
+    bcc @scale
+    cmp #'9'+1
+    bcs @scale
+    lda #0
+    sta __fin_x
+    sta __fin_x+1
+@el:
+    lda __fin_buf,x
+    cmp #'0'
+    bcc @edone
+    cmp #'9'+1
+    bcs @edone
+    ; (past 200 the result is out of range either way)
+    ldy __fin_x+1
+    bne @enext
+    ldy __fin_x
+    cpy #200
+    bcs @enext
+    sec
+    sbc #'0'
+    pha
+    ; exp * 10 (exp < 200: 16 bits) + the digit
+    lda __fin_x
+    asl
+    sta __fin_x
+    rol __fin_x+1           ; * 2
+    lda __fin_x
+    ldy __fin_x+1
+    asl __fin_x
+    rol __fin_x+1
+    asl __fin_x
+    rol __fin_x+1           ; * 8
+    clc
+    adc __fin_x
+    sta __fin_x
+    tya
+    adc __fin_x+1
+    sta __fin_x+1           ; * 10
+    pla
+    clc
+    adc __fin_x
+    sta __fin_x
+    bcc @enext
+    inc __fin_x+1
+@enext:
+    inx
+    bra @el
+@edone:
+    stx __fin_i
+    lda __fin_eneg
+    bne @esub
+    clc
+    lda __fin_e10
+    adc __fin_x
+    sta __fin_e10
+    lda __fin_e10+1
+    adc __fin_x+1
+    sta __fin_e10+1
+    bra @scale
+@esub:
+    sec
+    lda __fin_e10
+    sbc __fin_x
+    sta __fin_e10
+    lda __fin_e10+1
+    sbc __fin_x+1
+    sta __fin_e10+1
+@scale:
+    ; up: while e10 > 0 and the value is neither 0 nor the largest float
+    lda __fin_e10+1
+    bmi @down
+    ora __fin_e10
+    beq @down
+    lda __fin_r
+    beq @sign_end
+    jsr __fin_ismax
+    bcs @sign_end
+    jsr __fin_step          ; X := min(e10, 9)
+    stx __fin_k
+    jsr __fin_kb
+    jsr __fin_ra
+    jsr __float_mul
+    jsr __fin_ar
+    sec
+    lda __fin_e10
+    sbc __fin_k
+    sta __fin_e10
+    bcs @scale
+    dec __fin_e10+1
+    bra @scale
+@down:
+    ; down: while e10 < 0 and the value is not 0
+    lda __fin_e10+1
+    bpl @sign_end
+    lda __fin_r
+    beq @sign_end
+    ; X := min(-e10, 9)
+    sec
+    lda #0
+    sbc __fin_e10
+    tax
+    lda #0
+    sbc __fin_e10+1
+    bne @nine
+    cpx #10
+    bcc @kdown
+@nine:
+    ldx #9
+@kdown:
+    stx __fin_k
+    jsr __fin_kb
+    jsr __fin_ra
+    jsr __float_div
+    jsr __fin_ar
+    clc
+    lda __fin_e10
+    adc __fin_k
+    sta __fin_e10
+    bcc @down
+    inc __fin_e10+1
+    bra @down
+@sign_end:
+    ; a minus: 0 - value
+    lda __fin_neg
+    beq @pos
+    ldx #4
+@nb:
+    lda __fin_r,x
+    sta __float_b,x
+    dex
+    bpl @nb
+    jsr __fin_zero
+    jmp __float_sub
+@pos:
+    jmp __fin_ra
+endproc
+
+proc __fin_step             ; X := min(e10, 9) (e10 > 0)
+    lda __fin_e10+1
+    bne @nine
+    ldx __fin_e10
+    cpx #10
+    bcc @done
+@nine:
+    ldx #9
+@done:
+    rts
+endproc
+
+; 1, 10, ... 10^9 (CBM floats: the exponent, then the mantissa without its top bit)
+__fin_p10:
+    .byte $81, $00, $00, $00, $00
+    .byte $84, $20, $00, $00, $00
+    .byte $87, $48, $00, $00, $00
+    .byte $8A, $7A, $00, $00, $00
+    .byte $8E, $1C, $40, $00, $00
+    .byte $91, $43, $50, $00, $00
+    .byte $94, $74, $24, $00, $00
+    .byte $98, $18, $96, $80, $00
+    .byte $9B, $3E, $BC, $20, $00
+    .byte $9E, $6E, $6B, $28, $00
+
+; --- VAL ---
+
+; VAL(__bas_sa): [spaces] [sign], then get_number's characters: one dot (not
+; after the E), one E, a sign only right after the E, digits; a second dot
+; or E, a sign elsewhere after the E, or an E without digits: 0; one
+; character . or 0 alone: 0 without the sign; a minus: the value negated
+; (-0 when it is 0)
+proc __bas_val
+    lda __bas_sa
+    sta S
+    lda __bas_sa+1
+    sta S+1
+    ldy #0
+    lda (S),y
+    sta __val_n
+    lda #0
+    sta __val_fl
+    ldy #1
+@sp:
+    cpy __val_n
+    beq @sp1
+    bcs @nosign
+@sp1:
+    lda (S),y
+    cmp #$20
+    bne @signs
+    iny
+    bra @sp
+@signs:
+    lda (S),y
+    cmp #$2B
+    beq @signed
+    cmp #$2D
+    bne @nosign
+    lda #$80
+    sta __val_fl
+@signed:
+    iny
+@nosign:
+    sty __val_st
+    ldx #0                  ; the characters kept
+@scan:
+    cpy __val_n
+    beq @in
+    bcs @end
+@in:
+    lda (S),y
+    cmp #$2E
+    bne @notdot
+    lda __val_fl
+    and #3
+    bne @zero
+    lda #1
+    tsb __val_fl
+    lda #$2E
+    bra @keep
+@notdot:
+    cmp #$45
+    bne @notexp
+    lda __val_fl
+    and #2
+    bne @zero
+    lda #2
+    tsb __val_fl
+    lda #$45
+    bra @keep
+@notexp:
+    cmp #$2B
+    beq @sgn
+    cmp #$2D
+    bne @notsgn
+@sgn:
+    pha
+    lda __val_fl
+    and #2
+    bne @sgnok
+    pla
+    bra @end                ; a sign before any E: the number ends
+@sgnok:
+    dey
+    lda (S),y
+    iny
+    cmp #$45
+    beq @sgnin
+    pla
+    bra @zero
+@sgnin:
+    pla
+    bra @keep
+@notsgn:
+    cmp #$30
+    bcc @end
+    cmp #$3A
+    bcs @end
+    pha
+    lda __val_fl
+    and #2
+    beq @dg
+    lda #4
+    tsb __val_fl
+@dg:
+    pla
+@keep:
+    cpx #39
+    bcs @full
+    sta __fin_buf,x
+    inx
+@full:
+    iny
+    bne @scan
+@end:
+    lda #0
+    sta __fin_buf,x
+    ; an E without digits after it: 0
+    lda __val_fl
+    and #6
+    cmp #2
+    beq @zero
+    ; one character, . or 0: 0 without the sign
+    tya
+    sec
+    sbc __val_st
+    cmp #1
+    bne @read
+    lda __fin_buf
+    cmp #$2E
+    beq @zero
+    cmp #$30
+    beq @zero
+@read:
+    jsr __bas_fin
+    bit __val_fl
+    bpl @done
+    jsr __float_neg
+    lda __float_a
+    bne @done
+    jsr __fin_zero          ; -0
+    lda #$80
+    sta __float_a+1
+@done:
+    rts
+@zero:
+    jmp __fin_zero
+endproc
+
+; --- INPUT / READ items for number variables ---
+
+; C set: the item (__fin_len, __fin_buf) is all of a number (in __float_a)
+proc __fin_item
+    ldx __fin_len
+    lda #0
+    sta __fin_buf,x
+    jsr __bas_fin
+    ldx __fin_i
+    lda __fin_buf,x
+    bne @no
+    sec
+    rts
+@no:
+    clc
+    rts
+endproc
+
+proc __fin_target           ; __bas_sr := the item's buffer, __bas_m := 3
+    lda #<__fin_len
+    sta __bas_sr
+    lda #>__fin_len
+    sta __bas_sr+1
+    lda #3
+    sta __bas_m
+    lda #0
+    sta __bas_m+1
+    rts
+endproc
+
+proc __bas_iitemn
+    jsr __fin_target
+    jsr __bas_iitem
+    jsr __fin_item
+    bcs @ok
+    jmp __bas_iredo         ; ?REDO FROM START
+@ok:
+    rts
+endproc
+
+proc __bas_readn
+    jsr __fin_target
+    jsr __bas_read
+    jsr __fin_item
+    bcs @ok
+    lda #22                 ; ?TYPE MISMATCH
+    sta __bas_n
+    lda #0
+    sta __bas_n+1
+    jmp __bas_error
+@ok:
+    rts
+endproc
