@@ -722,6 +722,35 @@ else
     failed=$((failed + 1))
 fi
 
+# #547, #549, #550, #551: an expression used through a few low bits in 8 bits
+# (was 79 bytes), an element of a small array by a byte index in a loop not
+# hoisted into a pointer (144), (unsigned long)x << k built in the result's
+# bytes (110), a sum repeated across && computed once (62)
+co=build/test/opt_547
+mkdir -p $co
+printf 'unsigned char wave(unsigned int tick, unsigned char x, unsigned char y) {\n    return (unsigned char)(((tick + (x >> 2) * 13 + (y >> 1) * 7) >> 3) & 1);\n}\n' > $co/a.c
+printf 'extern signed int cloud_x[3];\nextern void put(unsigned char x, unsigned char c);\nvoid clouds(void) {\n    unsigned char i, t;\n    for (i = 0; i < 3; ++i)\n        for (t = 0; t < 3; ++t)\n            if (cloud_x[i] + t >= 0 && cloud_x[i] + t < 80)\n                put((unsigned char)(cloud_x[i] + t), t);\n}\n' > $co/b.c
+printf 'extern void dma_copy_far(unsigned long dst, unsigned long src, unsigned int n);\nvoid bake(unsigned char slot, unsigned int ch) {\n    dma_copy_far(0x5E000UL + (unsigned long)slot * 64, (unsigned long)ch * 64, 64);\n}\n' > $co/c.c
+printf 'extern signed int px;\nextern unsigned char hits;\nvoid on_screen(unsigned char t) {\n    if (px + t >= 0 && px + t < 80) ++hits;\n}\n' > $co/d.c
+co_sizes=""
+co_ok=1
+for t in a:44 b:91 c:84 d:46; do
+    f=${t%%:*}; max=${t##*:}
+    if ./bin/cc45 -O2 -c $co/$f.c -o $co/$f.o45 >/dev/null 2>&1; then
+        sz=$((16#$(./bin/objdump45 -h $co/$f.o45 | awk '$2 == "TEXT" {print $3}')))
+    else
+        sz=999
+    fi
+    co_sizes="$co_sizes $f=$sz"
+    [ $sz -le $max ] || co_ok=0
+done
+if [ $co_ok = 1 ]; then
+    echo "SUCCESS: low-byte narrowing, abs,y in loops, widened shifts, CSE across && (#547-#551:$co_sizes)"
+else
+    echo "FAIL: #547/#549/#550/#551 code sizes:$co_sizes (at most a=44 b=91 c=84 d=46)"
+    failed=$((failed + 1))
+fi
+
 # #351: a global struct's array member at a constant index is one absolute
 # address (was 22 and 33 bytes through a pointer built at run time)
 cs=build/test/const_chain

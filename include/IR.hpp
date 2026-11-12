@@ -344,6 +344,7 @@ struct Module {
     std::list<Function> functions;
     std::vector<std::string> externs;
     std::map<std::string, int> zpExterns;   // extern __zp globals: name -> size (0: unknown)
+    std::map<std::string, int> externSizes;  // extern arrays of a known size: their bytes (#549: abs,y)
     // __pure / __attribute__((pure)) functions: 1; __attribute__((const)):
     // 2 (calls with the same arguments give the same result; Issue #76)
     std::map<std::string, int> pureFunctions;

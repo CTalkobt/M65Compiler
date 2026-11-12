@@ -2908,6 +2908,14 @@ for bfmode in "zp|" "stack|-fno-zpcall"; do
     xemu_case "FAIL: test_basic_fin_xemu.c $bfname (compilation/linking failed)" "src/test-resources/test_basic_fin_xemu.c" "build/test/test_basic_fin_${bfname}_xemu.prg" "$bfflags" -- "test_basic_fin_$bfname" "build/test/test_basic_fin_${bfname}_xemu.prg" "C0C0" 3 "00 00 AA"
 done
 
+# Test: #547 (8-bit narrowing through >> and 16-bit operands), #549 (abs,y
+# in loops), #550 (widened shifts), #551 (CSE across && / ||) compute the same
+for ndmode in "zp|" "stack|-fno-zpcall"; do
+    IFS='|' read -r ndname ndflags <<< "$ndmode"
+    echo "Testing test_narrow_demand_xemu.c ($ndname)..."
+    xemu_case "FAIL: test_narrow_demand_xemu.c $ndname (compilation/linking failed)" "src/test-resources/test_narrow_demand_xemu.c" "build/test/test_narrow_demand_${ndname}_xemu.prg" "$ndflags" -- "test_narrow_demand_$ndname" "build/test/test_narrow_demand_${ndname}_xemu.prg" "C0C0" 11 "00 00 00 00 00 00 00 00 00 00 AA"
+done
+
 # Test: the code #542-#545 made smaller (dead loads, cmp #0, array + offset,
 # p[-k] through p - 256) computes the same
 for cwmode in "zp|" "stack|-fno-zpcall"; do
