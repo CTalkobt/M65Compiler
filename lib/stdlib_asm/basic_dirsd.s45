@@ -4,6 +4,9 @@
 ; ported line by line: the hypervisor's directory calls, the pattern's * ? #
 ; (a digit) $ (a letter) as the ROM matches them, the sizes and names.
 ;
+; __bas_dir (the compiler's DIR / CATALOG): __bas_dirsd made reachable from
+; basic_io.c's DIR (basic_dirhook.s45's pointer), then __bas_dos; a program
+; without DIR does not link this file.
 ; __bas_dirsd (from basic_io.c's DIR): the pattern at $0400 (BASIC's hdosfn),
 ; __bas_sdlen its length (0: none), __bas_sdpage bit 7 the page mode
 ; ([MORE] at the screen's last row). Output through __bas_out (CMD's
@@ -13,8 +16,9 @@
 .weak cc45.icallinfo
 cc45.icallinfo = 1
 
-.global __bas_dirsd, __bas_sdlen, __bas_sdpage
-.extern __bas_out, __bas_hyv, __bp_rom, __bp_prog
+.global __bas_dirsd, __bas_dir
+.extern __bas_out, __bas_hyv, __bp_rom, __bp_prog, __bas_dos
+.extern __bas_sdlen, __bas_sdpage, __bas_dirsdp    ; (basic_dirhook.s45)
 
 DSTR = $1300            ; the directory entry (the hypervisor's transfer area)
 PAT = $0400             ; the pattern
@@ -24,8 +28,6 @@ HYV_CLOSDIR = $16
 PLOT = $FFF0
 
 .segment "bss"
-__bas_sdlen:    .res 1  ; the pattern's length (0: none)
-__bas_sdpage:   .res 1  ; bit 7: page mode; bit 6: stop (pagemo's)
 __sd_fd:        .res 1  ; the directory's descriptor
 __sd_bp:        .res 1  ; slide's beginpat
 __sd_bn:        .res 1  ; slide's beginame
@@ -34,6 +36,14 @@ __sd_cnt:       .res 1  ; its digits' count
 __sd_dig:       .res 7  ; its digits (formats+1), 0 after them
 
 .segment "code"
+
+proc __bas_dir
+    lda #<__bas_dirsd
+    sta __bas_dirsdp
+    lda #>__bas_dirsd
+    sta __bas_dirsdp+1
+    jmp __bas_dos
+endproc
 
 proc __bas_dirsd
     ldx #0

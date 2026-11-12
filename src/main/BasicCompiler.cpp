@@ -3422,7 +3422,9 @@ void Compiler::dosStmt(int kw) {
         fail("COPY: a parameter it does not take, or no source file (?SYNTAX ERROR)");
     store(ir::Type::I16, iconst(ir::Type::I16, d->cmd), global("__bas_m"));
     // (commands from 20 on are functions of their own: a program links those it uses)
-    call(d->cmd >= 20 ? "__bas_dos" + std::to_string(d->cmd == 24 ? 23 : d->cmd) : std::string("__bas_dos"));
+    // (DIR / CATALOG: __bas_dir, which links the SD card's directory, basic_dirsd.s45)
+    call(d->cmd >= 20 ? "__bas_dos" + std::to_string(d->cmd == 24 ? 23 : d->cmd) : d->cmd == 16 ? std::string("__bas_dir")
+                                                                                                  : std::string("__bas_dos"));
     for (auto it = names.rbegin(); it != names.rend(); ++it) freeVal(*it);
 }
 

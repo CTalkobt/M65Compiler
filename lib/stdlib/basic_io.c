@@ -226,8 +226,9 @@ static void trans(const unsigned char *t, unsigned char count) {
 }
 
 static void dsread(void);
-extern unsigned char _bas_sdlen, _bas_sdpage;   /* basic_dirsd.s45 */
-extern void _bas_dirsd(void);
+extern unsigned char _bas_sdlen, _bas_sdpage;   /* basic_dirhook.s45 */
+extern unsigned int _bas_dirsdp;                 /* basic_dirsd.s45's routine, once a DIR set it */
+extern void _bas_sdcall(void);                   /* (a jump through it) */
 extern void _bas_hyv(void);
 /* the file name for the hypervisor (setnam_hdos): at $0400 (BASIC's hdosfn),
  * 0 after it */
@@ -613,7 +614,7 @@ void _bas_dos(void) {
         dosprs(0);
         page = _bas_daux & 0x80 && !_bas_chan;
         if (page) _bas_putc(147);
-        if (dosfa == 12) {
+        if (dosfa == 12 && _bas_dirsdp) {
             /* the SD card: the hypervisor's directory (basic_dirsd.s45, as the
              * ROM's dir_sd), the pattern at $0400 as BASIC's hdosfn */
             volatile unsigned char *h = (volatile unsigned char *)0x0400;
@@ -621,7 +622,7 @@ void _bas_dos(void) {
             h[k] = 0;   /* (the matcher reads one past the pattern, as the ROM's) */
             _bas_sdlen = par & 1 ? fn1l : 0;
             _bas_sdpage = page ? 0x80 : 0;
-            _bas_dirsd();
+            _bas_sdcall();
             break;
         }
         x = 1;
