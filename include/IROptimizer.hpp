@@ -63,6 +63,9 @@ void optimizeShareDivMod(Module& mod);
 // p[c] through a far pointer: the access at p with the byte offset c (its
 // Z index; c >= 256: p + (c & $FF00) shared by the accesses in a block)
 void foldFarOffset(Module& mod);
+// p[-k] (k 1..255) as (p - 256)[256 - k]: one p - 256 per pointer in a block
+// for every such access, read with ldy #256-k (#545)
+void foldNegOffset(Module& mod);
 // a commutative operation whose second operand is the instruction just
 // before's result: that operand first (it is still in A/X, #350)
 void orderCommutativeOperands(Module& mod);

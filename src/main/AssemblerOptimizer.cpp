@@ -585,6 +585,13 @@ bool AssemblerOptimizer::optimizeInternal(
                 }
                 if (shared) continue;
             }
+            // the operand's symbol (name [+|- n], index) is imported
+            auto externBase = [&](const AssemblerParser::Statement* t) {
+                std::string op = t->instr.operand;
+                op = op.substr(0, op.find_first_of("+-,"));
+                op.erase(std::remove_if(op.begin(), op.end(), [](char c) { return c == ' ' || c == '\t'; }), op.end());
+                return !op.empty() && parser->isExternSymbol(op);
+            };
             std::vector<std::pair<size_t, int>> stores;   // (statement, its byte)
             std::set<int> read;
             bool unknown = false;
@@ -645,12 +652,45 @@ bool AssemblerOptimizer::optimizeInternal(
                 if (t->instr.mode == AddressingMode::IMMEDIATE || t->instr.mode == AddressingMode::IMMEDIATE16) {
                     // (#<x of a block byte: its address taken)
                     if (t->instr.operand.find('<') != std::string::npos || t->instr.operand.find('>') != std::string::npos) {
+                        // (an imported symbol's, #<_map: not a block byte, #544)
+                        std::string sym = t->instr.operand;
+                        sym.erase(std::remove_if(sym.begin(), sym.end(),
+                                                 [](char c) { return c == '#' || c == '<' || c == '>' || c == ' '; }),
+                                  sym.end());
+                        if (!sym.empty() && parser->isExternSymbol(sym)) continue;
                         unknown = true; break;
                     }
                     continue;
                 }
-                if (tm.size() == 3 && tm[0] == 'B' && tm != "BIT" && tm != "BRK") continue;   // (a branch)
-                if ((tm == "JMP" || tm == "JSR" || tm == "BSR") && t->instr.mode == AddressingMode::ABSOLUTE) continue;
+                // (a branch or jump: into the proc; one out of it, to a tail
+                // another proc shares, __tail_opt_dedup_N, may read the block)
+                bool br = (tm.size() == 3 && tm[0] == 'B' && tm != "BIT" && tm != "BRK") ||
+                          ((tm == "LBRA" || tm == "JMP") && t->instr.mode == AddressingMode::ABSOLUTE);
+                if (br) {
+                    std::string tg = t->instr.operand;
+                    size_t cm = tg.find(',');
+                    if (cm != std::string::npos) tg = tg.substr(cm + 1);
+                    tg.erase(std::remove_if(tg.begin(), tg.end(), [](char c) { return c == ' ' || c == '\t'; }), tg.end());
+                    bool inside = false;
+                    for (size_t q = p + 1; q < end && !inside; ++q) {
+                        const std::string& l = st[q]->label;
+                        if (st[q]->deleted || l.empty()) continue;
+                        size_t c = l.rfind(':');
+                        inside = l == tg || (c != std::string::npos && l.substr(c + 1) == tg) ||
+                                 l == t->scopePrefix + tg || l == t->localLabelScope + ":" + tg;
+                    }
+                    if (!inside && !(tm == "JMP" || tm == "LBRA")) { unknown = true; break; }
+                    if (!inside && tm == "JMP") {
+                        // (a tail call to another routine: its own block; a jump
+                        // into another proc's code, a shared tail: unknown)
+                        if (tg.rfind("__tail_opt_dedup", 0) == 0) { unknown = true; break; }
+                    }
+                    if (!inside && tm == "LBRA") { unknown = true; break; }
+                    continue;
+                }
+                if (tm == "JSR" || tm == "BSR") {
+                    if (t->instr.mode == AddressingMode::ABSOLUTE) continue;
+                }
                 if (t->instr.operandTokenIndex < 0) { unknown = true; break; }
                 uint32_t v;
                 try { v = parser->evaluateExpressionAt(t->instr.operandTokenIndex, t->scopePrefix); }
@@ -667,6 +707,10 @@ bool AssemblerOptimizer::optimizeInternal(
                 if (md == AddressingMode::BASE_PAGE_X || md == AddressingMode::BASE_PAGE_Y ||
                     md == AddressingMode::ABSOLUTE_X || md == AddressingMode::ABSOLUTE_Y || md == AddressingMode::BASE_PAGE_X_INDIRECT)
                     w = 256;
+                // (an imported table indexed, lda _tbl,y: its address 0 until
+                // linked, never the relocated base page: an absolute address
+                // is not, #542)
+                if ((md == AddressingMode::ABSOLUTE_X || md == AddressingMode::ABSOLUTE_Y) && externBase(t)) continue;
                 if (plain && inBlock((int)v)) { stores.push_back({k, (int)v}); continue; }
                 for (int b = (int)v; b < (int)v + w; b++) read.insert(b);
             }
@@ -719,6 +763,7 @@ bool AssemblerOptimizer::optimizeInternal(
                     uint32_t v;
                     try { v = parser->evaluateExpressionAt(t->instr.operandTokenIndex, t->scopePrefix); }
                     catch (...) { return false; }
+                    if ((md == AddressingMode::ABSOLUTE_X || md == AddressingMode::ABSOLUTE_Y) && externBase(t)) continue;
                     if (md == AddressingMode::BASE_PAGE_X || md == AddressingMode::BASE_PAGE_Y || md == AddressingMode::ABSOLUTE_X ||
                         md == AddressingMode::ABSOLUTE_Y || md == AddressingMode::BASE_PAGE_X_INDIRECT)
                         return false;
@@ -1301,7 +1346,8 @@ bool AssemblerOptimizer::optimizeInternal(
                         bool sym = !o.empty() && (std::isalpha((unsigned char)o[0]) || o[0] == '_') &&
                                    o.find_first_of("+-*/()<>") == std::string::npos;
                         if (it != labelPos.end()) succ[i].push_back(it->second);
-                        else if (!sym) toAll[i] = true;
+                        else if (!sym || o.rfind("__tail_opt_dedup", 0) == 0) toAll[i] = true;
+                        // (a tail another proc shares, tail merging's: it reads the block)
                     } else {
                         toAll[i] = true;   // (through a pointer)
                     }
@@ -2454,8 +2500,37 @@ bool AssemblerOptimizer::optimizeInternal(
             }
             return -1;
         };
-        // per statement: what it does, and where control goes next
+        // per statement: what it does, and where control goes next. The
+        // same for A and Y (#542: cc45's lda #0 under a byte shifted to the
+        // high byte, an inx / dex restoring flags nothing reads): a dead
+        // lda / ldy of an immediate or a base-page byte, and an inx / dex or
+        // iny / dey pair whose flags nothing reads
         enum : uint8_t { RX = 1, WX = 2, RF = 4, WF = 8, FALL = 16, OPAQUE = 32 };
+        static const std::set<std::string> readsA = {
+            "sta", "tax", "tay", "taz", "tab", "pha", "adc", "sbc", "and", "ora", "eor", "cmp", "bit", "trb", "tsb", "map"};
+        static const std::set<std::string> writesA = {
+            "lda", "txa", "tya", "tza", "tba", "pla", "ldq", "adc", "sbc", "and", "ora", "eor"};
+        static const std::set<std::string> onA = {"asl", "lsr", "rol", "ror", "asr", "inc", "dec", "neg"};
+        static const std::set<std::string> readsY = {"sty", "tya", "cpy", "iny", "dey", "phy", "tys", "map"};
+        static const std::set<std::string> writesY = {"ldy", "tay", "tsy", "ply", "ldq", "iny", "dey"};
+        // (A, Y and the inx / dex pairs only in cc45's procs, .var cc45.fp:
+        // hand-written code keeps its loads)
+        std::vector<bool> cc45At(n, false);
+        for (size_t i = 0; i < n; ++i) {
+            auto* s = st[i].get();
+            if (s->deleted || s->type != AssemblerParser::Statement::INSTRUCTION || s->instr.mnemonic != "proc") continue;
+            size_t e = i + 1;
+            bool cc = false;
+            for (; e < n; ++e) {
+                auto* t = st[e].get();
+                if (t->type == AssemblerParser::Statement::INSTRUCTION &&
+                    (t->instr.mnemonic == "endproc" || t->instr.mnemonic == "proc")) break;
+                if (t->type == AssemblerParser::Statement::DIRECTIVE && t->dir.name == "var" &&
+                    t->dir.varName.find("cc45.fp") != std::string::npos) cc = true;
+            }
+            if (cc) for (size_t k = i; k < e; ++k) cc45At[k] = true;
+        }
+        for (char reg : {'X', 'A', 'Y'}) {
         std::vector<uint8_t> eff(n, 0);
         std::vector<long> jump(n, -1);
         for (size_t i = 0; i < n; ++i) {
@@ -2470,7 +2545,7 @@ bool AssemblerOptimizer::optimizeInternal(
             if (s->type == AssemblerParser::Statement::LDW && s->instr.operand == ".ax" && s->exprTokenIndex >= 0 &&
                 s->exprTokenIndex < (int)parser->tokens.size() &&
                 parser->tokens[s->exprTokenIndex].type == AssemblerTokenType::HASH) {
-                e = WX | WF | FALL;                               // ldax #v: lda #<v / ldx #>v
+                e = (reg == 'Y' ? 0 : WX) | WF | FALL;            // ldax #v: lda #<v / ldx #>v
                 continue;
             }
             if (s->type != AssemblerParser::Statement::INSTRUCTION) { e = OPAQUE; continue; }
@@ -2479,7 +2554,14 @@ bool AssemblerOptimizer::optimizeInternal(
             switch (s->instr.mode) {
                 case AddressingMode::BASE_PAGE_X: case AddressingMode::ABSOLUTE_X:
                 case AddressingMode::BASE_PAGE_X_INDIRECT: case AddressingMode::ABSOLUTE_X_INDIRECT:
-                    e = OPAQUE; continue;
+                case AddressingMode::LINEAR_ABSOLUTE_X:
+                    if (reg == 'X') { e = OPAQUE; continue; }
+                    break;
+                case AddressingMode::BASE_PAGE_Y: case AddressingMode::ABSOLUTE_Y:
+                case AddressingMode::BASE_PAGE_INDIRECT_Y: case AddressingMode::BASE_PAGE_INDIRECT_SP_Y:
+                case AddressingMode::STACK_RELATIVE_INDIRECT_Y: case AddressingMode::LINEAR_ABSOLUTE_Y:
+                    if (reg == 'Y') e |= RX;
+                    break;
                 default: break;
             }
             bool bb = m.size() == 4 && (m.compare(0, 3, "bbr") == 0 || m.compare(0, 3, "bbs") == 0);
@@ -2497,17 +2579,32 @@ bool AssemblerOptimizer::optimizeInternal(
             bool rmbSmb = m.size() == 4 && (m.compare(0, 3, "rmb") == 0 || m.compare(0, 3, "smb") == 0);
             if (rmbSmb) { e = FALL; continue; }
             // (a cc45 function's rts reads X / the flags only when its result
-            // has them, #351)
+            // has them, #351; A and Y: always)
             if (m == "rts") {
                 int rr = rtsReads(i);
-                e = (rr & 2 ? RX : 0) | (rr & 1 ? RF : 0);
+                e = (reg != 'X' || (rr & 2) ? RX : 0) | (rr & 1 ? RF : 0);
                 continue;
             }
-            if (readsX.count(m)) e |= RX;
-            if (writesX.count(m)) e |= WX;
+            if (reg == 'X') {
+                if (readsX.count(m)) e |= RX;
+                if (writesX.count(m)) e |= WX;
+            } else if (reg == 'Y') {
+                if (readsY.count(m)) e |= RX;
+                if (writesY.count(m)) e |= WX;
+            } else {
+                bool acc = onA.count(m) && (s->instr.mode == AddressingMode::ACCUMULATOR ||
+                                            s->instr.mode == AddressingMode::IMPLIED);
+                if (readsA.count(m) || acc) e |= RX;
+                if (writesA.count(m) || acc) e |= WX;
+            }
             if (readsNZ.count(m)) e |= RF;
-            if (writesNZ.count(m)) e |= WF;
-            if (!e && !passes.count(m)) { e = OPAQUE; continue; }   // jsr, rts, Q instructions, unknown
+            if (writesNZ.count(m) || (reg == 'A' && m == "neg")) e |= WF;
+            bool known = readsX.count(m) || writesX.count(m) || readsY.count(m) || writesY.count(m) ||
+                         readsA.count(m) || writesA.count(m) || onA.count(m) || readsNZ.count(m) ||
+                         writesNZ.count(m) || passes.count(m);
+            // (an instruction of the other registers' lists passes this one)
+            if (!known) { e = OPAQUE; continue; }   // jsr, Q instructions, unknown
+            if (reg != 'A' && (m == "trb" || m == "tsb")) e &= ~WF;
             e |= FALL;
         }
         // live in: read here, or live after and not written here
@@ -2529,16 +2626,40 @@ bool AssemblerOptimizer::optimizeInternal(
                 if (in != liveIn[k]) { liveIn[k] = in; more = true; }
             }
         }
+        const std::string ld = reg == 'X' ? "ldx" : reg == 'Y' ? "ldy" : "lda";
+        const std::string inc = reg == 'X' ? "inx" : "iny", dec = reg == 'X' ? "dex" : "dey";
         for (size_t i = 0; i < n; ++i) {
             auto* s = st[i].get();
             if (s->deleted || s->noOpt || s->type != AssemblerParser::Statement::INSTRUCTION || !s->label.empty()) continue;
-            if (lower(s->instr.mnemonic) != "ldx" || s->instr.mode != AddressingMode::IMMEDIATE) continue;
-            if (liveOut(i) == 0) {
-                report("dead-ldx", s, "LDX " + s->instr.operand + " eliminated (X written before it is read)");
-                s->deleted = true;
-                s->size = 0;
-                changed = true;
+            std::string m = lower(s->instr.mnemonic);
+            if (reg != 'X' || m != ld) { if (!cc45At[i]) continue; }
+            if (m == ld && (s->instr.mode == AddressingMode::IMMEDIATE ||
+                            (reg != 'X' && s->instr.mode == AddressingMode::BASE_PAGE))) {
+                if (liveOut(i) == 0) {
+                    report(reg == 'X' ? "dead-ldx" : reg == 'Y' ? "dead-ldy" : "dead-lda", s, upper(ld) + " " + s->instr.operand + " eliminated (" + std::string(1, reg) +
+                                           " written before it is read)");
+                    s->deleted = true;
+                    s->size = 0;
+                    changed = true;
+                }
+                continue;
             }
+            // inx / dex (iny / dey) next to each other: X as it was, only the flags
+            if (reg != 'A' && (m == inc || m == dec)) {
+                size_t j = i + 1;
+                while (j < n && st[j]->deleted) ++j;
+                if (j >= n || st[j]->noOpt || st[j]->type != AssemblerParser::Statement::INSTRUCTION ||
+                    !st[j]->label.empty() || lower(st[j]->instr.mnemonic) != (m == inc ? dec : inc))
+                    continue;
+                if (!(liveOut(j) & 2)) {
+                    report("dead-incdec", s, upper(m) + " / " + upper(lower(st[j]->instr.mnemonic)) +
+                                               " eliminated (only flags, not read)");
+                    s->deleted = st[j]->deleted = true;
+                    s->size = st[j]->size = 0;
+                    changed = true;
+                }
+            }
+        }
         }
     }
 

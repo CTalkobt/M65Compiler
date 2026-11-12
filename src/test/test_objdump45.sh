@@ -820,8 +820,9 @@ model() {   # model FILE... : a python expression over the --json output (m: its
     && pass "--json: a function's attributes" || fail "--json attr: $(model "[s for s in m[0]['symbols'] if s['name']=='_sq']" $C/m.o45)"
 [ "$(model "sorted({r['symbol'] for r in m[0]['relocs'] if 'symbol' in r} & {'_sq'}) or [l['n'] for l in m[0]['disasm'][0]['lines'] if l.get('m')=='jsr'][:2]" $C/m.o45)" != "" ] \
     && pass "--json: relocations" || fail "--json relocs"
-# a relocated jsr goes to its symbol, not the address it holds unlinked
-[ "$(model "sorted({(l.get('g'), l.get('n')) for l in m[0]['disasm'][0]['lines'] if l.get('m')=='jsr'}, key=str)" $C/m.o45)" = "[(0, '<_sq>'), (18, '<_twice>'), (None, '<__mul16>')]" ] \
+# a relocated jsr / jmp goes to its symbol, not the address it holds unlinked
+# (sq's call of __mul16 is a tail jump)
+[ "$(model "sorted({(l.get('g'), l.get('n')) for l in m[0]['disasm'][0]['lines'] if l.get('m') in ('jsr', 'jmp')}, key=str)" $C/m.o45)" = "[(0, '<_sq>'), (15, '<_twice>'), (None, '<__mul16>')]" ] \
     && pass "--json: a jsr to the object's own symbol, a relocated one to its import" \
     || fail "--json jsr: $(model "[(l.get('g'), l.get('n')) for l in m[0]['disasm'][0]['lines'] if l.get('m')=='jsr']" $C/m.o45)"
 [ "$(model "m[0]['kind'], m[0]['stub']['sys'] > 2048, m[0]['map'].endswith('m.map'), any(s['name']=='_twice' for s in m[0]['symbols'])" $C/m.prg)" = "prg True True True" ] \

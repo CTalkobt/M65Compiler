@@ -4,6 +4,31 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### cc45 / ca45: dead loads and stores, cmp #0, array + offset, p[-k] (#542, #543, #544, #545)
+
+- #542: an `int`'s OR whose high byte is the other side's goes straight into
+  X (no `sta T; txa; tax; lda T`); ca45's dead-LDX pass also drops a dead
+  `lda` / `ldy` (an immediate or a base-page byte) and an `inx; dex` /
+  `iny; dey` whose flags nothing reads; its dead-store pass no longer takes
+  an imported table indexed (`lda _tbl,y`) as reading the register pool.
+  `((unsigned)p[4] << 8) | tbl[i]`: 23 -> 11 bytes.
+- #543: `x == 0` / `x != 0` of a byte (an enum's first value too) without
+  the `cmp #0` when the load set the flags.
+- #544: `array + offset` adds the array's address as immediates to the
+  offset in A/X, straight into the pointer it is stored to: 62 -> 43 bytes.
+- #545: `p[-k]` (k 1..255) is `(p - 256)[256 - k]`: one `p - 256` (`dec a`
+  for its high byte) for the block's accesses, each `ldy #256-k`; the
+  folded `(p),y` offsets go up to 255 (were 250). `p[-1] + p[-64]`: 40 -> 23
+  bytes.
+- The dead loads and `inx; dex` go only in cc45's procs (hand-written
+  assembly keeps its loads). With them gone more calls become tail jumps,
+  which showed: ca45's two base-page dead-store passes took a jump into a
+  tail another proc shares (tail merging's `__tail_opt_dedup_N`) as leaving
+  the proc, and dropped a store that tail reads; and a call to a function
+  reading `__builtin_return_address(0)` became a tail jump (it read its
+  caller's caller): cc45 keeps such calls a `jsr`.
+- Tests: `test_codegen_waste_xemu.c` (both conventions), sizes in
+  `test_compiler.sh`.
 ### basic45 --compile: INPUT's and READ's items in assembly (#369)
 
 - `stdlib_asm/basic_items.s45`: INPUT's items (quoted strings, numbers'
