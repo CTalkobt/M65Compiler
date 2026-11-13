@@ -3275,6 +3275,7 @@ void IRBuilder::toWide(std::unique_ptr<Expression>& e, const std::string& kind, 
 // Does the body assign the variable `name` (=, op=, ++, --)? Conservative:
 // an expression kind not looked into counts as an assignment.
 bool IRBuilder::inlineParamAssigned(Statement* body, const std::string& name) {
+    std::function<bool(Statement*)> stmtAssigns;
     std::function<bool(Expression*)> ex = [&](Expression* e) -> bool {
         if (!e) return false;
         auto isName = [&](Expression* t) {
@@ -3297,12 +3298,16 @@ bool IRBuilder::inlineParamAssigned(Statement* body, const std::string& name) {
             for (auto& a : f->arguments) if (ex(a.get())) return true;
             return ex(f->callExpr.get());
         }
-        if (dynamic_cast<StatementExpression*>(e) || dynamic_cast<BuiltinVaArg*>(e) || dynamic_cast<BuiltinVaStart*>(e))
+        // ({ ... }): its statements and its value (__jsr is one)
+        if (auto* se = dynamic_cast<StatementExpression*>(e)) return stmtAssigns(se->body.get()) || ex(se->result.get());
+        if (dynamic_cast<BuiltinVaArg*>(e) || dynamic_cast<BuiltinVaStart*>(e))
             return true;
         return false;
     };
     std::function<bool(Statement*)> st = [&](Statement* s) -> bool {
         if (!s) return false;
+        // (inline assembly naming the parameter may write it)
+        if (auto* as = dynamic_cast<AsmStatement*>(s)) return as->code.find("@_p_" + name) != std::string::npos;
         if (auto* es = dynamic_cast<ExpressionStatement*>(s)) return ex(es->expression.get());
         if (auto* r = dynamic_cast<ReturnStatement*>(s)) return ex(r->expression.get());
         if (auto* d = dynamic_cast<VariableDeclaration*>(s)) return d->name == name || ex(d->initializer.get());
@@ -3317,6 +3322,7 @@ bool IRBuilder::inlineParamAssigned(Statement* body, const std::string& name) {
         if (auto* l = dynamic_cast<LabelledStatement*>(s)) return st(l->statement.get());
         return false;
     };
+    stmtAssigns = st;
     return st(body);
 }
 
@@ -10214,7 +10220,109 @@ void IRBuilder::visit(AsmStatement& node) {
     }
 
     inst.loc = loc(node);
+    forwardJsrRegisters(inst);
     emit(inst);
+}
+
+// __jsr's register values: the parser stores each computed
+// value in its register byte (__jsr_a, __jsr_xy, ...) and the call's assembly
+// starts by loading the registers from those bytes. Where the store is in
+// this block with nothing after it that could change the value, the value
+// goes to the register from where it lives instead: the stores become one
+// cpu_reg_write of several registers (asmText "x,y,a": a group of registers
+// per operand of args, a register per byte), placed just before the assembly,
+// and the assembly loses those loads. Anything else keeps the bytes.
+void IRBuilder::forwardJsrRegisters(ir::Inst& asmInst) {
+    if (!currentFunc_ || !currentBlock_ || asmInst.asmText.find("___jsr_") == std::string::npos) return;
+    std::vector<std::string> lines;
+    {
+        std::istringstream in(asmInst.asmText);
+        for (std::string l; std::getline(in, l);) lines.push_back(l);
+    }
+    struct Ld { size_t line; char reg; std::string name; int k; };
+    std::vector<Ld> lds;
+    for (size_t i = 0; i < lines.size(); i++) {
+        std::string t = lines[i];
+        t.erase(0, t.find_first_not_of(" \t"));
+        if (t.rfind(".extern", 0) == 0 || t == "sec" || t == "clc") continue;
+        if (t.size() < 5 || t[0] != 'l' || t[1] != 'd' || !strchr("axyz", t[2]) || t[3] != ' ') break;
+        std::string rest = t.substr(4);
+        if (rest[0] == '#') continue;                    // a constant: in the assembly already
+        if (rest.rfind("___jsr_", 0) != 0) break;
+        size_t plus = rest.find('+');
+        std::string name = rest.substr(0, plus);
+        if (name == "___jsr_c") return;                  // (.Carry = value: goes through A after the loads)
+        lds.push_back({i, t[2], name, plus == std::string::npos ? 0 : std::atoi(rest.c_str() + plus + 1)});
+    }
+    if (lds.empty()) return;
+    // each byte's registers, in byte order
+    std::map<std::string, std::string> regsOf;
+    for (const auto& l : lds) {
+        std::string& r = regsOf[l.name];
+        if ((int)r.size() <= l.k) r.resize(l.k + 1, '?');
+        r[l.k] = l.reg;
+    }
+    // the stores, last first, over instructions that only compute
+    auto computes = [](ir::Op op) {
+        switch (op) {
+            case ir::Op::CONST: case ir::Op::ADD: case ir::Op::SUB: case ir::Op::AND: case ir::Op::OR:
+            case ir::Op::XOR: case ir::Op::LSL: case ir::Op::LSR: case ir::Op::ASR: case ir::Op::SHL:
+            case ir::Op::SHR: case ir::Op::NEG: case ir::Op::NOT: case ir::Op::LOAD: case ir::Op::ADDR_GLOBAL:
+            case ir::Op::SEXT: case ir::Op::ZEXT: case ir::Op::TRUNC: case ir::Op::COPY:
+                return true;
+            default:
+                return false;
+        }
+    };
+    auto& insts = currentBlock_->insts;
+    std::map<std::string, size_t> found;
+    std::set<std::string> kept;
+    std::set<uint32_t> redefined;
+    for (size_t j = insts.size(); j-- > 0;) {
+        const ir::Inst& in = insts[j];
+        if (in.op == ir::Op::NOP) continue;
+        if (in.op == ir::Op::STORE && in.args.empty() && in.src2.kind == ir::OperandKind::GLOBAL &&
+            in.src2.name.rfind("___jsr_", 0) == 0) {
+            const std::string& n = in.src2.name;
+            auto r = regsOf.find(n);
+            if (r == regsOf.end() || found.count(n) || kept.count(n)) continue;
+            const ir::Operand& v = in.src1;
+            bool ok = r->second.find('?') == std::string::npos;
+            if (v.isVreg()) {
+                if (redefined.count(v.vregId) || currentFunc_->memoryVregs.count(v.vregId) ||
+                    v.type == ir::Type::F32 || ir::typeSize(v.type) < (int)r->second.size())
+                    ok = false;
+            } else if (!v.isImm()) {
+                ok = false;
+            }
+            if (ok) found[n] = j; else kept.insert(n);
+            continue;
+        }
+        if (!computes(in.op) || !in.args.empty()) break;
+        if (in.dest.isVreg()) redefined.insert(in.dest.vregId);
+    }
+    if (found.empty()) return;
+    ir::Inst w;
+    w.op = ir::Op::CPU_REG_WRITE;
+    w.loc = asmInst.loc;
+    for (const auto& [n, j] : found) {
+        if (!w.asmText.empty()) w.asmText += ",";
+        w.asmText += regsOf[n];
+        w.args.push_back(insts[j].src1);
+        ir::Inst nop;
+        nop.op = ir::Op::NOP;
+        insts[j] = nop;
+    }
+    std::string text;
+    for (size_t i = 0; i < lines.size(); i++) {
+        bool drop = false;
+        for (const auto& l : lds) if (l.line == i && found.count(l.name)) drop = true;
+        if (drop) continue;
+        if (!text.empty()) text += "\n";
+        text += lines[i];
+    }
+    asmInst.asmText = text;
+    emit(w);
 }
 
 void IRBuilder::visit(StaticAssert&) { /* compile-time only */ }

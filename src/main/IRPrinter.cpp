@@ -217,6 +217,16 @@ void Printer::print(std::ostream& out, const Inst& inst) {
             out << locComment << "\n";
             return;
 
+        case Op::CPU_REG_WRITE:
+            if (!inst.args.empty()) {
+                // several registers: a group per operand ("x,y,a")
+                out << "cpu_reg_write " << inst.asmText;
+                for (const auto& a : inst.args) out << ", " << operandStr(a);
+                out << locComment << "\n";
+                return;
+            }
+            [[fallthrough]];
+
         default:
             if (inst.dest.isVreg()) {
                 out << operandStr(inst.dest) << " = ";

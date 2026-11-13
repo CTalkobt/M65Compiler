@@ -516,6 +516,7 @@ private:
 
     // Helper: emit an instruction to the current block
     void emit(ir::Inst inst);
+    void forwardJsrRegisters(ir::Inst& asmInst);
 
     // Helper: create a new block and make it current
     ir::Block& startBlock(const std::string& label);

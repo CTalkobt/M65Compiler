@@ -232,7 +232,7 @@ All addresses are available as `#define` constants with the `KERNAL_` prefix:
 
 - The functions are `static __forceinline` (`inline __attribute__((always_inline))`): every call is expanded in the caller, at any `-O` level, and no copy of a wrapper is emitted unless its address is taken. `inline` alone would not do: cc45 does not look into a statement expression (which `__jsr` is) of a function with parameters when it decides what is safe to inline, and calls it.
 - Those with parameters are `__regparm` as well: where one is called after all (through a pointer, or in a function compiled as written, `#pragma cc45 optimize(off)`), its first argument arrives in A or A:X.
-- Arguments reach the registers through `__jsr`'s bytes (`___jsr_a`, `___jsr_x`, … in `stdlib_asm/cbm_args.s45`), or straight from where they are when there is one register argument.
+- Arguments are loaded into the registers from where they are (`cbm_setlfs(1, 8, 2)` is `ldy #2` / `ldx #8` / `lda #1` and the call); `__jsr`'s bytes (`___jsr_a`, `___jsr_x`, … in `stdlib_asm/cbm_args.s45`) hold only a value with no address of its own, and the results read after the call.
 - The KERNAL addresses are hardcoded — they are the same on C64, C128 and MEGA65 ROMs.
 - Values are returned in A (low) and X (high), cc45's return convention.
 - Functions that can fail convert the KERNAL carry flag into the return value: carry set = 1 (error), clear = 0.

@@ -4745,6 +4745,8 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
                                 // block (loadOperand), not a register-pool temp
                                 // copied there (Issue #290)
                                 hasUse = true;
+                            } else if (inst.op == ir::Op::CPU_REG_WRITE && !fn.localSlotVregs.count(vid)) {
+                                hasUse = true; // loaded straight into its registers (directByte)
                             } else {
                                 canSuppress = false;
                             }
@@ -10169,6 +10171,52 @@ void IRCodeGen::emitInstBody(const ir::Inst& inst) {
         }
 
         case ir::Op::CPU_REG_WRITE: {
+            if (!inst.args.empty()) {
+                // Several registers at once (__jsr's values, IRBuilder's
+                // forwardJsrRegisters): asmText "x,y,a" is a group of
+                // registers per operand, a register per byte. A value with
+                // no address of its own (a frame local, a result in A/X)
+                // goes through its __jsr byte first; then every register is
+                // loaded from memory or a constant, A last (Z from the base
+                // page goes through A: LDZ has no base-page mode).
+                std::map<char, std::string> src;
+                size_t at = 0;
+                for (size_t gi = 0; gi < inst.args.size(); gi++) {
+                    size_t comma = inst.asmText.find(',', at);
+                    std::string regs = inst.asmText.substr(at, comma == std::string::npos ? std::string::npos : comma - at);
+                    at = comma == std::string::npos ? inst.asmText.size() : comma + 1;
+                    const ir::Operand& op = inst.args[gi];
+                    int sz = op.isImm() ? 4 : ir::typeSize(op.type);
+                    std::vector<std::string> b(regs.size());
+                    bool direct = true;
+                    for (size_t k = 0; k < regs.size(); k++) {
+                        b[k] = (int)k < sz ? directByte(op, (int)k) : std::string("#0");
+                        if (b[k].empty()) direct = false;
+                    }
+                    if (!direct) {
+                        std::string name = "___jsr_" + (regs == "axyz" ? std::string("q") : regs);
+                        static const char* const st[] = {"sta ", "stx ", "sty ", "stz "};
+                        loadOperand(op);
+                        emit(".extern " + name);
+                        for (size_t k = 0; k < regs.size(); k++) {
+                            b[k] = name + (k ? "+" + std::to_string(k) : "");
+                            if ((int)k < sz) emit(st[k] + b[k]);
+                            else b[k] = "#0";
+                        }
+                    }
+                    for (size_t k = 0; k < regs.size(); k++) src[regs[k]] = b[k];
+                }
+                if (src.count('z')) {
+                    const std::string& z = src['z'];
+                    if (z[0] == '$' && z.size() <= 3) { emit("lda " + z); emit("taz"); }
+                    else emit("ldz " + z);
+                }
+                if (src.count('y')) emit("ldy " + src['y']);
+                if (src.count('x')) emit("ldx " + src['x']);
+                if (src.count('a')) emit("lda " + src['a']);
+                ms_.invalidateAll();
+                break;
+            }
             std::string reg = inst.asmText;
             std::transform(reg.begin(), reg.end(), reg.begin(), ::toupper);
             
