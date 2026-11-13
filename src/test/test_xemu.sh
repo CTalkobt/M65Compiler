@@ -4096,6 +4096,14 @@ for jrmode in "zp|" "stack|-fno-zpcall" "O0|-O0" "O0stack|-O0 -fno-zpcall" "fram
     xemu_case "FAIL: test_jsr_regs_xemu.c $jrname (compilation/linking failed)" "src/test-resources/test_jsr_regs_xemu.c" "build/test/test_jsr_regs_${jrname}_xemu.prg" "$jrflags" -- "test_jsr_regs_$jrname" "build/test/test_jsr_regs_${jrname}_xemu.prg" "C0C0" 9 "01 01 01 01 01 01 01 01 AA"
 done
 
+# Test: a value computed inside a loop and used after it keeps its register
+# over the whole loop (#561: a break out of a rotated loop's body)
+for llmode in "zp|" "stack|-fno-zpcall" "O0|-O0" "frame|-fno-staticalloc"; do
+    IFS='|' read -r llname llflags <<< "$llmode"
+    echo "Testing test_loop_live_xemu.c ($llname)..."
+    xemu_case "FAIL: test_loop_live_xemu.c $llname (compilation/linking failed)" "src/test-resources/test_loop_live_xemu.c" "build/test/test_loop_live_${llname}_xemu.prg" "$llflags" -- "test_loop_live_$llname" "build/test/test_loop_live_${llname}_xemu.prg" "C0C0" 5 "01 01 01 01 AA"
+done
+
 # Test: string/character literal encoding prefixes p"..." s"..." a"..." @"..."
 for spmode in "zp|" "stack|-fno-zpcall"; do
     IFS='|' read -r spname spflags <<< "$spmode"

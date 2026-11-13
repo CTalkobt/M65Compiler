@@ -169,15 +169,40 @@ void VRegAllocator::extendLiveRangesAcrossLoops(const ir::Function& fn) {
     // inside or past the loop, extend lastUse to cover the loop body so it
     // remains live across all iterations. Loop-local temporaries (defined inside
     // the loop and used before loop.end) do not need extension.
-    for (auto& lr : ranges_) {
-        for (const auto& loop : loops) {
-            if (lr.firstDef < loop.start && lr.lastUse >= loop.start) {
-                if (lr.lastUse < loop.end) {
-                    lr.lastUse = loop.end;
+    //
+    // A vreg first mentioned inside a loop and used past its end is live
+    // around the back-edge too: the loop may run on after the definition and
+    // leave by another exit, which reaches the use without passing the
+    // definition again (#561: n read in a rotated loop's test at its bottom
+    // and compared again after the loop, which a break in the body, laid out
+    // before the test, also reaches). It is live over the whole loop: its
+    // range starts at the loop's. (Until nothing changes: an inner loop's
+    // extension may put the start inside an outer loop.)
+    bool moved = false;
+    for (bool changed = true; changed;) {
+        changed = false;
+        for (auto& lr : ranges_) {
+            for (const auto& loop : loops) {
+                if (lr.firstDef < loop.start && lr.lastUse >= loop.start) {
+                    if (lr.lastUse < loop.end) {
+                        lr.lastUse = loop.end;
+                        changed = true;
+                    }
+                }
+                if (lr.firstDef > loop.start && lr.firstDef <= loop.end && lr.lastUse > loop.end) {
+                    lr.firstDef = loop.start;
+                    changed = moved = true;
                 }
             }
         }
     }
+    // (the linear scan takes the ranges in order of their starts)
+    if (moved)
+        std::stable_sort(ranges_.begin(), ranges_.end(),
+                         [](const LiveRange& a, const LiveRange& b) {
+                             if (a.firstDef != b.firstDef) return a.firstDef < b.firstDef;
+                             return a.vregId < b.vregId;
+                         });
 }
 
 // ============================================================================
