@@ -24,6 +24,16 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
   after its `rti` (one byte each; found by al45 on cc45's own output).
 - Tests: `test_validation lint` (the core), `src/test/test_al45.sh` (a
   fixture per rule, the library, configuration, output formats).
+### basic45 --compile: TI, TI$ and SLEEP in assembly (#369)
+
+- `stdlib_asm/basic_ti.s45`: `TI` (CIA 2's timers in seconds, as BASIC 65's
+  Get_TI_CIA), `CLR TI`, `TI$` (the RTC) and `SLEEP`, in assembly (were
+  `basic_in.c`'s `_bas_ti`, `_bas_ticlr`, `_bas_tis` and `basic_fn.c`'s
+  `_bas_sleep`). A program that uses them is 565-1192 bytes smaller
+  (`test_basic_compile2_xemu.bas` 15149 -> 14397).
+- Test: `test_basic_ti_xemu.c` (the assembly against the former C as the
+  reference: the count's conversion for PAL and NTSC, TI's readings, CLR TI,
+  TI$, SLEEP and its error).
 
 ### cc45: struct-array loops step a pointer; shared routines for repeated multiply shapes (#548, #552)
 

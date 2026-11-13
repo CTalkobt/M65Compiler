@@ -1,0 +1,204 @@
+; basic_ti.s45 — TI, TI$ and SLEEP of BASIC 65 programs compiled by basic45
+; --compile (#369), in assembly (were basic_in.c's _bas_ti, _bas_ticlr,
+; _bas_tis and basic_fn.c's _bas_sleep).
+;
+;   __bas_ti      TI into __float_a: CIA 2's timers A and B (one 32-bit count
+;                 down, started if they do not run) in seconds, as BASIC 65's
+;                 Get_TI_CIA: ($FFFFFFFF - the count) / 2^20, times 1.066890
+;                 (PAL) or 1.057777 (NTSC, $D06F bit 7)
+;   __bas_ticlr   CLR TI (b65.src Clear_TI): timers A and B stopped, loaded
+;                 with $FFFF each, started again
+;   __bas_tis     TI$ ("hh:mm:ss", the RTC's BCD registers at $FFD7110) into
+;                 __bas_sr's buffer
+;   __bas_sleep   SLEEP __float_a seconds (TI; ?ILLEGAL QUANTITY below 0)
+;   __bas_tconv   (for the test) the count elapsed in __bas_tcnt (32 bits,
+;                 low byte first) in seconds into __float_a, as __bas_ti does
+;
+; The CIA's control registers: bit 0 start, 4 load the latches, 6 timer B
+; counts timer A's underflows, 7 (CRA) the TOD clock at 50 Hz (on a PAL
+; machine).
+
+; no calls through pointers here (ln45's call graph)
+.weak cc45.icallinfo
+cc45.icallinfo = 1
+
+.global __bas_ti, __bas_ticlr, __bas_tis, __bas_sleep, __bas_tconv, __bas_tcnt
+.extern __float_a, __float_b, __float_ultof, __float_mul, __float_add, __float_lt
+.extern __bas_sr, __bas_n, __bas_error
+
+CIA2_TALO = $DD04       ; timer A, then B (4 bytes, low first)
+CIA2_CRA  = $DD0E
+CIA2_CRB  = $DD0F
+VIC_PAL   = $D06F       ; bit 7: NTSC
+
+P = $08                 ; the RTC (a 32-bit pointer)
+R = $0C                 ; TI$'s buffer
+
+.segment "bss"
+__bas_tcnt: .res 4      ; the count elapsed
+__tk_until: .res 5      ; SLEEP's end (TI)
+
+.segment "data"
+__tk_scale:             ; (cc45's conversions of the ROM's .real constants)
+    .byte $81, $08, $8F, $D9, $FD       ; PAL  1.066890
+    .byte $81, $07, $65, $3C, $9B       ; NTSC 1.057777
+
+.segment "code"
+
+; the timers counting phi2 (A) and A's underflows (B), started
+proc __tk_start
+    lda VIC_PAL
+    and #$80
+    eor #$80
+    ora #$41
+    sta CIA2_CRA
+    lda #$41
+    sta CIA2_CRB
+    rts
+endproc
+
+proc __bas_ticlr
+    lda VIC_PAL             ; stopped
+    and #$80
+    eor #$80
+    ora #$40
+    sta CIA2_CRA
+    lda #$40
+    sta CIA2_CRB
+    ldx #3
+    lda #$FF
+@l: sta CIA2_TALO,x         ; the latches $FFFF
+    dex
+    bpl @l
+    lda #$10                ; loaded into the counters
+    tsb CIA2_CRA
+    tsb CIA2_CRB
+    jmp __tk_start
+endproc
+
+proc __bas_ti
+    jsr __tk_start
+    ; (not while timer A is about to underflow: its bits 7 and 6 clear)
+@w: lda CIA2_TALO
+    and #$C0
+    beq @w
+    ldx #0
+@r: lda CIA2_TALO,x         ; the count elapsed: $FFFFFFFF - the count
+    eor #$FF
+    sta __bas_tcnt,x
+    inx
+    cpx #4
+    bne @r
+    jmp __bas_tconv
+endproc
+
+proc __bas_tconv
+    ldq __bas_tcnt
+    jsr __float_ultof
+    lda __float_a           ; / 2^20 (0 stays 0)
+    beq @k
+    sec
+    sbc #20
+    sta __float_a
+@k: ldx #4                  ; times the scale
+    ldy #4
+    bit VIC_PAL
+    bpl @c
+    ldx #9
+@c: lda __tk_scale,x
+    sta __float_b,y
+    dex
+    dey
+    bpl @c
+    jmp __float_mul
+endproc
+
+proc __bas_tis
+    lda __bas_sr
+    sta R
+    lda __bas_sr+1
+    sta R+1
+    ldy #0
+    lda #8                  ; the length
+    sta (R),y
+    lda #$10                ; $FFD7110: seconds, minutes, hours
+    sta P
+    lda #$71
+    sta P+1
+    lda #$FD
+    sta P+2
+    lda #$0F
+    sta P+3
+    ldy #7                  ; the seconds' digits at 7-8, minutes' 4-5, hours' 1-2
+    ldz #0
+@rd:
+    lda [P],z               ; (read until it holds)
+    cmp [P],z
+    bne @rd
+    pha
+    lsr a
+    lsr a
+    lsr a
+    lsr a
+    ora #'0'
+    sta (R),y
+    iny
+    pla
+    and #15
+    ora #'0'
+    sta (R),y
+    cpz #2
+    beq @done
+    dey
+    dey
+    lda #':'
+    sta (R),y
+    dey
+    dey
+    inz
+    bra @rd
+@done:
+    rts
+endproc
+
+proc __tk_ub                ; __float_b := SLEEP's end
+    ldx #4
+@l: lda __tk_until,x
+    sta __float_b,x
+    dex
+    bpl @l
+    rts
+endproc
+
+proc __tk_au                ; SLEEP's end := __float_a
+    ldx #4
+@l: lda __float_a,x
+    sta __tk_until,x
+    dex
+    bpl @l
+    rts
+endproc
+
+proc __bas_sleep
+    lda __float_a           ; below 0: ?ILLEGAL QUANTITY
+    beq @ok
+    bit __float_a+1
+    bpl @ok
+    lda #14
+    sta __bas_n
+    lda #0
+    sta __bas_n+1
+    jmp __bas_error
+@ok:
+    jsr __tk_au             ; (the wait)
+    jsr __bas_ti
+    jsr __tk_ub
+    jsr __float_add         ; the end: TI + the wait
+    jsr __tk_au
+@l: jsr __bas_ti
+    jsr __tk_ub
+    jsr __float_lt          ; until TI is not below it
+    cmp #0
+    bne @l
+    rts
+endproc
