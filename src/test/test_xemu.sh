@@ -4086,6 +4086,16 @@ for iomode in "zp|" "stack|-fno-zpcall" "O0|-O0"; do
     xemu_case "FAIL: test_iropt_xemu.c $ioname (compilation/linking failed)" "src/test-resources/test_iropt_xemu.c" "build/test/test_iropt_${ioname}_xemu.prg" "$ioflags" -- "test_iropt_$ioname" "build/test/test_iropt_${ioname}_xemu.prg" "C0C0" 8 "01 01 01 01 01 01 01 AA"
 done
 
+# Test: __jsr with several register values that are not constants: each
+# register loaded from where its value lives, or through its __jsr byte (a
+# frame local, a value another value's evaluation changes), with and without
+# the optimizer and static allocation
+for jrmode in "zp|" "stack|-fno-zpcall" "O0|-O0" "O0stack|-O0 -fno-zpcall" "frame|-fno-staticalloc"; do
+    IFS='|' read -r jrname jrflags <<< "$jrmode"
+    echo "Testing test_jsr_regs_xemu.c ($jrname)..."
+    xemu_case "FAIL: test_jsr_regs_xemu.c $jrname (compilation/linking failed)" "src/test-resources/test_jsr_regs_xemu.c" "build/test/test_jsr_regs_${jrname}_xemu.prg" "$jrflags" -- "test_jsr_regs_$jrname" "build/test/test_jsr_regs_${jrname}_xemu.prg" "C0C0" 9 "01 01 01 01 01 01 01 01 AA"
+done
+
 # Test: string/character literal encoding prefixes p"..." s"..." a"..." @"..."
 for spmode in "zp|" "stack|-fno-zpcall"; do
     IFS='|' read -r spname spflags <<< "$spmode"

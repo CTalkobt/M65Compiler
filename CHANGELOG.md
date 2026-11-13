@@ -4,6 +4,23 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### `__jsr`: the registers loaded from where the values are
+
+- cc45: a `__jsr` / `__jsr_raw` / `__jmp` with several computed values (or a
+  16- or 32-bit one) loads each register from where its value is — a
+  variable or temporary in the base page or static storage, a constant
+  after inlining — instead of storing every value in its library byte
+  (`___jsr_a`, …) and loading the registers from the bytes.
+  `cbm_setlfs(1, 8, 2)` is `ldy #2` / `ldx #8` / `lda #1` / the call.
+  The bytes still carry a value with no address (a
+  stack-frame local), one that a later value's evaluation could change, and
+  a `.Carry` that is not constant. In the IR: one `cpu_reg_write` of several
+  registers (`IRBuilder::forwardJsrRegisters`).
+- cc45: an always-inlined function whose body is a statement expression
+  keeps a parameter it does not assign as the argument's value (it was
+  copied into a variable of the caller: constants did not reach the body).
+- Test: `test_jsr_regs_xemu.c`.
+
 ### `<cbm.h>`: the wrappers always inlined; a stale register in consecutive stores
 
 - `<cbm.h>`: the `cbm_*` KERNAL wrappers are `static __forceinline` (and
