@@ -376,7 +376,8 @@ going back to the `DO` on top); `EXIT` and a false `DO WHILE` go on after the ma
 nested ones passed; none: `?LOOP NOT FOUND`). `READ` takes the items of the `DATA` statements in program order
 (the same rules as `INPUT`'s: `?OUT OF DATA`, `?TYPE MISMATCH`), `RESTORE n` from the first `DATA` at or after
 line `n`. `RND` is the ROM's (the interpreter's seed and sequence), `TI` CIA 2's timers as BASIC 65 reads them,
-`TI$` the clock (`"hh:mm:ss"`). The run time of these is `lib/stdlib/basic_in.c`; reading a number,
+`TI$` the clock (`"hh:mm:ss"`). The run time of these is `lib/stdlib/basic_in.c` (`INPUT`'s and `READ`'s
+items `lib/stdlib_asm/basic_items.s45`; `TI`, `TI$`, `CLR TI` and `SLEEP` `lib/stdlib_asm/basic_ti.s45`); reading a number,
 `lib/stdlib/basic_innum.c` (with `strtof`, linked only by a program that `INPUT`s or `READ`s a number).
 
 **Files**: `OPEN lf [, device [, secondary [, name]]]` (no device: the default drive, secondary 0; a device
