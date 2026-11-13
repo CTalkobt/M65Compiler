@@ -4263,6 +4263,13 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
     vregSizes_ = fn.vregSizes;
 
     for (uint32_t vid = 0; vid < fn.nextVreg; vid++) {
+        // (a temporary the optimizer left in no instruction has no location:
+        // no frame or static storage for it. A variable keeps its storage:
+        // its address or its name in inline assembly may be all that is
+        // left of it in the IR)
+        if (!alloc_.hasAlloc(vid) && !fn.localSlotVregs.count(vid) && !fn.memoryVregs.count(vid) &&
+            !fn.vregSizes.count(vid))
+            continue;
         auto alloc = alloc_.getAlloc(vid);
         if (alloc.loc == VRegAllocator::IN_FRAME) {
             vregOffset_[vid] = alloc.offset;

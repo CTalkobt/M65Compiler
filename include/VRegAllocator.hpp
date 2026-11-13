@@ -45,6 +45,9 @@ public:
 
     // Get the allocation for a vReg
     Allocation getAlloc(uint32_t vregId) const;
+    // Was the vReg given a location (false: it is in no instruction any more,
+    // and getAlloc's answer for it is only a default)
+    bool hasAlloc(uint32_t vregId) const { return allocs_.count(vregId) > 0; }
 
     // Is the given vReg currently in A:X at this instruction point?
     // (i.e., was it just defined and hasn't been evicted yet)
