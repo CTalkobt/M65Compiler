@@ -1,4 +1,4 @@
-/* basic_in.c — INPUT, GET, READ, TI of BASIC 65 programs compiled by basic45 --compile (#369)
+/* basic_in.c — INPUT, GET of BASIC 65 programs compiled by basic45 --compile (#369)
  *
  * As BASIC 65's (b65.src: input, inpcon, get):
  *   _bas_iline: a line from the keyboard (KERNAL BASIN: the screen editor),
@@ -11,9 +11,7 @@
  *   _bas_get: a key (KERNAL GETIN): __bas_n := its code, 0 for none;
  *     __bas_m bit 0 (GETKEY): waits for one; bit 1: also the string of it
  *     ("" for none) into __bas_sr's buffer.
- *   _bas_ti: TI into __float_a: CIA 2's timers A and B (one 32-bit count,
- *     started if they do not run) in seconds, as BASIC 65's Get_TI_CIA.
- *   _bas_tis: TI$ ("hh:mm:ss", the RTC) into __bas_sr's buffer.
+ *   (TI, CLR TI, TI$: basic_ti.s45, in assembly)
  * __bas_m 5 (LINE INPUT): the rest of the line as it is. _bas_lin: LINE
  * INPUT#'s line (the ROM's linputn) into __bas_sr's buffer.
  * INPUT# / GET# (__bas_chan, a channel CHKIN made the input): no prompts, no
@@ -126,54 +124,4 @@ void _bas_get(void) {
     }
 }
 
-#define CIA2 ((volatile unsigned char *)0xDD00)
-#define VIC_PAL (*(volatile unsigned char *)0xD06F)     /* bit 7: NTSC */
-
-void _bas_ti(void) {
-    unsigned char t[4], k;
-    unsigned long n;
-    float f;
-    /* count phi2, start the timers (TOD 50 Hz on a PAL machine) */
-    CIA2[0x0E] = ((VIC_PAL & 0x80) ^ 0x80) | 0x41;
-    CIA2[0x0F] = 0x41;
-    /* (not while timer A is about to underflow: its bits 7 and 6 clear) */
-    while (!(CIA2[4] & 0xC0)) {}
-    for (k = 0; k < 4; k++) t[k] = CIA2[4 + k];
-    n = 0xFFFFFFFFUL - (t[0] | (unsigned)t[1] << 8 | (unsigned long)t[2] << 16 | (unsigned long)t[3] << 24);
-    /* the count / 2^20, times the ROM's scale */
-    f = (float)n / 1048576.0;
-    f = f * (VIC_PAL & 0x80 ? 1.057777 : 1.066890);
-    for (k = 0; k < 5; k++) _float_a[k] = ((unsigned char *)&f)[k];
-}
-
-/* CLR TI (b65.src Clear_TI): timers A and B stopped, loaded with $FFFF each,
- * started again */
-void _bas_ticlr(void) {
-    unsigned char k;
-    CIA2[0x0E] = ((VIC_PAL & 0x80) ^ 0x80) | 0x40;
-    CIA2[0x0F] = 0x40;
-    for (k = 0; k < 4; k++) CIA2[4 + k] = 0xFF;
-    CIA2[0x0E] |= 0x10;
-    CIA2[0x0F] |= 0x10;
-    CIA2[0x0E] = ((VIC_PAL & 0x80) ^ 0x80) | 0x41;
-    CIA2[0x0F] = 0x41;
-}
-
-void _bas_tis(void) {
-    unsigned char __far *rtc = (unsigned char __far *)0xFFD7110UL;
-    unsigned char b[3], k, i;
-    unsigned char *r = _bas_sr;
-    /* seconds, minutes, hours (BCD), each read until it holds */
-    for (k = 0; k < 3; k++) {
-        do b[k] = rtc[k]; while (b[k] != rtc[k]);
-    }
-    r[0] = 8;
-    for (k = 0, i = 1; k < 3; k++) {
-        unsigned char v = b[2 - k];
-        if (k) r[i++] = ':';
-        r[i++] = (v >> 4) | '0';
-        r[i++] = (v & 15) | '0';
-    }
-}
-
-/* (READ, RESTORE and INPUT's items: basic_items.s45) */
+/* (READ, RESTORE and INPUT's items: basic_items.s45; TI, TI$: basic_ti.s45) */

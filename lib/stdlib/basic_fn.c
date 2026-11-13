@@ -6,35 +6,21 @@
  * into __bas_sr's buffer, a number into __float_a or __bas_n.
  *   (VAL: basic_fin.s45, in assembly)
  *   (HEX$, STRBIN$, DEC, INSTR and AND / OR / NOT / XOR's integer: basic_fns.s45)
+ *   (SLEEP: basic_ti.s45)
  *   _bas_rpt     RPT$(__bas_sa, __bas_n)
- *   _bas_sleep   SLEEP __float_a seconds (TI)
  */
 #include <stdlib.h>
 
 extern unsigned char *_bas_sa, *_bas_sb, *_bas_sr;
 extern int _bas_n, _bas_m;
-extern unsigned char _float_a[5];
 extern void _bas_error(void);
-extern void _bas_ti(void);
 
 static void raise(int n) {
     _bas_n = n;
     _bas_error();
 }
 
-static float geta(void) {
-    float f;
-    unsigned char k;
-    for (k = 0; k < 5; k++) ((unsigned char *)&f)[k] = _float_a[k];
-    return f;
-}
-
-
 /* (_bas_val: basic_fin.s45) */
-
-
-
-
 
 void _bas_rpt(void) {
     unsigned char *s = _bas_sa, *r = _bas_sr, n = (unsigned char)_bas_n, k, i, l = s[0];
@@ -46,12 +32,3 @@ void _bas_rpt(void) {
         for (j = 0; j < l; j++) r[i++] = s[1 + j];
     }
 }
-
-void _bas_sleep(void) {
-    float wait = geta(), until;
-    if (wait < 0.0) raise(14);
-    _bas_ti();
-    until = geta() + wait;
-    do _bas_ti(); while (geta() < until);
-}
-
