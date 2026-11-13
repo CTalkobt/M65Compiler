@@ -4,6 +4,15 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### Struct member array sizes after the first declarator (#563)
+
+- cc45: in a struct or union member declaration with several declarators,
+  the array size of a declarator after the first had to be an integer
+  literal (`char p, a[4 + 1];`, `a[N]`, `a[sizeof(int)]` were errors).
+  It is a constant expression now, as the first declarator's; a size that
+  is not constant there is reported as such. Test:
+  `test_struct_dims_xemu.c`.
+
 ### A value used after a loop keeps its register over the loop (#561)
 
 - cc45: a value first computed inside a loop and used after it was live,

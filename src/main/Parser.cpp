@@ -3106,8 +3106,15 @@ std::unique_ptr<StructDefinition> Parser::parseStructDefinition(bool isUnion) {
             while (match(TokenType::OPEN_SQUARE)) {
                 if (match(TokenType::CLOSE_SQUARE)) { extraDims.push_back(0); extraFlex = true; }
                 else {
-                    extraDims.push_back(std::stoi(expect(TokenType::INTEGER_LITERAL, "Expected array size").value));
-                    expect(TokenType::CLOSE_SQUARE, "Expected ']'");
+                    // a constant expression, as the first declarator's (#563)
+                    const Token& sizeTok = peek();
+                    auto sizeExpr = parseExpression();
+                    long cv;
+                    if (!evalConstInt(sizeExpr.get(), cv))
+                        throw std::runtime_error(formatDiagnostic(sizeTok.sourceFile, sizeTok.line, sizeTok.column, Severity::Error,
+                            "The array size of member '" + extraName + "' is not a constant"));
+                    extraDims.push_back((int)cv);
+                    expect(TokenType::CLOSE_SQUARE, "Expected ']' after array size");
                 }
             }
             // Append typedef array dimensions
