@@ -1,0 +1,26 @@
+; mega65-dma-trigger-order: a list address byte after the trigger
+    * = $2000
+    lda #0
+    sta $d702
+    lda #>list
+    sta $d701
+    lda #<list
+    sta $d700
+    rts
+again:
+    lda #<list
+    sta $d705
+    lda #0
+    sta $d704           ; EXPECT mega65-dma-trigger-order
+    rts
+two:                    ; (two jobs back to back: the second's bytes after the first trigger)
+    lda #0
+    sta $d702
+    sta $d701
+    sta $d700
+    sta $d702
+    sta $d701
+    sta $d700
+    rts
+list:
+    .byte 0

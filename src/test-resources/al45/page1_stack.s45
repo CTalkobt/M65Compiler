@@ -1,0 +1,8 @@
+; mega65-page1-stack: page-1 stack reads under the 16-bit stack (cle selects it)
+    * = $2000
+    cle
+    tsx
+    lda $0101,x         ; EXPECT mega65-page1-stack
+    sta $0200,x
+    lda #<$0105
+    rts

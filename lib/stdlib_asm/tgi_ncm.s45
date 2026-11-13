@@ -834,7 +834,7 @@ proc ___tgi_n_eplot
 @qn:
     dex
     bpl @q
-@plot:
+@plot:                  ; NOLINT(mega65-unused-label): names the plot step (fallen into)
     tya
     lsr a
     tay

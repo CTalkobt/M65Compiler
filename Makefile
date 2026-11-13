@@ -26,6 +26,7 @@ LIB_DIR = lib45
 CC_TARGET = $(BIN_DIR)/cc45
 CA_TARGET = $(BIN_DIR)/ca45
 CP_TARGET = $(BIN_DIR)/cp45
+AL_TARGET = $(BIN_DIR)/al45
 NM_TARGET = $(BIN_DIR)/nm45
 PACK_TARGET = $(BIN_DIR)/pack45
 FONT_TARGET = $(BIN_DIR)/font45
@@ -60,7 +61,7 @@ MANDIR ?= $(PREFIX)/share/man/man1
 # lib45-common: Object format, symbols, config, utilities, diagnostics, debug info, source tracking
 $(LIB_DIR)/lib45-common.a: $(addprefix $(OBJ_DIR)/, \
     O45Reader.o O45Writer.o O45DebugSections.o O45Emitter.o O45Archive.o \
-    O45Linker.o Logger.o AssemblerOpcodeDatabase.o ConfigLoader.o Pack45.o CpuCycles.o)
+    O45Linker.o Logger.o AssemblerOpcodeDatabase.o ConfigLoader.o Pack45.o CpuCycles.o Lint.o)
 	@mkdir -p $(LIB_DIR)
 	@rm -f $@
 	$(AR) rcs $@ $^
@@ -232,7 +233,7 @@ $(LIB_DIR)/lib45-tools.a: $(LIB45_TOOLS_OBJS)
 # BINARY BUILD RULES
 # ============================================================================
 
-all: $(CC_TARGET) $(CA_TARGET) $(CP_TARGET) $(NM_TARGET) $(PACK_TARGET) $(FONT_TARGET) $(LN_TARGET) \
+all: $(CC_TARGET) $(CA_TARGET) $(CP_TARGET) $(AL_TARGET) $(NM_TARGET) $(PACK_TARGET) $(FONT_TARGET) $(LN_TARGET) \
      $(AR_TARGET) $(OD_TARGET) $(DISK_TARGET) $(ASMCVT45_TARGET) $(BASIC_TARGET) $(TUNE_TARGET) $(DBG45_TARGET) $(DEPLOY_TARGET) stdlib | $(LIB_DIR)/lib45-audio.a $(LIB_DIR)/lib45-phases.a
 
 # Rebuild stdlib whenever cc45 or ca45 changes
@@ -241,7 +242,7 @@ stdlib: $(CC_TARGET) $(CA_TARGET) $(AR_TARGET)
 
 man: $(MAN_DIR)/cc45.1 $(MAN_DIR)/ca45.1 $(MAN_DIR)/cp45.1 $(MAN_DIR)/ln45.1 $(MAN_DIR)/nm45.1 $(MAN_DIR)/ar45.1 $(MAN_DIR)/objdump45.1 \
      $(MAN_DIR)/disk45.1 $(MAN_DIR)/basic45.1 $(MAN_DIR)/asmCvt45.1 $(MAN_DIR)/tune45.1 $(MAN_DIR)/dbg45.1 $(MAN_DIR)/pack45.1 \
-     $(MAN_DIR)/deploy45.1 $(MAN_DIR)/font45.1
+     $(MAN_DIR)/deploy45.1 $(MAN_DIR)/font45.1 $(MAN_DIR)/al45.1
 
 $(MAN_DIR)/%.1: doc/bin/%.md
 	@mkdir -p $(MAN_DIR)
@@ -272,10 +273,15 @@ $(CP_TARGET): $(CC_TARGET)
 
 # Assembler (ca45) - the assembler from libca45, its preprocessor and .o45
 # output from codegen + common
-$(CA_TARGET): $(OBJ_DIR)/ca45_main.o | $(LIB_DIR)
+$(CA_TARGET): $(OBJ_DIR)/ca45_main.o $(OBJ_DIR)/AsmLint.o | $(LIB_DIR)
 $(CA_TARGET): $(LIBCA45_INT) $(LIB_DIR)/lib45-codegen.a $(LIB_DIR)/lib45-common.a
 	@mkdir -p $(BIN_DIR)
-	$(CXX) $(CXXFLAGS) -o $@ $(OBJ_DIR)/ca45_main.o $(LIBCA45_INT) $(LIB_DIR)/lib45-codegen.a $(LIB_DIR)/lib45-common.a
+	$(CXX) $(CXXFLAGS) -o $@ $(OBJ_DIR)/ca45_main.o $(OBJ_DIR)/AsmLint.o $(LIBCA45_INT) $(LIB_DIR)/lib45-codegen.a $(LIB_DIR)/lib45-common.a
+
+# The assembly linter (al45) - symlink to ca45 (#64, #199)
+$(AL_TARGET): $(CA_TARGET)
+	@mkdir -p $(BIN_DIR)
+	ln -sf ca45 $(AL_TARGET)
 
 # Symbol Inspector (nm45) - uses common
 $(NM_TARGET): $(OBJ_DIR)/nm45_main.o | $(LIB_DIR)
@@ -543,6 +549,7 @@ show-lib-deps:
 	@echo "cc45      : lib45-opt lib45-codegen lib45-ir lib45-c-compile lib45-common"
 	@echo "ca45      : lib45-codegen lib45-common"
 	@echo "cp45      : symlink to cc45"
+	@echo "al45      : symlink to ca45 (assembly linter)"
 	@echo "ln45      : lib45-common"
 	@echo "nm45      : lib45-common"
 	@echo "ar45      : lib45-common"
@@ -594,12 +601,13 @@ test-distros:
 # per source (its main() compiled as tv_<category>_main); test-validation and
 # the targets below run all of them or one category
 TV_TARGET = $(BIN_DIR)/test_validation
-TV_SOURCES = src/test/test_validation_parser.cpp src/test/test_validation_struct.cpp src/test/test_validation_const.cpp src/test/test_validation_semantic.cpp src/test/test_validation_preprocessor.cpp src/test/test_validation_linker.cpp src/test/test_segment_emission.cpp src/test/test_validation_assembler.cpp src/test/test_validation_simops.cpp src/test/test_validation_directives.cpp src/test/test_validation_symbols.cpp src/test/test_validation_segments.cpp src/test/test_validation_proc.cpp src/test/test_validation_addressing.cpp src/test/test_validation_simops_extended.cpp src/test/test_move_fill.cpp src/test/test_validation_ca45lib.cpp
+TV_SOURCES = src/test/test_validation_parser.cpp src/test/test_validation_struct.cpp src/test/test_validation_const.cpp src/test/test_validation_semantic.cpp src/test/test_validation_preprocessor.cpp src/test/test_validation_linker.cpp src/test/test_segment_emission.cpp src/test/test_validation_assembler.cpp src/test/test_validation_simops.cpp src/test/test_validation_directives.cpp src/test/test_validation_symbols.cpp src/test/test_validation_segments.cpp src/test/test_validation_proc.cpp src/test/test_validation_addressing.cpp src/test/test_validation_simops_extended.cpp src/test/test_move_fill.cpp src/test/test_validation_ca45lib.cpp src/test/test_validation_lint.cpp
 TV_OBJECTS = $(patsubst src/test/%.cpp,$(OBJ_DIR)/tv_%.o,$(TV_SOURCES)) $(OBJ_DIR)/test_validation_main.o
 
 # (the linker category calls O45Linker itself)
 TV_LIB_OBJECTS = $(OBJ_DIR)/O45Reader.o $(OBJ_DIR)/O45Writer.o $(OBJ_DIR)/O45DebugSections.o $(OBJ_DIR)/O45IRSerializer.o \
-                 $(OBJ_DIR)/O45Linker.o $(OBJ_DIR)/Logger.o $(OBJ_DIR)/O45Archive.o $(OBJ_DIR)/AssemblerOpcodeDatabase.o $(OBJ_DIR)/Pack45.o
+                 $(OBJ_DIR)/O45Linker.o $(OBJ_DIR)/Logger.o $(OBJ_DIR)/O45Archive.o $(OBJ_DIR)/AssemblerOpcodeDatabase.o $(OBJ_DIR)/Pack45.o \
+                 $(OBJ_DIR)/Lint.o
 
 # (the ca45lib category calls libca45; its plain objects without objcopy)
 TV_CA45LIB = $(if $(HAVE_LIBCA45),$(LIBCA45),$(LIBCA45_INT))
@@ -780,6 +788,7 @@ install: all lib $(if $(HAVE_LIBCA45),$(LIBCA45))
 	install -d $(DESTDIR)$(BINDIR)
 	install -m 755 $(CC_TARGET) $(CA_TARGET) $(NM_TARGET) $(PACK_TARGET) $(FONT_TARGET) $(LN_TARGET) $(AR_TARGET) $(OD_TARGET) $(DISK_TARGET) $(ASMCVT45_TARGET) $(BASIC_TARGET) $(TUNE_TARGET) $(DBG45_TARGET) $(DEPLOY_TARGET) $(DESTDIR)$(BINDIR)
 	ln -sf cc45 $(DESTDIR)$(BINDIR)/cp45
+	ln -sf ca45 $(DESTDIR)$(BINDIR)/al45
 	install -d $(DESTDIR)$(LIBDIR)
 	install -m 644 lib/build/c45.lib lib/build/c45_zp.lib lib/build/c45_stack.lib $(DESTDIR)$(LIBDIR)
 	install -m 644 lib/build/crt0*.o45 lib/build/tuneplay.o45 $(DESTDIR)$(LIBDIR)
@@ -913,7 +922,7 @@ docker-runtime:
 	@docker build -f src/Docker/Dockerfile.runtime -t mega65-cc45:runtime .
 
 uninstall:
-	rm -f $(DESTDIR)$(BINDIR)/cc45 $(DESTDIR)$(BINDIR)/ca45 $(DESTDIR)$(BINDIR)/cp45
+	rm -f $(DESTDIR)$(BINDIR)/cc45 $(DESTDIR)$(BINDIR)/ca45 $(DESTDIR)$(BINDIR)/cp45 $(DESTDIR)$(BINDIR)/al45
 	rm -f $(DESTDIR)$(BINDIR)/nm45 $(DESTDIR)$(BINDIR)/pack45 $(DESTDIR)$(BINDIR)/font45 $(DESTDIR)$(BINDIR)/ln45 $(DESTDIR)$(BINDIR)/ar45
 	rm -f $(DESTDIR)$(BINDIR)/objdump45 $(DESTDIR)$(BINDIR)/disk45 $(DESTDIR)$(BINDIR)/asmCvt45 $(DESTDIR)$(BINDIR)/cvt_asm
 	rm -f $(DESTDIR)$(BINDIR)/basic45 $(DESTDIR)$(BINDIR)/tune45 $(DESTDIR)$(BINDIR)/dbg45 $(DESTDIR)$(BINDIR)/deploy45
@@ -924,4 +933,4 @@ uninstall:
 	rm -f $(DESTDIR)$(MANDIR)/cc45.1 $(DESTDIR)$(MANDIR)/ca45.1 $(DESTDIR)$(MANDIR)/cp45.1
 	rm -f $(DESTDIR)$(MANDIR)/ln45.1 $(DESTDIR)$(MANDIR)/nm45.1 $(DESTDIR)$(MANDIR)/ar45.1
 	rm -f $(DESTDIR)$(MANDIR)/objdump45.1 $(DESTDIR)$(MANDIR)/disk45.1
-	rm -f $(DESTDIR)$(MANDIR)/basic45.1 $(DESTDIR)$(MANDIR)/asmCvt45.1 $(DESTDIR)$(MANDIR)/cvt_asm.1 $(DESTDIR)$(MANDIR)/tune45.1 $(DESTDIR)$(MANDIR)/dbg45.1 $(DESTDIR)$(MANDIR)/deploy45.1 $(DESTDIR)$(MANDIR)/pack45.1 $(DESTDIR)$(MANDIR)/font45.1
+	rm -f $(DESTDIR)$(MANDIR)/basic45.1 $(DESTDIR)$(MANDIR)/asmCvt45.1 $(DESTDIR)$(MANDIR)/cvt_asm.1 $(DESTDIR)$(MANDIR)/tune45.1 $(DESTDIR)$(MANDIR)/dbg45.1 $(DESTDIR)$(MANDIR)/deploy45.1 $(DESTDIR)$(MANDIR)/pack45.1 $(DESTDIR)$(MANDIR)/font45.1 $(DESTDIR)$(MANDIR)/al45.1

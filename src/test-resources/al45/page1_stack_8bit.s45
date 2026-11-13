@@ -1,0 +1,5 @@
+; (no cle, standalone: the 8-bit stack in page 1 is fine)
+    * = $2000
+    tsx
+    lda $0101,x
+    rts

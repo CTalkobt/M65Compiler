@@ -1,0 +1,13 @@
+; mega65-unreachable: code after an unconditional jump or return
+    * = $2000
+start:
+    lda #1
+    rts
+    inx                 ; EXPECT mega65-unreachable
+    inx
+next:
+    jmp start
+table:
+    .byte 1, 2, 3       ; (data after a jump: not code)
+    bra next
+    dex                 ; EXPECT mega65-unreachable

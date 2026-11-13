@@ -4,6 +4,26 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### al45: the assembly linter; the linters' shared core (#64, #199, #278)
+
+- `al45` (a link to ca45, chosen by program name) lints ca45 assembly: ca45's
+  front end and addressing modes, no optimizer, no output. Rules (by stable
+  `mega65-*` id): `unreachable`, `unused-label`, `no-bp-mode`, `page1-stack`,
+  `dma-trigger-order`, `io-personality`, `rom-call-bp`,
+  `unnamed-proc-attrs`. Profiles `cc45` (`-c`) and `standalone`.
+  Hand-written idioms (fall-through, inline data after `jsr`, self-modified
+  calls, `tab`) are not reported. `doc/bin/al45.md`.
+- The shared core (`include/Lint.hpp`, for al45 and the C linter to come):
+  `.cc45-lint.yml` (#278: a YAML subset, searched upward, over
+  `~/.config/m65/cc45-lint.yml`, under the command line), `--checks=`,
+  `--disable=`, `--severity=`, `NOLINT` / `NOLINTNEXTLINE`, text / JSON /
+  SARIF 2.1.0, `--list-rules`, `--explain=`.
+- The plan for the rest (al45's flow rules, the C linter `cl45`):
+  `doc/architecture/lint.md`. The library's assembly lints clean.
+- cc45: an `__interrupt` function no longer ends with an unreachable `rts`
+  after its `rti` (one byte each; found by al45 on cc45's own output).
+- Tests: `test_validation lint` (the core), `src/test/test_al45.sh` (a
+  fixture per rule, the library, configuration, output formats).
 ### basic45 --compile: TI, TI$ and SLEEP in assembly (#369)
 
 - `stdlib_asm/basic_ti.s45`: `TI` (CIA 2's timers in seconds, as BASIC 65's

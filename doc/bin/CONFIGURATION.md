@@ -10,6 +10,7 @@ This document describes the configuration files and environment variables the to
 | `cp45` | `~/.config/m65/cp45.conf` | Same as cc45 (`cp45` is `cc45` under another name; the file is chosen by the program name) |
 | `ca45` | `~/.config/m65/ca45.conf`, then `./.ca45rc` | One command-line argument per line |
 | `asmCvt45` | `.asmCvt45rc` in the current directory or the nearest parent directory | INI sections with `key = value` (see [asmCvt45](asmCvt45.md#configuration-file-asmcvt45rc)) |
+| `al45` | `~/.config/m65/cc45-lint.yml`, then the first `.cc45-lint.yml` from the source file's directory upward | YAML subset (see [al45](al45.md#configuration-cc45-lintyml)); also `~/.config/m65/ca45.conf` and `./.ca45rc` (al45 is ca45) |
 
 `ln45`, `ar45`, `nm45`, `objdump45`, `basic45`, `disk45` and `deploy45` read no configuration file (`deploy45` takes its hosts, serial port and tool paths from the environment: [deploy45](deploy45.md)).
 
