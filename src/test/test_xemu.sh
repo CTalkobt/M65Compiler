@@ -4120,6 +4120,14 @@ for awmode in "zp|" "stack|-fno-zpcall" "O0|-O0" "frame|-fno-staticalloc"; do
     xemu_case "FAIL: test_absy_word_xemu.c $awname (compilation/linking failed)" "src/test-resources/test_absy_word_xemu.c" "build/test/test_absy_word_${awname}_xemu.prg" "$awflags" -- "test_absy_word_$awname" "build/test/test_absy_word_${awname}_xemu.prg" "C0C0" 6 "01 01 01 01 01 AA"
 done
 
+# Test: an arm of ?: reuses what its condition computed and loaded, and
+# loads again when memory may have changed (#567)
+for crmode in "zp|" "stack|-fno-zpcall" "O0|-O0" "nocse|-fno-cse"; do
+    IFS='|' read -r crname crflags <<< "$crmode"
+    echo "Testing test_cond_reuse_xemu.c ($crname)..."
+    xemu_case "FAIL: test_cond_reuse_xemu.c $crname (compilation/linking failed)" "src/test-resources/test_cond_reuse_xemu.c" "build/test/test_cond_reuse_${crname}_xemu.prg" "$crflags" -- "test_cond_reuse_$crname" "build/test/test_cond_reuse_${crname}_xemu.prg" "C0C0" 5 "01 01 01 01 AA"
+done
+
 # Test: string/character literal encoding prefixes p"..." s"..." a"..." @"..."
 for spmode in "zp|" "stack|-fno-zpcall"; do
     IFS='|' read -r spname spflags <<< "$spmode"
