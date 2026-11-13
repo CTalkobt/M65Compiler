@@ -4,6 +4,22 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### `name,y` for 16-bit elements of small static arrays (#568)
+
+- cc45: an element address of a static array (`&pos[i]`, an array of at
+  most 256 bytes, or a byte element at a byte index) used by loads and
+  stores in several blocks is no longer a pointer in the base page: each
+  access is `name+off,y` (it was only so for uses in the address's own
+  block). The index must be the same at every use: no write of it reaches
+  a use without the address being computed again. 16-bit and pointer
+  elements are stored that way too, from a constant or a value in the base
+  page (`sta name,y` / `sta name+1,y`; only bytes were). A loop variable
+  kept in a register counts as an index when it lives up to the last use.
+  A byte index is no longer zero-extended into X for the `asl` / `tay`.
+  The issue's function: 111 -> 101 bytes, no pointer; an address kept in a
+  variable (`p = &tab[i]`) or of an array over 256 bytes with a wider
+  element is a pointer as before. Test: `test_absy_word_xemu.c`.
+
 ### Struct member array sizes after the first declarator (#563)
 
 - cc45: in a struct or union member declaration with several declarators,
