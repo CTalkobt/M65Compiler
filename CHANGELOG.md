@@ -4,6 +4,19 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### No static storage for temporaries the optimizer removed
+
+- cc45: a static-allocation function reserved 2 bytes of BSS for every
+  temporary that was left in no instruction (the allocator's answer for a
+  value it never placed was "in the frame"). Only values with a location,
+  and variables (their address or their name in inline assembly may be all
+  that is left of them), get storage now. The library's BSS: `c45.lib`
+  29,042 -> 21,078 bytes, `c45_stack.lib` 34,494 -> 22,974; more functions
+  need no storage at all (`zeroalloc`).
+- `test_basic_items_xemu.c`: its string record was 90 bytes, and a 93
+  character line read whole (mode 4) ran 4 bytes past it, into bytes the
+  old layout left unused.
+
 ### `__jsr`: the registers loaded from where the values are
 
 - cc45: a `__jsr` / `__jsr_raw` / `__jmp` with several computed values (or a

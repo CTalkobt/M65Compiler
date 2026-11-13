@@ -125,8 +125,10 @@ static void ref_read(void) {
 }
 
 /* one call's outcome */
-struct out { int err, n; unsigned char pos, redone, asked, s[90]; };
-static unsigned char rbuf[90];
+/* (the string record: a whole line in mode 4, its length byte before it) */
+#define RLEN 162   /* _bas_ibuf and a length byte */
+struct out { int err, n; unsigned char pos, redone, asked, s[RLEN]; };
+static unsigned char rbuf[RLEN];
 static void run(void (*f)(void), struct out *o) {
     memset(rbuf, 0xEE, sizeof rbuf);
     raised = 0; redone = 0; asked = 0;
