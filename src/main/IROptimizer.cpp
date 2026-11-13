@@ -3079,6 +3079,8 @@ void optimizeLoopStrengthReduction(Module& mod) {
                 return false;
             };
             struct Group { uint32_t w; int64_t inc; Inst init; int64_t mul; uint32_t v; bool widened; };
+            struct Copy { size_t bi; uint32_t dest, w, v; Type t; };
+            std::vector<Copy> copies;
             std::vector<Group> groups;
             std::map<std::string, size_t> groupOf;
             std::map<uint32_t, std::vector<size_t>> groupsOfVar;
@@ -3103,9 +3105,12 @@ void optimizeLoopStrengthReduction(Module& mod) {
                         if (k <= 1 || isPow2(k)) continue;
                         key = "m " + std::to_string(k);
                     } else continue;
-                    // (a 16-bit v as itself; a byte v only through its zero extension)
+                    // (a 16-bit v as itself; a byte v through its zero extension,
+                    // or as an element's index itself: ADDR_ELEM takes a byte
+                    // index unsigned, as its extension, #548)
                     auto vt = fn.vregTypes.find(v);
-                    if (vt == fn.vregTypes.end() || (vt->second == Type::I8) != widened) continue;
+                    if (vt == fn.vregTypes.end() || ((vt->second == Type::I8) != widened && !(elem && vt->second == Type::I8)))
+                        continue;
                     int64_t c = stepOf(v);
                     if (!c) continue;
                     key += " %" + std::to_string(v);
@@ -3143,8 +3148,63 @@ void optimizeLoopStrengthReduction(Module& mod) {
                     in.src2 = Operand::none();
                     in.args.clear();
                     in.elemOffset = 0;
+                    copies.push_back({bi, in.dest.vregId, groups[gi].w, v, t});
                 }
             if (groups.empty()) continue;
+            // A copy of w whose every use no path from w's step reaches
+            // without passing the copy (#548): the uses read w itself, the
+            // copy goes (w is a variable in the base page: (w),y, no second
+            // pointer per pass)
+            for (const auto& cp : copies) {
+                if (defCount[cp.dest] != 1 || fn.localSlotVregs.count(cp.dest)) continue;
+                size_t S = storeAt[cp.v].first, D = cp.bi, Sidx = storeAt[cp.v].second;
+                // the blocks reachable from the step without passing D
+                std::set<size_t> reach;
+                std::vector<size_t> work;
+                for (size_t x : succs[S]) if (x != D && L.count(x) && reach.insert(x).second) work.push_back(x);
+                while (!work.empty()) {
+                    size_t x = work.back();
+                    work.pop_back();
+                    for (size_t y : succs[x]) if (y != D && L.count(y) && reach.insert(y).second) work.push_back(y);
+                }
+                bool ok = true;
+                auto usesD = [&](const Operand& o) { return o.isVreg() && o.vregId == cp.dest; };
+                for (size_t bi = 0; bi < nb && ok; bi++) {
+                    const auto& insts = fn.blocks[bi].insts;
+                    for (size_t ii = 0; ii < insts.size() && ok; ii++) {
+                        const auto& x = insts[ii];
+                        bool u = usesD(x.src1) || usesD(x.src2) || (x.op == Op::STORE && usesD(x.dest));
+                        for (const auto& a : x.args) u = u || usesD(a);
+                        for (const auto& ph : x.phiIncoming) u = u || usesD(ph.first);
+                        if (!u) continue;
+                        if (!L.count(bi) || reach.count(bi) || (bi == S && (bi != D || ii > Sidx))) ok = false;
+                    }
+                }
+                if (!ok) continue;
+                // (only as a value: a variable's slot as a load's or store's
+                // address names the variable itself, so the copy stays for
+                // those, and IRCodeGen reads (w),y through it)
+                bool addrUse = false;
+                for (auto& blk : fn.blocks)
+                    for (auto& x : blk.insts) {
+                        bool src1Addr = x.op == Op::LOAD || x.op == Op::LOAD_ZP || x.op == Op::ADDR_LOCAL;
+                        bool src2Addr = x.op == Op::STORE || x.op == Op::STORE_ZP;
+                        if (usesD(x.src1)) { if (src1Addr) addrUse = true; else x.src1 = Operand::vreg(cp.w, cp.t); }
+                        if (usesD(x.src2)) { if (src2Addr) addrUse = true; else x.src2 = Operand::vreg(cp.w, cp.t); }
+                        if (x.op == Op::STORE && usesD(x.dest)) addrUse = true;
+                        for (auto& a : x.args) if (usesD(a)) a = Operand::vreg(cp.w, cp.t);
+                        for (auto& ph : x.phiIncoming) if (usesD(ph.first)) addrUse = true;
+                    }
+                if (!addrUse)
+                    for (auto& blk : fn.blocks)
+                        for (auto& x : blk.insts)
+                            if (x.dest.isVreg() && x.dest.vregId == cp.dest) {
+                                x.op = Op::NOP;
+                                x.dest = Operand::none();
+                                x.src1 = Operand::none();
+                            }
+                trace("lsr", fn.name, "v" + std::to_string(cp.dest) + " read as v" + std::to_string(cp.w) + " itself");
+            }
             std::set<uint32_t> groupVar;
             for (const auto& gv : groupsOfVar) groupVar.insert(gv.first);
             // each w stepped right after its variable's update
@@ -3214,7 +3274,7 @@ void optimizeLoopStrengthReduction(Module& mod) {
                     Inst i0 = g.init;
                     i0.dest = Operand::vreg(tmp, t);
                     Type vt = fn.vregTypes[g.v];
-                    if (g.widened) kv &= 0xFF;
+                    if (g.widened || vt == Type::I8) kv &= 0xFF;
                     Operand idx = Operand::vreg(g.v, vt);
                     if (!known && g.widened) {
                         uint32_t z = fn.allocVreg();

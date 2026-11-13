@@ -1311,6 +1311,118 @@ bool IRCodeGen::vregUsedOutside(uint32_t id, const ir::Inst* a, const ir::Inst* 
     return false;
 }
 
+// #552: the multiply shapes of the module: a byte times a byte constant K
+// (not a power of 2: those are shifts) as a 16-bit value, MUL or an element
+// address's stride; i * K + j of bytes (the MUL's one use an ADD of a byte
+// right after it). A shape seen often enough to pay for a routine of its
+// own gets one (countMulShapes), called from each site.
+void IRCodeGen::countMulShapes(const ir::Module& mod) {
+    mulcUse_.clear();
+    rowcolUse_.clear();
+    if (!relocMode_ || getenv("CC45_NO_MUL_SHAPES")) return;
+    std::map<long, int> mulc, rowcol, mulcLoop;
+    auto odd = [](long k) { return k > 2 && k < 256 && (k & (k - 1)); };
+    for (const auto& fn : mod.functions) {
+        if (fn.noOptimize) continue;
+        std::map<uint32_t, const ir::Inst*> def;
+        std::map<uint32_t, int> nuse;
+        for (const auto& b : fn.blocks)
+            for (const auto& in : b.insts) {
+                if (in.dest.isVreg()) def[in.dest.vregId] = &in;
+                for (const ir::Operand* o : {&in.src1, &in.src2}) if (o->isVreg()) nuse[o->vregId]++;
+                for (const auto& a : in.args) if (a.isVreg()) nuse[a.vregId]++;
+            }
+        const std::set<size_t> inLoop = ir::loopBlocks(fn);
+        auto byteOp = [&](const ir::Operand& o) {
+            if (!o.isVreg()) return false;
+            auto d = def.find(o.vregId);
+            if (d != def.end() && d->second->op == ir::Op::ZEXT && d->second->src1.type == ir::Type::I8) return true;
+            return o.type == ir::Type::I8;
+        };
+        for (size_t bi = 0; bi < fn.blocks.size(); bi++)
+            for (size_t i = 0; i < fn.blocks[bi].insts.size(); i++) {
+                const auto& b = fn.blocks[bi];
+                const auto& in = b.insts[i];
+                bool loop = inLoop.count(bi) > 0;
+                if ((in.op == ir::Op::MUL || in.op == ir::Op::MUL_U) &&
+                    (in.resultType == ir::Type::I16 || in.resultType == ir::Type::PTR)) {
+                    // (a factor: an immediate or a constant's vreg)
+                    auto constOf = [&](const ir::Operand& o, long& k) {
+                        if (o.isImm()) { k = (long)o.immVal; return true; }
+                        if (!o.isVreg()) return false;
+                        auto d = def.find(o.vregId);
+                        if (d == def.end() || d->second->op != ir::Op::CONST || !d->second->src1.isImm()) return false;
+                        k = (long)d->second->src1.immVal;
+                        return true;
+                    };
+                    long k1 = 0, k2 = 0;
+                    bool c1 = constOf(in.src1, k1), c2 = constOf(in.src2, k2);
+                    if (c1 == c2) continue;
+                    const ir::Operand& v = c2 ? in.src1 : in.src2;
+                    long kk = c2 ? k2 : k1;
+                    if (!odd(kk) || !byteOp(v)) continue;
+                    size_t j = i + 1;
+                    while (j < b.insts.size() && (b.insts[j].op == ir::Op::NOP ||
+                                                  (b.insts[j].op == ir::Op::ZEXT && b.insts[j].src1.type == ir::Type::I8)))
+                        j++;
+                    bool fused = false;
+                    if (j < b.insts.size() && in.dest.isVreg() && nuse[in.dest.vregId] == 1) {
+                        const auto& a = b.insts[j];
+                        if (a.op == ir::Op::ADD && (a.resultType == ir::Type::I16 || a.resultType == ir::Type::PTR)) {
+                            bool at1 = a.src1.isVreg() && a.src1.vregId == in.dest.vregId;
+                            bool at2 = a.src2.isVreg() && a.src2.vregId == in.dest.vregId;
+                            if (at1 != at2 && byteOp(at1 ? a.src2 : a.src1)) fused = true;
+                        }
+                    }
+                    (fused ? rowcol : mulc)[kk]++;
+                    if (!fused && loop) mulcLoop[kk]++;
+                } else if (in.op == ir::Op::ADDR_ELEM && !in.args.empty() && in.args[0].isImm() &&
+                           odd((long)in.args[0].immVal) && in.src2.isVreg() && in.src2.type == ir::Type::I8) {
+                    mulc[(long)in.args[0].immVal]++;
+                    if (loop) mulcLoop[(long)in.args[0].immVal]++;
+                }
+            }
+    }
+    // (i * K + j saves about 20 bytes a site: two sites pay for the routine;
+    // i * K alone saves 4 outside loops, where it is a call of __mul16y, and
+    // 10-20 in them, where it is inline: two sites in loops, or six)
+    for (const auto& [k, n] : mulc) if (mulcLoop[k] >= 2 || n >= 6) mulcUse_.insert(k);
+    for (const auto& [k, n] : rowcol) if (n >= 2) rowcolUse_.insert(k);
+}
+
+void IRCodeGen::emitMulShapeRoutines() {
+    for (long k : mulcUse_) {
+        std::string name = "__mulc_" + std::to_string(k);
+        emitBlank();
+        emitComment(name + ": A/X = A * " + std::to_string(k) + " (a byte; Y kept; #552)");
+        emit(".weak " + name);
+        emit("proc " + name);
+        emit("ldx #0");
+        emitMulAXConst(k, true, "", 1000);
+        emit("rts");
+        emit("endproc");
+    }
+    for (long k : rowcolUse_) {
+        std::string name = "__rowcol_" + std::to_string(k);
+        emitBlank();
+        emitComment(name + ": A/X = Y * " + std::to_string(k) + " + A (bytes; #552)");
+        emit(".weak " + name);
+        emit("proc " + name);
+        emit("sta __zp_scratch2");
+        emit("tya");
+        emit("ldx #0");
+        emitMulAXConst(k, true, "", 1000);
+        emit("clc");
+        emit("adc __zp_scratch2");
+        emit("bcc @n");
+        emit("inx");
+        emitLabel("@n");
+        emit("rts");
+        emit("endproc");
+    }
+    ms_.invalidateAll();
+}
+
 // A call; to a function reading __builtin_return_address(0), kept a jsr
 // (no tail jump: the address it reads is this call's)
 void IRCodeGen::emitJsr(const std::string& target, const std::string& fn) {
@@ -2027,7 +2139,10 @@ void IRCodeGen::emitArrayElemAddr(const std::string& baseStr, const ir::Operand&
                     (mulCallEnv ? mulCallEnv[0] != '0' : !loopBlocks_.count(currentBlockIdx_));
         bool byteFactor = !(stride & 0xFF00);
         std::string why = "index * " + std::to_string(stride);
-        if (emitMulAXConst(stride, byteIndex, why, call ? (byteFactor ? 5 : 11) : 22)) {
+        if (byteIndex && mulcUse_.count(stride) && baseStr.find("__zp_scratch") == std::string::npos) {
+            emit("jsr __mulc_" + std::to_string(stride), why + ": a routine (#552)");   // (Y kept)
+            ms_.invalidateAll();
+        } else if (emitMulAXConst(stride, byteIndex, why, call ? (byteFactor ? 5 : 11) : 22)) {
         } else if (call && byteFactor) {
             emit("ldy #" + std::to_string(stride), why);
             emit(".extern __mul16y");
@@ -2211,6 +2326,7 @@ void IRCodeGen::generate(const ir::Module& mod, uint32_t zpStart, bool relocMode
     retAddrFns_.clear();
     for (const auto& fn : mod.functions)
         if (fn.retAddrSlot >= 0) retAddrFns_.insert(fn.name);
+    countMulShapes(mod);
     functionFlagClobberMasks_.clear();
     functionClobberInfo_.clear();
     for (const auto& fn : mod.functions) {
@@ -2753,6 +2869,8 @@ void IRCodeGen::generate(const ir::Module& mod, uint32_t zpStart, bool relocMode
         }
         emitFunctionPruned(fn, relocMode, nestedInModule);
     }
+
+    emitMulShapeRoutines();
 
     // Emit string data
     emitStrings(mod);
@@ -4219,8 +4337,13 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
                 if (!ok) continue;
                 // A temporary base lives (for the allocator) only up to the
                 // ADD: then only one access right after it can use it
+                // (NOPs between count as next to it, #548)
+                auto nextUse = [&](size_t at) {
+                    for (size_t k = i + 1; k < at; k++) if (insts[k].op != ir::Op::NOP) return false;
+                    return at > i;
+                };
                 if ((!fn.localSlotVregs.count(base) || regVregs_.count(base)) &&
-                    (uit->second.size() != 1 || uit->second[0].idx != i + 1)) continue;
+                    (uit->second.size() != 1 || !nextUse(uit->second[0].idx))) continue;
                 // The base keeps its value up to the last use
                 for (size_t j = i + 1; j <= last && ok; j++) {
                     const auto& x = insts[j];
@@ -6388,6 +6511,27 @@ void IRCodeGen::emitInstBody(const ir::Inst& inst) {
                                 if (b == "#0") continue;
                                 if (b == "#1" && one < 0) one = k; else single = false;
                             }
+                            // + a byte constant in place (a pointer stepped by
+                            // sizeof, #548): the low byte added, the carry by inc
+                            bool lowOnly = directByte(inst.src2, 0) != "#0";
+                            for (int k = 1; k < nb && lowOnly; k++) lowOnly = directByte(inst.src2, k) == "#0";
+                            if (!(single && one >= 0) && lowOnly) {
+                                std::string l = "@__inc_" + std::to_string(labelCounter_++);
+                                emit("lda " + byteOf(dst, 0), r);
+                                emit("clc");
+                                emit("adc " + directByte(inst.src2, 0));
+                                emit("sta " + byteOf(dst, 0));
+                                emit("bcc " + l);
+                                for (int k = 1; k < nb; k++) {
+                                    emit("inc " + byteOf(dst, k));
+                                    if (k + 1 < nb) emit("bne " + l);
+                                }
+                                emitLabel(l);
+                                ms_.invalidateAll();
+                                storeCache_.vreg = UINT32_MAX;
+                                resultInAX_ = skipStore ? -2 : -1;
+                                break;
+                            }
                             if (single && one >= 0) {
                                 std::string l = "@__inc_" + std::to_string(labelCounter_++);
                                 for (int k = one; k < nb; k++) {
@@ -7237,6 +7381,62 @@ void IRCodeGen::emitInstBody(const ir::Inst& inst) {
             if (constFactor) {
                 const ir::Operand& v = mi.src2.isImm() ? mi.src1 : mi.src2;
                 long c = (long)(mi.src2.isImm() ? mi.src2.immVal : mi.src1.immVal);
+                // a shape with a routine of its own (#552): i * K + j, or i * K
+                if (!v.isImm() && inst.dest.isVreg() && (rowcolUse_.count(c) || mulcUse_.count(c)) &&
+                    ((v.isVreg() && alloc_.getAlloc(v.vregId).type == ir::Type::I8) || kb_.maxOf(v, 16) <= 0xFF)) {
+                    const ir::Inst* add = nullptr;
+                    ir::Operand j;
+                    if (rowcolUse_.count(c)) {
+                        auto& blk = currentFn_->blocks[currentBlockIdx_];
+                        size_t at = &inst - &blk.insts[0] + 1;
+                        std::vector<const ir::Inst*> zexts;   // (a byte's widening between: skipped too)
+                        while (at < blk.insts.size() &&
+                               (blk.insts[at].op == ir::Op::NOP ||
+                                (blk.insts[at].op == ir::Op::ZEXT && blk.insts[at].src1.type == ir::Type::I8))) {
+                            if (blk.insts[at].op == ir::Op::ZEXT) zexts.push_back(&blk.insts[at]);
+                            at++;
+                        }
+                        if (at < blk.insts.size()) {
+                            const auto& a = blk.insts[at];
+                            bool at1 = a.src1.isVreg() && a.src1.vregId == inst.dest.vregId;
+                            bool at2 = a.src2.isVreg() && a.src2.vregId == inst.dest.vregId;
+                            if (a.op == ir::Op::ADD && (a.resultType == ir::Type::I16 || a.resultType == ir::Type::PTR) &&
+                                at1 != at2 && a.dest.isVreg() && !multiDefVregs_.count(inst.dest.vregId) &&
+                                !vregUsedOutside(inst.dest.vregId, &inst, &a)) {
+                                j = at1 ? a.src2 : a.src1;
+                                bool ok = true;
+                                for (const ir::Inst* z : zexts) {
+                                    // (each skipped widening: used only by the add, j's own read from its byte)
+                                    if (!z->dest.isVreg() || multiDefVregs_.count(z->dest.vregId) ||
+                                        vregUsedOutside(z->dest.vregId, z, &a) || !(j.isVreg() && j.vregId == z->dest.vregId))
+                                        ok = false;
+                                    else
+                                        j = z->src1;
+                                }
+                                bool jByte = (j.isVreg() && alloc_.getAlloc(j.vregId).type == ir::Type::I8) ||
+                                             kb_.maxOf(j, 16) <= 0xFF;
+                                if (ok && jByte && !directByte(j, 0).empty()) add = &a;
+                            }
+                        }
+                    }
+                    if (add) {
+                        loadOperandA(v);
+                        emit("tay", irDesc("i * " + std::to_string(c) + " + j: a routine (#552)"));
+                        emit("lda " + directByte(j, 0));
+                        emit("jsr __rowcol_" + std::to_string(c));
+                        ms_.invalidateAll();
+                        skipThrough_ = add;
+                        storeVreg(add->dest.vregId);
+                        break;
+                    }
+                    if (mulcUse_.count(c)) {
+                        loadOperandA(v);
+                        emit("jsr __mulc_" + std::to_string(c), irDesc("i * " + std::to_string(c) + ": a routine (#552)"));
+                        ms_.invalidateAll();
+                        storeVreg(inst.dest.vregId);
+                        break;
+                    }
+                }
                 if (!v.isImm()) {
                     bool byteVal = v.isVreg() && alloc_.getAlloc(v.vregId).type == ir::Type::I8;
                     loadOperand(v);

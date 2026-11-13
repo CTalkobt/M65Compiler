@@ -2908,6 +2908,16 @@ for bfmode in "zp|" "stack|-fno-zpcall"; do
     xemu_case "FAIL: test_basic_fin_xemu.c $bfname (compilation/linking failed)" "src/test-resources/test_basic_fin_xemu.c" "build/test/test_basic_fin_${bfname}_xemu.prg" "$bfflags" -- "test_basic_fin_$bfname" "build/test/test_basic_fin_${bfname}_xemu.prg" "C0C0" 3 "00 00 AA"
 done
 
+# Test: #548 (a loop over an array of structs: a pointer stepped by sizeof)
+# and #552 (shared routines for repeated multiply shapes) compute the same
+for lsmode in "zp|" "stack|-fno-zpcall"; do
+    IFS='|' read -r lsname lsflags <<< "$lsmode"
+    echo "Testing test_lsr_struct_xemu.c ($lsname)..."
+    xemu_case "FAIL: test_lsr_struct_xemu.c $lsname (compilation/linking failed)" "src/test-resources/test_lsr_struct_xemu.c" "build/test/test_lsr_struct_${lsname}_xemu.prg" "$lsflags" -- "test_lsr_struct_$lsname" "build/test/test_lsr_struct_${lsname}_xemu.prg" "C0C0" 9 "00 00 00 00 00 00 00 00 AA"
+    echo "Testing test_mul_shapes_xemu.c ($lsname)..."
+    xemu_case "FAIL: test_mul_shapes_xemu.c $lsname (compilation/linking failed)" "src/test-resources/test_mul_shapes_xemu.c" "build/test/test_mul_shapes_${lsname}_xemu.prg" "$lsflags" -- "test_mul_shapes_$lsname" "build/test/test_mul_shapes_${lsname}_xemu.prg" "C0C0" 7 "00 00 00 00 00 00 AA"
+done
+
 # Test: #547 (8-bit narrowing through >> and 16-bit operands), #549 (abs,y
 # in loops), #550 (widened shifts), #551 (CSE across && / ||) compute the same
 for ndmode in "zp|" "stack|-fno-zpcall"; do

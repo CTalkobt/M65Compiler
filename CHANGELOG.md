@@ -4,6 +4,21 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### cc45: struct-array loops step a pointer; shared routines for repeated multiply shapes (#548, #552)
+
+- #548: loop strength reduction takes a byte loop variable that indexes an
+  element directly (`units[u].field`, 24-byte structs): a pointer set before
+  the loop and stepped by `sizeof` (`adc; sta; bcc; inc`), read itself where
+  no step comes between; no multiply per pass. The issue's loop 81 -> 64
+  bytes; the library and examples 563 bytes smaller.
+- #552: a byte times a byte constant K and `i * K + j` (`buf[y * W + x]`,
+  `&structs[i]`) seen often enough in a file share a routine (`__mulc_K`,
+  `__rowcol_K`, weak: one per program) called from each site. The issue's
+  four functions 206 -> 179 bytes; rogue 238, invaders 200 smaller.
+  `CC45_NO_MUL_SHAPES=1` turns it off.
+- Tests: `test_lsr_struct_xemu.c`, `test_mul_shapes_xemu.c` (both
+  conventions), sizes in `test_compiler.sh`.
+
 ### cc45: low-byte narrowing, abs,y in loops, widened shifts, CSE across && / || (#547, #549, #550, #551)
 
 - #547: demanded bits: the bits each temporary's uses need are followed

@@ -667,6 +667,13 @@ private:
     // the module's functions that read __builtin_return_address(0): a call
     // to one is never a tail jump (ca45 .noopt_start / .noopt_end around it)
     std::set<std::string> retAddrFns_;
+    // #552: shared routines for repeated multiply shapes in this object:
+    // __mulc_K (A = a byte -> A/X = A * K) and __rowcol_K (A = j, Y = i ->
+    // A/X = i * K + j), K a byte constant not a power of 2, used where a
+    // shape occurs at least twice in the module (weak: one per object)
+    std::set<long> mulcUse_, rowcolUse_;
+    void countMulShapes(const ir::Module& mod);
+    void emitMulShapeRoutines();
     void emitJsr(const std::string& target, const std::string& fn);
     // Phase 2: Fine-grained flag clobber tracking
     // Maps function name → flag clobber mask (bits: 0=C, 1=N, 2=Z, 3=V)

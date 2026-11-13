@@ -751,6 +751,33 @@ else
     failed=$((failed + 1))
 fi
 
+# #548: a loop over an array of structs keeps a pointer stepped by sizeof (was
+# 81 bytes: a multiply per pass); #552: four functions indexing
+# buf[y * 80 + x] share one __rowcol_80 (was 206 bytes)
+cl=build/test/opt_548
+mkdir -p $cl
+printf 'typedef struct { unsigned char where, kind, owner, prof, x, y, equip, tools, flags, ref, job, jt, jg, moves, task, work, cg[4], ca[4]; } unit_t;\nextern unit_t units[64];\nunsigned char count_at(unsigned char x, unsigned char y) {\n    unsigned char u, n = 0;\n    for (u = 0; u < 64; ++u)\n        if (units[u].where == 1 && units[u].x == x && units[u].y == y) ++n;\n    return n;\n}\n' > $cl/a.c
+printf '#define COLS 80\nextern unsigned char scr[COLS * 25], clr[COLS * 25];\nvoid put(unsigned char x, unsigned char y, unsigned char ch, unsigned char c) { scr[(unsigned int)y * COLS + x] = ch; clr[(unsigned int)y * COLS + x] = c; }\nvoid paint(unsigned char x, unsigned char y, unsigned char c) { clr[(unsigned int)y * COLS + x] = c; }\nunsigned char peek(unsigned char x, unsigned char y) { return scr[(unsigned int)y * COLS + x]; }\nvoid invert(unsigned char x, unsigned char y) { clr[(unsigned int)y * COLS + x] |= 0x20; }\n' > $cl/b.c
+cl_sizes=""
+cl_ok=1
+for t in a:64 b:179; do
+    f=${t%%:*}; max=${t##*:}
+    if ./bin/cc45 -O2 -c $cl/$f.c -o $cl/$f.o45 >/dev/null 2>&1; then
+        sz=$((16#$(./bin/objdump45 -h $cl/$f.o45 | awk '$2 == "TEXT" {print $3}')))
+    else
+        sz=999
+    fi
+    cl_sizes="$cl_sizes $f=$sz"
+    [ $sz -le $max ] || cl_ok=0
+done
+./bin/nm45 $cl/b.o45 2>/dev/null | grep -q "W __rowcol_80" || cl_ok=0
+if [ $cl_ok = 1 ]; then
+    echo "SUCCESS: struct-array loops step a pointer, repeated y * W + x share __rowcol_W (#548, #552:$cl_sizes)"
+else
+    echo "FAIL: #548/#552 code sizes:$cl_sizes (at most a=64 b=179, b with __rowcol_80)"
+    failed=$((failed + 1))
+fi
+
 # #351: a global struct's array member at a constant index is one absolute
 # address (was 22 and 33 bytes through a pointer built at run time)
 cs=build/test/const_chain
