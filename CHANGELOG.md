@@ -4,6 +4,20 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### An arm of `?:` reuses what its condition computed (#567)
+
+- cc45 (CSE): cheap expressions (adds, extensions, shifts) are carried
+  from the block of a `?:`'s condition into an arm entered only from it,
+  as they are into the right-hand side of `&&` / `||` (#551), so the chain
+  to an address or a load matches again there. A pointer variable assigned
+  once, its address not taken, is known to point into what it was given
+  (`col = &cols[c]`): a load through it is a load of that global, reused
+  until something may write it. `col->goods[g] > 100 ? 100 :
+  (unsigned char)col->goods[g]`: 130 -> 98 bytes, the else arm reads
+  nothing again. The library is 224 bytes smaller (with #568). Not the
+  arms of an `if`: measured, the library is 170 bytes larger with them.
+  Test: `test_cond_reuse_xemu.c`.
+
 ### `name,y` for 16-bit elements of small static arrays (#568)
 
 - cc45: an element address of a static array (`&pos[i]`, an array of at

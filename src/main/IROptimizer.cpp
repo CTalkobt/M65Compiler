@@ -374,9 +374,37 @@ void optimizeCSE(Module& mod) {
             r.name = "\x01" + k;
             return r;
         };
+        // A pointer variable assigned once, its address not taken: what it
+        // is given is what it points into wherever it is read (#567:
+        // col = &cols[c]; col->goods[g] is a load from cols)
+        std::map<uint32_t, const Inst*> onlyStoreOf;
+        {
+            std::map<uint32_t, int> nStores;
+            for (const auto& b : fn.blocks)
+                for (const auto& in : b.insts)
+                    if ((in.op == Op::STORE || in.op == Op::STORE_ZP) && in.src2.isVreg() && slots.count(in.src2.vregId)) {
+                        nStores[in.src2.vregId]++;
+                        onlyStoreOf[in.src2.vregId] = &in;
+                    }
+            for (auto it = onlyStoreOf.begin(); it != onlyStoreOf.end();) {
+                uint32_t v = it->first;
+                if (nStores[v] != 1 || exposedSlots.count(v) || fn.memoryVregs.count(v) || v < fn.paramTypes.size() ||
+                    it->second->op != Op::STORE || it->second->resultType != Type::PTR || !it->second->args.empty())
+                    it = onlyStoreOf.erase(it);
+                else
+                    ++it;
+            }
+        }
         std::function<std::string(const Operand&, int)> baseOf = [&](const Operand& o, int depth) -> std::string {
             if (o.kind == OperandKind::GLOBAL) return o.name;
             if (o.isVreg() && restrictSlots.count(o.vregId)) return "&r" + std::to_string(o.vregId);
+            if (o.isVreg() && depth <= 8 && slots.count(o.vregId)) {
+                auto os = onlyStoreOf.find(o.vregId);
+                if (os != onlyStoreOf.end()) {
+                    std::string b = baseOf(os->second->src1, depth + 1);
+                    return b == "#" ? "" : b;
+                }
+            }
             if (!o.isVreg() || depth > 8 || slots.count(o.vregId) || fn.memoryVregs.count(o.vregId)) return "";
             auto n = nDefs.find(o.vregId);
             if (n == nDefs.end() || n->second != 1) return "";
@@ -591,6 +619,15 @@ void optimizeCSE(Module& mod) {
                 };
                 bool shortCircuit = rhs(blockIdx) || rhs(D);
                 for (size_t p2 : predSet[blockIdx]) if (p2 < nb && rhs(p2)) shortCircuit = true;
+                // An arm of ?: entered only from the block of its condition
+                // (#567): the condition's operands again (x > 100 ? 100 : x),
+                // their value live across the one branch. (Not the arms of
+                // an if: measured on the library, that is 170 bytes larger.)
+                {
+                    const std::string& l = block.label;
+                    bool arm = l.rfind("tern_then", 0) == 0 || l.rfind("tern_else", 0) == 0;
+                    if (arm && predSet[blockIdx].size() == 1 && *predSet[blockIdx].begin() == D) shortCircuit = true;
+                }
                 for (const auto& e : endExprs[D]) {
                     Op o = e.first.op;
                     // (measured on vim2 and the library: carrying cheap ones
