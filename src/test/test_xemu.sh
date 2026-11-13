@@ -4104,6 +4104,14 @@ for llmode in "zp|" "stack|-fno-zpcall" "O0|-O0" "frame|-fno-staticalloc"; do
     xemu_case "FAIL: test_loop_live_xemu.c $llname (compilation/linking failed)" "src/test-resources/test_loop_live_xemu.c" "build/test/test_loop_live_${llname}_xemu.prg" "$llflags" -- "test_loop_live_$llname" "build/test/test_loop_live_${llname}_xemu.prg" "C0C0" 5 "01 01 01 01 AA"
 done
 
+# Test: constant expressions as the array sizes of the struct members after
+# the first in a declarator list (#563)
+for sdmode in "zp|" "stack|-fno-zpcall"; do
+    IFS='|' read -r sdname sdflags <<< "$sdmode"
+    echo "Testing test_struct_dims_xemu.c ($sdname)..."
+    xemu_case "FAIL: test_struct_dims_xemu.c $sdname (compilation/linking failed)" "src/test-resources/test_struct_dims_xemu.c" "build/test/test_struct_dims_${sdname}_xemu.prg" "$sdflags" -- "test_struct_dims_$sdname" "build/test/test_struct_dims_${sdname}_xemu.prg" "C0C0" 3 "01 01 AA"
+done
+
 # Test: string/character literal encoding prefixes p"..." s"..." a"..." @"..."
 for spmode in "zp|" "stack|-fno-zpcall"; do
     IFS='|' read -r spname spflags <<< "$spmode"
