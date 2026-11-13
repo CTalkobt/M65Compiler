@@ -9,7 +9,9 @@
  *   [3] a caller local named like a global the callee uses
  *   [4] a callee that takes a parameter's address (not inlined: called)
  *   [5] repeated inlining into one function (two calls of each callee)
- *   [6] 01
+ *   [6] constant arguments of an inlined body's statement expression: each
+ *       parameter stored from its own value (A was taken as still holding
+ *       the last constant computed)
  *   [7] $AA sentinel
  */
 #define OUT ((volatile unsigned char *)0xC0C0)
@@ -54,6 +56,16 @@ static int t5(void) {
     return a == 2 && b == 1 && buf[4] == 'y' && buf[5] == 'y' && buf[6] == 'z' && useg() + useg() == 16;
 }
 
+char ga, gx, gy;
+static inline __attribute__((always_inline)) void set3(char a, char x, char y) {
+    ({ ga = a; gx = x; gy = y; asm("clc"); ga; });
+}
+
+static int t6(void) {
+    set3(1, 8, 2);
+    return ga == 1 && gx == 8 && gy == 2;
+}
+
 int main(void) {
     OUT[0] = t0();
     OUT[1] = t1();
@@ -61,7 +73,7 @@ int main(void) {
     OUT[3] = t3();
     OUT[4] = t4();
     OUT[5] = t5();
-    OUT[6] = 1;
+    OUT[6] = t6();
     OUT[7] = 0xAA;
     return 0;
 }

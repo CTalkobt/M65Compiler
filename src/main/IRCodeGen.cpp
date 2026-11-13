@@ -6161,6 +6161,12 @@ void IRCodeGen::emitInstBody(const ir::Inst& inst) {
     if (inst.op != ir::Op::STORE && resultInAX_ != -1) {
         resultInAX_ = -1;
     }
+    // A STORE of another value loads that one into A: the result is no
+    // longer there for a later STORE of it (c = 2; a = x; b = y; d = c)
+    if (inst.op == ir::Op::STORE && resultInAX_ >= 0 &&
+        !(inst.src1.isVreg() && (int32_t)inst.src1.vregId == resultInAX_)) {
+        resultInAX_ = -1;
+    }
 
     switch (inst.op) {
         case ir::Op::NOP:

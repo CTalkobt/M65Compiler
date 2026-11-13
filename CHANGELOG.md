@@ -4,6 +4,20 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### `<cbm.h>`: the wrappers always inlined; a stale register in consecutive stores
+
+- `<cbm.h>`: the `cbm_*` KERNAL wrappers are `static __forceinline` (and
+  `__regparm` where they have parameters): a call is the register loads and
+  the `JSR` in the caller. Before, only the wrappers without parameters were
+  inlined (cc45 does not look into the statement expression `__jsr` is when a
+  function has parameters); the others were a call per use and a copy per
+  source file.
+- cc45: a value computed into A and stored to a local after stores of other
+  values took A as still holding it (`store` forwarding was only reset by
+  other instructions): three constants passed to an inlined body that keeps
+  its parameters as variables gave the third parameter the second's value.
+  Test: `test_inline_xemu.c` [6].
+
 ### al45: the assembly linter; the linters' shared core (#64, #199, #278)
 
 - `al45` (a link to ca45, chosen by program name) lints ca45 assembly: ca45's

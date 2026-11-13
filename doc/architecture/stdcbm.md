@@ -1,6 +1,6 @@
 # cbm.h — Commodore KERNAL Interface for MEGA65
 
-`<cbm.h>` provides small C wrappers for the standard Commodore KERNAL jump table, plus PETSCII control codes, device numbers and the jump-table addresses. Each wrapper is a `static` function in the header, one cc45 [`__jsr`](../bin/cc45.md#calling-an-address-__jsr-__jsr_raw-__jmp) call: `cbm_setlfs` is `__jsr(KERNAL_SETLFS, .A = lfn, .X = device, .Y = sa)`, `cbm_open` returns `__jsr(KERNAL_OPEN).Carry`. A KERNAL address goes through `__rom_calli` / `__rom_call`, which calls the routine on the ROM's base page 0 **and on the ROM's page-1 stack** (the caller's 8-bit stack, saved at startup): the KERNAL's disk code crashes on the program's 16-bit stack. Registers and flags pass through both ways, as for a direct `JSR`.
+`<cbm.h>` provides small C wrappers for the standard Commodore KERNAL jump table, plus PETSCII control codes, device numbers and the jump-table addresses. Each wrapper is a `static __forceinline` function in the header (always inlined: a call of one is the register loads and the `JSR` in the caller, no call of a wrapper), one cc45 [`__jsr`](../bin/cc45.md#calling-an-address-__jsr-__jsr_raw-__jmp) call: `cbm_setlfs` is `__jsr(KERNAL_SETLFS, .A = lfn, .X = device, .Y = sa)`, `cbm_open` returns `__jsr(KERNAL_OPEN).Carry`. A KERNAL address goes through `__rom_calli` / `__rom_call`, which calls the routine on the ROM's base page 0 **and on the ROM's page-1 stack** (the caller's 8-bit stack, saved at startup): the KERNAL's disk code crashes on the program's 16-bit stack. Registers and flags pass through both ways, as for a direct `JSR`.
 
 `__rom_call` comes from the library (`stdlib_asm/rom_call.s45`, linked only by programs that call it, #322) and `__jsr`'s register bytes from `c45.lib`/`c45_stack.lib` (`stdlib_asm/cbm_args.s45`), so programs must be linked with the library (a one-step `cc45 prog.c -o prog.prg` does this).
 
@@ -230,8 +230,9 @@ All addresses are available as `#define` constants with the `KERNAL_` prefix:
 
 ## Implementation Notes
 
-- The functions are `static`, so each source file that uses one gets its own copy (named `_cbm_<name>__<file>`); functions a file does not call are removed. They are called with `JSR` like other functions, not inlined.
-- Parameters reach the inline assembly through the `__cbm_*` bytes: inline assembly has no single way to name a parameter in every calling convention (`lda.sp @_p_x` is only right for a stack frame).
+- The functions are `static __forceinline` (`inline __attribute__((always_inline))`): every call is expanded in the caller, at any `-O` level, and no copy of a wrapper is emitted unless its address is taken. `inline` alone would not do: cc45 does not look into a statement expression (which `__jsr` is) of a function with parameters when it decides what is safe to inline, and calls it.
+- Those with parameters are `__regparm` as well: where one is called after all (through a pointer, or in a function compiled as written, `#pragma cc45 optimize(off)`), its first argument arrives in A or A:X.
+- Arguments reach the registers through `__jsr`'s bytes (`___jsr_a`, `___jsr_x`, … in `stdlib_asm/cbm_args.s45`), or straight from where they are when there is one register argument.
 - The KERNAL addresses are hardcoded — they are the same on C64, C128 and MEGA65 ROMs.
 - Values are returned in A (low) and X (high), cc45's return convention.
 - Functions that can fail convert the KERNAL carry flag into the return value: carry set = 1 (error), clear = 0.

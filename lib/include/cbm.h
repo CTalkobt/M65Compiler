@@ -59,42 +59,42 @@
 /* ===== Character I/O ===== */
 
 /* Output a character to the current output channel */
-static void cbm_chrout(char c) { __jsr(KERNAL_CHROUT, .A = c); }
+static __forceinline __regparm void cbm_chrout(char c) { __jsr(KERNAL_CHROUT, .A = c); }
 
 /* Read a character from the current input channel */
-static int cbm_chrin(void) { return __jsr(KERNAL_CHRIN).A; }
+static __forceinline int cbm_chrin(void) { return __jsr(KERNAL_CHRIN).A; }
 
 /* Get a character from the keyboard queue (non-blocking, 0 if empty) */
-static int cbm_getin(void) { return __jsr(KERNAL_GETIN).A; }
+static __forceinline int cbm_getin(void) { return __jsr(KERNAL_GETIN).A; }
 
 /* ===== I/O Status ===== */
 
 /* Read the I/O status byte */
-static int cbm_readst(void) { return __jsr(KERNAL_READST).A; }
+static __forceinline int cbm_readst(void) { return __jsr(KERNAL_READST).A; }
 
 /* ===== File I/O ===== */
 
 /* Set logical file parameters: logical number, device, secondary address
  * KERNAL SETLFS: A=lfn, X=device, Y=sa
  */
-static void cbm_setlfs(char lfn, char device, char sa) { __jsr(KERNAL_SETLFS, .A = lfn, .X = device, .Y = sa); }
+static __forceinline __regparm void cbm_setlfs(char lfn, char device, char sa) { __jsr(KERNAL_SETLFS, .A = lfn, .X = device, .Y = sa); }
 
 /* Set filename for next OPEN/LOAD/SAVE
  * KERNAL SETNAM: A=length, X=lo(name), Y=hi(name)
  */
-static void cbm_setnam(char *name, char len) { __jsr(KERNAL_SETNAM, .A = len, .XY = (unsigned int)name); }
+static __forceinline __regparm void cbm_setnam(char *name, char len) { __jsr(KERNAL_SETNAM, .A = len, .XY = (unsigned int)name); }
 
 /* The banks of the next LOAD / SAVE's data and of its file name (the C65
  * KERNAL's SETBNK: A = data bank, X = name bank; 0-5, chip RAM)
  */
-static void cbm_setbnk(char data_bank, char name_bank) { __jsr(0xFF6B, .A = data_bank, .X = name_bank); }
+static __forceinline __regparm void cbm_setbnk(char data_bank, char name_bank) { __jsr(0xFF6B, .A = data_bank, .X = name_bank); }
 
 /* Load a file from device to a linear address in chip RAM (banks 0-5:
  * $0000000-$005FFFF), skipping its two-byte header: name (in bank 0) of
  * len characters. Returns 0 on success, 1 on error. The next LOAD's banks
  * are 0 again after it.
  */
-static int cbm_load_far(char *name, char len, char device, unsigned long lin) {
+static __forceinline __regparm int cbm_load_far(char *name, char len, char device, unsigned long lin) {
     int err;
     cbm_setbnk((char)(lin >> 16), 0);
     cbm_setnam(name, len);
@@ -107,39 +107,39 @@ static int cbm_load_far(char *name, char len, char device, unsigned long lin) {
 /* Open a logical file (call cbm_setlfs and cbm_setnam first)
  * Returns 0 on success, 1 on error (carry set)
  */
-static int cbm_open(void) { return __jsr(KERNAL_OPEN).Carry; }
+static __forceinline int cbm_open(void) { return __jsr(KERNAL_OPEN).Carry; }
 
 /* Close a logical file */
-static void cbm_close(char lfn) { __jsr(KERNAL_CLOSE, .A = lfn); }
+static __forceinline __regparm void cbm_close(char lfn) { __jsr(KERNAL_CLOSE, .A = lfn); }
 
 /* Set input channel. Returns 0 on success, 1 on error. */
-static int cbm_chkin(char lfn) { return __jsr(KERNAL_CHKIN, .X = lfn).Carry; }
+static __forceinline __regparm int cbm_chkin(char lfn) { return __jsr(KERNAL_CHKIN, .X = lfn).Carry; }
 
 /* Set output channel. Returns 0 on success, 1 on error. */
-static int cbm_chkout(char lfn) { return __jsr(KERNAL_CHKOUT, .X = lfn).Carry; }
+static __forceinline __regparm int cbm_chkout(char lfn) { return __jsr(KERNAL_CHKOUT, .X = lfn).Carry; }
 
 /* Restore default I/O channels */
-static void cbm_clrchn(void) { __jsr(KERNAL_CLRCHN); }
+static __forceinline void cbm_clrchn(void) { __jsr(KERNAL_CLRCHN); }
 
 /* Close all open files */
-static void cbm_clall(void) { __jsr(KERNAL_CLALL); }
+static __forceinline void cbm_clall(void) { __jsr(KERNAL_CLALL); }
 
 /* ===== Keyboard ===== */
 
 /* Check if STOP key is pressed (returns non-zero if pressed: STOP sets Z) */
-static int cbm_stop(void) { return __jsr(KERNAL_STOP).Zero; }
+static __forceinline int cbm_stop(void) { return __jsr(KERNAL_STOP).Zero; }
 
 /* ===== Screen ===== */
 
 /* Set cursor position (col, row). 0-based.
  * KERNAL PLOT (CLC): X=row, Y=col
  */
-static void cbm_gotoxy(char col, char row) { __jsr(KERNAL_PLOT, .Carry = 0, .X = row, .Y = col); }
+static __forceinline __regparm void cbm_gotoxy(char col, char row) { __jsr(KERNAL_PLOT, .Carry = 0, .X = row, .Y = col); }
 
 /* Get cursor position. Returns col in low byte, row in high byte.
  * KERNAL PLOT (SEC) returns X=row, Y=col.
  */
-static int cbm_wherexy(void) {
+static __forceinline int cbm_wherexy(void) {
     unsigned char row, col;
     __jsr(KERNAL_PLOT, .Carry = 1, .X -> row, .Y -> col);
     return col | (row << 8);
@@ -149,14 +149,14 @@ static int cbm_wherexy(void) {
  * The MEGA65's gives the last column and row (79 and 24 on the 80x25
  * screen); the C64's gives the counts (40, 25).
  */
-static int cbm_screen(void) { return __jsr(KERNAL_SCREEN).XY; }
+static __forceinline int cbm_screen(void) { return __jsr(KERNAL_SCREEN).XY; }
 
 /* ===== System Clock ===== */
 
 /* Read the jiffy clock (1/60s ticks since power-on).
  * Returns low 16 bits (RDTIM returns A=hi, X=mid, Y=lo).
  */
-static int cbm_rdtim(void) {
+static __forceinline int cbm_rdtim(void) {
     unsigned char mid, lo;
     __jsr(KERNAL_RDTIM, .X -> mid, .Y -> lo);
     return lo | (mid << 8);
@@ -165,28 +165,28 @@ static int cbm_rdtim(void) {
 /* ===== Serial Bus (IEC) ===== */
 
 /* Send LISTEN command to device */
-static void cbm_listen(char device) { __jsr(KERNAL_LISTEN, .A = device); }
+static __forceinline __regparm void cbm_listen(char device) { __jsr(KERNAL_LISTEN, .A = device); }
 
 /* Send UNLISTEN */
-static void cbm_unlisten(void) { __jsr(KERNAL_UNLSN); }
+static __forceinline void cbm_unlisten(void) { __jsr(KERNAL_UNLSN); }
 
 /* Send TALK command to device */
-static void cbm_talk(char device) { __jsr(KERNAL_TALK, .A = device); }
+static __forceinline __regparm void cbm_talk(char device) { __jsr(KERNAL_TALK, .A = device); }
 
 /* Send UNTALK */
-static void cbm_untalk(void) { __jsr(KERNAL_UNTLK); }
+static __forceinline void cbm_untalk(void) { __jsr(KERNAL_UNTLK); }
 
 /* Send secondary address after LISTEN */
-static void cbm_second(char sa) { __jsr(KERNAL_SECOND, .A = sa); }
+static __forceinline __regparm void cbm_second(char sa) { __jsr(KERNAL_SECOND, .A = sa); }
 
 /* Send secondary address after TALK */
-static void cbm_tksa(char sa) { __jsr(KERNAL_TKSA, .A = sa); }
+static __forceinline __regparm void cbm_tksa(char sa) { __jsr(KERNAL_TKSA, .A = sa); }
 
 /* Send byte to serial bus */
-static void cbm_ciout(char data) { __jsr(KERNAL_CIOUT, .A = data); }
+static __forceinline __regparm void cbm_ciout(char data) { __jsr(KERNAL_CIOUT, .A = data); }
 
 /* Get byte from serial bus */
-static int cbm_acptr(void) { return __jsr(KERNAL_ACPTR).A; }
+static __forceinline int cbm_acptr(void) { return __jsr(KERNAL_ACPTR).A; }
 
 /* ===== PETSCII Control Codes ===== */
 

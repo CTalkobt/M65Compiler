@@ -67,7 +67,7 @@ The C99 prototypes take `restrict` where the standard has it (`<string.h>`: `mem
 | `unistd.h` | `sleep`, `getopt` ([§12](#12-other-library-backed-headers)) | library (`stdlib_asm/sleep.s45`, `stdlib/getopt.c`) |
 | `serial.h` | cc65's serial API on the buffered UART ([§12](#12-other-library-backed-headers)) | library (`stdlib_asm/serial.s45`) |
 | `ringbuf.h`, `pqueue.h`, `vector.h`, `bitset.h`, `list.h`, `set.h`, `map.h`, `hashmap.h` | containers: a ring buffer (deque, queue, stack; a byte queue), a priority queue, a growable array and views, bit arrays, intrusive lists, ordered sets and maps (sorted array, red-black tree), hash sets and maps ([§12b](#12b-containers)) | library (`stdlib_asm/ringbuf.s45`, `pqueue.s45`, `vector.s45`, `bitset.s45`, `list.s45`, `set.s45`, `tset.s45`, `hashmap.s45`, `container.s45`) |
-| `cbm.h` | KERNAL wrappers ([stdcbm.md](stdcbm.md)) | `static` functions in the header |
+| `cbm.h` | KERNAL wrappers ([stdcbm.md](stdcbm.md)) | `static __forceinline` functions in the header (always inlined) |
 | `mega65.h` | hardware register overlays | header (+ `key_pressed` in the library) |
 | `dma.h` | `dma_copy`/`dma_fill` (16-bit, bank 0); `dma_copy_far`/`dma_fill_far` (28-bit); `dma_copy_far_step`/`dma_fill_far_step` (with a step) | compiler builtins; `lib/stdlib_asm/dma_far.s45`, `dma_step.s45` |
 | `palette.h` | the VIC-IV's 256-entry palette: set, get, save, restore, rotate ([§13](#13-mega65-hardware-mega65h-and-dma-dmah)) | library (`stdlib/palette.c`) |
