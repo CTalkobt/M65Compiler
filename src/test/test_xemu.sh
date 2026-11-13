@@ -4112,6 +4112,14 @@ for sdmode in "zp|" "stack|-fno-zpcall"; do
     xemu_case "FAIL: test_struct_dims_xemu.c $sdname (compilation/linking failed)" "src/test-resources/test_struct_dims_xemu.c" "build/test/test_struct_dims_${sdname}_xemu.prg" "$sdflags" -- "test_struct_dims_$sdname" "build/test/test_struct_dims_${sdname}_xemu.prg" "C0C0" 3 "01 01 AA"
 done
 
+# Test: 16-bit elements of small static arrays as name,y / name+1,y, in the
+# element address's block and in others; the cases that keep a pointer (#568)
+for awmode in "zp|" "stack|-fno-zpcall" "O0|-O0" "frame|-fno-staticalloc"; do
+    IFS='|' read -r awname awflags <<< "$awmode"
+    echo "Testing test_absy_word_xemu.c ($awname)..."
+    xemu_case "FAIL: test_absy_word_xemu.c $awname (compilation/linking failed)" "src/test-resources/test_absy_word_xemu.c" "build/test/test_absy_word_${awname}_xemu.prg" "$awflags" -- "test_absy_word_$awname" "build/test/test_absy_word_${awname}_xemu.prg" "C0C0" 6 "01 01 01 01 01 AA"
+done
+
 # Test: string/character literal encoding prefixes p"..." s"..." a"..." @"..."
 for spmode in "zp|" "stack|-fno-zpcall"; do
     IFS='|' read -r spname spflags <<< "$spmode"

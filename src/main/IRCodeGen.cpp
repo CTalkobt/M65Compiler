@@ -161,7 +161,9 @@ std::string IRCodeGen::elemYOperand(const ElemY& e) {
     if (e.stride == 1 && alloc_.getAlloc(e.index.vregId).type == ir::Type::I8) {
         emit("ldy " + directBase(e.index.vregId), "the index (" + e.base.name + "+off,y: no address built)");
     } else {
-        loadOperand(e.index);
+        // (a byte index: A alone, no zero-extension into X)
+        if (alloc_.getAlloc(e.index.vregId).type == ir::Type::I8) loadVregA(e.index.vregId);
+        else loadOperand(e.index);
         for (int k = e.stride; k > 1; k >>= 1) emit("asl");
         emit("tay", "index * " + std::to_string(e.stride) + " (" + e.base.name + " is at most 256 bytes)");
     }
@@ -4415,28 +4417,125 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
                 auto uit = uses.find(d);
                 if (uit == uses.end() || uit->second.empty()) continue;
                 bool ok = true;
+                bool cross = false;     // used in other blocks too (#568)
                 size_t last = i;
                 for (const auto& u : uit->second) {
-                    if (!u.addrOnly || u.blk != b || u.idx <= i) { ok = false; break; }
-                    const auto& x = insts[u.idx];
+                    if (!u.addrOnly || (u.blk == b && u.idx <= i)) { ok = false; break; }
+                    if (u.blk != b) cross = true;
+                    const auto& x = blocks[u.blk]->insts[u.idx];
                     if (zpPtr && x.resultType != ir::Type::I8) ok = false;
                     if (x.op == ir::Op::LOAD) {
                         if (x.resultType != ir::Type::I8 && x.resultType != ir::Type::I16 && x.resultType != ir::Type::PTR) ok = false;
                     } else {
-                        // a byte; (Y through A for a stride: the value must not need Y)
-                        if (x.resultType != ir::Type::I8) ok = false;
-                        if (!byteIndex && !(x.src1.isImm() || (x.src1.isVreg() &&
-                              alloc_.getAlloc(x.src1.vregId).loc == VRegAllocator::IN_ZP))) ok = false;
+                        // a byte, or a word from a constant or the base page
+                        // (#568: sta name,y / txa / sta name+1,y); (Y through
+                        // A for a stride: the value must not need Y)
+                        bool word = x.resultType == ir::Type::I16 || x.resultType == ir::Type::PTR;
+                        bool plainVal = x.src1.isImm() || (x.src1.isVreg() &&
+                              alloc_.getAlloc(x.src1.vregId).loc == VRegAllocator::IN_ZP);
+                        if (x.resultType != ir::Type::I8 && !word) ok = false;
+                        if (word && (zpPtr || !plainVal ||
+                                     (x.src1.isVreg() && ir::typeSize(alloc_.getAlloc(x.src1.vregId).type) != 2)))
+                            ok = false;
+                        if (!byteIndex && !plainVal) ok = false;
                     }
                     if (!ok) break;
-                    last = std::max(last, u.idx);
+                    if (u.blk == b) last = std::max(last, u.idx);
                 }
                 if (!ok) continue;
+                // The index is a variable or a parameter: it has its place for
+                // the whole function
+                bool stableIndex = (fn.localSlotVregs.count(ix) && !regVregs_.count(ix)) ||
+                                   (ix < fn.paramTypes.size() && !regVregs_.count(ix));
+                // (or, a register variable: the allocator keeps it up to its
+                // last mention, which every use comes before)
+                if (!stableIndex && !zpPtr && fn.localSlotVregs.count(ix)) {
+                    auto flat = [&](size_t bb, size_t k) {
+                        size_t n = k;
+                        for (size_t q = 0; q < bb; q++) n += blocks[q]->insts.size();
+                        return (int)n;
+                    };
+                    for (const auto& lr : alloc_.liveRanges()) {
+                        if (lr.vregId != ix) continue;
+                        stableIndex = lr.firstDef <= flat(b, i);
+                        for (const auto& u : uit->second)
+                            if (flat(u.blk, u.idx) > lr.lastUse) stableIndex = false;
+                        break;
+                    }
+                }
+                if (cross) {
+                    // Uses in other blocks: the address is index * stride
+                    // again at each of them, so the index must be the same
+                    // there: no write of it reaches a use without passing
+                    // the ADDR_ELEM again
+                    if (zpPtr || zextOf || !stableIndex) continue;
+                    int ndef = 0;
+                    bool indirect = false;
+                    std::map<std::string, size_t> blockAt;
+                    for (size_t bb = 0; bb < blocks.size(); bb++) {
+                        blockAt[blocks[bb]->label] = bb;
+                        for (const auto& x : blocks[bb]->insts) {
+                            if (x.dest.isVreg() && x.dest.vregId == d) ndef++;
+                            if (x.op == ir::Op::BR_INDIRECT || x.op == ir::Op::ADDR_LABEL) indirect = true;
+                        }
+                    }
+                    if (ndef != 1 || indirect) continue;
+                    auto succ = [&](size_t bb) {
+                        std::vector<size_t> out;
+                        const auto& bi = blocks[bb]->insts;
+                        auto add = [&](const std::string& name) {
+                            auto it = blockAt.find(name);
+                            if (it != blockAt.end()) out.push_back(it->second);
+                        };
+                        const ir::Inst* t = bi.empty() ? nullptr : &bi.back();
+                        if (t && t->op == ir::Op::BR) { if (t->src1.kind == ir::OperandKind::LABEL) add(t->src1.name); }
+                        else if (t && t->op == ir::Op::BR_COND) {
+                            if (t->dest.kind == ir::OperandKind::LABEL) add(t->dest.name);
+                            if (t->src2.kind == ir::OperandKind::LABEL) add(t->src2.name);
+                        } else if (t && t->op == ir::Op::SWITCH) {
+                            if (t->src2.kind == ir::OperandKind::LABEL) add(t->src2.name);
+                            for (const auto& sc : t->switchCases) add(sc.second);
+                        } else if (!(t && (t->op == ir::Op::RET || t->op == ir::Op::RET_VOID)) && bb + 1 < blocks.size()) {
+                            out.push_back(bb + 1);
+                        }
+                        return out;
+                    };
+                    std::set<std::pair<size_t, size_t>> useAt;
+                    for (const auto& u : uit->second) useAt.insert({u.blk, u.idx});
+                    // from (bb, from) on: is a use reached before the ADDR_ELEM?
+                    auto reachesUse = [&](size_t wb, size_t from) {
+                        std::set<size_t> entered;
+                        std::vector<std::pair<size_t, size_t>> work{{wb, from}};
+                        while (!work.empty()) {
+                            auto [bb, k0] = work.back();
+                            work.pop_back();
+                            const auto& bi = blocks[bb]->insts;
+                            bool stopped = false;
+                            for (size_t k = k0; k < bi.size(); k++) {
+                                if (bb == b && k == i) { stopped = true; break; }
+                                if (useAt.count({bb, k})) return true;
+                            }
+                            if (stopped) continue;
+                            for (size_t n : succ(bb)) if (entered.insert(n).second) work.push_back({n, 0});
+                        }
+                        return false;
+                    };
+                    for (size_t bb = 0; bb < blocks.size() && ok; bb++) {
+                        const auto& bi = blocks[bb]->insts;
+                        for (size_t k = 0; k < bi.size() && ok; k++) {
+                            const auto& x = bi[k];
+                            bool writes = (x.dest.isVreg() && x.dest.vregId == ix) ||
+                                          (x.op == ir::Op::STORE && x.src2.isVreg() && x.src2.vregId == ix);
+                            if (writes && reachesUse(bb, k + 1)) ok = false;
+                        }
+                    }
+                    if (!ok) continue;
+                }
                 // A temporary index lives (for the allocator) only up to the
                 // ADDR_ELEM: then only one access right after it can use it
                 // (the pointer likewise)
                 uint32_t pb = zpPtr ? in.src1.vregId : ix;
-                if (((!fn.localSlotVregs.count(ix) || regVregs_.count(ix)) ||
+                if ((!stableIndex ||
                      (zpPtr && pb >= fn.paramTypes.size() && (!fn.localSlotVregs.count(pb) || regVregs_.count(pb)))) &&
                     (uit->second.size() != 1 || uit->second[0].idx != i + 1)) continue;
                 // The index (and pointer) keep their values up to the last use (from the ZEXT)
@@ -8625,6 +8724,26 @@ void IRCodeGen::emitInstBody(const ir::Inst& inst) {
                             loadOperand(inst.src1);
                     };
                     std::string op;
+                    if (inst.resultType == ir::Type::I16 || inst.resultType == ir::Type::PTR) {
+                        // a word (#568), a constant or in the base page: its
+                        // bytes from where they are, after Y is set
+                        op = elemYOperand(ea);
+                        std::string b0 = directByte(inst.src1, 0), b1 = directByte(inst.src1, 1);
+                        std::string op1 = ea.base.name + "+" + std::to_string(ea.elemOffset + 1);
+                        if (!b0.empty() && !b1.empty()) {
+                            emit("lda " + b0);
+                            emit("sta " + op + ",y");
+                            if (b1 != b0 || b0[0] != '#') emit("lda " + b1);
+                            emit("sta " + op1 + ",y");
+                        } else {
+                            loadOperand(inst.src1);
+                            emit("sta " + op + ",y");
+                            emit("txa");
+                            emit("sta " + op1 + ",y");
+                        }
+                        ms_.invalidateAll();
+                        break;
+                    }
                     if (ea.stride == 1 && alloc_.getAlloc(ea.index.vregId).type == ir::Type::I8) {
                         if (!inA) loadValue();              // (first: its load may use Y)
                         op = elemYOperand(ea);
