@@ -25,6 +25,8 @@
 #include "O45Emitter.hpp"
 #include "Version.hpp"
 #include "Diagnostic.hpp"
+#include "AsmLint.hpp"
+#include "Lint.hpp"
 
 // Phase 4.1: Load configuration from config file
 static std::vector<std::string> loadConfigFile(const std::string& configPath) {
@@ -419,7 +421,18 @@ static void writeListing(const std::string& filename, const AssemblerParser& par
 }
 
 int main(int argc, char** argv) {
-    Logger::setTool("ca45");
+    // al45: ca45 as the assembly linter (a symlink, chosen by program name;
+    // #64, #199, doc/architecture/lint.md)
+    std::string programName = argv[0];
+    if (programName.find_last_of("/\\") != std::string::npos)
+        programName = programName.substr(programName.find_last_of("/\\") + 1);
+    const bool lintMode = programName == "al45";
+    Logger::setTool(lintMode ? "al45" : "ca45");
+    lint::Engine lintEngine;
+    std::vector<std::string> lintCli;
+    std::string lintFormat = "text", lintConfigFile, lintExplain;
+    bool lintList = false;
+    if (lintMode) asmlint::registerRules(lintEngine);
     std::string input_file;
     std::string output_file;
     std::string listing_file;
@@ -528,6 +541,21 @@ int main(int argc, char** argv) {
                 return 1;
             }
             return 0;
+        } else if (lintMode && (arg.rfind("--checks=", 0) == 0 || arg.rfind("--disable=", 0) == 0 ||
+                                arg.rfind("--profile=", 0) == 0 || arg.rfind("--severity=", 0) == 0)) {
+            lintCli.push_back(arg);
+        } else if (lintMode && arg.rfind("--format=", 0) == 0) {
+            lintFormat = arg.substr(9);
+            if (lintFormat != "text" && lintFormat != "json" && lintFormat != "sarif") {
+                std::cerr << "al45: --format=text, json or sarif" << std::endl;
+                return 1;
+            }
+        } else if (lintMode && arg.rfind("--config=", 0) == 0) {
+            lintConfigFile = arg.substr(9);
+        } else if (lintMode && arg == "--list-rules") {
+            lintList = true;
+        } else if (lintMode && arg.rfind("--explain=", 0) == 0) {
+            lintExplain = arg.substr(10);
         } else if (arg == "-c") {
             relocMode = true;
         } else if (arg == "-ffunction-sections") {
@@ -648,7 +676,42 @@ int main(int argc, char** argv) {
         predefinedSymbols["__sp_base"] = 0x0101;
     }
 
+    // al45: the configuration (files, then the command line), --list-rules, --explain
+    if (lintMode) {
+        std::string err;
+        std::string dir = input_file.empty() ? "." : input_file.substr(0, input_file.find_last_of('/') == std::string::npos
+                                                                            ? 0 : input_file.find_last_of('/'));
+        if (dir.empty()) dir = ".";
+        bool ok = lintConfigFile.empty() ? lintEngine.config.loadDefaults(dir, err)
+                                         : lintEngine.config.loadFile(lintConfigFile, err);
+        for (const auto& a : lintCli) ok = ok && lintEngine.config.applyOption(a, err);
+        if (!ok) {
+            std::cerr << "al45: error: " << err << std::endl;
+            return 1;
+        }
+        for (const auto& f : lintEngine.config.sources) LOG_INFO("al45", "configuration " << f);
+        if (!lintEngine.config.profile.empty()) lintEngine.profile = lintEngine.config.profile;
+        if (!lintExplain.empty()) {
+            if (!lintEngine.explain(std::cout, lintExplain)) {
+                std::cerr << "al45: no rule '" << lintExplain << "' (--list-rules)" << std::endl;
+                return 1;
+            }
+            return 0;
+        }
+        if (lintList) {
+            lintEngine.listRules(std::cout);
+            return 0;
+        }
+        // (the code as written: no optimizer pass; addressing modes as ca45 resolves them)
+        optimizationLevel = 0;
+        optFlags = OptimizationFlags::fromLevel(0);
+    }
+
     if (input_file.empty()) {
+        if (lintMode) {
+            std::cerr << "Usage: al45 [options] <input_file.s45>" << std::endl;
+            return 1;
+        }
         std::cerr << "Usage: ca45 [options] <input_file.s>" << std::endl;
         std::cerr << "Use -? for a list of options." << std::endl;
         return 1;
@@ -711,6 +774,7 @@ int main(int argc, char** argv) {
     parser.warnUnderflow = warnUnderflow;  // Phase 1.3
     parser.optimizationLevel = optimizationLevel;
     parser.optFlags = optFlags;
+    parser.lintMode = lintMode;
     try {
         parser.pass1();
 
@@ -719,6 +783,19 @@ int main(int argc, char** argv) {
                 std::cerr << err << std::endl;
             }
             return 1;
+        }
+
+        // al45: the addresses resolved (pass 2, no optimizer, no output),
+        // then the rules; ca45's other warnings as they are
+        if (lintMode) {
+            // (as -c: what pass 2's iterations record about forward references
+            // is not reported; pass 1 found the errors)
+            parser.pass2(false);
+            for (const auto& w : parser.getWarnings()) std::cerr << w << std::endl;
+            if (lintEngine.config.profile.empty()) lintEngine.profile = asmlint::defaultProfile(parser, relocMode);
+            asmlint::run(lintEngine, parser, input_file);
+            lintEngine.write(std::cout, lintFormat, "al45");
+            return lintEngine.anyError() ? 1 : 0;
         }
 
         // Phase 3.1: Dry-run mode - validate without generating output

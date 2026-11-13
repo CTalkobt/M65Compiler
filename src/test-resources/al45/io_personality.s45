@@ -1,0 +1,5 @@
+; mega65-io-personality: VIC-IV registers written without the knock
+    * = $2000
+    lda #$40
+    sta $d054           ; EXPECT mega65-io-personality
+    rts

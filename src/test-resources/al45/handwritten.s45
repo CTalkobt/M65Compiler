@@ -1,0 +1,18 @@
+; hand-written idioms, no proc or attributes: nothing reported
+    * = $2000
+start:
+    jsr print
+    .ascii "HI"         ; (inline data after a jsr)
+    .byte 0
+    bit skip+1          ; (skips a byte)
+skip:
+    lda #1
+    ldx #0
+loop:
+    inx
+    cpx #10
+    bne loop
+fall:                   ; (falls through into the next routine)
+    lda #2
+print:
+    rts

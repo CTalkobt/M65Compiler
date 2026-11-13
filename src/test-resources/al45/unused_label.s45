@@ -1,0 +1,13 @@
+; mega65-unused-label: local labels nothing refers to
+    * = $2000
+start:
+    ldx #3
+@loop:
+    dex
+    bne @loop
+@spare:                 ; EXPECT mega65-unused-label
+    rts
+@kept:                  ; NOLINT(mega65-unused-label): documented entry
+    rts
+global_unused:
+    rts

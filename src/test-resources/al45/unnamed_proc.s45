@@ -1,0 +1,7 @@
+; mega65-unnamed-proc-attrs
+.global f
+f:
+    proc
+    .func_flags zp_call, leaf   ; EXPECT mega65-unnamed-proc-attrs
+    rts
+    endproc

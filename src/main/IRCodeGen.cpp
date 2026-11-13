@@ -5797,11 +5797,13 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
             emit("pla"); emit("tab");
             emit("plz"); emit("ply"); emit("plx"); emit("pla");
             emit("rti");
+        } else {
+            // Non-interrupt functions return with RTS (SAC or stack-based)
+            // (Plain rts without plz for SAC; with plz cleanup for stack-based
+            // functions above; none after an interrupt's rti: al45 found it
+            // unreachable)
+            emit("rts");
         }
-
-        // Non-interrupt functions return with RTS (SAC or stack-based)
-        // (Plain rts without plz for SAC; with plz cleanup for stack-based functions above)
-        emit("rts");
     };
     size_t coldStart = fn.blocks.size();
     if (fn.coldAtEnd)

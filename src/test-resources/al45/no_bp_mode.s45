@@ -1,0 +1,8 @@
+; mega65-no-bp-mode: base-page operands with no base-page form
+    * = $2000
+    ldz $20             ; EXPECT mega65-no-bp-mode
+    lda $20,y           ; EXPECT mega65-no-bp-mode
+    lda $20,x
+    ldq $20
+    lda ($20),y
+    rts

@@ -34,6 +34,7 @@ Running shadow execution tests (cc45 vs host gcc)...|bash src/test/test_shadow_i
 Running clobber tracking tests...|bash src/test/test_clobber.sh
 Running library call convention tests...|bash src/test/test_libcall_conv.sh
 Running objdump45 tests...|bash src/test/test_objdump45.sh
+Running al45 (assembly linter) tests...|bash src/test/test_al45.sh
 Running disk45 tests...|bash src/test/test_disk45.sh
 Running new stdlib tests...|bash src/test/test_stdlib_new.sh
 Running the validation tests (bin/test_validation: 16 categories)...|mkdir -p src/test/build && ./bin/test_validation

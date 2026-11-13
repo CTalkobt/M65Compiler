@@ -1132,8 +1132,9 @@ void AssemblerParser::pass1() {
                     // bare `proc` (after a `name:` label) would drop it silently
                     if (currentProc->unnamed && !currentProc->warnedUnnamed) {
                         currentProc->warnedUnnamed = true;
-                        addWarning(formatDiagnostic(stmtFile(*stmt), stmt->line, 1, Severity::Warning,
-                            ".func_flags in an unnamed 'proc' is ignored: name the function with 'proc <name>' (and .global <name>)"));
+                        const char* m = ".func_flags in an unnamed 'proc' is ignored: name the function with 'proc <name>' (and .global <name>)";
+                        if (lintMode) lintNotes.push_back({"mega65-unnamed-proc-attrs", stmtFile(*stmt), stmt->line, 1, m});
+                        else addWarning(formatDiagnostic(stmtFile(*stmt), stmt->line, 1, Severity::Warning, m));
                     }
                     while (peek().type != AssemblerTokenType::NEWLINE && peek().type != AssemblerTokenType::END_OF_FILE) {
                         if (peek().type == AssemblerTokenType::COMMA) { advance(); continue; }
@@ -2464,7 +2465,8 @@ int AssemblerParser::calculateInstructionSize(const Instruction& instr, uint32_t
                     "'%s $%02X%s' has no base-page mode: assembled as absolute $00%02X%s, "
                     "which ignores the base page register",
                     instr.mnemonic.c_str(), val, idx, val, idx);
-                addWarning(formatDiagnostic(tokenFile(tok), tok.line, tok.column, Severity::Warning, buf));
+                if (lintMode) lintNotes.push_back({"mega65-no-bp-mode", tokenFile(tok), tok.line, tok.column, buf});
+                else addWarning(formatDiagnostic(tokenFile(tok), tok.line, tok.column, Severity::Warning, buf));
             };
             if (instr.mode == AddressingMode::BASE_PAGE || instr.mode == AddressingMode::ABSOLUTE) {
                 bool supportsBP = AssemblerOpcodeDatabase::isValidMode(instr.mnemonic, AddressingMode::BASE_PAGE);

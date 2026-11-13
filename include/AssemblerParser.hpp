@@ -124,6 +124,34 @@ public:
     void addError(const std::string& msg) { errors.push_back(msg); }
     void addWarning(const std::string& msg) { warnings.push_back(msg); }
     const std::vector<std::string>& getWarnings() const { return warnings; }
+    // al45 (lint mode): the warnings that are lint rules, recorded with their
+    // rule id and not added to the warnings
+    struct LintNote { std::string id, file; int line, col; std::string message; };
+    bool lintMode = false;
+    std::vector<LintNote> lintNotes;
+    const std::vector<AssemblerToken>& getTokens() const { return tokens; }
+    // an operand's value (false: it cannot be evaluated)
+    bool lintEval(int tokenIndex, const std::string& scopePrefix, uint32_t& out) {
+        if (tokenIndex < 0 || tokenIndex >= (int)tokens.size()) return false;
+        try { out = evaluateExpressionAt(tokenIndex, scopePrefix); } catch (...) { return false; }
+        return true;
+    }
+    std::string lintTokenFile(const AssemblerToken& t) const { return tokenFile(t); }
+    // an operand naming a relocatable symbol (a label of a segment, BSS, an
+    // .extern): its value is not an address until linked
+    bool lintRelocatable(int tokenIndex, const std::string& scopePrefix) {
+        for (int i = tokenIndex; i >= 0 && i < (int)tokens.size(); i++) {
+            const auto& t = tokens[i];
+            if (t.type == AssemblerTokenType::NEWLINE || t.type == AssemblerTokenType::END_OF_FILE ||
+                t.type == AssemblerTokenType::COMMA)
+                break;
+            if (t.type != AssemblerTokenType::IDENTIFIER) continue;
+            if (isRelocatableSymbol(scopePrefix + t.value) || isRelocatableSymbol(t.value) ||
+                isRelocatableSymbolIn(t.value, scopePrefix) || externIndex.count(t.value))
+                return true;
+        }
+        return false;
+    }
 
     // .global / .extern symbol tracking (for .o45 output)
     const std::set<std::string>& getGlobalSymbols() const { return globalSymbols; }

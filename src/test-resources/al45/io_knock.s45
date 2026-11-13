@@ -1,0 +1,9 @@
+; (the knock first: not reported)
+    * = $2000
+    lda #$47
+    sta $d02f
+    lda #$53
+    sta $d02f
+    lda #$40
+    sta $d054
+    rts

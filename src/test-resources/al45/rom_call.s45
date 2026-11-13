@@ -1,0 +1,24 @@
+; mega65-rom-call-bp (cc45 profile: assembled with -c)
+.extern __bp_rom, __bp_prog
+.global f, g, h
+    proc f
+    lda #'A'
+    jsr $ffd2           ; EXPECT mega65-rom-call-bp
+    rts
+    endproc
+    proc g
+    jsr __bp_rom
+    lda #'A'
+    jsr $ffd2
+    jsr __bp_prog
+    rts
+    endproc
+    proc h
+    lda #<$ffd2
+    sta @call+1
+    lda #>$ffd2
+    sta @call+2
+@call:
+    jsr $ffff           ; (patched: not reported)
+    rts
+    endproc
