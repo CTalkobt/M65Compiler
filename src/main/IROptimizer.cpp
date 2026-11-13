@@ -282,9 +282,209 @@ static long addressRoot(const Operand& o, const std::set<uint32_t>& restrictSlot
     }
 }
 
+// An element address of a global array by a variable (&units[u]) computed
+// in two or more blocks none of which dominates another -- the arms of a
+// switch or of an if / else -- is computed once in the block that dominates
+// them all, when no write of the index reaches an arm from there (#566).
+// CSE reuses an address only from a block that computed it; here no arm
+// did before the others. The first arm's instruction moves to the end of
+// the dominator (before the compare its branch tests); the other arms use
+// its result. Not in functions whose blocks can be entered in ways the
+// branches do not show (asm, a computed goto, setjmp, nested functions).
+static bool hoistArmAddresses(const Module& mod, Function& fn) {
+    const size_t nb = fn.blocks.size();
+    if (nb < 3 || !fn.addressTakenLabels.empty()) return false;
+    for (const auto& f : mod.functions) if (f.isNested || f.staticLinkVreg != -1) return false;
+    const auto& slots = fn.localSlotVregs;
+    std::map<std::string, size_t> labelIdx;
+    for (size_t b = 0; b < nb; b++) labelIdx[fn.blocks[b].label] = b;
+    std::map<uint32_t, int> nDefs;
+    std::set<uint32_t> exposed(fn.memoryVregs.begin(), fn.memoryVregs.end());
+    for (const auto& b : fn.blocks)
+        for (const auto& in : b.insts) {
+            if (in.op == Op::ASM_INLINE || in.op == Op::BR_INDIRECT || in.op == Op::ADDR_UPLEVEL ||
+                in.op == Op::ADDR_LABEL || in.op == Op::PHI)
+                return false;
+            if ((in.op == Op::CALL || in.op == Op::CALL_VOID) && in.src1.name.find("setjmp") != std::string::npos)
+                return false;
+            if (in.op == Op::ADDR_LOCAL && in.src1.isVreg()) exposed.insert(in.src1.vregId);
+            if (in.dest.isVreg()) nDefs[in.dest.vregId]++;
+        }
+    // the branches
+    std::vector<std::set<size_t>> pred(nb), succ(nb);
+    for (size_t b = 0; b < nb; b++) {
+        const auto& insts = fn.blocks[b].insts;
+        auto edge = [&](const std::string& l) {
+            auto it = labelIdx.find(l);
+            if (it != labelIdx.end()) { succ[b].insert(it->second); pred[it->second].insert(b); }
+        };
+        bool falls = true;
+        for (const auto& in : insts) {
+            if (in.op == Op::BR || in.op == Op::BR_COND || in.op == Op::SWITCH) {
+                for (const Operand* o : {&in.dest, &in.src1, &in.src2}) if (o->kind == OperandKind::LABEL) edge(o->name);
+                for (const auto& a : in.args) if (a.kind == OperandKind::LABEL) edge(a.name);
+            }
+            for (const auto& c : in.switchCases) edge(c.second);
+        }
+        if (!insts.empty()) {
+            Op last = insts.back().op;
+            if (last == Op::BR || last == Op::RET || last == Op::RET_VOID || last == Op::SWITCH) falls = false;
+        }
+        if (falls && b + 1 < nb) { succ[b].insert(b + 1); pred[b + 1].insert(b); }
+    }
+    // dominators
+    std::vector<std::vector<bool>> dom(nb, std::vector<bool>(nb, true));
+    dom[0].assign(nb, false);
+    dom[0][0] = true;
+    for (bool ch = true; ch;) {
+        ch = false;
+        for (size_t b = 1; b < nb; b++) {
+            std::vector<bool> d(nb, !pred[b].empty());
+            for (size_t p : pred[b]) for (size_t k = 0; k < nb; k++) d[k] = d[k] && dom[p][k];
+            d[b] = true;
+            if (d != dom[b]) { dom[b] = d; ch = true; }
+        }
+    }
+    auto writes = [](const Inst& in, uint32_t v) {
+        return (in.dest.isVreg() && in.dest.vregId == v) ||
+               ((in.op == Op::STORE || in.op == Op::STORE_ZP) && in.src2.isVreg() && in.src2.vregId == v);
+    };
+    // the candidates: the first of each address in a block, its index a
+    // variable no call or store through a pointer can change, not written
+    // in the block before it
+    struct Cand { size_t b, i; };
+    std::map<std::string, std::vector<Cand>> groups;
+    // (the blocks that compute an address and leave its index alone after:
+    // what they dominate reuses theirs, CSE)
+    std::map<std::string, std::set<size_t>> computedIn;
+    for (size_t b = 0; b < nb; b++) {
+        const auto& insts = fn.blocks[b].insts;
+        std::set<std::string> here;
+        for (size_t i = 0; i < insts.size(); i++) {
+            const auto& in = insts[i];
+            if (in.op != Op::ADDR_ELEM || !in.dest.isVreg() || in.src1.kind != OperandKind::GLOBAL || !in.src2.isVreg())
+                continue;
+            uint32_t d = in.dest.vregId, ix = in.src2.vregId;
+            if (nDefs[d] != 1 || slots.count(d) || fn.memoryVregs.count(d)) continue;
+            if (!(slots.count(ix) || ix < fn.paramTypes.size()) || exposed.count(ix)) continue;
+            std::string key = in.src1.name + "|" + std::to_string(ix) + "|" + std::to_string(in.elemOffset) + "|" +
+                              std::to_string((int)in.resultType) + "|" + std::to_string((int)in.src2.type);
+            bool plain = true;
+            for (const auto& a : in.args) {
+                if (!a.isImm()) plain = false;
+                key += "|" + std::to_string(a.immVal);
+            }
+            if (!plain) continue;
+            bool written = false, after = false;
+            for (size_t k = 0; k < i; k++) written = written || writes(insts[k], ix);
+            for (size_t k = i + 1; k < insts.size(); k++) after = after || writes(insts[k], ix);
+            if (!after) computedIn[key].insert(b);
+            if (!written && here.insert(key).second) groups[key].push_back({b, i});
+        }
+    }
+    for (auto& [key, cands] : groups) {
+        // (an arm that another dominates reuses that one's: CSE)
+        std::vector<Cand> arms;
+        for (const auto& c : cands) {
+            bool dominated = false;
+            for (size_t o : computedIn[key]) if (o != c.b && dom[c.b][o]) dominated = true;
+            if (!dominated) arms.push_back(c);
+        }
+        size_t D = 0;
+        while (arms.size() >= 2) {
+            // the deepest block that dominates every arm
+            long best = -1;
+            for (size_t c = 0; c < nb; c++) {
+                bool all = true;
+                for (const auto& a : arms) all = all && a.b != c && dom[a.b][c];
+                if (all && (best < 0 || dom[c][(size_t)best])) best = (long)c;
+            }
+            if (best < 0) { arms.clear(); break; }
+            D = (size_t)best;
+            // no write of the index on the paths from D to an arm (not
+            // through D again), nor in an arm such a path comes back to
+            uint32_t ix = fn.blocks[arms[0].b].insts[arms[0].i].src2.vregId;
+            std::vector<bool> fwd(nb, false);
+            std::vector<size_t> todo;
+            for (size_t n : succ[D]) if (n != D && !fwd[n]) { fwd[n] = true; todo.push_back(n); }
+            while (!todo.empty()) {
+                size_t x = todo.back(); todo.pop_back();
+                for (size_t n : succ[x]) if (n != D && !fwd[n]) { fwd[n] = true; todo.push_back(n); }
+            }
+            size_t before = arms.size();
+            for (size_t ai = 0; ai < arms.size();) {
+                size_t B = arms[ai].b;
+                std::vector<bool> bwd(nb, false);
+                bwd[B] = true;
+                todo.push_back(B);
+                while (!todo.empty()) {
+                    size_t x = todo.back(); todo.pop_back();
+                    for (size_t p2 : pred[x]) if (p2 != D && !bwd[p2]) { bwd[p2] = true; todo.push_back(p2); }
+                }
+                bool ok = fwd[B];
+                for (size_t x = 0; x < nb && ok; x++) {
+                    if (x == D || !fwd[x] || !bwd[x]) continue;
+                    if (x == B) {
+                        bool loops = false;
+                        for (size_t p2 : pred[B]) if (p2 != D && fwd[p2] && bwd[p2]) loops = true;
+                        if (!loops) continue;
+                    }
+                    for (const auto& in : fn.blocks[x].insts) if (writes(in, ix)) ok = false;
+                }
+                if (ok) ai++; else arms.erase(arms.begin() + ai);
+            }
+            if (arms.size() == before) break;
+        }
+        if (arms.size() < 2) continue;
+        // the first arm's instruction to the end of D, before the compare
+        // its branch tests; the others use its result
+        Inst moved = fn.blocks[arms[0].b].insts[arms[0].i];
+        uint32_t h = moved.dest.vregId;
+        fn.blocks[arms[0].b].insts[arms[0].i] = Inst();
+        fn.blocks[arms[0].b].insts[arms[0].i].op = Op::NOP;
+        std::map<uint32_t, uint32_t> same;
+        for (size_t ai = 1; ai < arms.size(); ai++) {
+            Inst& in = fn.blocks[arms[ai].b].insts[arms[ai].i];
+            same[in.dest.vregId] = h;
+            in = Inst();
+            in.op = Op::NOP;
+        }
+        for (auto& b : fn.blocks)
+            for (auto& in : b.insts) {
+                auto fix = [&](Operand& o) {
+                    if (!o.isVreg()) return;
+                    auto it = same.find(o.vregId);
+                    if (it != same.end()) o.vregId = it->second;
+                };
+                fix(in.src1); fix(in.src2);
+                for (auto& a : in.args) fix(a);
+            }
+        auto& dinsts = fn.blocks[D].insts;
+        size_t at = dinsts.size();
+        if (at > 0) {
+            Op last = dinsts.back().op;
+            if (last == Op::BR || last == Op::BR_COND || last == Op::SWITCH || last == Op::RET || last == Op::RET_VOID) {
+                at--;
+                const Inst& t = dinsts.back();
+                if (at > 0 && dinsts[at - 1].dest.isVreg() && dinsts[at - 1].op != Op::STORE &&
+                    ((t.src1.isVreg() && t.src1.vregId == dinsts[at - 1].dest.vregId) ||
+                     (t.src2.isVreg() && t.src2.vregId == dinsts[at - 1].dest.vregId)) &&
+                    !writes(dinsts[at - 1], moved.src2.vregId))
+                    at--;
+            }
+        }
+        trace("cse", fn.name, "v" + std::to_string(h) + " (an element address of " + moved.src1.name + ") computed once in " +
+              fn.blocks[D].label + " for " + std::to_string(arms.size()) + " blocks", moved.loc);
+        dinsts.insert(dinsts.begin() + at, moved);
+        return true;    // (the blocks changed: look again)
+    }
+    return false;
+}
+
 void optimizeCSE(Module& mod) {
     for (auto& fn : mod.functions) {
         if (!runOn(fn, "CommonSubexprElim")) continue;
+        for (int round = 0; round < 64 && hoistArmAddresses(mod, fn); round++) {}
         const auto& slots = fn.localSlotVregs;
         // The global an address is in (#320): @g, addr_global @g, addr_elem
         // of @g, a pointer added to one of those, through temporaries defined
