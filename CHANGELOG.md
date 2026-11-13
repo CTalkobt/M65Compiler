@@ -4,6 +4,18 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### A value used after a loop keeps its register over the loop (#561)
+
+- cc45: a value first computed inside a loop and used after it was live,
+  for the register allocator, only from that computation on in the layout:
+  in a rotated loop (the test at the bottom) a temporary of the body above
+  it could take the same base-page register, and a `break` out of the body
+  reached the code after the loop with the value overwritten (`for (k = 0;
+  k < n; k++) if (...) break; found = k < n;` compared `k` with a
+  temporary). Such a value is live over the whole loop now
+  (`VRegAllocator::extendLiveRangesAcrossLoops`). Test:
+  `test_loop_live_xemu.c`.
+
 ### No static storage for temporaries the optimizer removed
 
 - cc45: a static-allocation function reserved 2 bytes of BSS for every
