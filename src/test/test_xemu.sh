@@ -4128,6 +4128,15 @@ for crmode in "zp|" "stack|-fno-zpcall" "O0|-O0" "nocse|-fno-cse"; do
     xemu_case "FAIL: test_cond_reuse_xemu.c $crname (compilation/linking failed)" "src/test-resources/test_cond_reuse_xemu.c" "build/test/test_cond_reuse_${crname}_xemu.prg" "$crflags" -- "test_cond_reuse_$crname" "build/test/test_cond_reuse_${crname}_xemu.prg" "C0C0" 5 "01 01 01 01 AA"
 done
 
+# Test: an element address every arm of a switch or an if computes is
+# computed once before the branch; not when the index may change on the way
+# to an arm (#566)
+for hamode in "zp|" "stack|-fno-zpcall" "O0|-O0" "nocse|-fno-cse"; do
+    IFS='|' read -r haname haflags <<< "$hamode"
+    echo "Testing test_hoist_addr_xemu.c ($haname)..."
+    xemu_case "FAIL: test_hoist_addr_xemu.c $haname (compilation/linking failed)" "src/test-resources/test_hoist_addr_xemu.c" "build/test/test_hoist_addr_${haname}_xemu.prg" "$haflags" -- "test_hoist_addr_$haname" "build/test/test_hoist_addr_${haname}_xemu.prg" "C0C0" 5 "01 01 01 01 AA"
+done
+
 # Test: string/character literal encoding prefixes p"..." s"..." a"..." @"..."
 for spmode in "zp|" "stack|-fno-zpcall"; do
     IFS='|' read -r spname spflags <<< "$spmode"

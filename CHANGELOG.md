@@ -4,6 +4,18 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### An address every arm of a switch computes, computed once (#566)
+
+- cc45 (CSE): an element address of a global array by a variable
+  (`&units[u]`) computed in two or more blocks none of which dominates
+  another -- the cases of a `switch`, both arms of an `if` -- is computed
+  once at the end of the block that dominates them all (before the compare
+  its branch tests), and the arms use that. Only when no write of the
+  index reaches an arm from there; the index is a variable or parameter
+  whose address is not taken. The issue's key dispatch: 184 -> 137 bytes.
+  `-Roptir` reports it (`computed once in <block> for N blocks`). Test:
+  `test_hoist_addr_xemu.c`.
+
 ### An arm of `?:` reuses what its condition computed (#567)
 
 - cc45 (CSE): cheap expressions (adds, extensions, shifts) are carried
