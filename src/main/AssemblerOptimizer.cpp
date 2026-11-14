@@ -274,32 +274,33 @@ bool AssemblerOptimizer::optimizeInternal(
         std::string m = s->instr.mnemonic;
         std::transform(m.begin(), m.end(), m.begin(), ::toupper);
 
-        if (parser->optFlags.noOpBra && m == "BRA" && s->instr.mode == AddressingMode::RELATIVE) {
-            size_t j = i + 1;
-            while (j < parser->statements.size() && parser->statements[j]->deleted) ++j;
-            if (j >= parser->statements.size()) continue;
-
-            auto* next = parser->statements[j].get();
-            if (!next->label.empty()) {
-                const auto& lbl = next->label;
+        // (a branch's mode is decided when it is encoded: until then a BRA
+        // to a label is ABSOLUTE)
+        if (parser->optFlags.noOpBra && m == "BRA" &&
+            (s->instr.mode == AddressingMode::RELATIVE || s->instr.mode == AddressingMode::ABSOLUTE)) {
+            // the labels at the next instruction: the target may be any of
+            // them (other labels and line info lie between, #566)
+            auto matches = [&](const std::string& lbl) {
                 const auto& op = s->instr.operand;
-                bool match = (lbl == op);
-                if (!match && !s->scopePrefix.empty()) {
-                    match = (lbl == s->scopePrefix + op);
-                }
-                if (!match) {
-                    auto colonPos = lbl.rfind(':');
-                    if (colonPos != std::string::npos) {
-                        match = (lbl.substr(colonPos + 1) == op ||
-                                 lbl.substr(colonPos) == ":" + op);
-                    }
-                }
-                if (match) {
-                    report("no-op-bra", s, "BRA to next instruction eliminated (saved 2 bytes)");
-                    s->deleted = true;
-                    s->size = 0;
-                    changed = true;
-                }
+                if (lbl == op) return true;
+                if (!s->scopePrefix.empty() && lbl == s->scopePrefix + op) return true;
+                auto colonPos = lbl.rfind(':');
+                return colonPos != std::string::npos &&
+                       (lbl.substr(colonPos + 1) == op || lbl.substr(colonPos) == ":" + op);
+            };
+            bool match = false;
+            for (size_t j = i + 1; j < parser->statements.size() && !match; ++j) {
+                auto* next = parser->statements[j].get();
+                if (next->deleted || isLocDirective(next)) continue;
+                if (!next->label.empty() && matches(next->label)) match = true;
+                // only a bare label has no code and changes nothing about where the code is
+                if (next->type != AssemblerParser::Statement::NONE || next->label.empty()) break;
+            }
+            if (match) {
+                report("no-op-bra", s, "BRA to next instruction eliminated (saved 2 bytes)");
+                s->deleted = true;
+                s->size = 0;
+                changed = true;
             }
         }
     }

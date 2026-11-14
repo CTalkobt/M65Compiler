@@ -4145,6 +4145,15 @@ for cemode in "zp|" "stack|-fno-zpcall" "O0|-O0"; do
     xemu_case "FAIL: test_comma_expr_xemu.c $cename (compilation/linking failed)" "src/test-resources/test_comma_expr_xemu.c" "build/test/test_comma_expr_${cename}_xemu.prg" "$ceflags" -- "test_comma_expr_$cename" "build/test/test_comma_expr_${cename}_xemu.prg" "C0C0" 5 "01 01 01 01 AA"
 done
 
+# Test: a ?: used as a byte with a constant arm is computed in 8 bits, one
+# used wider is not; a loop with an early return (ca45's BRA to the next
+# instruction) (the leftovers of #567 and #566)
+for ctmode in "zp|" "stack|-fno-zpcall" "O0|-O0" "nonarrow|-fno-type-narrowing"; do
+    IFS='|' read -r ctname ctflags <<< "$ctmode"
+    echo "Testing test_clamp_tail_xemu.c ($ctname)..."
+    xemu_case "FAIL: test_clamp_tail_xemu.c $ctname (compilation/linking failed)" "src/test-resources/test_clamp_tail_xemu.c" "build/test/test_clamp_tail_${ctname}_xemu.prg" "$ctflags" -- "test_clamp_tail_$ctname" "build/test/test_clamp_tail_${ctname}_xemu.prg" "C0C0" 5 "01 01 01 01 AA"
+done
+
 # Test: string/character literal encoding prefixes p"..." s"..." a"..." @"..."
 for spmode in "zp|" "stack|-fno-zpcall"; do
     IFS='|' read -r spname spflags <<< "$spmode"

@@ -13,6 +13,20 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
   without an extra pair of parentheses.
 - Test `test_comma_expr_xemu.c` (ZP, stack, `-O0`).
 
+### The leftovers of #567 and #566
+
+- cc45 (type narrowing): a `?:` used as a byte with a constant in one arm
+  (`x > 100 ? 100 : (unsigned char)x` returned as an `unsigned char`) is
+  computed in 8 bits: the constant arrives as a copy of a constant
+  temporary, which the narrowing of a temporary with several definitions
+  did not take. The `ldx #0` / `stx` / `ldx` of the high byte around the
+  join goes; #567's function 98 → 92 bytes.
+- ca45 (`NoOpBra`): a `BRA` to the next instruction is removed when other
+  labels or line info lie between it and its label, and whichever form the
+  branch was written in. cc45's `if (k == 27) return;` in a loop left
+  `beq …` / `bra` to the next instruction (#566's aside).
+- Test `test_clamp_tail_xemu.c` (ZP, stack, `-O0`, `-fno-type-narrowing`).
+
 ### An address every arm of a switch computes, computed once (#566)
 
 - cc45 (CSE): an element address of a global array by a variable

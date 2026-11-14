@@ -2314,6 +2314,15 @@ void optimizeTypeNarrowing(Module& mod) {
         for (auto& block : fn.blocks)
             for (auto& in : block.insts)
                 if (in.dest.isVreg()) { defCount[in.dest.vregId]++; defsOf[in.dest.vregId].push_back(&in); }
+        // a copy of a constant (c ? 100 : x arrives as %k = const 100;
+        // %r = copy %k): the constant itself (#567)
+        auto constCopy = [&](const Inst& d) {
+            if (d.op != Op::COPY || !d.src1.isVreg() || defCount[d.src1.vregId] != 1 ||
+                fn.localSlotVregs.count(d.src1.vregId))
+                return false;
+            auto it = defOf.find(d.src1.vregId);
+            return it != defOf.end() && it->second->op == Op::CONST && it->second->src1.isImm();
+        };
         for (auto& [v, defs] : defsOf) {
             if (defs.size() < 2 || fn.localSlotVregs.count(v) || !allUsesTruncI8(v)) continue;
             bool ok = true;
@@ -2323,12 +2332,18 @@ void optimizeTypeNarrowing(Module& mod) {
                 if (d->resultType != Type::I16 && d->resultType != Type::I32) { ok = false; break; }
                 wide = true;
                 bool byteCopy = (d->op == Op::COPY && d->src1.isVreg() && zextByte(d->src1)) ||
-                                (d->op == Op::ZEXT && d->src1.type == Type::I8) || d->op == Op::CONST;
+                                (d->op == Op::ZEXT && d->src1.type == Type::I8) || d->op == Op::CONST ||
+                                constCopy(*d);
                 if (!isNarrowable(d->op) && !byteCopy) { ok = false; break; }
             }
             if (!ok || !wide) continue;
             for (Inst* d : defs) {
                 if (d->resultType == Type::I8) continue;
+                if (constCopy(*d)) {
+                    int64_t k = defOf[d->src1.vregId]->src1.immVal;
+                    d->op = Op::CONST;
+                    d->src1 = Operand::imm(k, Type::I8);
+                }
                 if (d->op == Op::ZEXT) d->op = Op::COPY;
                 if (d->op == Op::CONST) d->src1 = Operand::imm(d->src1.immVal & 0xFF, Type::I8);
                 if (d->op == Op::COPY) d->src1.type = Type::I8;
