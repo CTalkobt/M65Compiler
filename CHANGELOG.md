@@ -4,6 +4,15 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### The comma operator wherever C takes an expression (#572)
+
+- cc45 (parser): `if`, `while`, `do … while` and `switch` conditions,
+  `return`, a subscript, the middle operand of `?:` and `sizeof(…)` take a
+  comma expression (`if ((u = v), k == 9)`, `return u = x, x + 1;`,
+  `a[i++, j]`, `c ? u = 1, 5 : 6`); each was a syntax error at the comma
+  without an extra pair of parentheses.
+- Test `test_comma_expr_xemu.c` (ZP, stack, `-O0`).
+
 ### An address every arm of a switch computes, computed once (#566)
 
 - cc45 (CSE): an element address of a global array by a variable
