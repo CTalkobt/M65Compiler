@@ -1183,6 +1183,22 @@ else
     echo "FAIL: test_basic_compile23_xemu.bas (basic45 or basic45 --compile --checks failed)"
     failed=$((failed + 1))
 fi
+# test_basic_compile24_xemu.bas: FOR with an integer variable, DEF FN's
+# ?TYPE MISMATCH forms, DIM of a scalar, INPUT #1 (a space), TRAP and
+# COLLISION with a computed line (#369); the same four ways
+BC24_EXP="01 01 01 01 01 01 01 AA"
+if ./bin/basic45 src/test-resources/test_basic_compile24_xemu.bas -o build/test/test_basic_compile24_i.prg >/dev/null 2>&1 &&
+   ./bin/basic45 --compile --checks src/test-resources/test_basic_compile24_xemu.bas -o build/test/test_basic_compile24.prg >/dev/null 2>&1 &&
+   ./bin/basic45 --compile --checks -O0 src/test-resources/test_basic_compile24_xemu.bas -o build/test/test_basic_compile24_O0.prg >/dev/null 2>&1 &&
+   ./bin/basic45 --compile --checks --speed src/test-resources/test_basic_compile24_xemu.bas -o build/test/test_basic_compile24_speed.prg >/dev/null 2>&1; then
+    run_xemu_test "test_basic_compile24_interpreted" "build/test/test_basic_compile24_i.prg" "C0C0" 8 "$BC24_EXP"
+    run_xemu_test "test_basic_compile24" "build/test/test_basic_compile24.prg" "C0C0" 8 "$BC24_EXP"
+    run_xemu_test "test_basic_compile24_O0" "build/test/test_basic_compile24_O0.prg" "C0C0" 8 "$BC24_EXP"
+    run_xemu_test "test_basic_compile24_speed" "build/test/test_basic_compile24_speed.prg" "C0C0" 8 "$BC24_EXP"
+else
+    echo "FAIL: test_basic_compile24_xemu.bas (basic45 or basic45 --compile --checks failed)"
+    failed=$((failed + 1))
+fi
 # test_basic_compile22_xemu.bas: without --line-numbers (the default, #483) EL
 # stays 65535 after an error, ER and the trap as with them; compiled only
 BC22_EXP="01 01 01 AA"

@@ -4,6 +4,28 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### basic45 --compile: FOR I%, DIM of a scalar, computed TRAP / COLLISION lines (#369)
+
+Forms that were compile errors ("not supported by --compile"), now as the
+interpreter runs them:
+
+- `FOR` with an integer variable (`FOR I%=1 TO 9 STEP 2`, `NEXT I%`): start,
+  limit and step made integers as an assignment to `I%` is, the step added
+  and compared in 16 bits as the ROM's `NEXT` does (wrapping at 32767);
+  counted loops too.
+- `DEF FN` of a string or integer function, or with a string or integer
+  parameter, and `FN A$(…)` / `FN A%(…)`: `?TYPE MISMATCH` when run, nothing
+  defined, as the ROM's (they were never valid BASIC 65).
+- `DIM A` of a scalar: nothing to do, its value kept.
+- `INPUT #1, A` and `LINE INPUT #1, A$` with a space before the `#`: the
+  plain `INPUT` and then `?SYNTAX ERROR`, as the interpreter's (an empty
+  line: the statement skipped).
+- `TRAP expression` and `COLLISION type, expression`: the line looked up
+  among the program's lines when the error or the statement comes; no such
+  line `?UNDEF'D STATEMENT`.
+- Test `test_basic_compile24_xemu.bas` (interpreted, compiled with
+  `--checks`, `-O0`, `--speed`).
+
 ### The comma operator wherever C takes an expression (#572)
 
 - cc45 (parser): `if`, `while`, `do … while` and `switch` conditions,
