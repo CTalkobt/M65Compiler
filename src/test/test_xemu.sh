@@ -4137,6 +4137,14 @@ for hamode in "zp|" "stack|-fno-zpcall" "O0|-O0" "nocse|-fno-cse"; do
     xemu_case "FAIL: test_hoist_addr_xemu.c $haname (compilation/linking failed)" "src/test-resources/test_hoist_addr_xemu.c" "build/test/test_hoist_addr_${haname}_xemu.prg" "$haflags" -- "test_hoist_addr_$haname" "build/test/test_hoist_addr_${haname}_xemu.prg" "C0C0" 5 "01 01 01 01 AA"
 done
 
+# Test: the comma operator in if/while/do/switch conditions, return, a
+# subscript, the middle of ?: and sizeof (#572)
+for cemode in "zp|" "stack|-fno-zpcall" "O0|-O0"; do
+    IFS='|' read -r cename ceflags <<< "$cemode"
+    echo "Testing test_comma_expr_xemu.c ($cename)..."
+    xemu_case "FAIL: test_comma_expr_xemu.c $cename (compilation/linking failed)" "src/test-resources/test_comma_expr_xemu.c" "build/test/test_comma_expr_${cename}_xemu.prg" "$ceflags" -- "test_comma_expr_$cename" "build/test/test_comma_expr_${cename}_xemu.prg" "C0C0" 5 "01 01 01 01 AA"
+done
+
 # Test: string/character literal encoding prefixes p"..." s"..." a"..." @"..."
 for spmode in "zp|" "stack|-fno-zpcall"; do
     IFS='|' read -r spname spflags <<< "$spmode"

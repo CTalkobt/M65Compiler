@@ -1880,7 +1880,7 @@ std::unique_ptr<Statement> Parser::parseStatement() {
         const Token& startToken = tokens[pos-1];
         std::unique_ptr<Expression> expr = nullptr;
         if (!match(TokenType::SEMICOLON)) {
-            expr = parseExpression();
+            expr = parseCommaExpression();
             expect(TokenType::SEMICOLON, "Expected ';' after return expression");
         }
         return setPos(std::make_unique<ReturnStatement>(std::move(expr)), startToken);
@@ -1923,7 +1923,7 @@ std::unique_ptr<Statement> Parser::parseStatement() {
 
         const Token& startToken = tokens[pos-1];
         expect(TokenType::OPEN_PAREN, "Expected '(' after 'if'");
-        auto condition = parseExpression();
+        auto condition = parseCommaExpression();
         expect(TokenType::CLOSE_PAREN, "Expected ')' after if condition");
         // the condition's hint (!__likely(x): expected false)
         Expression* hinted = condition.get();
@@ -1948,7 +1948,7 @@ std::unique_ptr<Statement> Parser::parseStatement() {
     if (match(TokenType::WHILE)) {
         const Token& startToken = tokens[pos-1];
         expect(TokenType::OPEN_PAREN, "Expected '(' after 'while'");
-        auto condition = parseExpression();
+        auto condition = parseCommaExpression();
         expect(TokenType::CLOSE_PAREN, "Expected ')' after while condition");
         auto body = parseStatement();
         return setPos(std::make_unique<WhileStatement>(std::move(condition), std::move(body)), startToken);
@@ -1959,7 +1959,7 @@ std::unique_ptr<Statement> Parser::parseStatement() {
         auto body = parseStatement();
         expect(TokenType::WHILE, "Expected 'while' after 'do' body");
         expect(TokenType::OPEN_PAREN, "Expected '(' after 'while'");
-        auto condition = parseExpression();
+        auto condition = parseCommaExpression();
         expect(TokenType::CLOSE_PAREN, "Expected ')' after while condition");
         expect(TokenType::SEMICOLON, "Expected ';' after do-while");
         return setPos(std::make_unique<DoWhileStatement>(std::move(body), std::move(condition)), startToken);
@@ -2073,7 +2073,7 @@ std::unique_ptr<Statement> Parser::parseStatement() {
     if (match(TokenType::SWITCH)) {
         const Token& startToken = tokens[pos-1];
         expect(TokenType::OPEN_PAREN, "Expected '(' after 'switch'");
-        auto expression = parseExpression();
+        auto expression = parseCommaExpression();
         expect(TokenType::CLOSE_PAREN, "Expected ')' after switch expression");
         auto body = parseStatement();
         return setPos(std::make_unique<SwitchStatement>(std::move(expression), std::move(body)), startToken);
@@ -3259,7 +3259,7 @@ std::unique_ptr<Expression> Parser::parseConditional() {
             // GCC Elvis operator: expr ?: default — thenExpr is null (use condition value)
             thenExpr = nullptr;
         } else {
-            thenExpr = parseExpression();
+            thenExpr = parseCommaExpression();   // a ? b, c : d
         }
         expect(TokenType::COLON, "Expected ':' in conditional expression");
         auto elseExpr = parseConditional();
@@ -3438,7 +3438,7 @@ std::unique_ptr<Expression> Parser::parseUnary() {
                 node->declDims = declDims;
                 return setPos(std::move(node), startToken);
             } else {
-                auto expr = parseExpression();
+                auto expr = parseCommaExpression();
                 expect(TokenType::CLOSE_PAREN, "Expected ')' after expression in sizeof");
                 return setPos(std::make_unique<SizeofExpression>(std::move(expr)), startToken);
             }
@@ -3477,7 +3477,7 @@ std::unique_ptr<Expression> Parser::parseUnary() {
                 std::string member = expect(TokenType::IDENTIFIER, "Expected member name").value;
                 result = setPos(std::make_unique<MemberAccess>(std::move(result), member, true), startToken);
             } else if (match(TokenType::OPEN_SQUARE)) {
-                auto index = parseExpression();
+                auto index = parseCommaExpression();
                 expect(TokenType::CLOSE_SQUARE, "Expected ']'");
                 result = setPos(std::make_unique<ArrayAccess>(std::move(result), std::move(index)), startToken);
             }
@@ -3605,7 +3605,7 @@ std::unique_ptr<Expression> Parser::parseUnary() {
                 while (peek().type == TokenType::OPEN_SQUARE || peek().type == TokenType::DOT ||
                        peek().type == TokenType::ARROW) {
                     if (match(TokenType::OPEN_SQUARE)) {
-                        auto index = parseExpression();
+                        auto index = parseCommaExpression();
                         expect(TokenType::CLOSE_SQUARE, "Expected ']'");
                         result = setPos(std::make_unique<ArrayAccess>(std::move(result), std::move(index)), startToken);
                     } else if (match(TokenType::DOT)) {
@@ -4086,7 +4086,7 @@ std::unique_ptr<Expression> Parser::parsePrimary() {
         if (opToken.type == TokenType::PLUS_PLUS || opToken.type == TokenType::MINUS_MINUS) {
             expr = setPos(std::make_unique<UnaryOperation>(opToken.value + "_POST", std::move(expr)), opToken);
         } else if (opToken.type == TokenType::OPEN_SQUARE) {
-            auto indexExpr = parseExpression();
+            auto indexExpr = parseCommaExpression();
             expect(TokenType::CLOSE_SQUARE, "Expected ']' after array index");
             expr = setPos(std::make_unique<ArrayAccess>(std::move(expr), std::move(indexExpr)), opToken);
         } else if (opToken.type == TokenType::OPEN_PAREN) {
