@@ -259,6 +259,7 @@ struct ForInfo {
     size_t li = 0, si = 0;   // where it is
     bool lead = false;       // the first token of its statement
     bool counted = false;    // a counted loop: no entry on BASIC's stack (countedLoops)
+    bool isInt = false;      // an integer variable's (FOR I%): 16-bit start, limit and step
 };
 
 class Compiler {
@@ -698,8 +699,13 @@ private:
             auto t = peek();
             if (!t || t->k != TK::Name) fail("an array expected after DIM");
             p_++;
-            if (!isCh('(')) fail("DIM " + t->text + " without subscripts is not supported by --compile");
             VK k;
+            if (!isCh('(')) {
+                // DIM A: a scalar, made if it is not there yet, its value kept
+                // (a compiled program's variables are all there: nothing to do)
+                varGlobal(t->text, k);
+                continue;
+            }
             std::string g = arrayGlobal(t->text, k);
             auto subs = subscripts();
             arefCall(g, subs, elemSize(k) | (k == VK::S ? 0x40 : 0) | 0x80);
@@ -1548,6 +1554,8 @@ private:
     void runStmt();
     void fgotoStmt(bool sub);
     bool fgoUsed_ = false;   // FGOTO / FGOSUB: the line dispatch emitted at the end
+    bool trapAny_ = false;   // TRAP with a computed line: the trap's dispatch over every line
+    bool lnAddrUsed_ = false;   // COLLISION with a computed line: the lines' addresses by number (lnaddr)
     void keyStmt();
     void fontStmt();
     void bootStmt();
@@ -1733,9 +1741,11 @@ void Compiler::prescan() {
                 ForInfo f;
                 f.id = (int)fors_.size() + 1;
                 std::string name = t[k + 1].text;
-                if (name.back() == '%' || name.back() == '$') continue;   // (an error when compiled)
+                if (name.back() == '$') continue;   // (an error when compiled)
+                f.isInt = name.back() == '%';
+                if (f.isInt) name.pop_back();
                 std::string key = name.substr(0, 2);
-                f.var = "__bv_" + key;
+                f.var = "__bv_" + key + (f.isInt ? "_i" : "");
                 if (!forVarIndex_.count(f.var)) forVarIndex_[f.var] = (int)forVarIndex_.size() + 1;
                 f.varIndex = forVarIndex_[f.var];
                 if (f.id > 255) { errors.push_back({lines_[li].num, "more than 255 FOR statements"}); return; }
@@ -1751,6 +1761,12 @@ void Compiler::prescan() {
                     }
                     if (q + 1 == t.size() && t[q].k == TK::Num) f.step = sign * t[q].num;
                     else f.stepConst = false;
+                    // (an integer loop's: the whole number below, as AYINT; out
+                    // of its range: ?ILLEGAL QUANTITY when run)
+                    if (f.isInt && f.stepConst) {
+                        f.step = std::floor(f.step);
+                        if (f.step < -32768 || f.step > 32767) f.stepConst = false;
+                    }
                 }
                 f.li = li;
                 f.si = si;
@@ -1767,6 +1783,11 @@ void Compiler::prescan() {
             if (t.size() < 8 || t[0].k != TK::Kw || t[0].kw != T_DEF || t[1].k != TK::Kw || t[1].kw != T_FN ||
                 t[2].k != TK::Name || !(t[3].k == TK::Ch && t[3].ch == '(') || t[4].k != TK::Name ||
                 !(t[5].k == TK::Ch && t[5].ch == ')') || t[6].k != TK::Kw || t[6].kw != T_EQ)
+                continue;
+            // (a string or integer function or parameter: ?TYPE MISMATCH when
+            // the DEF runs, nothing defined)
+            if (t[2].text.back() == '$' || t[2].text.back() == '%' || t[4].text.back() == '$' ||
+                t[4].text.back() == '%')
                 continue;
             std::string key = t[2].text.substr(0, 2);
             FnSite site{li, si, "__bv_" + t[4].text.substr(0, 2)};
@@ -1785,8 +1806,15 @@ void Compiler::defStmt() {
     if (t->size() < 8 || (*t)[1].k != TK::Kw || (*t)[1].kw != T_FN || (*t)[2].k != TK::Name)
         fail("DEF FN name(variable) = expression expected (?SYNTAX ERROR)");
     std::string key = (*t)[2].text.substr(0, 2);
-    if ((*t)[2].text.back() == '$' || (*t)[4].text.back() == '$' || (*t)[4].text.back() == '%')
-        fail("DEF FN of a string or with an integer parameter is not supported by --compile yet");
+    // a function is a float's and so is its parameter: a string or integer
+    // name for either is ?TYPE MISMATCH when the DEF runs, as the ROM's (its
+    // getfnm and def take float variables only), and nothing is defined
+    auto typed = [](const Tok& x) { return x.k == TK::Name && (x.text.back() == '$' || x.text.back() == '%'); };
+    if (typed((*t)[2]) || typed((*t)[4])) {
+        p_ = t->size();
+        raiseNow(22);
+        return;
+    }
     const DefFn& d = defFns_.at(key);
     size_t k = 0;
     while (k < d.sites.size() && &lines_[d.sites[k].li].segs[d.sites[k].si].toks != t) k++;
@@ -1800,6 +1828,15 @@ Val Compiler::fnCall() {
     if (!t || t->k != TK::Name) fail("a function name expected after FN");
     p_++;
     std::string key = t->text.substr(0, 2);
+    if (t->text.back() == '$' || t->text.back() == '%') {
+        // FN A$(x), FN A%(x): ?TYPE MISMATCH at the name (the ROM's getfnm);
+        // the rest compiled as what the name says it gives
+        expectCh('(');
+        expr();
+        expectCh(')');
+        raiseNow(22);
+        return t->text.back() == '$' ? strLit("") : constI(0);
+    }
     expectCh('(');
     Val arg = expr();
     expectCh(')');
@@ -1891,7 +1928,12 @@ void Compiler::countedLoops() {
                 }
             }
         }
-    auto key = [](const std::string& name) { return "__bv_" + name.substr(0, 2); };
+    auto key = [](const std::string& name) {
+        std::string base = name;
+        bool isInt = base.back() == '%';
+        if (isInt || base.back() == '$') base.pop_back();
+        return "__bv_" + base.substr(0, 2) + (isInt ? "_i" : "");
+    };
     std::vector<std::tuple<size_t, size_t, int>> nextOf(fors_.size() + 1);
     std::vector<std::vector<int>> inner(fors_.size() + 1);
     for (auto& f : fors_) {
@@ -2055,6 +2097,25 @@ ir::Operand Compiler::stepDone(const ForInfo& f) {
     // the loop's variable + step: true when past the limit
     std::string id = std::to_string(f.id);
     ir::Operand c;
+    if (f.isInt) {
+        // an integer variable's loop, as the ROM's NEXT: the sum and its
+        // difference from the limit in 16 bits, wrapping; past the limit
+        // when the difference is over 0 (a step below 0: under 0)
+        const ir::Type t = ir::Type::I16;
+        auto v = load(t, ir::Operand::global(f.var));
+        ir::Operand step = f.stepConst ? ir::Operand::imm((int64_t)f.step, t) : load(t, global("__bas_fs" + id));
+        auto v2 = bin(ir::Op::ADD, t, v, step);
+        store(t, v2, ir::Operand::global(f.var));
+        auto d = bin(ir::Op::SUB, t, v2, load(t, global("__bas_fl" + id)));
+        auto zero = ir::Operand::imm(0, t);
+        if (f.stepConst) return bin(f.step >= 0 ? ir::Op::CMP_GT : ir::Op::CMP_LT, ir::Type::I8, d, zero);
+        auto gt = bin(ir::Op::CMP_GT, ir::Type::I8, d, zero);
+        auto lt = bin(ir::Op::CMP_LT, ir::Type::I8, d, zero);
+        // (__bas_fg: 1 for a step below 0)
+        auto neg = load(ir::Type::I8, global("__bas_fg" + id));
+        auto pick = bin(ir::Op::AND, ir::Type::I8, bin(ir::Op::XOR, ir::Type::I8, gt, lt), neg);
+        return bin(ir::Op::XOR, ir::Type::I8, gt, pick);
+    }
     if (narrow_.count(f.var)) {
         // (in the variable's type: its bound allows for the step)
         ir::Type t = narrowType(narrow_.at(f.var));
@@ -2117,11 +2178,43 @@ void Compiler::finish() {
     if (usesTrap_) {
         block("trapgo");
         auto ln = load(ir::Type::I16, global("__bas_trapln"));
+        // (a computed line: any of the program's)
+        if (trapAny_)
+            for (size_t l = 0; l < lines_.size(); l++) trapTargets_.insert(l);
         for (size_t t : trapTargets_) {
             std::string nx = newLabel("trapnx");
             brCond(bin(ir::Op::CMP_EQ, ir::Type::I8, ln, ir::Operand::imm(lines_[t].num, ir::Type::I16)), lineLabel(t), nx);
             block(nx);
         }
+        // (no such line: ?UNDEF'D STATEMENT, the trap off by now)
+        if (trapAny_) raiseNow(17, true);
+        br("Lend");
+    }
+    if (lnAddrUsed_) {
+        // lnaddr: the address of the line numbered __bas_lnq in __bas_cline
+        // (none: of a block that is ?UNDEF'D STATEMENT), back through __bas_lret
+        li_ = lines_.size();
+        block("lnaddr");
+        auto v = load(ir::Type::I16, global("__bas_lnq"));
+        auto put = [&](const std::string& label) {
+            auto r = vreg(ir::Type::I16);
+            ir::Inst in; in.op = ir::Op::ADDR_LABEL; in.dest = r; in.src1 = ir::Operand::label(label); emit(in);
+            store(ir::Type::I16, r, global("__bas_cline"));
+            br("lnback");
+        };
+        for (size_t l = 0; l < lines_.size(); l++) {
+            std::string hit = newLabel("lnh"), no = newLabel("lnn");
+            brCond(bin(ir::Op::CMP_EQ, ir::Type::I16, v, ir::Operand::imm(lines_[l].num, ir::Type::I16)), hit, no);
+            block(hit);
+            put(lineLabel(l));
+            block(no);
+        }
+        put("lnundef");
+        block("lnback");
+        { auto a = load(ir::Type::PTR, global("__bas_lret"));
+          ir::Inst in; in.op = ir::Op::BR_INDIRECT; in.src1 = a; emit(in); }
+        block("lnundef");
+        raiseNow(17, true);
         br("Lend");
     }
     // the COLLISION traps (from a statement, its address in __bas_tret): none
@@ -2270,6 +2363,12 @@ void Compiler::finish() {
         gv.name = "__bas_fgo"; gv.type = ir::Type::I16; gv.size = 2;
         mod_->globals.push_back(gv);
     }
+    if (lnAddrUsed_)
+        for (const char* nm : {"__bas_lnq", "__bas_lret"}) {
+            ir::Module::GlobalVar gv;
+            gv.name = nm; gv.type = ir::Type::I16; gv.size = 2;
+            mod_->globals.push_back(gv);
+        }
     for (const auto& g : arrays_) {
         ir::Module::GlobalVar gv;
         gv.name = g; gv.type = ir::Type::PTR; gv.size = 2;
@@ -2283,7 +2382,7 @@ void Compiler::finish() {
     // the FOR loops: limits, steps (when not constant), the variables' numbers
     for (const auto& f : fors_) {
         auto n = narrow_.find(f.var);
-        ir::Type ft = n != narrow_.end() ? narrowType(n->second) : ir::Type::F32;
+        ir::Type ft = f.isInt ? ir::Type::I16 : n != narrow_.end() ? narrowType(n->second) : ir::Type::F32;
         ir::Module::GlobalVar l;
         l.name = "__bas_fl" + std::to_string(f.id); l.type = ft; l.size = ir::typeSize(ft);
         mod_->globals.push_back(l);
@@ -2597,7 +2696,18 @@ void Compiler::statement() {
             return;
         }
         auto t = peek();
-        if (!t || t->k != TK::Num) fail("TRAP with a computed line is not supported by --compile");
+        if (!t || t->k != TK::Num || p_ + 1 < toks_->size()) {
+            // TRAP expression (b65.src trap: getwrd's line number, looked up
+            // when an error comes: no such line ?UNDEF'D STATEMENT then; a
+            // number from 65280: its high byte $FF, the ROM's "no trap")
+            trapAny_ = true;
+            addr32(expr());
+            auto ln = load(ir::Type::I16, global("__bas_fa"));
+            store(ir::Type::I16, ln, global("__bas_trapln"));
+            store(ir::Type::I8, bin(ir::Op::CMP_LTU, ir::Type::I8, ln, ir::Operand::imm(0xFF00, ir::Type::I16)),
+                  global("__bas_trapon"));
+            return;
+        }
         size_t target = lineTarget();
         trapTargets_.insert(target);
         store(ir::Type::I16, iconst(ir::Type::I16, lines_[target].num), global("__bas_trapln"));
@@ -3645,7 +3755,24 @@ void Compiler::collisionStmt() {
     if (!stmtEnd()) {
         expectCh(',');
         auto t = peek();
-        if (!t || t->k != TK::Num) fail("COLLISION with a computed line is not supported by --compile");
+        if (!t || t->k != TK::Num || p_ + 1 < toks_->size()) {
+            // COLLISION type, expression (b65.src collision: optwrd's line
+            // number, looked up when the collision comes: no such line
+            // ?UNDEF'D STATEMENT then): the line's address from the
+            // program's lines by number (lnaddr)
+            lnAddrUsed_ = true;
+            addr32(expr());
+            store(ir::Type::I16, load(ir::Type::I16, global("__bas_fa")), global("__bas_lnq"));
+            std::string back = newLabel("clnb");
+            auto r = vreg(ir::Type::I16);
+            ir::Inst in; in.op = ir::Op::ADDR_LABEL; in.dest = r; in.src1 = ir::Operand::label(back); emit(in);
+            store(ir::Type::I16, r, global("__bas_lret"));
+            br("lnaddr");
+            block(back);
+            entry();
+            call("__bas_collide");
+            return;
+        }
         size_t target = lineTarget();
         auto r = vreg(ir::Type::I16);
         ir::Inst in; in.op = ir::Op::ADDR_LABEL; in.dest = r; in.src1 = ir::Operand::label(lineLabel(target)); emit(in);
@@ -4428,7 +4555,23 @@ void Compiler::openStmt() {
 }
 
 void Compiler::inputStmt(bool chan, bool lineIn) {
-    if (isCh('#')) fail("INPUT # (with a space) is not supported by --compile yet");
+    if (!chan && isCh('#')) {
+        // INPUT #1, A (a space before the #): not INPUT#'s token, so the
+        // ROM's plain INPUT: its "? " and a line from the keyboard, then the
+        // # where a variable should be: ?SYNTAX ERROR (an empty line: the
+        // statement is skipped, no error)
+        store(ir::Type::I16, iconst(ir::Type::I16, 1), global("__bas_n"));
+        call("__bas_iline");
+        std::string bad = newLabel("inbad"), end = newLabel("inend");
+        brCond(bin(ir::Op::CMP_NE, ir::Type::I8, trunc(load(ir::Type::I16, global("__bas_n")), ir::Type::I8),
+                   ir::Operand::imm(0, ir::Type::I8)), end, bad);
+        block(bad);
+        raiseNow(11);
+        br(end);
+        block(end);
+        p_ = toks_->size();
+        return;
+    }
     // INPUT# lf, ...: from the file (no prompt; bad data ?FILE DATA)
     if (chan) {
         chanArg("__bas_chkin");
@@ -4872,7 +5015,6 @@ void Compiler::forStmt() {
     auto t = peek();
     if (!t || t->k != TK::Name) fail("a variable expected after FOR");
     std::string name = t->text;
-    if (name.back() == '%') fail("FOR with an integer variable is not supported by --compile yet");
     if (name.back() == '$') fail("FOR needs a numeric variable (?TYPE MISMATCH)");
     auto it = forAt_.find({li_, si_ * 1000 + (p_ - 1)});
     if (it == forAt_.end()) fail("FOR not found by the prescan");
@@ -4883,49 +5025,67 @@ void Compiler::forStmt() {
     VK k;
     std::string g = varGlobal(name, k);
     std::string id = std::to_string(f.id);
-    bool nar = narrow_.count(g) > 0;
-    Val init = expr();
-    observe(g, init, &VarObs::assign);
-    if (nar) storeNarrow(g, init);
-    else store(ir::Type::F32, toF(init), ir::Operand::global(g));
-    expectKw(T_TO);
-    Val lim = expr();
-    observe(g, lim, &VarObs::assign);
-    if (nar) {
-        // the limit and step in the variable's type (within its bound)
-        ir::Type t = narrowType(narrow_.at(g));
-        if (fitsNarrow(lim, narrow_.at(g))) {
-            store(t, asType(lim, t), global("__bas_fl" + id));
-        } else if (final_) fail("internal error: a narrowed FOR limit out of range");
-    } else {
-        store(ir::Type::F32, toF(lim), global("__bas_fl" + id));
-    }
-    {
-        // the step's size (1 without STEP)
-        auto& o = obs[g];
-        if (f.stepConst) {
-            if (f.step != std::floor(f.step) || std::fabs(f.step) > 1e9) o.bad = true;
-            else o.step = std::max(o.step, (int64_t)std::fabs(f.step));
+    if (f.isInt) {
+        // FOR I%: the start, limit and step made integers as an assignment
+        // to I% is (the whole number below; out of range ?ILLEGAL QUANTITY)
+        const ir::Type t = ir::Type::I16;
+        store(t, asType(toI16(expr()), t), ir::Operand::global(g));
+        expectKw(T_TO);
+        store(t, asType(toI16(expr()), t), global("__bas_fl" + id));
+        if (acceptKw(T_STEP)) {
+            Val s = toI16(expr());
+            if (!f.stepConst) {
+                auto x = asType(s, t);
+                store(t, x, global("__bas_fs" + id));
+                store(ir::Type::I8, bin(ir::Op::CMP_LT, ir::Type::I8, x, ir::Operand::imm(0, t)), global("__bas_fg" + id));
+            }
         }
     }
-    if (acceptKw(T_STEP)) {
-        Val s = expr();
-        if (!f.stepConst) {
-            observe(g, s, &VarObs::step);
-            if (nar) {
-                ir::Type t = narrowType(narrow_.at(g));
-                if (fitsNarrow(s, narrow_.at(g))) {
-                    auto x = asType(s, t);
-                    store(t, x, global("__bas_fs" + id));
-                    // its sign: -1 ($FF), 0, 1 as FCMP's
-                    auto gt = bin(ir::Op::CMP_GT, ir::Type::I8, x, ir::Operand::imm(0, t));
-                    auto lt = bin(ir::Op::CMP_LT, ir::Type::I8, x, ir::Operand::imm(0, t));
-                    store(ir::Type::I8, bin(ir::Op::SUB, ir::Type::I8, gt, lt), global("__bas_fg" + id));
-                } else if (final_) fail("internal error: a narrowed FOR step out of range");
-            } else {
-                auto sf = toF(s);
-                store(ir::Type::F32, sf, global("__bas_fs" + id));
-                store(ir::Type::I8, bin(ir::Op::FCMP, ir::Type::I8, sf, fconst(0)), global("__bas_fg" + id));
+    if (!f.isInt) {
+        bool nar = narrow_.count(g) > 0;
+        Val init = expr();
+        observe(g, init, &VarObs::assign);
+        if (nar) storeNarrow(g, init);
+        else store(ir::Type::F32, toF(init), ir::Operand::global(g));
+        expectKw(T_TO);
+        Val lim = expr();
+        observe(g, lim, &VarObs::assign);
+        if (nar) {
+            // the limit and step in the variable's type (within its bound)
+            ir::Type t = narrowType(narrow_.at(g));
+            if (fitsNarrow(lim, narrow_.at(g))) {
+                store(t, asType(lim, t), global("__bas_fl" + id));
+            } else if (final_) fail("internal error: a narrowed FOR limit out of range");
+        } else {
+            store(ir::Type::F32, toF(lim), global("__bas_fl" + id));
+        }
+        {
+            // the step's size (1 without STEP)
+            auto& o = obs[g];
+            if (f.stepConst) {
+                if (f.step != std::floor(f.step) || std::fabs(f.step) > 1e9) o.bad = true;
+                else o.step = std::max(o.step, (int64_t)std::fabs(f.step));
+            }
+        }
+        if (acceptKw(T_STEP)) {
+            Val s = expr();
+            if (!f.stepConst) {
+                observe(g, s, &VarObs::step);
+                if (nar) {
+                    ir::Type t = narrowType(narrow_.at(g));
+                    if (fitsNarrow(s, narrow_.at(g))) {
+                        auto x = asType(s, t);
+                        store(t, x, global("__bas_fs" + id));
+                        // its sign: -1 ($FF), 0, 1 as FCMP's
+                        auto gt = bin(ir::Op::CMP_GT, ir::Type::I8, x, ir::Operand::imm(0, t));
+                        auto lt = bin(ir::Op::CMP_LT, ir::Type::I8, x, ir::Operand::imm(0, t));
+                        store(ir::Type::I8, bin(ir::Op::SUB, ir::Type::I8, gt, lt), global("__bas_fg" + id));
+                    } else if (final_) fail("internal error: a narrowed FOR step out of range");
+                } else {
+                    auto sf = toF(s);
+                    store(ir::Type::F32, sf, global("__bas_fs" + id));
+                    store(ir::Type::I8, bin(ir::Op::FCMP, ir::Type::I8, sf, fconst(0)), global("__bas_fg" + id));
+                }
             }
         }
     }
@@ -4988,7 +5148,7 @@ void Compiler::nextStmt() {
         p_++;
         VK k;
         std::string g = varGlobal(t->text, k);
-        if (k != VK::F) fail("NEXT " + t->text + ": FOR needs a numeric variable");
+        if (k == VK::S) fail("NEXT " + t->text + ": FOR needs a numeric variable");
         one(&g);
         place++;
     } while (acceptCh(','));

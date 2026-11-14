@@ -344,9 +344,9 @@ status at `$FD`/`$FE` is the error number), after which BASIC's `READY.` follows
 
 | | |
 |---|---|
-| Statements | `LET` and assignments, `PRINT` (`;`, `,`, `TAB(`, `SPC(`), `IF` … `THEN` / `GOTO` (a line number or statements), `ELSE`, `BEGIN` / `BEND`, `GOTO`, `GO TO`, `GOSUB`, `RETURN`, `ON` … `GOTO` / `GOSUB`, `FOR` … `TO` … `STEP` / `NEXT` (a float variable; `NEXT a, b`), `POKE`, `DIM`, `INPUT` (a prompt with `;` or `,`), `GET`, `GETKEY`, `DO` … `LOOP` (`WHILE` / `UNTIL` on either), `EXIT`, `READ`, `DATA`, `RESTORE` (a line number or none), `DEF FN`, `WPOKE`, `WAIT`, `SLEEP`, `SCNCLR` (the text screen), `BANK`, `TRAP` (a line number or none), `RESUME` (none, `NEXT` or a line), `OPEN`, `CLOSE`, `PRINT#`, `INPUT#`, `GET#`, `CMD`, `DOPEN`, `APPEND`, `DCLOSE`, `DLOAD`, `LOAD` (chaining), `HEADER`, `SCRATCH` / `ERASE` / `DELETE "name"`, `RENAME`, `COPY` (on one unit), `CONCAT`, `COLLECT`, `DCLEAR`, `BACKUP`, `RECORD#`, `BLOAD`, `BSAVE`, `BVERIFY`, `DIR` / `CATALOG`, `FREAD#`, `FWRITE#`, `LINE INPUT`, `LINE INPUT#`, `SPRITE` (and `SPRITE CLR`), `SPRCOLOR`, `MOVSPR`, `SPRSAV`, `COLLISION`, `COLOR` / `FOREGROUND`, `BACKGROUND`, `BORDER`, `HIGHLIGHT`, `CURSOR`, `RCURSOR`, `WINDOW`, `SPEED` / `FAST`, `PALETTE COLOR` / `PALETTE RESTORE`, `VSYNC`, `SCREEN`, `PEN`, `DMODE`, `DPAT`, `DOT`, `LINE`, `BOX`, `CIRCLE`, `ELLIPSE`, `POLYGON`, `PALETTE` of a screen, `SCNCLR colour`, `GRAPHIC CLR`, `LOADIFF`, `SAVEIFF`, `SYS`, `RREG`, `DMA`, `EDMA`, `MOUSE`, `RMOUSE`, `PLAY` (string constants), `SOUND`, `TEMPO`, `VOL`, `ENVELOPE`, `FILTER`, `PRINT USING`, `RUN` (a line or a program), `FGOTO`, `FGOSUB`, `KEY`, `FONT`, `CHAR DEF`, `TYPE`, `DISK`, `LOCK`, `UNLOCK`, `MKDIR`, `CHDIR`, `SET DEF` / `DISK` / `VERIFY` / `BIT`, `CLR BIT`, `BOOT` (and `BOOT SYS`), `MOUNT`, `SPRITE SAVE` / `LOAD`, `CLR` (also `CLR` a variable, `ERR$`, `TI`, `ST`, `DS`), `TRON` / `TROFF` (`[line]` before each statement while on, as the interpreter's), `MEM` (its values checked; a compiled program allocates nothing in banks 4-5), `FREEZER`, `IMPORT` (`?DIRECT MODE ONLY` when it runs, as in the interpreter), `FORMAT` (`HEADER`'s other name),
+| Statements | `LET` and assignments, `PRINT` (`;`, `,`, `TAB(`, `SPC(`), `IF` … `THEN` / `GOTO` (a line number or statements), `ELSE`, `BEGIN` / `BEND`, `GOTO`, `GO TO`, `GOSUB`, `RETURN`, `ON` … `GOTO` / `GOSUB`, `FOR` … `TO` … `STEP` / `NEXT` (a float or an integer variable, `FOR I%`; `NEXT a, b`), `POKE`, `DIM`, `INPUT` (a prompt with `;` or `,`), `GET`, `GETKEY`, `DO` … `LOOP` (`WHILE` / `UNTIL` on either), `EXIT`, `READ`, `DATA`, `RESTORE` (a line number or none), `DEF FN`, `WPOKE`, `WAIT`, `SLEEP`, `SCNCLR` (the text screen), `BANK`, `TRAP` (a line number, an expression or none), `RESUME` (none, `NEXT` or a line), `OPEN`, `CLOSE`, `PRINT#`, `INPUT#`, `GET#`, `CMD`, `DOPEN`, `APPEND`, `DCLOSE`, `DLOAD`, `LOAD` (chaining), `HEADER`, `SCRATCH` / `ERASE` / `DELETE "name"`, `RENAME`, `COPY` (on one unit), `CONCAT`, `COLLECT`, `DCLEAR`, `BACKUP`, `RECORD#`, `BLOAD`, `BSAVE`, `BVERIFY`, `DIR` / `CATALOG`, `FREAD#`, `FWRITE#`, `LINE INPUT`, `LINE INPUT#`, `SPRITE` (and `SPRITE CLR`), `SPRCOLOR`, `MOVSPR`, `SPRSAV`, `COLLISION`, `COLOR` / `FOREGROUND`, `BACKGROUND`, `BORDER`, `HIGHLIGHT`, `CURSOR`, `RCURSOR`, `WINDOW`, `SPEED` / `FAST`, `PALETTE COLOR` / `PALETTE RESTORE`, `VSYNC`, `SCREEN`, `PEN`, `DMODE`, `DPAT`, `DOT`, `LINE`, `BOX`, `CIRCLE`, `ELLIPSE`, `POLYGON`, `PALETTE` of a screen, `SCNCLR colour`, `GRAPHIC CLR`, `LOADIFF`, `SAVEIFF`, `SYS`, `RREG`, `DMA`, `EDMA`, `MOUSE`, `RMOUSE`, `PLAY` (string constants), `SOUND`, `TEMPO`, `VOL`, `ENVELOPE`, `FILTER`, `PRINT USING`, `RUN` (a line or a program), `FGOTO`, `FGOSUB`, `KEY`, `FONT`, `CHAR DEF`, `TYPE`, `DISK`, `LOCK`, `UNLOCK`, `MKDIR`, `CHDIR`, `SET DEF` / `DISK` / `VERIFY` / `BIT`, `CLR BIT`, `BOOT` (and `BOOT SYS`), `MOUNT`, `SPRITE SAVE` / `LOAD`, `CLR` (also `CLR` a variable, `ERR$`, `TI`, `ST`, `DS`), `TRON` / `TROFF` (`[line]` before each statement while on, as the interpreter's), `MEM` (its values checked; a compiled program allocates nothing in banks 4-5), `FREEZER`, `IMPORT` (`?DIRECT MODE ONLY` when it runs, as in the interpreter), `FORMAT` (`HEADER`'s other name),
 `TURBO` (nothing, as the ROM's: parameters are a `?SYNTAX ERROR`), `SYS {name}` of C linked with `--link`, `END`, `STOP`, `REM`; `POKE` / `WPOKE` with a list of values |
-| Values | floats, `%` integers (-32768..32767), strings (up to 255 characters); arrays of each (`DIM a(n, m)`, up to 8 subscripts; sizes at run time) |
+| Values | floats, `%` integers (-32768..32767), strings (up to 255 characters); arrays of each (`DIM a(n, m)`; `DIM a` of a scalar does nothing, up to 8 subscripts; sizes at run time) |
 | Operators | `+ - * / ^`, unary `-`, `= <> < > <= >=` (numbers and strings), `AND`, `OR`, `XOR`, `NOT` (-32768..65535, as BASIC 65's), `<<`, `>>` |
 | Functions | `ABS`, `INT`, `SGN`, `SQR`, `USR`, `FRE`, `JOY`, `POT`, `LPEN`, `RPLAY`, `DECBIN`, `POINTER`, `SIN`, `COS`, `TAN`, `ATN`, `LOG`, `EXP`, `PEEK`, `LEN`, `ASC`, `CHR$`, `STR$`, `LEFT$`, `RIGHT$`, `MID$`, `RND`, `FN`, `POS`, `VAL`, `DEC`, `HEX$`, `STRBIN$`, `INSTR` (a pound sign's pattern too), `MOD`, `WPEEK`, `RPT$`, `ERR$`, `RSPRITE`, `RSPCOLOR`, `RSPPOS`, `BUMP`, `RCOLOR`, `RWINDOW`, `RSPEED`, `RGRAPHIC`, `PIXEL`, `RPEN`, `RPALETTE`, π; the variables `TI`, `TI$`, `ER`, `EL`, `ST`, `DS` and `DS$` (`ST$`, `ER$`, `EL$` and every `%` form, `TI%` too, are ordinary variables, as in the interpreter) |
 
@@ -467,9 +467,10 @@ it moves the sprites a frame (`movspr_irq`'s steps and stop at the target) and k
 and `COLLISION`. The vector leads to a stub at `$0500` (BASIC's run-time stack, which a compiled program does not
 use): while the program calls a ROM routine BASIC's ROM is where the program is, and the stub only counts the
 frame, moved at the next one. The program's end (and a `DLOAD`) puts the vector back. `COLLISION type, line` (a line
-number) is a `GOSUB` to the line at the next statement after a collision of that type (none while one runs; light
-pen, sprite/background, sprite/sprite, as BASIC's `ngone`); `COLLISION type` turns it off. Not compiled:
-`SPRITE SAVE` / `SPRITE LOAD`. Test: `test_basic_compile9_xemu.bas`.
+number, or an expression: the line is then looked up when the statement runs, one that does not exist
+`?UNDEF'D STATEMENT` at the collision) is a `GOSUB` to the line at the next statement after a collision of that type (none while one runs; light
+pen, sprite/background, sprite/sprite, as BASIC's `ngone`); `COLLISION type` turns it off. Test:
+`test_basic_compile9_xemu.bas`.
 
 **Screen and colours**: `FOREGROUND` / `COLOR c` (the text colour; 16 and up: the colour - 16 with attribute bit 6),
 `BACKGROUND c`, `BORDER c`, `HIGHLIGHT c [, mode]` (the error messages' colour; mode 1 `REM`s, 2 keywords, 3 both:
@@ -531,7 +532,9 @@ message ends at `ERROR` (no ` IN line`, as in direct mode) and `EL` stays 65535,
 **TRAP**: with a trap set, an error (not `STOP`'s BREAK) sets `ER` and `EL`, turns the trap off and goes on at
 the trap's line with the CPU stack as at the start (BASIC's stack of `GOSUB`, `FOR` and `DO` as it was, as the ROM
 does); `RESUME` turns it on again and goes back to the statement (`RESUME`), to the one after it (`RESUME NEXT`)
-or to a line; `?CAN'T RESUME` without an error. A trap's line is a number (`TRAP 100`). A program with `RESUME`
+or to a line; `?CAN'T RESUME` without an error. A trap's line is a number (`TRAP 100`) or an expression (`TRAP h + 10`, `TRAP (h)`; in basic45 source a name
+alone after `TRAP` is a label): the line is then looked up when an error comes, among all the program's lines (one
+that does not exist: `?UNDEF'D STATEMENT`; 65280 and above: no trap, as the ROM's). A program with `RESUME`
 without a line notes each statement's address as it runs: the statement starts with `jsr __bas_stmt` and the
 next statement's address in a `.word` (5 bytes), which sets `__bas_spc` (the call's own address) and `__bas_snext`
 (not for `REM`, `DATA` or an empty statement, which raise no error).
@@ -617,7 +620,17 @@ drive's home sector, track 1 sector 0, loaded to `$0400` and called when it star
 called through `_jsr_far` (its return leaves BASIC's ROM mapped at `$2000`, which `_jsr_far`'s code below `$2000`
 undoes). Tests: `test_basic_compile19_xemu.bas`, `test_basic_compile21_xemu.bas`, `test_basic_compile23_xemu.bas`.
 
-**DEF FN**: each `FN name(...)` is the function's expression compiled where it is used, its parameter the
+**FOR with an integer variable** (`FOR I%=1 TO 9`) is the ROM's: start, limit and step made integers as an
+assignment to `I%` is (the whole number below; out of range `?ILLEGAL QUANTITY`), the step added and compared in
+16 bits, wrapping (`FOR I%=32766 TO 32767` ends with `I%` -32768). **INPUT #1, A** with a space before the `#` is
+not `INPUT#`'s token: as in the interpreter, the plain `INPUT`'s `? ` and a line from the keyboard, then `?SYNTAX
+ERROR` at the `#` (an empty line: the statement skipped); `LINE INPUT #` the same, `GET #` is `GET#`. Test of
+these, `DIM` of a scalar, the `DEF FN` errors and the computed `TRAP` / `COLLISION` lines:
+`test_basic_compile24_xemu.bas`.
+
+**DEF FN**: a function and its parameter are float variables: `DEF FN A$(X)`, `DEF FN A%(X)`, `DEF FN A(X%)` and
+`DEF FN A(X$)` are `?TYPE MISMATCH` when the `DEF` runs and define nothing, and so is `FN A$(1)` or `FN A%(1)`, as
+in the interpreter. Each `FN name(...)` is the function's expression compiled where it is used, its parameter the
 argument (a variable of the same name keeps its value); `FN` before its `DEF` has run is `?UNDEFINED FUNCTION`. A
 function defined more than once is each of its expressions, the one of the `DEF` run last chosen when it is used. `VAL` follows the ROM's number syntax (a second point or `E`, or an `E`
 without digits: 0; it ends at another character), its value from `strtof` (correctly rounded). `INSTR`'s pattern
