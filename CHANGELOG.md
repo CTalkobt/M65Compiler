@@ -4,6 +4,20 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### ca45: base-page stores and registers across branches (the leftovers of #567)
+
+- A store to a proc's base-page temporary is dropped when no path from it
+  reads the byte: branches inside the proc are followed both ways (it was the
+  straight path only, so any branch kept the store).
+- The dead-store pass no longer gives up on a proc that takes the address of
+  one of the file's own globals (`adc #<_cols`) or multiplies or divides the
+  registers (`mul.16 .AX, #35`).
+- A local label that two or more forward branches reach (a 16-bit compare's
+  `beq @else` / `bcc @else`) starts with what the registers hold at all of
+  them, so a reload there goes.
+- #567's example: 92 -> 86 bytes. Library: c45.lib 192,404 -> 192,282 bytes of
+  code, c45_stack.lib 206,966 -> 206,852. Test `test_branch_liveness_xemu.c`.
+
 ### basic45: a disk ID with letters; --compile: the editor's commands will not be compiled (#369)
 
 - `HEADER "N", IAB` (a disk ID with a letter in it): basic45 took `IAB` for a

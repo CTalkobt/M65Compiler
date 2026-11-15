@@ -4207,6 +4207,14 @@ for ctmode in "zp|" "stack|-fno-zpcall" "O0|-O0" "nonarrow|-fno-type-narrowing";
     xemu_case "FAIL: test_clamp_tail_xemu.c $ctname (compilation/linking failed)" "src/test-resources/test_clamp_tail_xemu.c" "build/test/test_clamp_tail_${ctname}_xemu.prg" "$ctflags" -- "test_clamp_tail_$ctname" "build/test/test_clamp_tail_${ctname}_xemu.prg" "C0C0" 5 "01 01 01 01 AA"
 done
 
+# Test: ca45 drops a base-page store no path reads (branches followed) and
+# keeps the registers at a label several forward branches reach
+for blmode in "zp|" "stack|-fno-zpcall" "O0|-O0" "O3|-O3" "noinline|-fno-inline-small-functions"; do
+    IFS='|' read -r blname blflags <<< "$blmode"
+    echo "Testing test_branch_liveness_xemu.c ($blname)..."
+    xemu_case "FAIL: test_branch_liveness_xemu.c $blname (compilation/linking failed)" "src/test-resources/test_branch_liveness_xemu.c" "build/test/test_branch_liveness_${blname}_xemu.prg" "$blflags" -- "test_branch_liveness_$blname" "build/test/test_branch_liveness_${blname}_xemu.prg" "C0C0" 6 "01 01 01 01 01 AA"
+done
+
 # Test: string/character literal encoding prefixes p"..." s"..." a"..." @"..."
 for spmode in "zp|" "stack|-fno-zpcall"; do
     IFS='|' read -r spname spflags <<< "$spmode"

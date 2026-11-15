@@ -605,6 +605,10 @@ bool AssemblerOptimizer::optimizeInternal(
                     case ST::ADD16: case ST::SUB16: case ST::AND16: case ST::ORA16: case ST::EOR16: case ST::CMP16:
                     case ST::ADD32: case ST::SUB32: case ST::AND32: case ST::ORA32: case ST::EOR32: case ST::CMP32:
                         return true;
+                    // (a product or quotient of the registers, mul.16 .AX, #35:
+                    // its other operand read like theirs; into memory: not followed)
+                    case ST::MUL: case ST::DIV:
+                        return !t->instr.operand.empty() && t->instr.operand[0] == '.';
                     default:
                         return false;
                 }
@@ -615,6 +619,7 @@ bool AssemblerOptimizer::optimizeInternal(
                 if (ti < 0 || ti >= (int)parser->tokens.size()) return false;
                 const auto& tok = parser->tokens[ti];
                 if (tok.type == AssemblerTokenType::HASH || tok.value == "#") return true;   // (an immediate)
+                if (tok.type == AssemblerTokenType::REGISTER) return true;                   // (registers)
                 uint32_t v;
                 try { v = parser->evaluateExpressionAt(ti, t->scopePrefix); }
                 catch (...) { return false; }
@@ -659,6 +664,13 @@ bool AssemblerOptimizer::optimizeInternal(
                                                  [](char c) { return c == '#' || c == '<' || c == '>' || c == ' '; }),
                                   sym.end());
                         if (!sym.empty() && parser->isExternSymbol(sym)) continue;
+                        // (a label of this file's code, data or bss, #<_cols:
+                        // not in the base page either)
+                        {
+                            std::string base = sym.substr(0, sym.find_first_of("+-"));
+                            Symbol* sy = base.empty() ? nullptr : parser->resolveSymbol(base, t->scopePrefix);
+                            if (sy && sy->isAddress && !sy->isVariable && !sy->isConstant && !sy->segment.empty() && sy->segment != "zp") continue;
+                        }
                         unknown = true; break;
                     }
                     continue;
@@ -736,52 +748,87 @@ bool AssemblerOptimizer::optimizeInternal(
                         localSub = true;
                 }
             }
+            // the statement of the proc a branch's target names, or SIZE_MAX
+            auto labelAt = [&](const AssemblerParser::Statement* t, std::string tg) -> size_t {
+                size_t cm = tg.find(',');
+                if (cm != std::string::npos) tg = tg.substr(cm + 1);
+                tg.erase(std::remove_if(tg.begin(), tg.end(), [](char c) { return c == ' ' || c == '\t'; }), tg.end());
+                for (size_t q = p + 1; q < end; ++q) {
+                    const std::string& l = st[q]->label;
+                    if (st[q]->deleted || l.empty()) continue;
+                    size_t c = l.rfind(':');
+                    if (l == tg || (c != std::string::npos && l.substr(c + 1) == tg) || l == t->scopePrefix + tg ||
+                        l == t->localLabelScope + ":" + tg)
+                        return q;
+                }
+                return SIZE_MAX;
+            };
+            // one byte: no path from after statement k0 reads it. A branch
+            // within the proc is followed both ways (a path coming back to a
+            // statement seen has no read on its way round); a call, a jump
+            // out of the proc, a long or bit branch keeps the byte
+            auto byteDead = [&](size_t k0, int a) {
+                std::set<size_t> seen;
+                std::vector<size_t> work{k0 + 1};
+                while (!work.empty()) {
+                    size_t k = work.back();
+                    work.pop_back();
+                    for (; k < end; ++k) {
+                        if (!seen.insert(k).second) break;
+                        auto* t = st[k].get();
+                        if (t->deleted || t->type == AssemblerParser::Statement::NONE) continue;
+                        if (t->type != AssemblerParser::Statement::INSTRUCTION) {
+                            if (t->type == AssemblerParser::Statement::DIRECTIVE && t->size == 0) continue;
+                            if (!arith(t)) return false;
+                            std::set<int> r;
+                            if (!simReads(t, r)) return false;
+                            if (r.count(a)) return false;
+                            continue;
+                        }
+                        if (t->noOpt) return false;
+                        if (t->isSimulatedOp()) return false;
+                        std::string tm = upper(t->instr.mnemonic);
+                        if (tm == "RTS" || tm == "RTI") break;
+                        if (tm == "JMP" || tm == "JSR" || tm == "BSR" || tm == "BRK" || tm == "RTN" ||
+                            tm.rfind("BBR", 0) == 0 || tm.rfind("BBS", 0) == 0 ||
+                            (tm.size() == 4 && tm[0] == 'L' && tm[1] == 'B') || tm == "BRL")
+                            return false;
+                        if (tm.size() == 3 && tm[0] == 'B' && tm != "BIT") {
+                            size_t to = labelAt(t, t->instr.operand);
+                            if (to == SIZE_MAX) return false;
+                            if (tm == "BRA") { k = to - 1; continue; }
+                            work.push_back(to);
+                            continue;
+                        }
+                        AddressingMode md = t->instr.mode;
+                        if (md == AddressingMode::IMPLIED || md == AddressingMode::ACCUMULATOR || md == AddressingMode::IMMEDIATE ||
+                            md == AddressingMode::IMMEDIATE16)
+                            continue;
+                        if (t->instr.operandTokenIndex < 0) return false;
+                        uint32_t v;
+                        try { v = parser->evaluateExpressionAt(t->instr.operandTokenIndex, t->scopePrefix); }
+                        catch (...) { return false; }
+                        if ((md == AddressingMode::ABSOLUTE_X || md == AddressingMode::ABSOLUTE_Y) && externBase(t)) continue;
+                        if (md == AddressingMode::BASE_PAGE_X || md == AddressingMode::BASE_PAGE_Y || md == AddressingMode::ABSOLUTE_X ||
+                            md == AddressingMode::ABSOLUTE_Y || md == AddressingMode::BASE_PAGE_X_INDIRECT)
+                            return false;
+                        int w = tm.back() == 'Q' || md == AddressingMode::FLAT_INDIRECT_Z ? 4
+                              : (md == AddressingMode::BASE_PAGE_INDIRECT_Y || md == AddressingMode::BASE_PAGE_INDIRECT_Z ||
+                                 md == AddressingMode::BASE_PAGE_INDIRECT_SP_Y || tm == "INW" || tm == "DEW" || tm == "ASW" ||
+                                 tm == "ROW" || tm == "PHW") ? 2 : 1;
+                        if (a < (int)v || a >= (int)v + w) continue;
+                        if (!(plainStores.count(tm) && md == AddressingMode::BASE_PAGE)) return false;
+                        break;   // (stored again: this path is done)
+                    }
+                    // (the end of the proc: the endproc's rts)
+                }
+                return true;
+            };
             auto deadAhead = [&](size_t k0, int b0, int w0) {
                 if (localSub) return false;
-                std::vector<bool> live(w0, true);
-                for (size_t k = k0 + 1; k < end; ++k) {
-                    auto* t = st[k].get();
-                    if (t->deleted || t->type == AssemblerParser::Statement::NONE) continue;
-                    if (t->type != AssemblerParser::Statement::INSTRUCTION) {
-                        if (t->type == AssemblerParser::Statement::DIRECTIVE && t->size == 0) continue;
-                        if (!arith(t)) return false;
-                        std::set<int> r;
-                        if (!simReads(t, r)) return false;
-                        for (int x = 0; x < w0; x++) if (live[x] && r.count(b0 + x)) return false;
-                        continue;
-                    }
-                    if (t->noOpt) return false;
-                    if (t->isSimulatedOp()) return false;
-                    std::string tm = upper(t->instr.mnemonic);
-                    if (tm == "RTS" || tm == "RTI") return true;
-                    if ((tm.size() == 3 && tm[0] == 'B' && tm != "BIT") || tm == "JMP" || tm == "JSR" || tm == "BSR")
-                        return false;
-                    AddressingMode md = t->instr.mode;
-                    if (md == AddressingMode::IMPLIED || md == AddressingMode::ACCUMULATOR || md == AddressingMode::IMMEDIATE ||
-                        md == AddressingMode::IMMEDIATE16)
-                        continue;
-                    if (t->instr.operandTokenIndex < 0) return false;
-                    uint32_t v;
-                    try { v = parser->evaluateExpressionAt(t->instr.operandTokenIndex, t->scopePrefix); }
-                    catch (...) { return false; }
-                    if ((md == AddressingMode::ABSOLUTE_X || md == AddressingMode::ABSOLUTE_Y) && externBase(t)) continue;
-                    if (md == AddressingMode::BASE_PAGE_X || md == AddressingMode::BASE_PAGE_Y || md == AddressingMode::ABSOLUTE_X ||
-                        md == AddressingMode::ABSOLUTE_Y || md == AddressingMode::BASE_PAGE_X_INDIRECT)
-                        return false;
-                    int w = tm.back() == 'Q' || md == AddressingMode::FLAT_INDIRECT_Z ? 4
-                          : (md == AddressingMode::BASE_PAGE_INDIRECT_Y || md == AddressingMode::BASE_PAGE_INDIRECT_Z ||
-                             md == AddressingMode::BASE_PAGE_INDIRECT_SP_Y || tm == "INW" || tm == "DEW" || tm == "ASW" ||
-                             tm == "ROW" || tm == "PHW") ? 2 : 1;
-                    bool overwrite = plainStores.count(tm) && md == AddressingMode::BASE_PAGE;
-                    for (int x = 0; x < w0; x++) {
-                        int a = b0 + x;
-                        if (!live[x] || a < (int)v || a >= (int)v + w) continue;
-                        if (!overwrite) return false;
-                        live[x] = false;
-                    }
-                    if (std::none_of(live.begin(), live.end(), [](bool l) { return l; })) return true;
-                }
-                return true;   // (the endproc's rts)
+                for (int x = 0; x < w0; x++)
+                    if (!byteDead(k0, b0 + x)) return false;
+                return true;
             };
             for (const auto& [k, b] : stores) {
                 auto* t = st[k].get();
@@ -1090,6 +1137,17 @@ bool AssemblerOptimizer::optimizeInternal(
     // backward branches whose state this sweep did not have yet (one more
     // sweep then, even when nothing else changed)
     std::vector<std::pair<std::string, size_t>> pendingBack;
+    // A local label only forward branches reach, two or more of them (cc45's
+    // "beq @else / bcc @else" of a 16-bit compare): what the registers hold
+    // at every one of them, they hold at the label -- the same constant, or
+    // the same base-page byte (loaded from it or stored to it). n: the
+    // branches seen in this sweep
+    struct ForwardMerge {
+        int n = 0;
+        std::array<ValueInfo, 4> consts;
+        std::array<std::bitset<256>, 4> bytes;
+    };
+    std::map<std::string, ForwardMerge> forwardMerge;
     // the statements after the one at index from up to the one at to
     auto fingerprint = [&](size_t from, size_t to) {
         size_t h = 1469598103934665603ull;
@@ -1611,11 +1669,25 @@ bool AssemblerOptimizer::optimizeInternal(
                         pendingBack.push_back({l, b});
                     }
                 }
+                bool merged = false;
+                if (!fallsInto && b == SIZE_MAX && parser->optFlags.redundantLoad && !loc.empty() && loc[0] == '@') {
+                    auto bt = branchesTo.find(l);
+                    auto rc = refCount.find(l);
+                    auto fm = forwardMerge.find(l);
+                    if (bt != branchesTo.end() && rc != refCount.end() && fm != forwardMerge.end() && bt->second.size() >= 2 &&
+                        (size_t)rc->second == bt->second.size() && (size_t)fm->second.n == bt->second.size() &&
+                        std::all_of(bt->second.begin(), bt->second.end(), [&](size_t k) { return k < i; })) {
+                        for (int r = 0; r < 4; r++) {
+                            if (fm->second.consts[r].isConst()) { ms.reg[r] = fm->second.consts[r]; merged = true; continue; }
+                            for (int a = 0; a < 256; a++)
+                                if (fm->second.bytes[r].test(a)) { ms.reg[r] = ValueInfo::sameAsMem((uint16_t)a); merged = true; break; }
+                        }
+                    }
+                }
                 // a merge (#350: a ?: or &&/|| result, stored on both
                 // paths): reached by falling in and by one earlier branch,
                 // a register keeps what both paths agree it holds (the same
                 // base-page byte or the same constant)
-                bool merged = false;
                 if (fallsInto && !took && parser->optFlags.redundantLoad && !loc.empty() && loc[0] == '@') {
                     size_t ob = onlyBranch(l);
                     if (ob != SIZE_MAX && ob < i && snap != parser->branchRegs.end() &&
@@ -1660,6 +1732,18 @@ bool AssemblerOptimizer::optimizeInternal(
                     for (int a = 0; a < 256; a++)
                         if (ms.getZP((uint8_t)a).isSameAs((RegId)r)) { br.regs[r] = ValueInfo::sameAsMem((uint16_t)a); break; }
             }
+            auto& fm = forwardMerge[keyOf(s, s->instr.operand)];
+            for (int r = 0; r < 4; r++) {
+                std::bitset<256> bytes = br.stored[r];
+                if (br.regs[r].kind == ValueInfo::SAME_AS_MEM && br.regs[r].mirrorAddr < 256) bytes.set(br.regs[r].mirrorAddr);
+                ValueInfo c = ms.reg[r].isConst() ? ms.reg[r] : ValueInfo::unknown();
+                if (fm.n == 0) { fm.consts[r] = c; fm.bytes[r] = bytes; }
+                else {
+                    if (!(c.isConst() && fm.consts[r].isConst() && c.constVal == fm.consts[r].constVal)) fm.consts[r] = ValueInfo::unknown();
+                    fm.bytes[r] &= bytes;
+                }
+            }
+            fm.n++;
         }
         if (s->type == AssemblerParser::Statement::INSTRUCTION || s->isSimulatedOp()) prevInstr = s;
         else if (s->type == AssemblerParser::Statement::DIRECTIVE && !isLocDirective(s)) prevInstr = nullptr;
