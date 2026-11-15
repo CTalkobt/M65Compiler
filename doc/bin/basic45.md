@@ -228,7 +228,7 @@ BASIC 65 tells variables apart by their first two characters (with the `$` / `%`
 - is not a reserved variable (`ST`, `TI`, `DS`, `ER`, `EL`),
 - is not a keyword of one or two characters (`TO`, `IF`, `ON`, `OR`, `GO`, `FN`, `DO`, ...), which would be read as the keyword when the line is listed and entered again,
 
-preferring the name's first two letters. The `$`, `%` and `&` (byte) suffixes, arrays and `FN` function names follow along (`def fn double(x)` becomes `DEF FN DU(X)`). A name after `$` or `%` (`$FF`, `%1010`) is a number, not a variable. `--list` and `-v` print the renames (`SCORE->SR STORE->SO`); `--keep-names` turns renaming off.
+preferring the name's first two letters. The `$`, `%` and `&` (byte) suffixes, arrays and `FN` function names follow along (`def fn double(x)` becomes `DEF FN DU(X)`). A name after `$` or `%` (`$FF`, `%1010`) is a number, not a variable, and neither is a disk statement's parameter (`U8`, `L20`, `P8192`; `I` and a disk ID's two characters, written without quotes, letters and reserved names too: `HEADER "N", IAB`, `IST`; test `test_header_id_xemu.bas`). `--list` and `-v` print the renames (`SCORE->SR STORE->SO`); `--keep-names` turns renaming off.
 
 ## Block IF and Procedures
 
@@ -423,8 +423,11 @@ same drive). `FREAD# lf, address, size` / `FWRITE#` move `size` bytes (0: 65536)
 as `InputBuffer`), `LINE INPUT ["prompt";] a$ [, ...]` the rest of the typed line as it is (commas, colons,
 leading spaces). `DIRECTORY` is `DIR` (basic45 crunches it as BASIC 65 does: `DIR` and the `ECTORY` token, `$FE $29`). `DIR` of the SD card (`U12`) is the ROM's `dir_sd`, ported to assembly (`stdlib_asm/basic_dirsd.s45`, linked only by a program with `DIR` or `CATALOG`): the hypervisor's directory, each entry's size and name, the pattern's `*`, `?`, `#` (a digit) and `$` (a letter) as the ROM matches them, `[MORE]` in the page mode; test `test_dirsd_xemu.bas` (the interpreter's screen and the compiled program's, on a card disk45 makes).
 `DSAVE`, `SAVE`, `VERIFY` and `DVERIFY` are errors: they save or compare the BASIC program's text, which a compiled
-program does not have. So is `MERGE`, which adds lines to it, and it will stay one; the editor's commands (`LIST`,
-`NEW`, `CONT`, `AUTO`, `RENUMBER`, `EDIT`, `FIND`, `CHANGE`, `HELP`, `INFO`, `MONITOR`) are not compiled either.
+program does not have. So is `MERGE`, which adds lines to it, and so are the editor's commands (`LIST`, `NEW`,
+`CONT`, `AUTO`, `RENUMBER`, `EDIT`, `FIND`, `CHANGE`, `HELP`, `INFO`, `MONITOR`: the program's text or direct
+mode). These will stay errors: they are not to be compiled. A keyword out of place (a function starting a
+statement, a statement's keyword in an expression, something that is no parameter of a disk statement) is a
+`?SYNTAX ERROR` in the interpreter and an error naming it here.
 
 **Chaining**: `DLOAD name [, D drive] [, U unit] [ON U unit]` and `LOAD [name [, device [, secondary]]]` in a running
 program load the next program and run it from its first line, as the interpreter does (`load_it`; the program

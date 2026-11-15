@@ -296,8 +296,8 @@ else
     fail "--compile: $(cat "$D/c.log")"
 fi
 printf '10 print 1\n20 monitor\n' > "$D/cu.bas"
-if ! $B --compile "$D/cu.bas" -o "$D/cu.prg" > "$D/cu.log" 2>&1 && grep -q 'cu.bas:2:1: (line 20): error: MONITOR is not supported by --compile yet' "$D/cu.log"; then
-    pass "--compile: a statement outside the subset (MONITOR) is an error at its line"
+if ! $B --compile "$D/cu.bas" -o "$D/cu.prg" > "$D/cu.log" 2>&1 && grep -q "cu.bas:2:1: (line 20): error: MONITOR is a command of BASIC's editor" "$D/cu.log"; then
+    pass "--compile: an editor command (MONITOR) is an error at its line"
 else
     fail "--compile MONITOR: $(cat "$D/cu.log")"
 fi
@@ -434,6 +434,31 @@ printf 'start:\n  directory "x*",u8\n' > "$D/dir.bas"
 $B "$D/dir.bas" -o "$D/dir.prg" > "$D/dir.log" 2>&1 && [ "$(xxd -s 6 -l 3 -p "$D/dir.prg")" = "eefe29" ] &&
     ! grep -q "not a BASIC 65 keyword" "$D/dir.log" && $B --decompile "$D/dir.prg" -o - 2>/dev/null | grep -q '^  directory "x\*", u8$' &&
     pass "DIRECTORY: DIR + ECTORY (\$EE \$FE \$29), decompiled as DIRECTORY" || fail "DIRECTORY: $(xxd -l 16 -p "$D/dir.prg") $(cat "$D/dir.log")"
+
+# A disk ID with letters (HEADER "N", IAB): the two characters after the I, no
+# long variable name to shorten (it was cut to IA); a variable elsewhere still is
+printf '10 header "n",iab,u8\n20 header "n",i5x on u8\n30 idx=1:record#1,idx,2\n' > "$D/id.bas"
+$B "$D/id.bas" -o "$D/id.prg" > "$D/id.log" 2>&1 && $B --decompile "$D/id.prg" -o "$D/id2.bas" >/dev/null 2>&1 &&
+    grep -q 'header "n", *iab, *u8' "$D/id2.bas" && grep -q 'header "n", *i5x on' "$D/id2.bas" && ! grep -q 'idx' "$D/id2.bas" &&
+    ! grep -q 'IAB\|I5X' "$D/id.log" && $B --compile "$D/id.bas" -o "$D/idc.prg" > "$D/idc.log" 2>&1 &&
+    pass "a disk ID with letters (HEADER \"N\", IAB) is kept, tokenized and compiled" ||
+    fail "disk ID: $(cat "$D/id2.bas" "$D/id.log" "$D/idc.log" 2>/dev/null)"
+
+# --compile: the editor's commands and MERGE are errors that say why; a keyword
+# out of place is a ?SYNTAX ERROR, not something "not supported yet"
+ok=1
+for k in list new cont auto renumber edit find change help info monitor; do
+    printf '10 %s\n' "$k" > "$D/ed.bas"
+    $B --compile "$D/ed.bas" -o "$D/ed.prg" > "$D/ed.log" 2>&1
+    grep -q "is a command of BASIC's editor" "$D/ed.log" || { ok=0; echo "  $k: $(cat "$D/ed.log")"; }
+done
+printf '10 sin\n20 a=goto\n30 dopen 1\n40 merge "x"\n' > "$D/sx.bas"
+$B --compile "$D/sx.bas" -o "$D/sx.prg" > "$D/sx.log" 2>&1
+grep -q 'SIN does not start a statement (?SYNTAX ERROR)' "$D/sx.log" && grep -q 'GOTO is not a value in an expression (?SYNTAX ERROR)' "$D/sx.log" &&
+    grep -q 'DOPEN: not a parameter' "$D/sx.log" && grep -q "MERGE adds lines to the BASIC program's text" "$D/sx.log" &&
+    ! grep -q 'not supported' "$D/sx.log" || { ok=0; cat "$D/sx.log"; }
+[ $ok = 1 ] && pass "--compile: the editor's commands and MERGE say why; misplaced keywords are syntax errors" ||
+    fail "--compile editor commands / syntax errors"
 
 echo "basic45 tests: $passed passed, $failed failed"
 [ $failed -eq 0 ]
