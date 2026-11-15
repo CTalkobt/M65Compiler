@@ -1214,6 +1214,53 @@ else
     echo "FAIL: test_basic_compile25_xemu.bas (basic45 or basic45 --compile failed)"
     failed=$((failed + 1))
 fi
+# test_basic_compile26_xemu.bas: GOSUB / RETURN through the run time, the string
+# functions' and PEEK's arguments and results in registers (#580)
+BC26_EXP="01 01 01 01 01 01 AA"
+if ./bin/basic45 src/test-resources/test_basic_compile26_xemu.bas -o build/test/test_basic_compile26_i.prg >/dev/null 2>&1 &&
+   ./bin/basic45 --compile src/test-resources/test_basic_compile26_xemu.bas -o build/test/test_basic_compile26.prg >/dev/null 2>&1 &&
+   ./bin/basic45 --compile --checks src/test-resources/test_basic_compile26_xemu.bas -o build/test/test_basic_compile26_chk.prg >/dev/null 2>&1 &&
+   ./bin/basic45 --compile --checks -O0 src/test-resources/test_basic_compile26_xemu.bas -o build/test/test_basic_compile26_O0.prg >/dev/null 2>&1 &&
+   ./bin/basic45 --compile --speed src/test-resources/test_basic_compile26_xemu.bas -o build/test/test_basic_compile26_speed.prg >/dev/null 2>&1; then
+    run_xemu_test "test_basic_compile26_interpreted" "build/test/test_basic_compile26_i.prg" "C0C0" 7 "$BC26_EXP"
+    run_xemu_test "test_basic_compile26" "build/test/test_basic_compile26.prg" "C0C0" 7 "$BC26_EXP"
+    run_xemu_test "test_basic_compile26_chk" "build/test/test_basic_compile26_chk.prg" "C0C0" 7 "$BC26_EXP"
+    run_xemu_test "test_basic_compile26_O0" "build/test/test_basic_compile26_O0.prg" "C0C0" 7 "$BC26_EXP"
+    run_xemu_test "test_basic_compile26_speed" "build/test/test_basic_compile26_speed.prg" "C0C0" 7 "$BC26_EXP"
+else
+    echo "FAIL: test_basic_compile26_xemu.bas (basic45 or basic45 --compile failed)"
+    failed=$((failed + 1))
+fi
+# test_basic_compile27_xemu.bas: the run time's GOSUB and RETURN raise BASIC's
+# errors with --checks (#580): ?RETURN WITHOUT GOSUB, a full stack
+BC27_EXP="01 01 AA"
+if ./bin/basic45 src/test-resources/test_basic_compile27_xemu.bas -o build/test/test_basic_compile27_i.prg >/dev/null 2>&1 &&
+   ./bin/basic45 --compile --checks --line-numbers src/test-resources/test_basic_compile27_xemu.bas -o build/test/test_basic_compile27.prg >/dev/null 2>&1 &&
+   ./bin/basic45 --compile --checks --line-numbers -O0 src/test-resources/test_basic_compile27_xemu.bas -o build/test/test_basic_compile27_O0.prg >/dev/null 2>&1 &&
+   ./bin/basic45 --compile --checks --line-numbers --speed src/test-resources/test_basic_compile27_xemu.bas -o build/test/test_basic_compile27_speed.prg >/dev/null 2>&1; then
+    run_xemu_test "test_basic_compile27_interpreted" "build/test/test_basic_compile27_i.prg" "C0C0" 3 "$BC27_EXP"
+    run_xemu_test "test_basic_compile27" "build/test/test_basic_compile27.prg" "C0C0" 3 "$BC27_EXP"
+    run_xemu_test "test_basic_compile27_O0" "build/test/test_basic_compile27_O0.prg" "C0C0" 3 "$BC27_EXP"
+    run_xemu_test "test_basic_compile27_speed" "build/test/test_basic_compile27_speed.prg" "C0C0" 3 "$BC27_EXP"
+else
+    echo "FAIL: test_basic_compile27_xemu.bas (basic45 or basic45 --compile failed)"
+    failed=$((failed + 1))
+fi
+# test_basic_compile28_xemu.bas: --bank=N, the arrays and the string variables
+# in bank 1, 4 or 5 (#580): more than the heap in bank 0 holds, strings freed
+BC28_EXP="01 01 01 01 01 01 01 01 01 01 AA"
+if ./bin/basic45 src/test-resources/test_basic_compile28_xemu.bas -o build/test/test_basic_compile28_i.prg >/dev/null 2>&1 &&
+   ./bin/basic45 --compile --checks --bank=1 src/test-resources/test_basic_compile28_xemu.bas -o build/test/test_basic_compile28_b1.prg >/dev/null 2>&1 &&
+   ./bin/basic45 --compile --checks --bank=4 src/test-resources/test_basic_compile28_xemu.bas -o build/test/test_basic_compile28_b4.prg >/dev/null 2>&1 &&
+   ./bin/basic45 --compile --checks --bank=5 -O0 src/test-resources/test_basic_compile28_xemu.bas -o build/test/test_basic_compile28_b5.prg >/dev/null 2>&1 &&
+   ./bin/basic45 --compile --checks --bank=1 --speed src/test-resources/test_basic_compile28_xemu.bas -o build/test/test_basic_compile28_speed.prg >/dev/null 2>&1; then
+    for bc28 in i b1 b4 b5 speed; do
+        run_xemu_test "test_basic_compile28_$bc28" "build/test/test_basic_compile28_$bc28.prg" "C0C0" 11 "$BC28_EXP"
+    done
+else
+    echo "FAIL: test_basic_compile28_xemu.bas (basic45 or basic45 --compile --bank failed)"
+    failed=$((failed + 1))
+fi
 # test_header_id_xemu.bas: HEADER's disk ID with letters and reserved names
 # (IAB, I5X, IST, ITI), read back from the directory; interpreted and compiled,
 # each on a disk of its own

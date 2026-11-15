@@ -1,0 +1,272 @@
+; basic_bankx.s45 — basic45 --compile --bank=N (#580): the elements of the
+; arrays in bank N (basic_bank.c has the rest: the heap there, the arrays
+; made, the strings)
+;
+; An array's variable holds its block's offset in the bank (0: no array
+; yet); the block: the number of dimensions, each one's size (2 bytes), the
+; elements. An element goes through __bas_ecell (5 bytes, basic_bank.c).
+;
+;     (the subscript in A/X)
+;     jsr __bas_felgf      ; __bas_ecell := the element of a float array (5
+;     .word __ba_NAME      ; bytes); __bas_felgi an integer one's (2),
+;                          ; __bas_felgs a string one's (2: its offset)
+;     jsr __bas_feof       ; the same without the copy: the element's offset
+;     .word __ba_NAME      ; in A/X (__bas_feoi, __bas_feos)
+;
+;     (an element's offset in A/X)
+;     jsr __bas_felo5      ; __bas_ecell := its 5 bytes (__bas_felo2: 2)
+;     jsr __bas_felp5      ; the element := __bas_ecell's 5 bytes (__bas_felp2)
+;
+; The element is found here when the array exists with one dimension and
+; the subscript is in it; else by basic_bank.c's _bas_areff (which makes the
+; array, 11 elements, or raises the error).
+
+    .cpu 45gs02
+
+; no calls through pointers here (ln45's call graph, see O45Linker)
+.weak cc45.icallinfo
+cc45.icallinfo = 1
+
+idx     = $08       ; the subscript
+esz     = $0A       ; the element size (| $40: strings)
+get     = $0B       ; $80: the element copied to __bas_ecell
+fp      = $0C       ; the list - 1 (the return address) and the variable's
+                    ; address; then the 32-bit address in the bank
+var     = $F6       ; the array's variable (library temps)
+off     = $F8       ; the element's offset in the block
+
+.extern __bas_areff
+.extern __bas_sub
+.extern __bas_sa
+.extern __bas_n
+.extern __bas_m
+.extern __bas_fbank
+.extern __bas_ecell
+
+    .split "__bas_felgf"
+.global __bas_felgf
+.global __bas_felgi
+.global __bas_felgs
+.global __bas_feof
+.global __bas_feoi
+.global __bas_feos
+.global __bas_felo5
+.global __bas_felo2
+__bas_feof:
+    ldy #5
+    bra bas_feo_go
+__bas_feoi:
+    ldy #2
+    bra bas_feo_go
+__bas_feos:
+    ldy #$42
+bas_feo_go:
+    ldz #0
+    bra bas_fel_go
+__bas_felgf:
+    ldy #5
+    bra bas_felg_go
+__bas_felgi:
+    ldy #2
+    bra bas_felg_go
+__bas_felgs:
+    ldy #$42
+bas_felg_go:
+    ldz #$80
+bas_fel_go:
+    sta idx
+    stx idx+1
+    sty esz
+    stz get
+    pla
+    sta fp
+    pla
+    sta fp+1
+    ldy #1
+    lda (fp),y
+    sta var
+    iny
+    lda (fp),y
+    sta var+1
+    clc                 ; return after the word: the list + 2 for rts
+    lda fp
+    adc #2
+    tax
+    lda fp+1
+    adc #0
+    pha
+    txa
+    pha
+    ldy #0              ; the array's block (0: none yet)
+    lda (var),y
+    sta fp
+    iny
+    lda (var),y
+    sta fp+1
+    ora fp
+    beq @slow
+    lda __bas_fbank
+    sta fp+2
+    lda #0
+    sta fp+3
+    ldz #0
+    lda [fp],z          ; one dimension
+    cmp #1
+    bne @slow
+    ldz #2              ; the subscript below its size (16 bits)
+    lda idx+1
+    cmp [fp],z
+    bcc @in
+    bne @slow
+    dez
+    lda idx
+    cmp [fp],z
+    bcs @slow
+@in:
+    lda idx             ; offset: the subscript * 2
+    asl a
+    sta off
+    lda idx+1
+    rol a
+    sta off+1
+    lda esz
+    cmp #5
+    bne @add
+    asl off             ; * 4, + the subscript: * 5
+    rol off+1
+    clc
+    lda off
+    adc idx
+    sta off
+    lda off+1
+    adc idx+1
+    sta off+1
+@add:
+    clc                 ; the block + 3 + the offset
+    lda off
+    adc #3
+    bcc @a1
+    inc off+1
+    clc
+@a1:
+    adc fp
+    sta fp
+    lda off+1
+    adc fp+1
+    sta fp+1
+@found:
+    bit get
+    bmi bas_fel_copy
+    ldz #0
+    lda fp
+    ldx fp+1
+    rts
+@slow:                  ; _bas_areff: __bas_sa, one subscript, __bas_m
+    lda var
+    sta __bas_sa
+    lda var+1
+    sta __bas_sa+1
+    lda idx
+    sta __bas_sub
+    lda idx+1
+    sta __bas_sub+1
+    lda #1
+    sta __bas_n
+    lda esz
+    sta __bas_m
+    lda #0
+    sta __bas_n+1
+    sta __bas_m+1
+    lda get             ; (the C code uses the base page's temporaries)
+    pha
+    lda esz
+    pha
+    jsr __bas_areff
+    pla
+    sta esz
+    pla
+    sta get
+    lda __bas_n
+    sta fp
+    lda __bas_n+1
+    sta fp+1
+    lda __bas_fbank
+    sta fp+2
+    lda #0
+    sta fp+3
+    bra @found
+
+; __bas_ecell := the element at A/X
+__bas_felo5:
+    ldy #5
+    bra bas_felo_go
+__bas_felo2:
+    ldy #2
+bas_felo_go:
+    sty esz
+    sta fp
+    stx fp+1
+    lda __bas_fbank
+    sta fp+2
+    lda #0
+    sta fp+3
+; __bas_ecell := the esz bytes at fp (2, or 5)
+bas_fel_copy:
+    ldz #0
+    lda [fp],z
+    sta __bas_ecell
+    inz
+    lda [fp],z
+    sta __bas_ecell+1
+    lda esz
+    cmp #5
+    bne @done
+    inz
+    lda [fp],z
+    sta __bas_ecell+2
+    inz
+    lda [fp],z
+    sta __bas_ecell+3
+    inz
+    lda [fp],z
+    sta __bas_ecell+4
+@done:
+    ldz #0
+    rts
+
+; the element at A/X := __bas_ecell
+    .split "__bas_felp5"
+.global __bas_felp5
+.global __bas_felp2
+__bas_felp5:
+    ldy #5
+    bra bas_felp_go
+__bas_felp2:
+    ldy #2
+bas_felp_go:
+    sta fp
+    stx fp+1
+    lda __bas_fbank
+    sta fp+2
+    lda #0
+    sta fp+3
+    ldz #0
+    lda __bas_ecell
+    sta [fp],z
+    inz
+    lda __bas_ecell+1
+    sta [fp],z
+    cpy #5
+    bne @done
+    inz
+    lda __bas_ecell+2
+    sta [fp],z
+    inz
+    lda __bas_ecell+3
+    sta [fp],z
+    inz
+    lda __bas_ecell+4
+    sta [fp],z
+@done:
+    ldz #0
+    rts

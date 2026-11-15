@@ -86,6 +86,7 @@ struct Options {
     bool speed = false;                   // --speed / -Ospeed: -O3, the RAM float routines
     bool lineNumbers = false;             // --compile --line-numbers: lines recorded for errors, EL (#483)
     bool checks = false;                  // --compile --checks: the program's values and flow checked (#489)
+    int bank = 0;                         // --compile --bank=N: arrays and string variables in bank N (#580)
     std::string importMap;                // --import-map: REM PRAGMA IMPORT's map file
 };
 
@@ -224,6 +225,7 @@ static void printUsage(const char* progName) {
     std::cout << "  --import-map FILE   --compile: REM PRAGMA IMPORT's map file (an exporting program's <name>.map)" << std::endl;
     std::cout << "  --speed, -Ospeed    --compile: -O3 and float + - * / and comparisons by RAM routines" << std::endl;
     std::cout << "  --line-numbers      --compile: record the running line for error messages (IN line) and EL" << std::endl;
+    std::cout << "  --bank=N            --compile: arrays and string variables in bank N (1, 4, 5), not the program's heap" << std::endl;
     std::cout << "  --checks            --compile: check values, subscripts and flow as the interpreter (else undefined)" << std::endl;
     std::cout << "                      (faster than the ROM's; its rounding fixes, see the docs)" << std::endl;
     std::cout << "  --convert=<dialect> Another BASIC's program (a .prg, or a text listing) as BASIC 65 basic45" << std::endl;
@@ -333,6 +335,13 @@ static Options parseArgs(int argc, char* argv[]) {
             opts.lineNumbers = true;
         } else if (arg == "--checks") {
             opts.checks = true;
+        } else if (arg.compare(0, 7, "--bank=") == 0) {
+            std::string n = arg.substr(7);
+            if (n != "0" && n != "1" && n != "4" && n != "5") {
+                std::cerr << "basic45: --bank=" << n << ": the bank is 0 (the program's heap), 1, 4 or 5" << std::endl;
+                exit(1);
+            }
+            opts.bank = n[0] - '0';
         } else if (arg == "--speed" || arg == "-Ospeed") {
             opts.speed = true;
             opts.optLevel = 3;
@@ -539,6 +548,7 @@ static bool compileToMachineCode(const Options& opts, const char* argv0, std::ve
     chain.sourceDir = fs::path(opts.inputFile).parent_path().string();
     chain.lineNumbers = opts.lineNumbers;
     chain.checks = opts.checks;
+    chain.bank = opts.bank;
     chain.linkSyms = linkSyms;
     auto ir = compileBasicToIR(binary, name, opts.speed, &chain);
     for (const auto& [line, msg] : ir.warnings) std::cerr << where(line) << ": warning: " << msg << std::endl;

@@ -298,6 +298,7 @@ private:
     const NarrowMap& narrow_;
     bool final_;
     bool speed_;        // --speed: the RAM float routines
+    int gosubs_ = 0;    // the program's GOSUB keywords
     std::shared_ptr<ir::Module> mod_;
     ir::Function* fn_ = nullptr;
     ir::Block* cur_ = nullptr;
@@ -416,7 +417,7 @@ private:
     // a run-time entry with its first argument in A/X and a second in $12
     // (basic_ax.s45, __bas_prsa; #486), not stored to variables one by one
     void callAX(const std::string& f, ir::Operand a, ir::Operand b = ir::Operand()) {
-        static const std::set<std::string> safe = {"__bas_prsa", "__bas_scmpa"};
+        static const std::set<std::string> safe = {"__bas_prsa", "__bas_scmpa", "__bas_gosub"};
         if (!safe.count(f) || (cmdUsed_ && f.compare(0, 8, "__bas_pr") == 0)) raises();
         externs_.insert(f);
         fn_->originalCallees.insert(f);
@@ -427,6 +428,19 @@ private:
         if (b.kind != ir::OperandKind::NONE) in.args.push_back(b);
         emit(in);
     }
+    // a run-time entry that returns its result in A (/X), arguments as callAX's
+    ir::Operand callR(const std::string& f, ir::Type t, bool safe, ir::Operand a = ir::Operand(), ir::Operand b = ir::Operand()) {
+        if (!safe) raises();
+        externs_.insert(f);
+        fn_->originalCallees.insert(f);
+        auto d = vreg(t);
+        ir::Inst in; in.op = ir::Op::CALL; in.dest = d; in.resultType = t;
+        in.src1 = ir::Operand::global(f); in.callConv = ir::CallConv::ZP;
+        if (a.kind != ir::OperandKind::NONE) { in.isRegparm = true; in.args = {a}; }
+        if (b.kind != ir::OperandKind::NONE) in.args.push_back(b);
+        emit(in);
+        return d;
+    }
     // the error n (its block, shared: the line is in __bas_line)
     std::string errLabel(int n) { raises(); errBlocks_.insert(n); return "Err" + std::to_string(n); }
     // the error n where the statement runs (a constant out of range: the
@@ -434,6 +448,23 @@ private:
     // --checks (#489): the checks of the program's own values and flow; without
     // it none is compiled (undefined behaviour: the program goes on)
     bool checks() const { return chainOpt_ && chainOpt_->checks; }
+    // --bank=N (#580): the arrays and the string variables in bank N
+    // (basic_bank.c), each named by its 16-bit offset there; 0: on the heap
+    int bank() const { return chainOpt_ ? chainOpt_->bank : 0; }
+    // the element at the offset a to (put) / from __bas_ecell (es bytes;
+    // basic_bankx.s45)
+    void elemCell(bool put, ir::Operand a, int es) {
+        callAX(std::string(put ? "__bas_felp" : "__bas_felo") + (es == 5 ? "5" : "2"), a);
+    }
+    // the string at the offset off, in a slot of its own
+    Val fetchStr(ir::Operand off) {
+        Val r; r.k = VK::S; r.slot = newSlot();
+        r.op = slotAddr(r.slot);
+        store(ir::Type::I16, off, global("__bas_n"));
+        store(ir::Type::PTR, r.op, global("__bas_sr"));
+        call("__bas_sfetch");
+        return r;
+    }
     // a run-time conversion's entry without its range checks when compiled
     // without --checks (#489): __bas_ayintu for AYINT, ayintw, GETBYT and
     // GETADR (16 bits in __bas_n), __bas_getadr32u
@@ -561,6 +592,7 @@ private:
             v.op = load(t, ir::Operand::global(g));
             v.bound = b;
         } else if (k == VK::F) v.op = load(ir::Type::F32, ir::Operand::global(g));
+        else if (k == VK::S && bank()) v = fetchStr(load(ir::Type::I16, ir::Operand::global(g)));
         else if (k == VK::S) v.op = load(ir::Type::PTR, ir::Operand::global(g));
         else {
             v.op = load(ir::Type::I16, ir::Operand::global(g));
@@ -625,7 +657,7 @@ private:
         store(ir::Type::I16, iconst(ir::Type::I16, (int64_t)subs.size()), global("__bas_n"));
         store(ir::Type::I16, iconst(ir::Type::I16, m), global("__bas_m"));
         store(ir::Type::PTR, addrGlobal(g), global("__bas_sa"));
-        call("__bas_aref");
+        call(bank() ? "__bas_areff" : "__bas_aref");
     }
     std::vector<ir::Operand> subscripts() {
         expectCh('(');
@@ -642,13 +674,32 @@ private:
     // array exists with one dimension and the index is in it; else (and for
     // more) __bas_aref, which makes the array (11 elements a dimension) or
     // raises the error
-    ir::Operand elemAddr(const std::string& name, VK& kind) {
+    // (--bank: the element's offset in the bank; get: the element copied to
+    // __bas_ecell too)
+    ir::Operand elemAddr(const std::string& name, VK& kind, bool get = false) {
         std::string g = arrayGlobal(name, kind);
         auto subs = subscripts();
         int es = elemSize(kind);
         int m = es | (kind == VK::S ? 0x40 : 0);
         auto r = vreg(ir::Type::PTR);
-        if (subs.size() == 1 && !speed_) {
+        if (bank() && subs.size() == 1) {
+            // (basic_bankx.s45: the subscript in A/X, the array's variable
+            // after the jsr)
+            std::string ent = std::string(get ? "__bas_felg" : "__bas_feo") +
+                              (kind == VK::F ? "f" : kind == VK::S ? "s" : "i");
+            externs_.insert(ent);
+            fn_->originalCallees.insert(ent);
+            raises();
+            ir::Inst in; in.op = ir::Op::CALL; in.dest = r; in.resultType = ir::Type::PTR;
+            in.src1 = ir::Operand::global(ent); in.callConv = ir::CallConv::ZP;
+            in.isRegparm = true; in.args = {subs[0]};
+            in.asmText = ".word " + g;
+            emit(in);
+        } else if (bank()) {
+            arefCall(g, subs, m);
+            copyTo(r, load(ir::Type::PTR, global("__bas_n")));
+            if (get) elemCell(false, r, es);
+        } else if (subs.size() == 1 && !speed_) {
             // (the reach of the fast path below in basic_ael.s45: the code
             // smaller): the subscript in A/X, the array's variable after the
             // jsr, an entry for each element size (#486)
@@ -688,8 +739,14 @@ private:
     }
     Val loadElem(const std::string& name) {
         VK k;
-        auto a = elemAddr(name, k);
+        auto a = elemAddr(name, k, bank() != 0);
         Val v; v.k = k;
+        if (bank()) {
+            if (k == VK::F) v.op = load(ir::Type::F32, global("__bas_ecell"));
+            else if (k == VK::S) v = fetchStr(load(ir::Type::I16, global("__bas_ecell")));
+            else { v.op = load(ir::Type::I16, global("__bas_ecell")); v.bound = 32768; }
+            return v;
+        }
         if (k == VK::F) v.op = load(ir::Type::F32, a);
         else if (k == VK::S) v.op = load(ir::Type::PTR, a);
         else { v.op = load(ir::Type::I16, a); v.bound = 32768; }
@@ -926,8 +983,8 @@ private:
     ir::Operand peekAt(const MemAddr& m, int width) {
         if (m.nearMem) return load(width == 1 ? ir::Type::I8 : ir::Type::I16, m.p);
         store(ir::Type::I16, iconst(ir::Type::I16, width), global("__bas_m"));
-        call("__bas_peek");
-        auto n = load(ir::Type::I16, global("__bas_n"));
+        // (the value in A/X too, #580)
+        auto n = callR("__bas_peeka", ir::Type::I16, false);
         return width == 1 ? trunc(n, ir::Type::I8) : n;
     }
     void pokeAt(const MemAddr& m, int k, int width, ir::Operand value16) {
@@ -995,14 +1052,32 @@ private:
     }
     // A string routine: arguments a (and b) freed, the result in a new slot
     Val strCall(const std::string& f, const Val* a, const Val* b) {
-        if (a) store(ir::Type::PTR, a->op, global("__bas_sa"));
-        if (b) store(ir::Type::PTR, b->op, global("__bas_sb"));
+        static const std::set<std::string> inRegs = {"__bas_scat", "__bas_left", "__bas_right", "__bas_mid",
+                                                     "__bas_chr", "__bas_str"};
+        if (!inRegs.count(f)) {
+            if (a) store(ir::Type::PTR, a->op, global("__bas_sa"));
+            if (b) store(ir::Type::PTR, b->op, global("__bas_sb"));
+            if (b) freeVal(*b);
+            if (a) freeVal(*a);
+            Val r; r.k = VK::S; r.slot = newSlot();
+            r.op = slotAddr(r.slot);
+            store(ir::Type::PTR, r.op, global("__bas_sr"));
+            call(f);
+            return r;
+        }
         if (b) freeVal(*b);
         if (a) freeVal(*a);
         Val r; r.k = VK::S; r.slot = newSlot();
         r.op = slotAddr(r.slot);
-        store(ir::Type::PTR, r.op, global("__bas_sr"));
+        // (the result's buffer in A/X, a in $12, b in $14: basic_ax.s45's
+        // entry f + "a"; strArgCalls puts back the stores where that is smaller)
         call(f);
+        ir::Inst& in = cur_->insts.back();
+        in.src1 = ir::Operand::global(f + "a");
+        in.isRegparm = true;
+        in.args = {r.op};
+        if (a) in.args.push_back(a->op);
+        if (b) in.args.push_back(b->op);
         return r;
     }
     Val needS(const Val& v) {
@@ -1097,8 +1172,8 @@ private:
         if (a.k == VK::S || b.k == VK::S) {
             needS(a); needS(b);
             freeVal(b); freeVal(a);
-            callAX("__bas_scmpa", a.op, b.op);
-            auto c = trunc(load(ir::Type::I16, global("__bas_n")), ir::Type::I8);
+            // (the result in A, #580)
+            auto c = callR("__bas_scmpa", ir::Type::I8, true, a.op, b.op);
             r.op = cmpResult(rel, c);
             return r;
         }
@@ -1542,6 +1617,7 @@ private:
     void openStmt();
     void dosStmt(int kw);
     void setArgCalls();
+    void strArgCalls();
     int dosArgs(const char* what, int errflags, std::vector<Val>& names, int auxAllowed = 0);
     void iffStmt(int kw);
     void clrStmt();
@@ -1777,6 +1853,10 @@ void Compiler::prescan() {
             }
         }
     countedLoops();
+    for (const auto& l : lines_)
+        for (const auto& sg : l.segs)
+            for (const auto& t : sg.toks)
+                if (t.k == TK::Kw && t.kw == T_GOSUB) gosubs_++;
     // DEF FN name(x) = expr
     for (size_t li = 0; li < lines_.size(); li++)
         for (size_t si = 0; si < lines_[li].segs.size(); si++) {
@@ -2286,7 +2366,11 @@ void Compiler::finish() {
         store(ir::Type::I16, iconst(ir::Type::I16, -1), global("__bas_el"));
         store(ir::Type::I8, iconst(ir::Type::I8, 0), global("__bas_trapon"));
         for (const auto& [g, t] : vars_) {
-            if (t == ir::Type::PTR) {
+            if (t == ir::Type::PTR && bank()) {
+                store(ir::Type::I16, load(ir::Type::I16, ir::Operand::global(g)), global("__bas_n"));
+                call("__bas_sfree");
+                store(ir::Type::I16, iconst(ir::Type::I16, 0), ir::Operand::global(g));
+            } else if (t == ir::Type::PTR) {
                 auto e = vreg(ir::Type::PTR);
                 ir::Inst in; in.op = ir::Op::ADDR_GLOBAL; in.dest = e; in.src1 = global("__bas_empty");
                 in.resultType = ir::Type::PTR; emit(in);
@@ -2298,7 +2382,7 @@ void Compiler::finish() {
             store(ir::Type::PTR, addrGlobal(g), global("__bas_sa"));
             bool str = g.size() > 2 && g.compare(g.size() - 2, 2, "_s") == 0;
             store(ir::Type::I16, iconst(ir::Type::I16, str ? 1 : 0), global("__bas_m"));
-            call("__bas_afree");
+            call(bank() ? "__bas_afreef" : "__bas_afree");
         }
         for (const auto& [k, d] : defFns_)
             store(ir::Type::I8, iconst(ir::Type::I8, 0), global("__bas_fn" + std::to_string(d.id)));
@@ -2333,8 +2417,9 @@ void Compiler::finish() {
         ir::Inst in; in.op = ir::Op::ADDR_LABEL; in.dest = r; in.src1 = ir::Operand::label("trapgo"); emit(in);
         store(ir::Type::I16, r, global("__bas_trapv"));
     }
+    // (in a bank, --bank: the offset 0 they start with)
     for (const auto& [g, t] : vars_)
-        if (t == ir::Type::PTR) {
+        if (t == ir::Type::PTR && !bank()) {
             auto e = vreg(ir::Type::PTR);
             ir::Inst in; in.op = ir::Op::ADDR_GLOBAL; in.dest = e; in.src1 = global("__bas_empty");
             in.resultType = ir::Type::PTR; emit(in);
@@ -2384,6 +2469,21 @@ void Compiler::finish() {
         ir::Module::GlobalVar gv;
         gv.name = g; gv.type = ir::Type::PTR; gv.size = 2;
         mod_->globals.push_back(gv);
+    }
+    if (bank()) {
+        // the bank and its range for basic_bank.c: bank 1 $2000-$F6FF (the
+        // interpreter's variables' area), 4 and 5 $0100-$FFFE
+        int first = bank() == 1 ? 0x2000 : 0x0100, end = bank() == 1 ? 0xF700 : 0xFFFF;
+        auto data = [&](const char* nm, ir::Type t, int v) {
+            ir::Module::GlobalVar gv;
+            gv.name = nm; gv.type = t; gv.size = ir::typeSize(t); gv.isConst = true;
+            gv.hasInitValue = true; gv.hasImage = true;
+            for (int k = 0; k < gv.size; k++) gv.initBytes.push_back((uint8_t)(v >> (8 * k)));
+            mod_->globals.push_back(gv);
+        };
+        data("__bas_fbank", ir::Type::I8, bank());
+        data("__bas_fstart", ir::Type::I16, first);
+        data("__bas_fend", ir::Type::I16, end);
     }
     for (int s = 0; s < maxSlots_; s++) {
         ir::Module::GlobalVar gv;
@@ -2451,7 +2551,79 @@ void Compiler::finish() {
         }
     }
     setArgCalls();
+    strArgCalls();
     for (const auto& e : externs_) mod_->externs.push_back(e);
+}
+
+// The string routines' calls with their arguments in registers (#580;
+// basic_ax.s45): the result's buffer in A/X, the strings in $12 and $14,
+// instead of a 6-byte store of each to __bas_sr, __bas_sa, __bas_sb. An
+// entry only when its uses save more than its code; else the stores are
+// put back.
+void Compiler::strArgCalls() {
+    // (per use saved; the entry's size) __bas_arg2 (17 bytes) is shared by the
+    // entries with a string argument
+    struct Ent { const char* f; int save, size; bool shared; int count; bool use; };
+    Ent ents[] = {{"__bas_scat", 10, 16, true, 0, false}, {"__bas_left", 8, 6, true, 0, false},
+                  {"__bas_right", 8, 6, true, 0, false},  {"__bas_mid", 8, 6, true, 0, false},
+                  {"__bas_chr", 6, 9, false, 0, false},   {"__bas_str", 6, 9, false, 0, false}};
+    auto entOf = [&](const ir::Inst& in) -> Ent* {
+        if (in.op != ir::Op::CALL_VOID || !in.isRegparm || in.src1.kind != ir::OperandKind::GLOBAL) return nullptr;
+        for (auto& e : ents)
+            if (in.src1.name == std::string(e.f) + "a") return &e;
+        return nullptr;
+    };
+    for (auto& f : mod_->functions)
+        for (auto& b : f.blocks)
+            for (auto& in : b.insts)
+                if (Ent* e = entOf(in)) e->count++;
+    int sharedGain = 0;
+    for (auto& e : ents) {
+        int g = e.count * e.save - e.size;
+        e.use = g > 0;
+        if (e.use && e.shared) sharedGain += g;
+    }
+    for (auto& e : ents)
+        if (e.shared && sharedGain <= 17) e.use = false;
+    for (auto& f : mod_->functions)
+        for (auto& b : f.blocks)
+            for (size_t i = 0; i < b.insts.size(); i++) {
+                Ent* e = entOf(b.insts[i]);
+                if (!e) continue;
+                if (e->use) {
+                    externs_.insert(std::string(e->f) + "a");
+                    f.originalCallees.insert(std::string(e->f) + "a");
+                    continue;
+                }
+                ir::Inst c = b.insts[i];
+                std::vector<ir::Operand> args = c.args;
+                c.src1 = ir::Operand::global(e->f);
+                c.isRegparm = false;
+                c.args.clear();
+                // (as written before #580: the strings stored, then the buffer's
+                // address taken and stored)
+                const char* to[3] = {"__bas_sr", "__bas_sa", "__bas_sb"};
+                auto st = [&](size_t k) {
+                    ir::Inst in; in.op = ir::Op::STORE; in.src1 = args[k]; in.src2 = ir::Operand::global(to[k]);
+                    in.resultType = ir::Type::PTR; in.loc = c.loc;
+                    externs_.insert(to[k]);
+                    return in;
+                };
+                std::vector<ir::Inst> seq;
+                for (size_t k = 1; k < args.size(); k++) seq.push_back(st(k));
+                size_t at = i;
+                if (i > 0 && b.insts[i - 1].op == ir::Op::ADDR_GLOBAL && b.insts[i - 1].dest.isVreg() &&
+                    args[0].isVreg() && b.insts[i - 1].dest.vregId == args[0].vregId) {
+                    seq.push_back(b.insts[i - 1]);
+                    at = i - 1;
+                }
+                seq.push_back(st(0));
+                seq.push_back(c);
+                b.insts.erase(b.insts.begin() + at, b.insts.begin() + i + 1);
+                b.insts.insert(b.insts.begin() + at, seq.begin(), seq.end());
+                i = at + seq.size() - 1;
+                continue;
+            }
 }
 
 // Constant arguments of the run time's calls (#369): a store of a constant
@@ -2825,6 +2997,29 @@ Compiler::LV Compiler::parseLV(const std::string& name) {
 }
 
 void Compiler::assignLV(const LV& lv, const Val& v) {
+    if (bank() && (lv.elem || lv.k == VK::S)) {
+        if (lv.k == VK::S) {
+            // the string copied into the bank (the variable's old one
+            // freed): its offset the variable's value
+            needS(v);
+            if (lv.elem) elemCell(false, lv.addr, 2);
+            auto old = load(ir::Type::I16, lv.elem ? global("__bas_ecell") : ir::Operand::global(lv.g));
+            store(ir::Type::PTR, v.op, global("__bas_sa"));
+            store(ir::Type::I16, old, global("__bas_n"));
+            call("__bas_sstore");
+            auto n = load(ir::Type::I16, global("__bas_n"));
+            store(ir::Type::I16, n, lv.elem ? global("__bas_ecell") : ir::Operand::global(lv.g));
+            if (lv.elem) elemCell(true, lv.addr, 2);
+            freeVal(v);
+        } else if (lv.k == VK::F) {
+            store(ir::Type::F32, toF(v), global("__bas_ecell"));
+            elemCell(true, lv.addr, 5);
+        } else {
+            store(ir::Type::I16, asType(toI16(v), ir::Type::I16), global("__bas_ecell"));
+            elemCell(true, lv.addr, 2);
+        }
+        return;
+    }
     if (lv.k == VK::S) {
         needS(v);
         callAX("__bas_sseta", v.op, lv.elem ? lv.addr : addrGlobal(lv.g));
@@ -3836,6 +4031,12 @@ Val Compiler::sprFn(int kw) {
 // SCREEN DEF / OPEN / CLOSE / SET / CLR, or SCREEN [n,] width, height, depth
 void Compiler::screenGStmt() {
     gfxUsed_ = true;
+    if (bank() >= 4) {
+        // (the graphics screens' bitplanes are in banks 4 and 5)
+        std::string w = "SCREEN: the graphics screens use banks 4 and 5, where --bank=" + std::to_string(bank()) +
+                        " keeps the arrays and strings (use --bank=1)";
+        if (warned_.insert(w).second) warnings.push_back({lines_[li_].num, w});
+    }
     auto flag = [&](int off) {          // BASIC's comflag: , 0 / 1
         expectCh(',');
         ir::Operand b = toByte(expr());
@@ -4970,6 +5171,15 @@ void Compiler::gosubTo(size_t target) {
 
 // A GOSUB's entry: the return block's address (?OUT OF MEMORY when full)
 void Compiler::pushRet(const std::string& ret) {
+    if (!speed_ && gosubs_ >= 2) {
+        // (the run time's push, the address in A/X: 10 bytes a GOSUB, not 28,
+        // when there are two or more; __bas_gosubc checks for a full stack; #580)
+        auto r = vreg(ir::Type::I16);
+        { ir::Inst in; in.op = ir::Op::ADDR_LABEL; in.dest = r; in.src1 = ir::Operand::label(ret); emit(in); }
+        if (checks()) callAX("__bas_gosubc", r);
+        else callAX("__bas_gosub", r);
+        return;
+    }
     auto sp = load(ir::Type::I8, global("__bas_sp"));
     raiseIf(bin(ir::Op::CMP_GEU, ir::Type::I8, sp, ir::Operand::imm(STACK_ENTRIES, ir::Type::I8)), 16);
     auto a = vreg(ir::Type::PTR);
@@ -4983,6 +5193,14 @@ void Compiler::pushRet(const std::string& ret) {
 
 void Compiler::returnStmt() {
     // FOR and DO entries above the GOSUB's are dropped
+    if (!speed_) {
+        // (the run time's pop: the address in A/X; #580)
+        // (__bas_returnc: ?RETURN WITHOUT GOSUB on an empty stack)
+        auto pe = callR(checks() ? "__bas_returnc" : "__bas_return", ir::Type::PTR, !checks());
+        { ir::Inst in; in.op = ir::Op::BR_INDIRECT; in.src1 = pe; emit(in); }
+        block(newLabel("dead"));
+        return;
+    }
     std::string loop = newLabel("rloop"), go = newLabel("rgo");
     br(loop);
     block(loop);

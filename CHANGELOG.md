@@ -4,6 +4,43 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### basic45 --compile --bank=N: arrays and string variables in bank 1, 4 or 5 (#580)
+
+- A compiled program's arrays and strings share its heap in bank 0: what is
+  left of 39 KB after the program. `--bank=1` keeps the arrays and the string
+  variables in bank 1 instead (`$2000`-`$F6FF`, the interpreter's variables'
+  area: 53 KB), `--bank=4` / `--bank=5` in that bank (`$0100`-`$FFFE`, 65 KB;
+  nothing else may use it). Bank 0, as before, without the option.
+- A variable holds its array's or string's 16-bit offset in the bank (0: no
+  array yet, the empty string). The heap there and the arrays' making are
+  `lib/stdlib/basic_bank.c`; an element is found and copied through
+  `__bas_ecell` by `stdlib_asm/basic_bankx.s45` (32-bit indirect addressing).
+  A string variable's value is copied to a buffer in bank 0 where it is
+  used, so the run time's string routines are as they were.
+- The cost (`src/bench/basic_compile_bench.bas`, frames): the sieve 64 -> 71,
+  the float array 48 -> 54, the strings 14 -> 18; about 1 KB more code.
+  `POINTER` of a string or an element is its offset in the bank.
+- Test `test_basic_compile28_xemu.bas` (banks 1, 4, 5; 45 KB of floats and
+  2001 strings; strings assigned 3000 times).
+
+### basic45 --compile: smaller code, the run time's arguments in registers (#580)
+
+- `GOSUB` and `RETURN` are calls of the run time (`__bas_gosub`, the return
+  address in A/X; `__bas_return`, the address back in A/X): about 10 bytes a
+  `GOSUB` instead of 28, 10 a `RETURN` instead of 40. Inline as before with
+  `--speed`, and a program's only `GOSUB`. With `--checks` the entries that
+  raise `?OUT OF MEMORY` and `?RETURN WITHOUT GOSUB` (`__bas_gosubc`,
+  `__bas_returnc`).
+- The string functions take the result's buffer in A/X and their strings in
+  `$12` / `$14` (`__bas_scata`, `__bas_lefta`, `__bas_righta`, `__bas_mida`,
+  `__bas_chra`, `__bas_stra`; `basic_ax.s45`) instead of a 6-byte store of each
+  to `__bas_sr`, `__bas_sa`, `__bas_sb`: each entry only when its uses save
+  more than its code. A string comparison's result comes back in A, a
+  far `PEEK`'s value in A/X (`__bas_peeka`).
+- `test_basic_compile_xemu.bas`: 15,852 -> 15,009 bytes;
+  `src/bench/basic_compile_bench.bas` 10,504 -> 9,793, no slower. Tests
+  `test_basic_compile26_xemu.bas`, `test_basic_compile27_xemu.bas`.
+
 ### ca45: base-page stores and registers across branches (the leftovers of #567)
 
 - A store to a proc's base-page temporary is dropped when no path from it
