@@ -4,6 +4,20 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### basic45 --compile: a FOR drops a stack loop of its variable (#369)
+
+BASIC's `FOR` drops a loop of its variable that is still on the stack (one
+left by `GOTO`), with the entries above it; a later `NEXT` of one of those is
+`?NEXT WITHOUT FOR`. A counted loop (no entry of its own) did not, and the
+compiled program carried on. It does now (`__bas_fordrop`, only where the
+variable has stack loops elsewhere in the program), and a loop around such a
+one is no longer counted. Test `test_basic_compile25_xemu.bas`.
+
+`MERGE` will not be compiled (it adds lines to the program's text, as `SAVE`
+and `VERIFY` work on it): its error says so. Docs: the stale "Not compiled
+yet: `CHAR DEF`" note and the "a subset so far" wording removed, the xemu
+test count in `CLAUDE.md`.
+
 ### basic45 --compile: FOR I%, DIM of a scalar, computed TRAP / COLLISION lines (#369)
 
 Forms that were compile errors ("not supported by --compile"), now as the
