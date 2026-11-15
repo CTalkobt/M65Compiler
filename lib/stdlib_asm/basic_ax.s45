@@ -6,7 +6,11 @@
 ; first in A/X and the second in $12/$13 (cc45's __regparm call in the ZP
 ; convention: the first argument's slot $10 left free), store them and go on.
 ;   __bas_sseta: A/X the string (__bas_sa), $12 the variable (__bas_sr): _bas_sset
-;   __bas_scmpa: A/X the left string (__bas_sa), $12 the right (__bas_sb): _bas_scmp
+;   __bas_scmpa: A/X the left string (__bas_sa), $12 the right (__bas_sb): _bas_scmp;
+;                returns its result (-1, 0, 1) in A
+; The string functions (#580): A/X the result's buffer (__bas_sr), $12 the
+; string (__bas_sa), $14 the second (__bas_sb)
+;   __bas_scata, __bas_lefta, __bas_righta, __bas_mida, __bas_chra, __bas_stra
 
     .cpu 45gs02
 
@@ -15,12 +19,23 @@
 cc45.icallinfo = 1
 
 ARG2    = $12
+ARG3    = $14
 
 .extern __bas_sa
 .extern __bas_sb
 .extern __bas_sr
 .extern __bas_sset
 .extern __bas_scmp
+.extern __bas_n
+.extern __bas_scat
+.extern __bas_left
+.extern __bas_right
+.extern __bas_mid
+.extern __bas_chr
+.extern __bas_str
+.extern __bas_sp
+.extern __bas_stk
+.extern __bas_raise
 
     .split "__bas_sseta"
 .global __bas_sseta
@@ -42,4 +57,128 @@ __bas_scmpa:
     sta __bas_sb
     lda ARG2+1
     sta __bas_sb+1
-    jmp __bas_scmp
+    jsr __bas_scmp
+    lda __bas_n
+    rts
+
+; A/X to __bas_sr, $12 to __bas_sa
+    .split "__bas_arg2"
+.global __bas_arg2
+__bas_arg2:
+    sta __bas_sr
+    stx __bas_sr+1
+    lda ARG2
+    sta __bas_sa
+    lda ARG2+1
+    sta __bas_sa+1
+    rts
+
+    .split "__bas_scata"
+.global __bas_scata
+__bas_scata:
+    jsr __bas_arg2
+    lda ARG3
+    sta __bas_sb
+    lda ARG3+1
+    sta __bas_sb+1
+    jmp __bas_scat
+
+    .split "__bas_lefta"
+.global __bas_lefta
+__bas_lefta:
+    jsr __bas_arg2
+    jmp __bas_left
+
+    .split "__bas_righta"
+.global __bas_righta
+__bas_righta:
+    jsr __bas_arg2
+    jmp __bas_right
+
+    .split "__bas_mida"
+.global __bas_mida
+__bas_mida:
+    jsr __bas_arg2
+    jmp __bas_mid
+
+    .split "__bas_chra"
+.global __bas_chra
+__bas_chra:
+    sta __bas_sr
+    stx __bas_sr+1
+    jmp __bas_chr
+
+    .split "__bas_stra"
+.global __bas_stra
+__bas_stra:
+    sta __bas_sr
+    stx __bas_sr+1
+    jmp __bas_str
+
+
+; GOSUB's entry (#580): the return address A/X pushed on BASIC's stack
+; (basic_str.c: __bas_stk, 128 words). __bas_gosubc (--checks): a full
+; stack is ?OUT OF MEMORY
+    .split "__bas_gosubc"
+.global __bas_gosubc
+__bas_gosubc:
+    ldy __bas_sp
+    cpy #128
+    bcc __bas_gosub
+    lda #16
+    jmp __bas_raise
+
+    .split "__bas_gosub"
+.global __bas_gosub
+__bas_gosub:
+    pha
+    lda __bas_sp
+    asl a
+    tay
+    pla
+    sta __bas_stk,y
+    txa
+    sta __bas_stk+1,y
+    inc __bas_sp
+    rts
+
+; RETURN (#580): the topmost GOSUB's entry popped, with the FOR and DO
+; entries above it (two words each, the upper below 256); its address in
+; A/X. __bas_returnc (--checks): ?RETURN WITHOUT GOSUB without one.
+    .split "__bas_returnc"
+.global __bas_returnc
+__bas_returnc:
+@loop:
+    ldy __bas_sp
+    beq @none
+    dey
+    sty __bas_sp
+    tya
+    asl a
+    tay
+    ldx __bas_stk+1,y
+    bne @go
+    dec __bas_sp
+    bra @loop
+@go:
+    lda __bas_stk,y
+    rts
+@none:
+    lda #12
+    jmp __bas_raise
+
+    .split "__bas_return"
+.global __bas_return
+__bas_return:
+@loop:
+    dec __bas_sp
+    lda __bas_sp
+    asl a
+    tay
+    ldx __bas_stk+1,y
+    bne @go
+    dec __bas_sp
+    bra @loop
+@go:
+    lda __bas_stk,y
+    rts

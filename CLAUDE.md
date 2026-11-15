@@ -32,7 +32,8 @@ dependencies (SQLite and FUSE only for disk45):
   long variable names, block IF / proc, `--link` C functions, `--decompile`, `--disk`, `--emulator`;
   `--compile`: the program to machine code through cc45's IR and code generator, BASIC 65 but for the statements on the program's text (`MERGE`, `SAVE`, `LIST`…),
   `src/main/BasicCompiler.cpp`, run time `lib/stdlib_asm/basic_rt.s45` / `lib/stdlib/basic_str.c`, #369;
-  integer narrowing of whole-number float variables; `--speed`: the RAM float routines)
+  integer narrowing of whole-number float variables; `--speed`: the RAM float routines;
+  `--bank=N`: arrays and string variables in bank 1, 4 or 5, `lib/stdlib/basic_bank.c` / `stdlib_asm/basic_bankx.s45`, #580)
 - **disk45** — CBM disk/tape/archive image utility (25 formats, FUSE mount, SQLite catalog)
 - **asmCvt45** — assembler source converter between 7 dialects
 - **pack45** — packs data into a stream the library's `unpack()` (`<unpack.h>`) unpacks by DMA to any 28-bit
@@ -256,7 +257,7 @@ not change what is tested; a test's own later `-O` still wins. Use an
 explicit `-O<n>` in ad-hoc test commands too.
 
 - `make test` — unit tests (no emulator).
-- `bash src/test/test_xemu.sh` (`make test-xemu`) — runtime tests on xemu (1047 pass, about 1.5 minutes): each
+- `bash src/test/test_xemu.sh` (`make test-xemu`) — runtime tests on xemu (1061 pass, about 1.5 minutes): each
   `*_xemu.c` writes results to `$C0C0` (01 = pass, `$AA` sentinel), built in
   both conventions. New runtime tests follow this pattern and are registered
   in `test_xemu.sh`, most as one line: `xemu_case "FAIL message" <compile_link_test

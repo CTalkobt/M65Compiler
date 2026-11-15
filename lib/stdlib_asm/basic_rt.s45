@@ -152,7 +152,16 @@ __bas_prcr:
 ; PEEK / WPEEK (__bas_m: 1, 2 bytes) of the address in __bas_fa (32 bits)
 ; into __bas_n; POKE / WPOKE __bas_n there. As BASIC 65's: above 65535 a
 ; 28-bit address; below it the bank BANK set (__bas_bankx: the bank XOR
-; 128), 128 the CPU's map ((zp),y), another bank its 64 KB ([zp],z)
+; 128), 128 the CPU's map ((zp),y), another bank its 64 KB ([zp],z).
+; __bas_peeka: PEEK's value in A/X too (#580)
+    .split "__bas_peeka"
+.global __bas_peeka
+__bas_peeka:
+    jsr __bas_peek
+    lda __bas_n
+    ldx __bas_n+1
+    rts
+
     .split "__bas_peek"
 .global __bas_peek
 .global __bas_poke

@@ -28,6 +28,9 @@ struct BasicChainOptions {
     // QUANTITY, ?BAD SUBSCRIPT, ?SYNTAX ERROR when run, RETURN without GOSUB,
     // ...); off: none, undefined behaviour instead (#489)
     bool checks = false;
+    // --bank=N (#580): the arrays and the string variables in bank N (1, 4
+    // or 5; lib/stdlib/basic_bank.c), not on the program's heap; 0: there
+    int bank = 0;
     // --link (#369): the program's {name} references, each written as the
     // number $1000000 + its index (BASIC 65 has no such number): the
     // object's symbol (C's _name, an assembly label as it is) and whether

@@ -73,6 +73,7 @@ Without `-o` the output is the input name with its extension replaced by `.prg` 
 | `--import-map FILE` | `--compile`: the map file of `REM PRAGMA IMPORT` without one (the exporting program's `<output>.map`; see Chaining) |
 | `--checks` | `--compile`: the checks of the program's own values and flow, as the interpreter's: ranges (`?ILLEGAL QUANTITY`), subscripts, `?SYNTAX ERROR` found when run, `RETURN` / `NEXT` / `RESUME` without their match, the `GOSUB` stack, `DEF FN` not defined. Off by default: none of them is compiled, a program is taken to be tested already (undefined behaviour: it goes on with the next statement); errors of files, the disk and memory stay, and `TRAP` without `--checks` warns (#489) |
 | `--line-numbers` | `--compile`: each line that can raise an error records its number, for the messages' ` IN line` and `EL` (as the interpreter's). Off by default: smaller and faster code (8 bytes a line), an error's message without ` IN line` and `EL` 65535 (#483) |
+| `--bank=N` | `--compile`: the arrays and the string variables in bank N (1, 4 or 5) instead of the program's heap in bank 0 (`--bank=0`, the default): room for 53 KB (bank 1) or 65 KB of them whatever the program's size, an element's access some 10 % slower (see Compiling, #580) |
 | `--speed`, `-Ospeed` | `--compile`: `-O3` and float `+ - * /` and comparisons by the library's RAM routines (`float_fast.s45`) instead of the ROM's: faster, with the ROM's rounding fixes (see Compiling) |
 | `--convert=<dialect>` | Another BASIC's `.prg` or text listing as BASIC 65 basic45 source, with warnings for what needs a hand: `basic7` (C128 BASIC 7.0), `basic35` (C16 / Plus/4 BASIC 3.5), `simons` (C64 Simons' BASIC and TSB), `tsbneo` (TSBneo: `AT(row, column)`), `basic8` (C128 BASIC 8) ([Converting BASIC 7.0 Programs](#converting-basic-70-programs-convertbasic7)) |
 | `--ntsc`, `--pal` | With `--convert`: the source machine's video timing, for `TEMPO` and BASIC 3.5's `SOUND` (default `--pal`) |
@@ -678,34 +679,45 @@ The run-time support is `lib/stdlib_asm/basic_rt.s45` (PRINT, the errors, BASIC'
 - A number typed at `INPUT` or read from `DATA` is converted by the library's `strtof` (correctly rounded; its first
   80 characters); the interpreter's own conversion can differ in the last bit, as for numbers in the program.
 - Arrays and strings share the program's heap, from the end of the program to the stack's 1 KB share below `$BC00`
-  (some 15–30 KB, as large as the program is not); the interpreter keeps them in bank 1 (about 60 KB). A `DIM` that does not fit is
-  `?OUT OF MEMORY`.
+  (some 15–30 KB, as large as the program is not); the interpreter keeps them in bank 1 (about 53 KB). A `DIM` that does not fit is
+  `?OUT OF MEMORY`. With `--bank=1` (#580) the arrays and the string variables are in bank 1 as the interpreter's
+  (`$2000`–`$F6FF`), with `--bank=4` or `--bank=5` in that bank (`$0100`–`$FFFE`; nothing else may use the bank:
+  no `far_malloc`, no code overlays in bank 5, and no graphics `SCREEN`, whose bitplanes are in banks 4 and 5: basic45 warns), which leaves bank 1 to machine code or data of the program's
+  own. A variable then holds its array's or its string's offset in the bank (`lib/stdlib/basic_bank.c`: a heap of
+  blocks there); an element is copied through `__bas_ecell` (`stdlib_asm/basic_bankx.s45`, 32-bit indirect
+  addressing) and a string variable's value to a buffer in bank 0 where it is used. `POINTER` of a string or an
+  array element is then its offset in the bank. Measured (`src/bench/basic_compile_bench.bas`, frames): the sieve
+  64 → 71, the float array 48 → 54, the strings 14 → 18, and about 1 KB more code.
 - With `--speed`, `+ - * /` and comparisons are the library's RAM routines (`lib/stdlib_asm/float_fast.s45`,
   cc45's `-ffast-float`): their results are those of the BASIC 65 ROM with its float rounding fixed
   (correctly rounded products and quotients). The ROM of release 920413 rounds some products, quotients and
   sums differently in the last bit (`x * 1` is not always `x`), so the interpreter there can print a last
   digit differently. The functions (`SIN`, `LOG`, `^`, …) are the ROM's in both.
 
-**Speed and size**, measured on xemu (frames of 1/50 s for 3000 iterations; `bench.bas`-style loops):
+**Speed and size**, measured on xemu (`src/bench/basic_compile_bench.bas`: frames of 1/50 s, each loop
+repeated 5 or 10 times; ROM 920413):
 
-| Loop | Interpreted | Compiled | `--speed` |
-|---|---|---|---|
-| `for i = 1 to 3000 : s = s + i * 2` (`s` a float, `i` narrowed) | 18 | 10 | 8 |
-| `s = s * .999 + x / 3 - x * x` (floats only) | 35 | 28 | 24 |
-| `n% = n% + 1 : c% = c% + (n% and 1)` (`i` narrowed) | 41 | 2 | 2 |
-| string `LEFT$` / `CHR$` / `+` (300 times) | 5 | 5 | 5 |
-| `gosub` / `x = x + 1` / `return` (300 times) | 2 | 1 | 0 |
-| sieve of Eratosthenes to 3000 (a `%` array) | 75 | 10 | 8 |
-| `a(i) = a(i) + i`, 5 × 501 elements (a float array) | 23 | 10 | 8 |
+| Loop | Interpreted | Compiled (`-O2`) | `--speed` | Speed-up (`-O2` / `--speed`) |
+|---|---|---|---|---|
+| `for i = 1 to 3000 : s = s + i * 2` (`s` a float, `i` narrowed; 5 times) | 98 | 47 | 31 | 2.1× / 3.2× |
+| `s = s * .999 + x / 3 - x * x` (floats only; 15,000 times) | 183 | 144 | 66 | 1.3× / 2.8× |
+| `n% = n% + 1 : c% = c% + (n% and 1)` (`i` narrowed; 30,000 times) | 413 | 11 | 11 | 38× / 38× |
+| string `LEFT$` / `CHR$` / `+` (3,000 times) | 53 | 14 | 13 | 3.8× / 4.1× |
+| `gosub` / `x = x + 1` / `return` (3,000 times) | 27 | 9 | 5 | 3.0× / 5.4× |
+| sieve of Eratosthenes to 3000 (a `%` array; 5 times) | 344 | 64 | 34 | 5.4× / 10× |
+| `a(i) = a(i) + i`, 5 × 501 elements (a float array; 5 times) | 115 | 48 | 34 | 2.4× / 3.4× |
 
-Integer code is more than ten times as fast. Float arithmetic is not much faster: through the ROM each
-operation calls it with `JSRFAR` (and once more to round the result); the RAM routines of `--speed` take about
-half the time of that, but a float operation is still hundreds of cycles, as much as the interpreter's own. The
-compiled program is about seven times the size of the tokenized one (`test_basic_compile_xemu.bas`: 2.7 KB →
-18 KB): integers in 16 bits when their bounds allow, float constants as data and floats read and written in
+Integer code is some 38 times as fast. Float arithmetic gains less: through the ROM each
+operation calls it with `JSRFAR` (and once more to round the result), so a loop of floats only is 1.3 times as
+fast; the RAM routines of `--speed` make it about three times as fast, a float operation still being hundreds
+of cycles. The compiled program is about five times the size of the tokenized one, six with `--speed`
+(`test_basic_compile_xemu.bas`: 2,956 bytes → 15,009, `--speed` 18,850):
+integers in 16 bits when their bounds allow, float constants as data and floats read and written in
 place (cc45's code generator), `__bas_line` stored only where a line that can raise an error is entered,
 `NEXT` one call (`__bas_next`: a FOR's entry holds its step code's address), conditions of comparisons
-compiled as jumps where nothing in them has an effect. The next steps (#369): smaller code (the run time's arguments), strings and arrays in bank 1.
+compiled as jumps where nothing in them has an effect, `GOSUB` and `RETURN` calls of the run time
+(`__bas_gosub`, `__bas_return`: the address in A/X; inline with `--speed`), the string functions' buffer and
+strings in A/X, `$12` and `$14` (`basic_ax.s45`; an entry only when its uses save more than its code), #580.
 
 `test_basic_compile_xemu.bas` and `test_basic_compile2_xemu.bas` (input, loops, RND, DATA) are run interpreted and compiled (`-O2`, `-O0`, `--speed`) on xemu with the same results;
 `test_basic45.sh` checks the output, the errors and a `.prg` input.
