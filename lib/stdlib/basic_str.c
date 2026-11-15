@@ -134,6 +134,19 @@ void _bas_forpush(void) {
     _bas_stk[_bas_sp++] = id;
 }
 
+/* A counted loop's FOR (no entry of its own) of the variable number __bas_n:
+ * a loop of that variable on the stack goes, as in __bas_forpush */
+void _bas_fordrop(void) {
+    unsigned char v = (unsigned char)_bas_n;
+    unsigned char i = _bas_sp;
+    while (i >= 2) {
+        unsigned int e = _bas_stk[i - 1];
+        if (e >= 256 || e == 0) break;
+        if (_bas_forvar[e] == v) { _bas_sp = i - 2; break; }
+        i -= 2;
+    }
+}
+
 /* NEXT of the variable number __bas_n (0: any): the loop on top of the stack
  * that is one of it (the FOR loops above it dropped); __bas_n := its step
  * code's address. A GOSUB's or a DO's entry first, or none: ?NEXT WITHOUT FOR */

@@ -260,6 +260,7 @@ struct ForInfo {
     bool lead = false;       // the first token of its statement
     bool counted = false;    // a counted loop: no entry on BASIC's stack (countedLoops)
     bool isInt = false;      // an integer variable's (FOR I%): 16-bit start, limit and step
+    bool drop = false;       // a counted loop whose variable has loops on BASIC's stack: its FOR drops one there
 };
 
 class Compiler {
@@ -1901,7 +1902,11 @@ Val Compiler::fnCall() {
 // no GOTO, GOSUB, ON, RETURN, DO / LOOP / EXIT, BEGIN / BEND, CLR, THEN / ELSE
 // with a line number, no FOR of the same variable, no line a jump goes to,
 // no IF before the NEXT in its line (its false branch would skip it), and
-// only counted loops inside.
+// only counted loops inside. BASIC's FOR drops a loop of its variable on the
+// stack, with the entries above it: a counted loop whose variable has loops
+// on the stack elsewhere in the program (one left by GOTO may still be there)
+// does that too (__bas_fordrop), and the loops around it are not counted --
+// theirs may be among the entries that go, which their NEXT must find gone.
 void Compiler::countedLoops() {
     // (FGOTO / FGOSUB may go to any line)
     for (const auto& ln : lines_)
@@ -1997,15 +2002,21 @@ void Compiler::countedLoops() {
         }
         f.counted = ok && found;
     }
-    // only counted loops inside a counted one
+    // only counted loops inside a counted one, none of them of a variable
+    // with a loop on BASIC's stack
+    std::set<std::string> onStack;
     for (bool changed = true; changed;) {
         changed = false;
+        onStack.clear();
+        for (const auto& f : fors_)
+            if (!f.counted) onStack.insert(f.var);
         for (auto& f : fors_) {
             if (!f.counted) continue;
             for (int in : inner[f.id])
-                if (!fors_[in - 1].counted) { f.counted = false; changed = true; break; }
+                if (!fors_[in - 1].counted || onStack.count(fors_[in - 1].var)) { f.counted = false; changed = true; break; }
         }
     }
+    for (auto& f : fors_) f.drop = f.counted && onStack.count(f.var);
     for (const auto& f : fors_)
         if (f.counted) countedNext_[nextOf[f.id]] = f.id;
 }
@@ -2585,6 +2596,9 @@ void Compiler::statement() {
         // DSAVE / SAVE / VERIFY / DVERIFY: the BASIC program's text, which a
         // compiled program does not have
         fail(tokenName(kw) + " saves or compares the BASIC program's text, which a compiled program does not have");
+    case 0xE6:
+        // MERGE: lines added to the program's text (not to be compiled, #369)
+        fail("MERGE adds lines to the BASIC program's text, which a compiled program does not have");
     case T_CLOSE: {
         Val v = expr();
         store(ir::Type::I16, zext(toByte(v), ir::Type::I8, ir::Type::I16), global("__bas_n"));
@@ -5091,6 +5105,11 @@ void Compiler::forStmt() {
     }
     if (f.counted) {
         // a counted loop: nothing on BASIC's stack, its NEXT steps it
+        if (f.drop) {
+            // (a loop of its variable there goes, as at any FOR)
+            store(ir::Type::I16, iconst(ir::Type::I16, f.varIndex), global("__bas_n"));
+            call("__bas_fordrop");
+        }
         block("F" + std::to_string(f.id));
         entry();
         return;

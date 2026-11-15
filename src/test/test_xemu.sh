@@ -1199,6 +1199,21 @@ else
     echo "FAIL: test_basic_compile24_xemu.bas (basic45 or basic45 --compile --checks failed)"
     failed=$((failed + 1))
 fi
+# test_basic_compile25_xemu.bas: a FOR whose variable has a loop on BASIC's
+# stack drops it and the entries above, a counted loop too (#369); EL checked
+BC25_EXP="01 01 01 01 AA"
+if ./bin/basic45 src/test-resources/test_basic_compile25_xemu.bas -o build/test/test_basic_compile25_i.prg >/dev/null 2>&1 &&
+   ./bin/basic45 --compile --line-numbers src/test-resources/test_basic_compile25_xemu.bas -o build/test/test_basic_compile25.prg >/dev/null 2>&1 &&
+   ./bin/basic45 --compile --line-numbers -O0 src/test-resources/test_basic_compile25_xemu.bas -o build/test/test_basic_compile25_O0.prg >/dev/null 2>&1 &&
+   ./bin/basic45 --compile --line-numbers --speed src/test-resources/test_basic_compile25_xemu.bas -o build/test/test_basic_compile25_speed.prg >/dev/null 2>&1; then
+    run_xemu_test "test_basic_compile25_interpreted" "build/test/test_basic_compile25_i.prg" "C0C0" 5 "$BC25_EXP"
+    run_xemu_test "test_basic_compile25" "build/test/test_basic_compile25.prg" "C0C0" 5 "$BC25_EXP"
+    run_xemu_test "test_basic_compile25_O0" "build/test/test_basic_compile25_O0.prg" "C0C0" 5 "$BC25_EXP"
+    run_xemu_test "test_basic_compile25_speed" "build/test/test_basic_compile25_speed.prg" "C0C0" 5 "$BC25_EXP"
+else
+    echo "FAIL: test_basic_compile25_xemu.bas (basic45 or basic45 --compile failed)"
+    failed=$((failed + 1))
+fi
 # test_basic_compile22_xemu.bas: without --line-numbers (the default, #483) EL
 # stays 65535 after an error, ER and the trap as with them; compiled only
 BC22_EXP="01 01 01 AA"

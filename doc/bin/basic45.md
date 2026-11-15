@@ -15,7 +15,7 @@
 - **Block IF, select and procedures** — `if ... then` / `else` / `endif`, `select` / `case`, `proc name(params)` / `call`, local `.labels` ([Block IF and Procedures](#block-if-and-procedures))
 - **Assembly and binary data** — `asm` … `endasm`, `incbin`, `datainc` ([Assembly and Binary Data](#assembly-and-binary-data))
 - **Calling C** — `--link file.c`: C functions called with `SYS {name}` ([Calling C Functions](#calling-c-functions-link))
-- **Compiling** — `--compile`: the program as machine code, through cc45's IR and code generator; a subset of BASIC 65 so far ([Compiling](#compiling-compile))
+- **Compiling** — `--compile`: the program as machine code, through cc45's IR and code generator; BASIC 65 but for the statements that work on the program's text ([Compiling](#compiling-compile))
 - **Listing, source map, decompiler** — `--list`, `--source-map`, `--decompile` ([Listing, Source Map and Decompiling](#listing-source-map-and-decompiling))
 - **Converting other dialects** — `--convert=basic7`, `basic35`, `simons`, `basic8`: a BASIC 7.0 (C128), BASIC 3.5 (C16 / Plus/4), Simons' BASIC (C64) or BASIC 8 (C128) program as BASIC 65 source ([Converting BASIC 7.0 Programs](#converting-basic-70-programs-convertbasic7))
 - **Disk image, emulator, hardware** — `--disk`, `--emulator` (xemu), `--send` (a MEGA65), `--watch`
@@ -340,7 +340,7 @@ computed by the BASIC 65 ROM's routines (the library's float runtime), PRINT for
 FOUT, and run-time errors print BASIC's message (`?DIVISION BY ZERO ERROR IN 30`) and end the program (the exit
 status at `$FD`/`$FE` is the error number), after which BASIC's `READY.` follows.
 
-**What is compiled** (a first step; anything else is an error naming the statement, at its line):
+**What is compiled** (anything else is an error naming the statement, at its line):
 
 | | |
 |---|---|
@@ -423,7 +423,8 @@ same drive). `FREAD# lf, address, size` / `FWRITE#` move `size` bytes (0: 65536)
 as `InputBuffer`), `LINE INPUT ["prompt";] a$ [, ...]` the rest of the typed line as it is (commas, colons,
 leading spaces). `DIRECTORY` is `DIR` (basic45 crunches it as BASIC 65 does: `DIR` and the `ECTORY` token, `$FE $29`). `DIR` of the SD card (`U12`) is the ROM's `dir_sd`, ported to assembly (`stdlib_asm/basic_dirsd.s45`, linked only by a program with `DIR` or `CATALOG`): the hypervisor's directory, each entry's size and name, the pattern's `*`, `?`, `#` (a digit) and `$` (a letter) as the ROM matches them, `[MORE]` in the page mode; test `test_dirsd_xemu.bas` (the interpreter's screen and the compiled program's, on a card disk45 makes).
 `DSAVE`, `SAVE`, `VERIFY` and `DVERIFY` are errors: they save or compare the BASIC program's text, which a compiled
-program does not have.
+program does not have. So is `MERGE`, which adds lines to it, and it will stay one; the editor's commands (`LIST`,
+`NEW`, `CONT`, `AUTO`, `RENUMBER`, `EDIT`, `FIND`, `CHANGE`, `HELP`, `INFO`, `MONITOR`) are not compiled either.
 
 **Chaining**: `DLOAD name [, D drive] [, U unit] [ON U unit]` and `LOAD [name [, device [, secondary]]]` in a running
 program load the next program and run it from its first line, as the interpreter does (`load_it`; the program
@@ -511,7 +512,7 @@ draw screen (its CMAP into the palette), both as the kernel does, quirks too: th
 the lengths but not written, so an 8-plane screen's file (a one-colour CMAP) makes `LOADIFF` read past its end
 and never return, in the interpreter as well; a file of another depth than the screen's sets the area to
 pen 0 (a shallower file) or leaves it as it is (a deeper one); an error's number is what the kernel's A held (the I/O status, or
-a byte of a chunk id: `?FILE DATA` is not given). Not compiled yet: `CHAR DEF`. The run time is about 20 KB
+a byte of a chunk id: `?FILE DATA` is not given). The run time is about 20 KB
 (a program using most of it at `-O0` or `--speed` can pass `$C000`); more of it is to become assembly. Tests:
 `test_basic_compile11_xemu.bas`, `test_basic_compile12_xemu.bas`, `test_basic_compile13_xemu.bas`,
 `test_basic_compile14_xemu.bas`.
@@ -642,7 +643,11 @@ argument searches as far as a value left in its float accumulator says. `RPT$` i
 after `THEN`), the `NEXT` is the first one matching it in the text, and in between there is no `GOTO`, `GOSUB`,
 `ON`, `RETURN`, `DO` / `LOOP` / `EXIT`, `BEGIN` / `BEND`, `THEN` / `ELSE` with a line number, `FOR` of the same
 variable or line a jump goes to, no `IF` before the `NEXT` in its line, and only counted loops inside. Every other
-loop uses the stack as the interpreter does.
+loop uses the stack as the interpreter does. BASIC's `FOR` drops a loop of its variable that is on the stack
+(one left by `GOTO`), with the entries above it: a counted loop whose variable has stack loops elsewhere in the
+program does that as well (`__bas_fordrop`), and a loop around such a one is not counted, as its own entry may be
+among those that go (its `NEXT` is then `?NEXT WITHOUT FOR`, as in the interpreter; test
+`test_basic_compile25_xemu.bas`).
 
 **Arrays** are blocks on the heap (`malloc`): the number of dimensions, each one's size, the elements (floats
 5 bytes, integers 2, strings a pointer). As in BASIC 65, a subscript is 0..65535 (`?ILLEGAL QUANTITY` outside
@@ -1043,7 +1048,7 @@ A label is recognised when `name:` is followed by a space or the end of the line
 
 - `--link` uses the ZP calling convention and `c45.lib`; for stack-convention C, declare the called functions `__fastcall__`.
 - `--send`'s default commands (`etherload -r`, `m65 -F -r`) are untested; use `--send-cmd` with the options your tools need.
-- `--compile` compiles a subset of BASIC 65 ([Compiling](#compiling-compile)), and not with `--link` or `asm` blocks yet.
+- `--compile` does not compile the statements that work on the program's text, `MERGE` among them ([Compiling](#compiling-compile)), and not with `--link` or `asm` blocks yet.
 
 `test_basic45_xemu.bas` (as is, `--minify` and `--preserve-spaces`), `test_basic45_features_xemu.bas` (as is, decompiled and rebuilt, and formatted), `test_basic45_link_xemu.bas` (C, asm, incbin, datainc) and `test_basic45_numbered_xemu.bas` (a numbered program; `MOD`, `LOG10`, `WPEEK`, `POINTER`, `WPOKE`, `<<`, `>>`) are run by BASIC 65 on xemu; `src/test/test_basic45.sh` (`make test`) checks the tokens and messages.
 
