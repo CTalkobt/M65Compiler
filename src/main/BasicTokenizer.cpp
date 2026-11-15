@@ -578,6 +578,16 @@ bool isDiskParameter(const std::vector<BasicToken>& t, size_t s, size_t i) {
     const std::string& v = t[i].value;
     char c = (char)std::toupper((unsigned char)v[0]);
     if (std::string("DUBPLWIR").find(c) == std::string::npos) return false;
+    // I and a disk's two-character ID, letters too (HEADER "N", IAB): the ROM
+    // takes the two characters after the I as they are, so at a parameter's
+    // place (after a comma) the name is no variable. Not RECORD's and
+    // DMODE's, whose commas are followed by expressions
+    if (c == 'I' && v.size() == 3 && i > s && t[i - 1].type == BasicToken::OPERATOR && t[i - 1].value == "," &&
+        t[s].value != "RECORD" && t[s].value != "DMODE" &&
+        std::isalnum((unsigned char)v[1]) && std::isalnum((unsigned char)v[2]) &&
+        !(i + 1 < t.size() && t[i + 1].type == BasicToken::OPERATOR &&
+          (t[i + 1].value == "(" || t[i + 1].value == "$" || t[i + 1].value == "%")))
+        return true;
     for (size_t k = 1; k < v.size(); k++) if (!std::isdigit((unsigned char)v[k])) return false;
     return true;
 }

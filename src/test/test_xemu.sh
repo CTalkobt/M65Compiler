@@ -1214,6 +1214,28 @@ else
     echo "FAIL: test_basic_compile25_xemu.bas (basic45 or basic45 --compile failed)"
     failed=$((failed + 1))
 fi
+# test_header_id_xemu.bas: HEADER's disk ID with letters and reserved names
+# (IAB, I5X, IST, ITI), read back from the directory; interpreted and compiled,
+# each on a disk of its own
+HID_EXP="01 01 01 01 01 AA"
+if ./bin/basic45 src/test-resources/test_header_id_xemu.bas -o build/test/test_header_id_i.prg >/dev/null 2>&1 &&
+   ./bin/basic45 --compile --checks src/test-resources/test_header_id_xemu.bas -o build/test/test_header_id.prg >/dev/null 2>&1 &&
+   ./bin/basic45 --compile --checks -O0 src/test-resources/test_header_id_xemu.bas -o build/test/test_header_id_O0.prg >/dev/null 2>&1 &&
+   ./bin/basic45 --compile src/test-resources/test_header_id_xemu.bas -o build/test/test_header_id_nochk.prg >/dev/null 2>&1; then
+    for hid in i "" O0 nochk; do
+        hidn="test_header_id${hid:+_$hid}"
+        rm -f "build/test/$hidn.d81"
+        if ./bin/disk45 create "build/test/$hidn.d81" -n "HID" >/dev/null 2>&1; then
+            run_xemu_test "$hidn" "build/test/$hidn.prg" "C0C0" 6 "$HID_EXP" -8 "$PWD/build/test/$hidn.d81"
+        else
+            echo "FAIL: $hidn (disk45 create failed)"
+            failed=$((failed + 1))
+        fi
+    done
+else
+    echo "FAIL: test_header_id_xemu.bas (basic45 or basic45 --compile failed)"
+    failed=$((failed + 1))
+fi
 # test_basic_compile22_xemu.bas: without --line-numbers (the default, #483) EL
 # stays 65535 after an error, ER and the trap as with them; compiled only
 BC22_EXP="01 01 01 AA"

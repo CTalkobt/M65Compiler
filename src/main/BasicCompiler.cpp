@@ -1511,7 +1511,7 @@ private:
             return strCall(kw == T_LEFT ? "__bas_left" : kw == T_RIGHT ? "__bas_right" : "__bas_mid", &s, nullptr);
         }
         default:
-            fail(tokenName(kw) + " is not supported by --compile yet");
+            fail(tokenName(kw) + " is not a value in an expression (?SYNTAX ERROR)");
         }
     }
 
@@ -2800,8 +2800,16 @@ void Compiler::statement() {
         // are a ?SYNTAX ERROR, as in the installed ROM)
         if (!stmtEnd()) fail("TURBO takes no parameters (?SYNTAX ERROR)");
         return;
-    default:
-        fail(tokenName(kw) + " is not supported by --compile yet");
+    default: {
+        // the editor's commands: the program's text or direct mode, which a
+        // compiled program does not have (not to be compiled, #369)
+        static const std::set<std::string> editor = {"LIST", "NEW", "CONT", "AUTO", "RENUMBER", "EDIT", "FIND",
+                                                     "CHANGE", "HELP", "INFO", "MONITOR"};
+        std::string name = tokenName(kw);
+        if (editor.count(name))
+            fail(name + " is a command of BASIC's editor (the program's text, direct mode), which a compiled program does not have");
+        fail(name + " does not start a statement (?SYNTAX ERROR)");
+    }
     }
 }
 
@@ -2970,13 +2978,13 @@ int Compiler::dosArgs(const char* what, int errflags, std::vector<Val>& names, i
                         store(ir::Type::I8, ir::Operand::imm((uint8_t)t->text[1], ir::Type::I8), global("__bas_did0"));
                         store(ir::Type::I8, ir::Operand::imm((uint8_t)t->text[2], ir::Type::I8), global("__bas_did1"));
                     } else syn("I takes two characters or a string in ( )");
-                } else syn("this parameter is not supported by --compile" + near());
+                } else syn("not a parameter (a name, #, U, D, P, B, W, L, R, I or ON expected)" + near());
             } else {
                 if (t->k == TK::Str || isCh('(')) nameTo(2, "__bas_sb");
                 else if (acceptKw(T_ON)) onU();
                 else if (t->k == TK::Name && t->text[0] == 'U') { byteTo("__bas_du2", optValue()); flx |= 2; par |= 8; }
                 else if (t->k == TK::Name && t->text[0] == 'D') { once(0x20); byteTo("__bas_dd2", optValue()); }
-                else syn("this parameter after TO is not supported by --compile" + near());
+                else syn("not a parameter after TO (a name, D, U or ON expected)" + near());
             }
             if (atEnd() || isKw(T_ELSE)) break;
             if (acceptCh(',')) continue;

@@ -4,6 +4,24 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### basic45: a disk ID with letters; --compile: the editor's commands will not be compiled (#369)
+
+- `HEADER "N", IAB` (a disk ID with a letter in it): basic45 took `IAB` for a
+  long variable name and shortened it to `IA`, in the tokenized program and
+  the compiled one (where it was "I takes two characters"). `I` and two
+  characters at a disk statement's parameter place are the ID now, as the ROM
+  reads them (without quotes; `IST`, `ITI` too). Test `test_header_id_xemu.bas`.
+- `--compile`: `LIST`, `NEW`, `CONT`, `AUTO`, `RENUMBER`, `EDIT`, `FIND`,
+  `CHANGE`, `HELP`, `INFO` and `MONITOR` are errors that say why (the editor's
+  commands: the program's text or direct mode), as `MERGE`'s; they will not be
+  compiled.
+- `--compile`: the errors that said "not supported by --compile (yet)" for
+  what is a `?SYNTAX ERROR` in the interpreter too (a function starting a
+  statement, a statement's keyword in an expression, something that is no
+  parameter of a disk statement) say that instead.
+- Compiling part of a program and interpreting the rest ("mixed programs") is
+  no longer part of #369: an issue of its own.
+
 ### basic45 --compile: a FOR drops a stack loop of its variable (#369)
 
 BASIC's `FOR` drops a loop of its variable that is still on the stack (one
