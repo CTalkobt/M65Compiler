@@ -316,6 +316,13 @@ private:
     // a ZEXT to 32 bits whose one use is a multiply by a byte constant right
     // after it (#585): __mul16y32 takes the source in A/X (ZEXT dest -> source)
     std::map<uint32_t, ir::Operand> zext32Mul_;
+    // 32-bit constants added to a value in Q (adcq has no immediate form):
+    // value -> label, one per file, in the data segment after the functions
+    std::map<uint32_t, std::string> q32Lits_;
+    // a 32-bit value just computed in Q (inst's, not stored yet) and a
+    // constant added to it next, its one use: clc; adcq <constant>, the sum
+    // stored; false: nothing emitted
+    bool addConstInQ(const ir::Inst& inst);
     // the bits of the function's values known to be 0 (#350; #348's
     // zero-extended longs among them): byte-wise operations, no carries
     // where none can happen

@@ -311,8 +311,12 @@ the 24-bit product in A/X/Y, Z 0) instead of `l` widened to four bytes and a
 32-bit multiply by a four-byte 12. A widening whose one use is that multiply
 right after it emits nothing (`zext32Mul_`: the multiply reads its source);
 a value otherwise known to fit 16 bits is loaded as it is. In loops too;
-not with `-fno-mul-call`. `g = LINES[l].y`: 63 → 41 bytes. Test:
-`test_far_index_mul_xemu.c`.
+not with `-fno-mul-call`. A constant added to the product next (the array's
+base), the product's one use, is added in Q: `clc / adcq __q32_<value>` and
+one `stq` (`addConstInQ`; the constant, four bytes in the data segment, is
+shared by the file's sites), when two or more of its bytes are not 0: one
+byte is cheaper added by itself. After `__mul32` too. `g = LINES[l].y`:
+63 → 36 bytes. Test: `test_far_index_mul_xemu.c`.
 
 **A and Y at a return, a repeated `ldy #0`** (#586): the same marks say what
 the `rts` of a cc45 proc reads of the registers: A only with a result

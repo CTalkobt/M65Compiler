@@ -3,7 +3,10 @@
  * index: the element's offset), is a call of __mul16y32 (A/X times Y, 24
  * bits), the value read before its widening.
  *
- * Results at $C0C0: 1 = pass; [10] $AA.
+ * The base added to the product next is added in Q (clc; adcq <constant>)
+ * when two or more of its bytes are not 0.
+ *
+ * Results at $C0C0: 1 = pass; [13] $AA.
  */
 #include <stdint.h>
 
@@ -32,6 +35,20 @@ uint32_t __attribute__((noinline)) twice(uint16_t l) { uint32_t w = l; return w 
 uint32_t __attribute__((noinline)) times300(uint16_t l) { return (uint32_t)l * 300; }
 uint32_t __attribute__((noinline)) wide12(uint32_t l) { return l * 12; }
 
+/* the product plus a constant: added in Q (bytes 1 and 2; all four with the
+ * carry through them; the same constant twice; one byte: byte by byte) */
+#define LINES2 ((struct line __far *)0x4D000UL)
+uint16_t __attribute__((noinline)) get_y2(uint16_t l) { return LINES2[l].y; }
+void __attribute__((noinline)) set_y2(uint16_t l, uint16_t v) { LINES2[l].y = v; }
+uint32_t __attribute__((noinline)) plus4(uint16_t l) { return (uint32_t)l * 12 + 0x12F4F6F8UL; }
+uint32_t __attribute__((noinline)) plus4b(uint8_t b) { return 0x12F4F6F8UL + (uint32_t)b * 200; }
+uint32_t __attribute__((noinline)) plus1(uint16_t l) { return (uint32_t)l * 12 + 0x00FF0000UL; }
+/* the 32-bit multiply's product */
+uint32_t __attribute__((noinline)) wide300(uint16_t l) { return (uint32_t)l * 300 + 0x00FFFF01UL; }
+uint32_t __attribute__((noinline)) widev(uint32_t a, uint32_t b) { return a * b + 0x80000001UL; }
+/* the product used again: not added in Q */
+uint32_t __attribute__((noinline)) again(uint16_t l) { uint32_t p = (uint32_t)l * 12; return (p + 0x00012345UL) ^ p; }
+
 int main(void) {
     uint8_t *r = (uint8_t *)0xC0C0;
     uint16_t i;
@@ -54,6 +71,15 @@ int main(void) {
     r[7] = byte200(vb) == 51000UL && byte200(2) == 400;
     r[8] = twice(vi) == 720885UL && twice(7) == 77;
     r[9] = times300(vi) == 19660500UL && wide12(100000UL) == 1200000UL && wide12(0x10000000UL) == 0xC0000000UL;
-    r[10] = 0xAA;
+    for (i = 0; i < 6; i++) set_y2(at[i], 0x2200 + i);
+    r[10] = get_y2(0) == 0x2200 && get_y2(300) == 0x2202 && get_y2(5462) == 0x2204 && get_y2(6000) == 0x2205 &&
+            *(uint16_t __far *)(0x4D000UL + 6000UL * 12 + 2) == 0x2205 && get_y(6000) == 0x1105;
+    vi = 65535; vb = 255;
+    r[11] = plus4(vi) == 0x12F4F6F8UL + 786420UL && plus4(1) == 0x12F4F704UL && plus4(0) == 0x12F4F6F8UL &&
+            plus4b(vb) == 0x12F4F6F8UL + 51000UL && plus1(vi) == 0x00FF0000UL + 786420UL;
+    r[12] = wide300(vi) == 19660500UL + 0x00FFFF01UL && wide300(1) == 0x01000001UL + 44 &&
+            widev(100000UL, 3) == 0x80000001UL + 300000UL && widev(0x10000UL, 0x8000UL) == 1 &&
+            again(vi) == ((786420UL + 0x12345UL) ^ 786420UL) && again(0) == 0x12345UL;
+    r[13] = 0xAA;
     return 0;
 }

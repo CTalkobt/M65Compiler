@@ -4298,7 +4298,7 @@ done
 for fmmode in "zp|" "stack|-fno-zpcall" "O0|-O0" "O1|-O1" "O3|-O3" "nocall|-fno-mul-call"; do
     IFS='|' read -r fmname fmflags <<< "$fmmode"
     echo "Testing test_far_index_mul_xemu.c ($fmname)..."
-    xemu_case "FAIL: test_far_index_mul_xemu.c $fmname (compilation/linking failed)" "src/test-resources/test_far_index_mul_xemu.c" "build/test/test_far_index_mul_${fmname}_xemu.prg" "$fmflags" -- "test_far_index_mul_$fmname" "build/test/test_far_index_mul_${fmname}_xemu.prg" "C0C0" 11 "01 01 01 01 01 01 01 01 01 01 AA"
+    xemu_case "FAIL: test_far_index_mul_xemu.c $fmname (compilation/linking failed)" "src/test-resources/test_far_index_mul_xemu.c" "build/test/test_far_index_mul_${fmname}_xemu.prg" "$fmflags" -- "test_far_index_mul_$fmname" "build/test/test_far_index_mul_${fmname}_xemu.prg" "C0C0" 14 "01 01 01 01 01 01 01 01 01 01 01 01 01 AA"
 done
 
 # Test: an array member of a struct / union is its address (#594: s.a + n kept
