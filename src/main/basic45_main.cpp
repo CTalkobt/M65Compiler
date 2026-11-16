@@ -71,6 +71,7 @@ struct Options {
     std::string diskName;         // --disk-name: its name there
     std::vector<std::string> linkFiles;   // --link: C / asm / .o45 to link in
     std::string linkLib;                  // --lib: the C library for --link
+    std::string mapFile;                  // --map: ln45's -M map of the --link / --compile build (#595)
     char encoding = 'u';                  // --encoding: strings without a prefix
     bool report = false;                  // --report: memory use
     bool send = false;                    // --send: to a MEGA65 (etherload / m65)
@@ -218,6 +219,8 @@ static void printUsage(const char* progName) {
     std::cout << "  --link <file>       Link a C (.c), assembly (.s45) or object (.o45) file" << std::endl;
     std::cout << "                      after the program; SYS {name} calls its function name" << std::endl;
     std::cout << "  --lib <file>        The C library for --link (default: c45.lib)" << std::endl;
+    std::cout << "  --map <file>        Write the link map of a --link or --compile build (ln45 -M: symbols," << std::endl;
+    std::cout << "                      call graph, calls through pointers, base-page blocks)" << std::endl;
     std::cout << "  --decompile         Turn a BASIC .prg into basic45 source (also for a .prg input)" << std::endl;
     std::cout << "  --compile           Compile the program to machine code (a .prg run with RUN); the" << std::endl;
     std::cout << "                      input can also be a tokenized BASIC 65 .prg. -O0 .. -O4 (default -O2)" << std::endl;
@@ -365,6 +368,8 @@ static Options parseArgs(int argc, char* argv[]) {
             opts.linkFiles.push_back(argv[++i]);
         } else if (arg == "--lib" && i + 1 < argc) {
             opts.linkLib = argv[++i];
+        } else if (arg == "--map" && i + 1 < argc) {
+            opts.mapFile = argv[++i];
         } else if (arg == "--send") {
             opts.send = true;
         } else if (arg == "--send-cmd" && i + 1 < argc) {
@@ -629,8 +634,9 @@ static bool compileToMachineCode(const Options& opts, const char* argv0, std::ve
                    "assembling the compiled program") &&
               // (a 1 KB share for the CPU stack: the run time's functions are statically
               // allocated, nothing recurses; the heap, arrays and strings, gets the rest)
-              step(shellQuote(tools + "/ln45") + " -basic --stack-size=1024 -o " + shellQuote(prg) + " " + shellQuote(obj) +
-                       extra + " " + shellQuote(lib),
+              step(shellQuote(tools + "/ln45") + " -basic --stack-size=1024" +
+                       (opts.mapFile.empty() ? std::string() : " -M " + shellQuote(opts.mapFile)) + " -o " +
+                       shellQuote(prg) + " " + shellQuote(obj) + extra + " " + shellQuote(lib),
                    "linking the compiled program");
     if (ok) binary = readBinary(prg);
     if (!getenv("BASIC45_KEEP_TMP")) fs::remove_all(tmp);
@@ -923,6 +929,8 @@ int main(int argc, char* argv[]) {
     // $1000000 + k, which the compiler makes the symbol's address (a SYS's C
     // function: a direct call)
     const bool compileLink = opts.compile && linking;
+    if (!opts.mapFile.empty() && !linking && !opts.compile)
+        std::cerr << "basic45: warning: --map needs --link or --compile (nothing is linked: no map written)" << std::endl;
     std::vector<BasicChainOptions::LinkSym> linkSyms;
     if (compileLink) {
         std::regex ref(R"((\bsys\s*)?\{([A-Za-z_]\w*)\})", std::regex::icase);
@@ -1180,6 +1188,8 @@ int main(int argc, char* argv[]) {
         snprintf(base, sizeof base, "%04X", codeBase);
         std::string codePrg = (tmp / "code.prg").string();
         std::string cmd = shellQuote(tools + "/ln45") + " -prg -m -t " + base + " -o " + shellQuote(codePrg);
+        // (--map with --compile: the compiled program's link writes it, below)
+        if (!opts.mapFile.empty() && !opts.compile) cmd += " -M " + shellQuote(opts.mapFile);
         for (const auto& o : objects) cmd += " " + shellQuote(o);
         cmd += " " + shellQuote(lib);
         if (!step(cmd, "linking")) return 1;

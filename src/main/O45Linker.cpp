@@ -2562,12 +2562,15 @@ void O45Linker::buildCallGraph(std::map<std::string, std::set<std::string>>& gra
             else if (!marked && exp.segmentId() == SEG_TEXT) icallers.insert(sacBase(exp.name));
         }
     }
-    for (const auto& c : icallers) Logger::stream(LogLevel::DEBUG) << "call graph: " << c << " calls through any pointer\n";
+    // (the lines of the -vv log and of the -M map, #595)
+    mapPointerCalls_.clear();
+    for (const auto& c : icallers) mapPointerCalls_.push_back("call graph: " + c + " calls through any pointer");
     for (const auto& [c, sigs] : sigCallers)
-        for (const auto& sig : sigs) Logger::stream(LogLevel::DEBUG) << "call graph: " << c << " calls through pointers " << sig << "\n";
+        for (const auto& sig : sigs) mapPointerCalls_.push_back("call graph: " + c + " calls through pointers " + sig);
     for (const auto& t : addrTaken)
-        Logger::stream(LogLevel::DEBUG) << "call graph: address of " << t << " used"
-                    << (funcSig.count(t) ? ", parameters " + funcSig[t] : std::string()) << "\n";
+        mapPointerCalls_.push_back("call graph: address of " + t + " used" +
+                                   (funcSig.count(t) ? ", parameters " + funcSig[t] : std::string()));
+    for (const auto& l : mapPointerCalls_) Logger::stream(LogLevel::DEBUG) << l << "\n";
     if (!pointerCalls) return;
     for (const auto& c : icallers)
         for (const auto& t : addrTaken)
@@ -2679,8 +2682,12 @@ bool O45Linker::computeZarOverlay(std::string& errorMsg) {
         zarOffset_[f] = zarLo_ + at;
         zarUsed_ = std::max(zarUsed_, at + len);
         zarTotal_ += len;
-        Logger::stream(LogLevel::DEBUG) << "base-page block: " << f << " at $" << std::hex << (zarLo_ + at) << std::dec
-                    << " len " << len << "\n";
+        {
+            std::ostringstream l;
+            l << "base-page block: " << f << " at $" << std::hex << (zarLo_ + at) << std::dec << " len " << len;
+            mapBasePage_.push_back(l.str());
+            Logger::stream(LogLevel::DEBUG) << l.str() << "\n";
+        }
     }
     ln45info() << "base-page blocks: " << blocks.size() << " functions, " << zarTotal_ << " bytes in "
                << zarUsed_ << "\n";
@@ -2900,7 +2907,12 @@ bool O45Linker::placeZpVars(std::string& errorMsg) {
     uint32_t at = ZAR_HI - zpVarTotal_;
     for (const auto& [sym, size] : zpVarSize_) {
         zpVarAddr_[sym] = at;
-        Logger::stream(LogLevel::DEBUG) << "__zp variable: " << sym << " at $" << std::hex << at << std::dec << " len " << size << "\n";
+        {
+            std::ostringstream l;
+            l << "__zp variable: " << sym << " at $" << std::hex << at << std::dec << " len " << size;
+            mapBasePage_.push_back(l.str());
+            Logger::stream(LogLevel::DEBUG) << l.str() << "\n";
+        }
         at += size;
     }
     ln45info() << "__zp variables: " << zpVarAddr_.size() << ", " << zpVarTotal_ << " bytes\n";
@@ -4588,6 +4600,19 @@ void O45Linker::writeMap(std::ostream& out) const {
             }
             out << "\n";
         }
+    }
+
+    // What the -vv log says of calls through pointers and of the base page
+    // (#595): the same lines, for a build that links against this program
+    if (!mapPointerCalls_.empty()) {
+        out << "\nCalls Through Pointers\n";
+        out << "----------------------\n";
+        for (const auto& l : mapPointerCalls_) out << "  " << l << "\n";
+    }
+    if (!mapBasePage_.empty()) {
+        out << "\nBase Page\n";
+        out << "---------\n";
+        for (const auto& l : mapBasePage_) out << "  " << l << "\n";
     }
 
     // Source line map section — one entry per unique file:line (first address only)

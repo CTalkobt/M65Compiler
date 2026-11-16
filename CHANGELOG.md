@@ -4,6 +4,18 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### basic45 `--map`: the link map of a `--link` / `--compile` build; ln45's map says more (#595)
+
+- `basic45 --map out.map` writes ln45's `-M` map of the program's link
+  (`--link`: the linked code; `--compile`: the compiled program). A build
+  that links a module against the program no longer has to find the `ln45`
+  command in basic45's `-v` log and run it again.
+- ln45's `-M` map has two more parts, **Calls Through Pointers** and **Base
+  Page**: the lines the `-vv` log has (`call graph: F calls through any
+  pointer`, `base-page block: F at $XX len N`, `__zp variable: …`), in a
+  format kept stable.
+- Test: `src/test/test_basic45.sh`.
+
 ### basic45 `--minify`: structured programs and `'` comments (#598)
 
 - The blank between two words was dropped when the second began with `_`,
