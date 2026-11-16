@@ -2730,6 +2730,50 @@ bool AssemblerOptimizer::optimizeInternal(
                 }
                 continue;
             }
+            // ldx $zp ... txa, X not read after: lda $zp in the txa's place (the
+            // same base-page byte in the same mode; 1 byte less, #586). Between
+            // them only loads, transfers from A and stores of one base-page
+            // byte other than that one: X, the byte and the flags as they were.
+            if (reg == 'X' && m == "txa" && !(liveOut(i) & 1)) {
+                auto bpAddr = [](const std::string& o, long& v) {
+                    if (o.empty()) return false;
+                    char* end = nullptr;
+                    v = o[0] == '$' ? strtol(o.c_str() + 1, &end, 16) : strtol(o.c_str(), &end, 10);
+                    return end && *end == 0 && end != o.c_str() + (o[0] == '$' ? 1 : 0) && v >= 0 && v < 256;
+                };
+                std::vector<long> stored;
+                size_t k = i;
+                bool found = false;
+                while (k-- > 0) {
+                    auto* t = st[k].get();
+                    if (t->deleted) continue;
+                    if (t->type == AssemblerParser::Statement::DIRECTIVE && lower(t->dir.name) == "loc" && t->label.empty()) continue;
+                    if (t->type != AssemblerParser::Statement::INSTRUCTION || !t->label.empty() || t->noOpt || !cc45At[k]) break;
+                    std::string tm = lower(t->instr.mnemonic);
+                    AddressingMode md = t->instr.mode;
+                    if (tm == "ldx") { found = md == AddressingMode::BASE_PAGE; break; }
+                    long v;
+                    if ((tm == "sta" || tm == "sty" || tm == "stz") && md == AddressingMode::BASE_PAGE && bpAddr(t->instr.operand, v)) {
+                        stored.push_back(v);
+                        continue;
+                    }
+                    if ((tm == "lda" || tm == "ldy" || tm == "ldz") && (md == AddressingMode::IMMEDIATE || md == AddressingMode::BASE_PAGE)) continue;
+                    if (tm == "clc" || tm == "sec" || tm == "tay" || tm == "taz") continue;
+                    break;
+                }
+                long src;
+                if (found && bpAddr(st[k]->instr.operand, src) &&
+                    std::find(stored.begin(), stored.end(), src) == stored.end()) {
+                    report("ldx-txa", s, "LDX " + st[k]->instr.operand + " ... TXA -> LDA " + st[k]->instr.operand + " (X not read after)");
+                    bool up = !st[k]->instr.mnemonic.empty() && st[k]->instr.mnemonic[0] == 'L';
+                    std::swap(st[k], st[i]);                 // (the load where the txa was)
+                    st[i]->instr.mnemonic = up ? "LDA" : "lda";
+                    st[k]->deleted = true;
+                    st[k]->size = 0;
+                    changed = true;
+                }
+                continue;
+            }
             // inx / dex (iny / dey) next to each other: X as it was, only the flags
             if (reg != 'A' && (m == inc || m == dec)) {
                 size_t j = i + 1;

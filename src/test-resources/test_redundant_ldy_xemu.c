@@ -4,7 +4,10 @@
  * 0: after a loop that steps it, where paths with different Y meet, after a
  * call; and a long's upper bytes (Y, Z) must still be returned.
  *
- * Results at $C0C0: 1 = pass; [10] $AA.
+ * And ldx $zp ... txa with X not read after is lda $zp (a far pointer built
+ * from a 16-bit parameter).
+ *
+ * Results at $C0C0: 1 = pass; [11] $AA.
  */
 #include <stdint.h>
 
@@ -46,6 +49,11 @@ uint32_t __attribute__((noinline)) wide2(uint8_t *p, uint8_t c) { uint32_t v = 0
 uint16_t __attribute__((noinline)) word(uint8_t *p) { return ((uint16_t)*p << 8) | 0x34; }
 uint8_t __attribute__((noinline)) byte(uint8_t *p) { *p = 7; return 0x5A; }
 
+/* the far address from a 16-bit index: its high byte loaded once */
+#define FB ((uint8_t __far *)0x40100UL)
+void __attribute__((noinline)) far_or(uint16_t i, uint8_t m) { FB[i] |= m; }
+uint8_t __attribute__((noinline)) far_get(uint16_t i) { return FB[i]; }
+
 int main(void) {
     uint8_t *r = (uint8_t *)0xC0C0;
     uint8_t a = 0x5A, b = 0x0F;
@@ -66,6 +74,9 @@ int main(void) {
     r[7] = wide(vp) == 0x01021234UL && wide2(vp + 2, 1) == 0x00030001UL && wide2(vp, 0) == 0x00AB0001UL;
     r[8] = word(vp + 4) == 0x0534;
     r[9] = byte(buf + 14) == 0x5A && buf[14] == 7;
-    r[10] = 0xAA;
+    FB[0x1234] = 0x41; FB[0x0234] = 0; FB[0x1334] = 0;
+    far_or(0x1234, 0x82);
+    r[10] = far_get(0x1234) == 0xC3 && far_get(0x0234) == 0 && far_get(0x1334) == 0;
+    r[11] = 0xAA;
     return 0;
 }
