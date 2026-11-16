@@ -1176,9 +1176,10 @@ bool AssemblerOptimizer::optimizeInternal(
     // does the caller read N / Z after the rts at statement j? Not in a cc45
     // proc (.var cc45.fp) without .var cc45.retnz (#351); else assumed
     // what the caller reads after the rts at statement j: N / Z (bit 1), X
-    // (bit 2). A cc45 proc (.var cc45.fp) says: .var cc45.retnz (a char's
-    // result is tested by the flags), .var cc45.retx (X part of the result);
-    // any other proc: both (#351)
+    // (bit 2), Y (bit 4). A cc45 proc (.var cc45.fp) says: .var cc45.retnz (a
+    // char's result is tested by the flags), .var cc45.retx (a result: A, and
+    // its X part), .var cc45.rety (a long's Y and Z, #586); any other proc:
+    // all (#351)
     std::map<const AssemblerParser::Statement*, int> procRet;
     std::set<std::string> bsrCalled;
     bool bsrTargetsKnown = false;
@@ -1188,10 +1189,10 @@ bool AssemblerOptimizer::optimizeInternal(
                           (parser->statements[p]->instr.mnemonic == "proc" || parser->statements[p]->instr.mnemonic == "endproc")))
             --p;
         auto* ps = parser->statements[p].get();
-        if (ps->type != AssemblerParser::Statement::INSTRUCTION || ps->instr.mnemonic != "proc") return 3;
+        if (ps->type != AssemblerParser::Statement::INSTRUCTION || ps->instr.mnemonic != "proc") return 7;
         auto c = procRet.find(ps);
         if (c != procRet.end()) return c->second;
-        bool cc45 = false, retnz = false, retx = false, routine = false;
+        bool cc45 = false, retnz = false, retx = false, rety = false, routine = false;
         // (a routine a bsr calls, SeqExtract's: its rts returns into code,
         // not to the caller: everything read)
         if (!bsrTargetsKnown) {
@@ -1213,8 +1214,9 @@ bool AssemblerOptimizer::optimizeInternal(
             if (t->dir.varName.find("cc45.fp") != std::string::npos) cc45 = true;
             if (t->dir.varName.find("cc45.retnz") != std::string::npos) retnz = true;
             if (t->dir.varName.find("cc45.retx") != std::string::npos) retx = true;
+            if (t->dir.varName.find("cc45.rety") != std::string::npos) rety = true;
         }
-        return procRet[ps] = !cc45 || routine ? 3 : (retnz ? 1 : 0) | (retx ? 2 : 0);
+        return procRet[ps] = !cc45 || routine ? 7 : (retnz ? 1 : 0) | (retx ? 2 : 0) | (rety ? 4 : 0);
     };
     auto rtsReadsNZ = [&](size_t j) { return (rtsReads(j) & 1) != 0; };
     auto nzLiveAfter = [&](size_t i, std::string& why) -> bool {
@@ -2001,10 +2003,9 @@ bool AssemblerOptimizer::optimizeInternal(
                 RegId r = loadRegId(m);
                 bool redundant = false;
 
-                // Never eliminate LDY #0 — it's used before indirect indexed addressing and must be retained
-                if (m == "LDY" && isImm && hasNumVal && (numVal & 0xFF) == 0) {
-                    redundant = false;
-                } else if (isImm && hasNumVal) {
+                // (ldy #0 with Y already 0 goes like any other, #586: the
+                // machine state forgets Y at a label and after iny)
+                if (isImm && hasNumVal) {
                     // Check: register already holds this constant?
                     redundant = ms.reg[r].isConst(numVal & 0xFF);
                 } else if (isZP && hasNumVal) {
@@ -2664,10 +2665,10 @@ bool AssemblerOptimizer::optimizeInternal(
             bool rmbSmb = m.size() == 4 && (m.compare(0, 3, "rmb") == 0 || m.compare(0, 3, "smb") == 0);
             if (rmbSmb) { e = FALL; continue; }
             // (a cc45 function's rts reads X / the flags only when its result
-            // has them, #351; A and Y: always)
+            // has them, #351; A with X: any result; Y: a long's, #586)
             if (m == "rts") {
                 int rr = rtsReads(i);
-                e = (reg != 'X' || (rr & 2) ? RX : 0) | (rr & 1 ? RF : 0);
+                e = (rr & (reg == 'Y' ? 4 : 2) ? RX : 0) | (rr & 1 ? RF : 0);
                 continue;
             }
             if (reg == 'X') {

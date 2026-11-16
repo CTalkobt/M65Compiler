@@ -304,6 +304,16 @@ also drops a dead `lda` / `ldy` of an immediate or a base-page byte, and an
 `dead-ldy`, `dead-incdec`).
 Examples: 737 bytes.
 
+**A and Y at a return, a repeated `ldy #0`** (#586): the same marks say what
+the `rts` of a cc45 proc reads of the registers: A only with a result
+(`cc45.retx`), Y only with a `long`'s (`.var cc45.rety = 1`: a result wider
+than a pointer, or inline asm / `__cpu` writes / an interrupt), so a load of
+either that only the return follows goes (`dead-lda`, `dead-ldy`). And ca45's
+redundant-load pass drops an `ldy #0` when Y is known to be 0, as it does any
+other constant load (it kept every one before): `*d ^= k` is `ldy #0 / lda
+($10),y / eor $12 / sta ($10),y`, one `ldy #0`, not two. Test:
+`test_redundant_ldy_xemu.c`.
+
 `foldGlobalOffsetAccess` (`IROptimizer.cpp`, after `foldElemIndexOffset`;
 tag `globaloff`; under `addr-elem-fusion`'s switch) gives a load or store
 through `%p = add ptr @g, c` (`%p` defined once and used only as such
