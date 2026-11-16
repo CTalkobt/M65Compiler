@@ -248,10 +248,12 @@ std::string BasicPreprocessor::expandMacros(const std::string& line) {
         // Simple text substitution (not handling parameterized macros yet)
         size_t pos = 0;
         while ((pos = result.find(name, pos)) != std::string::npos) {
-            // Check word boundaries
-            bool validBefore = (pos == 0 || !std::isalnum(result[pos - 1]));
+            // Whole identifiers only: a letter, digit or '_' on either side
+            // makes it another name (GET_IMPORT in GET_IMPORT_PREP, #582)
+            auto ident = [](char c) { return std::isalnum((unsigned char)c) || c == '_'; };
+            bool validBefore = (pos == 0 || !ident(result[pos - 1]));
             bool validAfter = (pos + name.length() >= result.length() ||
-                             !std::isalnum(result[pos + name.length()]));
+                             !ident(result[pos + name.length()]));
 
             if (validBefore && validAfter) {
                 result.replace(pos, name.length(), macro.value);

@@ -1,4 +1,6 @@
 #include "BasicStructured.hpp"
+#include "LabelBasedSourceParser.hpp"
+#include <cstring>
 #include <algorithm>
 #include <cctype>
 #include <filesystem>
@@ -45,6 +47,27 @@ std::vector<std::string> splitTop(const std::string& s) {
 
 bool isComment(const std::string& t) {
     return !t.empty() && (t[0] == '\'' || t.compare(0, 3, "REM") == 0 || lower(t.substr(0, 4)) == "rem ");
+}
+
+// The line without a ' comment after its statement (#583). Not in a string,
+// nor after REM or DATA (their text is kept as written).
+std::string stripTrailingComment(const std::string& t) {
+    bool inStr = false;
+    auto letter = [](char c) { return std::isalpha((unsigned char)c) != 0; };
+    for (size_t i = 0; i < t.size(); i++) {
+        char c = t[i];
+        if (c == '"') { inStr = !inStr; continue; }
+        if (inStr) continue;
+        if (c == '\'') return trim(t.substr(0, i));
+        if (letter(c) && (i == 0 || !(letter(t[i - 1]) || t[i - 1] == '_'))) {
+            for (const char* w : {"rem", "data"}) {
+                size_t n = strlen(w);
+                if (lower(t.substr(i, n)) == w && (i + n >= t.size() || !(letter(t[i + n]) || t[i + n] == '_')))
+                    return t;
+            }
+        }
+    }
+    return t;
 }
 
 // .name (a local label) -> __l<scope>_name, outside strings
@@ -221,6 +244,8 @@ BasicStructuredResult lowerBasicStructured(const std::string& source,
             continue;
         }
 
+        // a ' comment after the statement: dropped (#583)
+        t = stripTrailingComment(t);
         std::string line = localize(t, scope);
         std::string label, code = line;
         std::smatch m;
@@ -281,6 +306,10 @@ BasicStructuredResult lowerBasicStructured(const std::string& source,
             labelAlone();
             emit((b.hasElse ? "__endif" : "__else") + std::to_string(b.id) + ":", lineNum);
         } else if (std::regex_match(code, m, procRe)) {
+            // (its name is a label: a keyword there would be the statement,
+            // "call directory" a GOSUB of the DIRECTORY token, #584)
+            if (basic45IsReservedWord(m[1].str()))
+                error(lineNum, "proc name '" + m[1].str() + "' is a BASIC keyword");
             int id = nextId++;
             stack.push_back({'p', id, false, lineNum, 0, ""});
             labelAlone();

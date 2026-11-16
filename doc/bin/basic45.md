@@ -108,7 +108,7 @@ again: print "x"
 - Every line with code is one BASIC line, numbered 10, 20, 30, ... (`--increment`).
 - A label with no code on its line (`main_loop:` alone) names the next line with code (or, at the end of the source, an extra line holding `:`).
 - A label is used by name after `GOTO`, `GOSUB`, `GO TO` (also each item of `ON x GOTO a, b, c`), `THEN`, `ELSE`, `RESTORE`, `TRAP`, `RESUME` and `RUN`, and becomes that line's number. Labels are matched without regard to case (`goto Again` finds `again:`). A reserved word alone after `GOTO`, `GOSUB` or `GO TO` (`goto end`, an item of `ON x GOTO`) is an error; after `THEN` / `ELSE` it is the statement (`then end`).
-- Lines starting with `'` or upper-case `REM` are dropped. Lines starting with `#` that are not preprocessor directives are dropped by the preprocessor, so `#` works as a comment.
+- Lines starting with `'` or upper-case `REM` are dropped, and so is a `'` comment after a statement (`print a ' the total`); a `'` in a string, after `REM` or in a `DATA` statement is kept. Lines starting with `#` that are not preprocessor directives are dropped by the preprocessor, so `#` works as a comment.
 - Leading/trailing whitespace is removed; blank lines are ignored.
 
 ### Numbered Programs
@@ -250,7 +250,7 @@ endproc                        ' return
 | `if <cond> then` (nothing after `THEN`) | `IF (<cond>)=0 THEN <else>` — `=0` is "false" for any value (BASIC's `NOT` is bitwise) |
 | `else` | `GOTO <endif>`, and the else part's label |
 | `endif` (or `end if`) | the label after the block |
-| `proc name` or `proc name(a, b$, ...)` | `GOTO <after>` and the label `name` |
+| `proc name` or `proc name(a, b$, ...)` | `GOTO <after>` and the label `name` (a name that is exactly a BASIC keyword, `directory`, `help`, is an error; `directory1` is fine) |
 | `endproc` | `RETURN` and the label after it |
 | `call name` | `GOSUB name` |
 | `call name(x, y$, ...)` | `A = x : B$ = y$ : GOSUB name` — the arguments are assigned to the parameters left to right (they are ordinary, global variables) |
@@ -994,7 +994,7 @@ Directives start with `#` (leading whitespace allowed) and are removed from the 
 
 | Directive | Effect |
 |-----------|--------|
-| `#define NAME value` | Object-like macro; `NAME` is replaced as a whole word everywhere, including inside strings. No parameters. |
+| `#define NAME value` | Object-like macro; `NAME` is replaced as a whole identifier (not inside a longer name: `GET_IMPORT` is left alone in `GET_IMPORT_PREP`) everywhere, including inside strings. No parameters. |
 | `#undef NAME` | Remove a macro |
 | `#ifdef NAME` / `#ifndef NAME` | Conditional on whether `NAME` is defined |
 | `#elif NAME` | Else-if `NAME` is defined |
