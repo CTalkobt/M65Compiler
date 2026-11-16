@@ -1586,6 +1586,9 @@ void IRBuilder::visit(FunctionDeclaration& node) {
     // break N counts only this function's loops (a nested function's body)
     struct LoopBase { size_t& b; size_t saved; LoopBase(size_t& r, size_t v) : b(r), saved(r) { r = v; } ~LoopBase() { b = saved; } }
         loopBase(loopBase_, loopStack_.size());
+    // (the body whose variables' changes pointerNeverChanges looks at, #581)
+    struct ScanBody { ASTNode*& b; ASTNode* saved; ScanBody(ASTNode*& r, ASTNode* v) : b(r), saved(r) { r = v; } ~ScanBody() { b = saved; } }
+        scanBody(ptrScanBody_, node.body.get());
     // Module-private name for a static function (also when only its prototype is static)
     if (!node.isMethod) {
         auto rn = staticRenames_.find(node.name);
@@ -3854,6 +3857,7 @@ void IRBuilder::resetFunctionLocalState() {
     localPointsToConst_.clear();
     localRegister_.clear();
     localPointedToType_.clear();
+    localConstPtrValue_.clear();
     localArrayDims_.clear();
     localPtrLevel_.clear();
     localPointedToTypeName_.clear();
@@ -4572,8 +4576,12 @@ void IRBuilder::visit(VariableDeclaration& node) {
     if (node.pointerLevel > 0) {
         localPointedToType_[node.name] = mapType(node.type, node.pointerLevel - 1);
         localPointedToTypeName_[node.name] = resolvedVarTypeName;
-        // Track constant pointer initializer for propagation
-        if (node.initializer) {
+        // A pointer that does not change (T *const p = (T *)K, or one the
+        // function never assigns, steps or takes the address of): stores
+        // through it go to the address itself. Only those: a pointer that is
+        // assigned, stepped (p++, p += n) or has its address taken is not at
+        // K any more (#581)
+        if (node.initializer && (node.isPointerConst || pointerNeverChanges(node.name))) {
             if (auto* intLit = dynamic_cast<IntegerLiteral*>(node.initializer.get())) {
                 localConstPtrValue_[node.name] = intLit->value;
             } else if (auto* castExpr = dynamic_cast<CastExpression*>(node.initializer.get())) {
@@ -5137,6 +5145,47 @@ bool hasSideEffect(Expression* e) {
 }
 }
 
+// The variables a function's body may change after their declaration: the
+// targets of assignments, ++ / --, those whose address is taken, and names
+// declared more than once (a shadowing block). Inline assembly: any (#581)
+namespace {
+class VarWriteFinder : public ASTWalker {
+public:
+    std::set<std::string> names;
+    std::set<std::string> declared;
+    bool any = false;
+    using ASTWalker::visit;
+    void note(Expression* e) {
+        if (auto* v = dynamic_cast<VariableReference*>(e)) names.insert(v->name);
+    }
+    void visit(UnaryOperation& n) override {
+        if (n.op.rfind("++", 0) == 0 || n.op.rfind("--", 0) == 0 || n.op == "&") note(n.operand.get());
+        ASTWalker::visit(n);
+    }
+    void visit(Assignment& n) override {
+        note(n.target.get());
+        ASTWalker::visit(n);
+    }
+    void visit(VariableDeclaration& n) override {
+        if (!declared.insert(n.name).second) names.insert(n.name);
+        ASTWalker::visit(n);
+    }
+    void visit(AsmStatement&) override { any = true; }
+};
+}
+
+bool IRBuilder::pointerNeverChanges(const std::string& name) {
+    if (!ptrScanBody_) return false;
+    auto it = ptrWrites_.find(ptrScanBody_);
+    if (it == ptrWrites_.end()) {
+        VarWriteFinder f;
+        ptrScanBody_->accept(f);
+        if (f.any) f.names.insert("");      // ("": every name)
+        it = ptrWrites_.emplace(ptrScanBody_, std::move(f.names)).first;
+    }
+    return !it->second.count("") && !it->second.count(name);
+}
+
 void IRBuilder::visit(Assignment& node) {
     if (farUsed_ && emitFarAssign(node)) return;
     if (farUsed_ && node.op == "=") {
@@ -5324,8 +5373,9 @@ void IRBuilder::visit(Assignment& node) {
     }
 
     // 1.5 Fast path: *const_ptr = literal → emit direct store with immediate, no vreg
+    // (a plain assignment only: *p ^= K stores the old value changed, #581)
     if (auto* deref = dynamic_cast<UnaryOperation*>(node.target.get())) {
-        if (deref->op == "*") {
+        if (deref->op == "*" && node.op == "=") {
             if (auto* ref = dynamic_cast<VariableReference*>(deref->operand.get())) {
                 auto cit = localConstPtrValue_.find(ref->name);
                 if (cit != localConstPtrValue_.end()) {
@@ -5659,20 +5709,8 @@ void IRBuilder::visit(Assignment& node) {
     if (auto* ref = dynamic_cast<VariableReference*>(node.target.get())) {
         auto lit = locals_.find(ref->name);
         if (lit != locals_.end()) {
-            // Track constant pointer assignments for propagation
-            if (storeType == ir::Type::PTR || localPointedToType_.count(ref->name)) {
-                bool tracked = false;
-                if (auto* intLit = dynamic_cast<IntegerLiteral*>(node.expression.get())) {
-                    localConstPtrValue_[ref->name] = intLit->value;
-                    tracked = true;
-                } else if (auto* castExpr = dynamic_cast<CastExpression*>(node.expression.get())) {
-                    if (auto* intLit2 = dynamic_cast<IntegerLiteral*>(castExpr->expression.get())) {
-                        localConstPtrValue_[ref->name] = intLit2->value;
-                        tracked = true;
-                    }
-                }
-                if (!tracked) localConstPtrValue_.erase(ref->name);
-            }
+            // (an assigned pointer is not a known address: #581)
+            localConstPtrValue_.erase(ref->name);
             // Direct store to local vreg
             ir::Inst store;
             store.op = ir::Op::STORE;
@@ -5712,7 +5750,8 @@ void IRBuilder::visit(Assignment& node) {
 
                     // Use immediate operand if RHS is a literal (avoids CONST vreg entirely)
                     ir::Operand val;
-                    if (auto* litExpr = dynamic_cast<IntegerLiteral*>(node.expression.get())) {
+                    auto* litExpr = dynamic_cast<IntegerLiteral*>(node.expression.get());
+                    if (litExpr && node.op == "=") {
                         val = ir::Operand::imm(litExpr->value, derefInfo.type);
                     } else {
                         val = emitCast(rhsVal, derefInfo.type, derefInfo.isSigned);
@@ -7346,7 +7385,12 @@ void IRBuilder::visit(FunctionCall& node) {
 
                         size_t savedLoopBase = loopBase_;
                         loopBase_ = loopStack_.size();
-                        if (inlineFunc->body) inlineFunc->body->accept(*this);
+                        {
+                            ASTNode* savedScan = ptrScanBody_;
+                            ptrScanBody_ = inlineFunc->body.get();
+                            if (inlineFunc->body) inlineFunc->body->accept(*this);
+                            ptrScanBody_ = savedScan;
+                        }
                         loopBase_ = savedLoopBase;
 
                         // Emit fall-through branch to merge label for implicit return
@@ -8088,7 +8132,12 @@ normal_call:
             // Visit the inlined function body
             size_t savedLoopBase = loopBase_;
             loopBase_ = loopStack_.size();
-            inlineFunc->body->accept(*this);
+            {
+                ASTNode* savedScan = ptrScanBody_;
+                ptrScanBody_ = inlineFunc->body.get();
+                inlineFunc->body->accept(*this);
+                ptrScanBody_ = savedScan;
+            }
             loopBase_ = savedLoopBase;
             inlineCallLoc_ = savedInlineCallLoc;
 

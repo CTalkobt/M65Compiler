@@ -213,6 +213,11 @@ private:
     std::map<std::string, ir::Type> localPointedToType_; // for pointers: the type of *ptr
     std::map<std::string, std::string> localPointedToTypeName_; // for pointers: the type name of *ptr
     std::map<std::string, int64_t> localConstPtrValue_; // constant pointer value (for propagation)
+    // the body being built (a function's, an inlined one's) and, per body, the
+    // variables it may change after their declaration ("": any), #581
+    ASTNode* ptrScanBody_ = nullptr;
+    std::map<ASTNode*, std::set<std::string>> ptrWrites_;
+    bool pointerNeverChanges(const std::string& name);
     std::map<std::string, ir::Type> globalPointedToType_; // for global pointers
     std::map<std::string, std::string> globalPointedToTypeName_; // for global pointers: the type name of *ptr
     std::map<std::string, std::vector<int>> localArrayDims_; // for stride computation
