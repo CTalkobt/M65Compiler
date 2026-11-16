@@ -699,6 +699,14 @@ IRBuilder::IRTypeInfo IRBuilder::getExprTypeInfo(Expression* expr) {
             if (info.type == ir::Type::PTR) {
                 info.pointedToType = mapType(mit->type, 0);
             }
+            // An array member is its address, as an array variable is (it
+            // decays to a pointer to its element): s.a + n took the address
+            // for a value of the element's type and kept its low byte (#594)
+            if (!mit->arrayDims.empty()) {
+                info.pointedToType = info.type;
+                info.type = ir::Type::PTR;
+                if (mit->arrayDims.size() == 1) info.ptrDepth = mit->pointerLevel + 1;
+            }
             return info;
         }
         // Fallback: search all structs
@@ -821,6 +829,15 @@ IRBuilder::IRTypeInfo IRBuilder::getExprTypeInfo(Expression* expr) {
             // pointer level left after the indices past its array dimensions
             // (char *names[3]: names[i] a pointer, names[i][k] a char)
             if (auto* ma = dynamic_cast<MemberAccess*>(root)) {
+                // not the member's last dimension: a sub-array, its address
+                // (s.g[2] of char g[4][5]; s.g[2] + 3, sizeof s.g[2]; #594)
+                if (auto* mi = arrayMemberOf(ma); mi && depth < (int)mi->arrayDims.size()) {
+                    int totalSize = getTypeSize(mi->type, mi->pointerLevel);
+                    for (size_t i = depth; i < mi->arrayDims.size(); i++) totalSize *= mi->arrayDims[i];
+                    IRTypeInfo r{ir::Type::PTR, mi->type, false, mapType(mi->type, mi->pointerLevel), totalSize};
+                    if (depth + 1 == (int)mi->arrayDims.size()) r.ptrDepth = mi->pointerLevel + 1;
+                    return r;
+                }
                 if (auto* mi = arrayMemberOf(ma); mi && mi->pointerLevel > 0) {
                     int through = depth - (int)mi->arrayDims.size();
                     if (through >= 0 && mi->pointerLevel >= through) {
