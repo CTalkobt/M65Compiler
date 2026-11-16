@@ -508,6 +508,24 @@ if [ $rc = 0 ] && ! grep -qi 'warning\|error' <<< "$out" &&
 else
     fail "--minify of a structured program ($rc): $out $($B --decompile "$D/mn.prg" -o - 2>/dev/null)"
 fi
+# #595: --map writes ln45's -M map of a --link and of a --compile build, with
+# the calls through pointers and the base-page blocks the -vv log has; a
+# warning when nothing is linked
+printf 'unsigned char g;\nstatic void a(void){g++;}\nstatic void b(void){g--;}\nvoid (*tab[2])(void)={a,b};\nunsigned int twice(unsigned int x){ unsigned char *p=&g; tab[x&1](); return x*2+*p; }\n' > "$D/mapf.c"
+printf 'sys {twice}, 5\nprint 1\n' > "$D/mapl.bas"
+printf 'a = 3\nprint a*2\n' > "$D/mapc.bas"
+ok=1
+$B "$D/mapl.bas" --link "$D/mapf.c" --map "$D/mapl.map" -o "$D/mapl.prg" > "$D/mapl.log" 2>&1 || ok=0
+grep -q '^Symbols (by address)' "$D/mapl.map" 2>/dev/null && grep -q ' _twice ' "$D/mapl.map" &&
+    grep -q '^Calls Through Pointers' "$D/mapl.map" && grep -q '^  call graph: _twice calls through pointers ' "$D/mapl.map" &&
+    grep -q '^Base Page' "$D/mapl.map" && grep -Eq '^  base-page block: _twice at \$[0-9a-f]+ len [0-9]+$' "$D/mapl.map" || ok=0
+$B --compile "$D/mapc.bas" --map "$D/mapc.map" -o "$D/mapc.prg" > "$D/mapc.log" 2>&1 || ok=0
+grep -q '^Symbols (by address)' "$D/mapc.map" 2>/dev/null && grep -q '^Call Graph' "$D/mapc.map" &&
+    grep -Eq '^  base-page block: [A-Za-z_0-9]+ at \$[0-9a-f]+ len [0-9]+$' "$D/mapc.map" || ok=0
+out=$($B "$D/mapc.bas" --map "$D/mapn.map" -o "$D/mapn.prg" 2>&1)
+grep -q -- '--map needs --link or --compile' <<< "$out" && [ ! -e "$D/mapn.map" ] || ok=0
+[ $ok = 1 ] && pass "--map: ln45's map of a --link and a --compile build, pointer calls and base-page blocks (#595)" ||
+    fail "--map: $(cat "$D/mapl.log" "$D/mapc.log" 2>/dev/null) $out"
 
 echo "basic45 tests: $passed passed, $failed failed"
 [ $failed -eq 0 ]

@@ -606,6 +606,10 @@ private:
     std::map<int, std::vector<SacMove>> sacMoves_;
     uint32_t sacOverlayLen_ = 0;      // size of the overlay area
     std::map<std::string, uint32_t> zarOffset_;   // function → its base-page block (.zar)
+    // for the -M map (#595), as the -vv log has them: "base-page block: F at
+    // $XX len N", "__zp variable: V at $XX len N", "call graph: F calls
+    // through any pointer"
+    std::vector<std::string> mapBasePage_, mapPointerCalls_;
     std::map<std::string, uint32_t> zarSize_;     // function → block size
     std::set<std::string> zarWrapped_;            // functions reached through a save/restore wrapper
     std::map<uint32_t, uint32_t> zarWrapAt_;      // entry address → its wrapper
