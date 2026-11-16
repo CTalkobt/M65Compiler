@@ -17,6 +17,11 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
   `void` one as not reading A: a load only the return follows goes.
 - The library: 2.1 KB smaller (`c45.lib` 1,498,235 → 1,496,067 bytes,
   `c45_stack.lib` 1,484,842 → 1,482,795).
+- `ldx $zp … txa` with X not read after is `lda $zp` in the `txa`'s place
+  (`ldx-txa`: the same base-page byte in the same mode, 1 byte less; between
+  them only loads, transfers from A and stores of other base-page bytes). A
+  far pointer built from a 16-bit parameter loads its high byte once. The
+  library: another 107 bytes (`c45.lib` 1,495,960).
 - Test: `test_redundant_ldy_xemu.c` (zp, stack, `-O0`, `-O1`, `-O3`).
 
 ### cc45: a store through a pointer went to a constant address the pointer no longer held (#581, #589)

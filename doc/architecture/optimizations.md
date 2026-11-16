@@ -311,7 +311,11 @@ than a pointer, or inline asm / `__cpu` writes / an interrupt), so a load of
 either that only the return follows goes (`dead-lda`, `dead-ldy`). And ca45's
 redundant-load pass drops an `ldy #0` when Y is known to be 0, as it does any
 other constant load (it kept every one before): `*d ^= k` is `ldy #0 / lda
-($10),y / eor $12 / sta ($10),y`, one `ldy #0`, not two. Test:
+($10),y / eor $12 / sta ($10),y`, one `ldy #0`, not two. And `ldx $zp … txa`
+with X not read after the `txa` is `lda $zp` there (`ldx-txa`; cc45's procs
+only): the same base-page byte in the same addressing mode, so it follows the
+relocated base page as the `ldx` did; only loads, `tay` / `taz`, `clc` /
+`sec` and stores of other single base-page bytes may lie between. Test:
 `test_redundant_ldy_xemu.c`.
 
 `foldGlobalOffsetAccess` (`IROptimizer.cpp`, after `foldElemIndexOffset`;
