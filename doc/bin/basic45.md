@@ -46,7 +46,7 @@ Without `-o` the output is the input name with its extension replaced by `.prg` 
 | `--label-table <file>` | Write a tab-separated label table: label, line number, address of the line |
 | `--docs <file>` | Write markdown documentation of labeled sections |
 | `-I <path>` | Include search path for `#include` (one path; a later `-I` replaces an earlier one) |
-| `--minify` | Remove `REM` comments and whitespace, and join lines into the line before them: never across a label (a jump target starts its own line), never onto a line containing `IF` (statements after `THEN` run only when the condition holds), at most 160 characters per line |
+| `--minify` | Remove `REM` and `'` comments and whitespace (a blank stays where two names, keywords or numbers would run together, `_` counted as a name's character: `goto __endif1`), and join lines into the line before them: never across a label (a jump target starts its own line), never onto a line containing `IF` (statements after `THEN` run only when the condition holds), at most 160 characters per line |
 | `--preserve-spaces` | Keep the blanks the source has between tokens (outside strings) instead of basic45's spacing (one space after a keyword before a name, number or operator), so the program lists as it was typed. Not the indentation: BASIC lists one space after the line number |
 | `--validate` | Run the preprocessor and validation only; write nothing |
 | `--strict` | Treat validation warnings as errors (exit status 1) |
@@ -1065,7 +1065,7 @@ A label is recognised when `name:` is followed by a space or the end of the line
 - `--send`'s default commands (`etherload -r`, `m65 -F -r`) are untested; use `--send-cmd` with the options your tools need.
 - `--compile` does not compile the statements that work on the program's text, `MERGE` among them ([Compiling](#compiling-compile)), and not with `--link` or `asm` blocks yet.
 
-`test_basic45_xemu.bas` (as is, `--minify` and `--preserve-spaces`), `test_basic45_features_xemu.bas` (as is, decompiled and rebuilt, and formatted), `test_basic45_link_xemu.bas` (C, asm, incbin, datainc) and `test_basic45_numbered_xemu.bas` (a numbered program; `MOD`, `LOG10`, `WPEEK`, `POINTER`, `WPOKE`, `<<`, `>>`) are run by BASIC 65 on xemu; `src/test/test_basic45.sh` (`make test`) checks the tokens and messages.
+`test_basic45_xemu.bas` (as is, `--minify` and `--preserve-spaces`), `test_basic45_struct_xemu.bas` (block IF, select, procs with local labels, comments; as is and `--minify`), `test_basic45_features_xemu.bas` (as is, decompiled and rebuilt, and formatted), `test_basic45_link_xemu.bas` (C, asm, incbin, datainc) and `test_basic45_numbered_xemu.bas` (a numbered program; `MOD`, `LOG10`, `WPEEK`, `POINTER`, `WPOKE`, `<<`, `>>`) are run by BASIC 65 on xemu; `src/test/test_basic45.sh` (`make test`) checks the tokens and messages.
 
 ## See Also
 
