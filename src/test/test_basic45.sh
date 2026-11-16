@@ -460,5 +460,40 @@ grep -q 'SIN does not start a statement (?SYNTAX ERROR)' "$D/sx.log" && grep -q 
 [ $ok = 1 ] && pass "--compile: the editor's commands and MERGE say why; misplaced keywords are syntax errors" ||
     fail "--compile editor commands / syntax errors"
 
+# #582: a #define name is replaced as a whole identifier only (GET_IMPORT in
+# GET_IMPORT_PREP was: A=7_PREP)
+printf '#define GET_IMPORT 7\n#define GET_IMPORT_PREP 6\na = GET_IMPORT_PREP\nb = GET_IMPORT\nc = (GET_IMPORT)+GET_IMPORT_PREP\n' > "$D/df.bas"
+$B "$D/df.bas" -o "$D/df.prg" > "$D/df.log" 2>&1
+[ "$(xxd -p -s 2 "$D/df.prg" | tr -d '\n')" = "09200a0041b236001120140042b237001d201e0043b2283729aa36000000" ] &&
+    pass "#define: a name is replaced as a whole identifier only (#582)" ||
+    fail "#define in a longer identifier: $(xxd -p -s 2 "$D/df.prg" | tr -d '\n') $(cat "$D/df.log")"
+
+# #583: a ' comment after a statement is dropped; a ' in a string, after REM
+# or in DATA is kept
+printf 'print a '"'"' a comment\nprint "it'"'"'s":rem don'"'"'t\ndata it'"'"'s\nforeman = 2 '"'"'x\nlab: print foreman '"'"' y\n' > "$D/cm.bas"
+$B "$D/cm.bas" -o "$D/cm.prg" > "$D/cm.log" 2>&1
+$B --decompile "$D/cm.prg" -o "$D/cm2.bas" >/dev/null 2>&1
+if ! grep -qi 'comment' "$D/cm.log" "$D/cm2.bas" && grep -q "\"it's\"" "$D/cm2.bas" && grep -qi "rem don't" "$D/cm2.bas" &&
+   grep -qi "data it's" "$D/cm2.bas" && [ "$(grep -c "'" "$D/cm2.bas")" = 2 ] && [ "$(grep -c . "$D/cm2.bas")" -ge 5 ]; then
+    pass "a ' comment after a statement is dropped; strings, REM and DATA keep theirs (#583)"
+else
+    fail "trailing ' comment: $(cat "$D/cm2.bas" "$D/cm.log")"
+fi
+
+# #584: a proc named exactly like a keyword is an error at its definition;
+# a name that only starts with one (directory1, header1, helper) is a proc
+ok=1
+for k in directory help Header getkey print; do
+    printf 'proc %s\n  print "hi"\nendproc\ncall %s\n' "$k" "$k" > "$D/pk.bas"
+    out=$($B "$D/pk.bas" -o "$D/pk.prg" 2>&1); rc=$?
+    { [ $rc = 1 ] && grep -q "pk.bas:1:1: error: proc name '$k' is a BASIC keyword" <<< "$out"; } || { ok=0; echo "  $k ($rc): $out"; }
+done
+printf 'proc directory1\n  print "a"\nendproc\nproc header1\n  print "b"\nendproc\nproc helper\n  print "c"\nendproc\ncall directory1\ncall header1\ncall helper\n' > "$D/pn.bas"
+out=$($B "$D/pn.bas" -o "$D/pn.prg" 2>&1); rc=$?
+{ [ $rc = 0 ] && ! grep -qi 'error\|warning' <<< "$out" &&
+  [ "$($B --decompile "$D/pn.prg" -o - 2>/dev/null | grep -ci 'gosub')" = 3 ]; } || { ok=0; echo "  names ($rc): $out"; }
+[ $ok = 1 ] && pass "a proc named exactly like a keyword is an error; directory1, header1, helper are procs (#584)" ||
+    fail "proc named like a keyword"
+
 echo "basic45 tests: $passed passed, $failed failed"
 [ $failed -eq 0 ]

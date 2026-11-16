@@ -25,6 +25,10 @@ struct LabelInfo {
     int sourceLineNum;
 };
 
+// A BASIC 65 keyword or one of basic45's own (block IF, procs, select, asm,
+// incbin), in any case: never a label, nor a proc's name (#584)
+bool basic45IsReservedWord(const std::string& name);
+
 class LabelBasedSourceParser {
 public:
     // Parse label-based source code

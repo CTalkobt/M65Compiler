@@ -4,6 +4,21 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### basic45: `#define` inside a longer name, `'` comments after a statement, procs named like keywords (#582, #583, #584)
+
+- A `#define` name was replaced inside a longer identifier that continued
+  with `_` (`GET_IMPORT` in `GET_IMPORT_PREP`: `A=7_PREP`). Names are
+  replaced as whole identifiers (#582).
+- A `'` comment after a statement was tokenised as code (`print a ' a
+  comment` printed `A` and `CO`); it is dropped, as a whole-line one is. A
+  `'` in a string, after `REM` or in a `DATA` statement is kept (#583).
+- `proc directory` / `proc help` (a name that is exactly a BASIC 65 keyword,
+  in any case) is an error at the `proc` line: `proc name 'directory' is a
+  BASIC keyword`. It gave a `GOSUB` of the keyword's token, or an error only
+  at the call. A name that merely starts with one (`directory1`, `header1`,
+  `helper`) is a proc as before (#584).
+- Tests: `src/test/test_basic45.sh`.
+
 ### cc45: a far struct array indexed by a 16-bit index: no 32-bit multiply (#585)
 
 - `LINES[l].y`, `LINES` a far array of 12-byte structs and `l` a `uint16_t`,

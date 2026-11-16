@@ -310,7 +310,7 @@ std::string LabelBasedSourceParser::trim(const std::string& str) const {
 
 // A BASIC 65 keyword or one of basic45's own (block IF, procs, select,
 // asm, incbin): never a label
-static bool isReservedWord(const std::string& name) {
+bool basic45IsReservedWord(const std::string& name) {
     static const std::unordered_set<std::string> words = [] {
         std::unordered_set<std::string> w;
         BasicTokenizer t;
@@ -318,7 +318,9 @@ static bool isReservedWord(const std::string& name) {
         for (const auto& [k, v] : t.getEscapeKeywords()) w.insert(k);
         for (const auto& [k, v] : t.getCeKeywords()) w.insert(k);
         for (const char* k : {"ENDIF", "ELIF", "PROC", "ENDPROC", "CALL", "SELECT", "CASE", "ENDSELECT", "IS",
-                              "ASM", "ENDASM", "INCBIN", "DATAINC", "AS"})
+                              "ASM", "ENDASM", "INCBIN", "DATAINC", "AS",
+                              // (words the tokenizer splits: DIR ECTORY, GET KEY, GO 64; #584)
+                              "DIRECTORY", "GETKEY", "GO64"})
             w.insert(k);
         return w;
     }();
@@ -334,7 +336,7 @@ bool LabelBasedSourceParser::isValidLabelName(const std::string& name) const {
         if (!std::isalnum(c) && c != '_') return false;
     }
     // (a reserved word is never a label: "end: print" is END, then PRINT)
-    return !isReservedWord(name);
+    return !basic45IsReservedWord(name);
 }
 
 bool LabelBasedSourceParser::isLabelDefinition(const std::string& line,
