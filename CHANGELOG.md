@@ -4,6 +4,20 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### cc45: a far struct array indexed by a 16-bit index: no 32-bit multiply (#585)
+
+- `LINES[l].y`, `LINES` a far array of 12-byte structs and `l` a `uint16_t`,
+  widened `l` to 32 bits and multiplied it by a 32-bit 12 (`__mul32`, both
+  factors set up byte by byte). A value that fits 16 bits times a constant
+  below 256 is now a call of the library's new `__mul16y32` (A/X times Y, the
+  24-bit product in A/X/Y, Z 0), and a value widened only for that multiply
+  is read before its widening: `lda $10 / ldx $11 / ldy #12 / jsr
+  __mul16y32`. The issue's function: 63 → 41 bytes.
+- In loops too (the inline 32-bit multiply is 50 bytes); `-fno-mul-call`
+  keeps the inline multiply.
+- Test: `test_far_index_mul_xemu.c` (zp, stack, `-O0`, `-O1`, `-O3`,
+  `-fno-mul-call`).
+
 ### cc45 / ca45: a repeated `ldy #0`, and A / Y loaded for nothing before a return (#586)
 
 - ca45's redundant-load pass kept every `ldy #0`, also with Y known to be 0.

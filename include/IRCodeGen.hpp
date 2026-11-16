@@ -313,6 +313,9 @@ private:
     // next (#550): the ZEXT not emitted, the SHL builds the result's bytes
     // in its destination from the source's (zext32Shl_: ZEXT dest -> source)
     std::map<uint32_t, ir::Operand> zext32Shl_;
+    // a ZEXT to 32 bits whose one use is a multiply by a byte constant right
+    // after it (#585): __mul16y32 takes the source in A/X (ZEXT dest -> source)
+    std::map<uint32_t, ir::Operand> zext32Mul_;
     // the bits of the function's values known to be 0 (#350; #348's
     // zero-extended longs among them): byte-wise operations, no carries
     // where none can happen

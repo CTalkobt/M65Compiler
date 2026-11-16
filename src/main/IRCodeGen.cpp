@@ -4705,6 +4705,41 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
                 zext32Shl_[d] = in.src1;
             }
         }
+        // #585: (unsigned long)x * K, x a byte or an int, K a constant below
+        // 256, the long a temporary whose one use is the multiply right
+        // after it (NOPs between): __mul16y32 takes x in A/X
+        zext32Mul_.clear();
+        {
+            const char* mulCallEnv = getenv("CC45_MUL_CALL");
+            bool calls = relocMode_ && !(mulCallEnv && mulCallEnv[0] == '0');
+            for (size_t b = 0; calls && b < blocks.size(); b++) {
+                const auto& insts = blocks[b]->insts;
+                for (size_t i = 0; i < insts.size(); i++) {
+                    const auto& in = insts[i];
+                    if (in.op != ir::Op::ZEXT || in.resultType != ir::Type::I32 || !in.dest.isVreg() || !in.src1.isVreg() ||
+                        (in.src1.type != ir::Type::I8 && in.src1.type != ir::Type::I16 && in.src1.type != ir::Type::PTR))
+                        continue;
+                    uint32_t d = in.dest.vregId;
+                    if (defs[d] != 1 || fn.localSlotVregs.count(d) || fn.memoryVregs.count(d) || storeTargets_.count(d) ||
+                        zext32Shl_.count(d) || zextAlias_.count(d) || zextSkip_.count(d))
+                        continue;
+                    auto uit = uses.find(d);
+                    if (uit == uses.end() || uit->second.size() != 1 || uit->second[0].blk != b) continue;
+                    size_t j = uit->second[0].idx;
+                    if (j <= i) continue;
+                    bool adjacent = true;
+                    for (size_t k = i + 1; k < j && adjacent; k++) adjacent = insts[k].op == ir::Op::NOP;
+                    const auto& u = insts[j];
+                    if (!adjacent || (u.op != ir::Op::MUL && u.op != ir::Op::MUL_U) || u.resultType != ir::Type::I32 ||
+                        !u.dest.isVreg() || !u.args.empty() || u.src1.isImm() == u.src2.isImm())
+                        continue;
+                    const ir::Operand& v = u.src2.isImm() ? u.src1 : u.src2;
+                    long long c = u.src2.isImm() ? u.src2.immVal : u.src1.immVal;
+                    if (!v.isVreg() || v.vregId != d || c < 1 || c > 0xFF) continue;
+                    zext32Mul_[d] = in.src1;
+                }
+            }
+        }
         // A long, 16-bit value or byte loaded from a global (of this program,
         // not on the base page, not a parameter's storage) whose one use is
         // the next instruction: read by that use where it is
@@ -7471,6 +7506,33 @@ void IRCodeGen::emitInstBody(const ir::Inst& inst) {
                   alloc_.getAlloc(mi.src1.vregId).loc == VRegAllocator::IN_FRAME && !currentFunctionUseSAC_);
             bool mulCallHere = mulCallOk && !mulCallEnv && !loopBlocks_.count(currentBlockIdx_);
             bool constFactor = inst.resultType != ir::Type::I32 && (mi.src2.isImm() || mi.src1.isImm());
+            // A value that fits 16 bits (a 16-bit index widened) times a
+            // byte constant (a far array's element size, #585): the
+            // 24-bit product by __mul16y32, the factor in Y, instead of
+            // both factors as 32-bit ones (in loops too: the inline
+            // 32-bit multiply is 50 bytes; not with -fno-mul-call)
+            if (relocMode_ && !(mulCallEnv && mulCallEnv[0] == '0') && inst.resultType == ir::Type::I32 &&
+                mi.src1.isImm() != mi.src2.isImm()) {
+                const ir::Operand& v = mi.src2.isImm() ? mi.src1 : mi.src2;
+                long long c = mi.src2.isImm() ? mi.src2.immVal : mi.src1.immVal;
+                auto zm = v.isVreg() ? zext32Mul_.find(v.vregId) : zext32Mul_.end();
+                if (c > 0 && c <= 0xFF && (zm != zext32Mul_.end() || kb_.maxOf(v, 32) <= 0xFFFF)) {
+                    if (zm != zext32Mul_.end()) {
+                        // (the value before its widening: A/X only)
+                        const ir::Operand src = zm->second;
+                        loadOperand(src);
+                        if (src.type == ir::Type::I8) emit("ldx #0");
+                    } else {
+                        loadOperand(v);
+                    }
+                    emit("ldy #" + std::to_string((int)c), irDesc("16 bits * " + std::to_string((int)c) + ": 24 bits"));
+                    emit(".extern __mul16y32");
+                    emit("jsr __mul16y32");
+                    ms_.invalidateAll();
+                    if (inst.dest.isVreg()) storeVreg(inst.dest.vregId);
+                    break;
+                }
+            }
             if (mulCallOk && (mulCallForced || (mulCallHere && !constFactor))) {
                 bool is32 = inst.resultType == ir::Type::I32;
                 std::string src2 = src2MemOperand(mi.src2);
@@ -10169,6 +10231,7 @@ void IRCodeGen::emitInstBody(const ir::Inst& inst) {
             // a byte widened only for an element index kept as name+off,y
             if (inst.dest.isVreg() && zextSkip_.count(inst.dest.vregId)) break;
             if (inst.dest.isVreg() && zext32Shl_.count(inst.dest.vregId)) break;   // (the shift reads its source, #550)
+            if (inst.dest.isVreg() && zext32Mul_.count(inst.dest.vregId)) break;   // (the multiply does, #585)
             if (inst.dest.isVreg() && zextAlias_.count(inst.dest.vregId)) {
                 if (!directByte(inst.src1, 0).empty()) break;   // read by its one use
                 zextAlias_.erase(inst.dest.vregId);             // (a stack frame)
