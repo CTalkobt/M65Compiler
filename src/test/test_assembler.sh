@@ -951,7 +951,7 @@ fi
 # SeqExtract-style routine makes for its caller in another proc, stores
 # reaching a merge label from two paths, a store before a computed goto
 # (jmp $0000 with its operand modified). Changed: a byte reloaded after A
-# was used is kept in Y (tay / tya); a store overwritten on every path
+# was used is kept in Y (ldy / tya); a store overwritten on every path
 # before any read goes.
 cat > build/test_live.s45 << 'END'
     .segment "code"
@@ -1028,7 +1028,7 @@ grep -q 'sta \$32' <<< "$D" || lv_ok=0                      # the routine's stor
 [ $(grep -c 'sta \$3e' <<< "$D") -eq 2 ] || lv_ok=0          # both paths' stores
 grep -q 'lda \$3e' <<< "$D" || lv_ok=0                       # the load at the merge
 grep -q 'sta \$30' <<< "$D" || lv_ok=0                       # before the computed goto
-grep -q '^tay' <<< "$D" && grep -q '^tya' <<< "$D" || lv_ok=0 # $36 kept in Y
+grep -q '^ldy \$13' <<< "$D" && grep -q '^tya' <<< "$D" || lv_ok=0 # $36 kept in Y (loaded there, #586)
 grep -q 'sta \$36' <<< "$D" && lv_ok=0
 [ $(grep -c 'sta \$37' <<< "$D") -le 2 ] || lv_ok=0          # the first store to $37 is dead (the
 grep -q 'sta \$0406' <<< "$D" || lv_ok=0                     # others too once the merge holds A)
@@ -1160,6 +1160,151 @@ if [ $ri_ok -eq 1 ]; then
     passed=$((passed + 1))
 else
     echo "FAIL: return information / inw transfer (#351): $(tr '\n' ';' <<< "$D")"
+    failed=$((failed + 1))
+fi
+
+# A register loaded only to be transferred (#586): ldx $zp ... txa with X not
+# read after is lda $zp, and so for ldy / tya, lda / tax, lda / tay; ldz # /
+# tza and lda # / taz with a constant only (ldz has no base-page form: lda
+# $19 / taz stays). Kept when the loaded register is read after, or the byte
+# is stored between. Z's liveness: a dead ldz # goes; one an operand indexed
+# by Z or a long's return reads stays.
+cat > build/test_load_transfer.s45 << 'END'
+    .segment "code"
+proc _xa
+    .var cc45.fp = 0
+    .var cc45.retx = 1
+    ldx $11
+    lda $10
+    sta $90
+    txa
+    ldx #0
+    rts
+endproc
+proc _ya
+    .var cc45.fp = 0
+    .var cc45.retx = 1
+    ldy $13
+    tya
+    ldx #0
+    rts
+endproc
+proc _ax
+    .var cc45.fp = 0
+    .var cc45.retx = 1
+    lda $15
+    tax
+    lda #0
+    rts
+endproc
+proc _ay
+    .var cc45.fp = 0
+    .var cc45.retx = 1
+    .var cc45.rety = 1
+    lda $17
+    tay
+    lda #0
+    ldx #0
+    ldz #0
+    rts
+endproc
+proc _za
+    .var cc45.fp = 0
+    .var cc45.retx = 1
+    ldz #5
+    tza
+    ldx #0
+    rts
+endproc
+proc _azi
+    .var cc45.fp = 0
+    .var cc45.retx = 1
+    .var cc45.rety = 1
+    lda #7
+    taz
+    lda #0
+    ldx #0
+    ldy #0
+    rts
+endproc
+proc _azb
+    .var cc45.fp = 0
+    .var cc45.retx = 1
+    .var cc45.rety = 1
+    lda $19
+    taz
+    lda #0
+    ldx #0
+    ldy #0
+    rts
+endproc
+proc _keepx
+    .var cc45.fp = 0
+    .var cc45.retx = 1
+    ldx $1b
+    txa
+    rts
+endproc
+proc _stored
+    .var cc45.fp = 0
+    .var cc45.retx = 1
+    ldx $1d
+    lda #1
+    sta $1d
+    txa
+    ldx #0
+    rts
+endproc
+proc _deadz
+    .var cc45.fp = 0
+    .var cc45.retx = 1
+    lda $10
+    ldz #9
+    ldx #0
+    rts
+endproc
+proc _livez
+    .var cc45.fp = 0
+    .var cc45.retx = 1
+    ldz #3
+    lda ($10),z
+    ldx #0
+    rts
+endproc
+proc _retz
+    .var cc45.fp = 0
+    .var cc45.retx = 1
+    .var cc45.rety = 1
+    lda $10
+    ldx #0
+    ldy #0
+    ldz #4
+    rts
+endproc
+END
+D=$($AS -c build/test_load_transfer.s45 -o build/test_load_transfer.o45 2>&1 >/dev/null && ./bin/objdump45 -d build/test_load_transfer.o45 | awk -F'\t' '/^ +[0-9a-f]+:/ {printf "%s %s; ", $3, $4}' | sed 's/ *;/;/g; s/rts; /rts\n/g')
+lt_ok=1
+W=$(cat <<'T'
+lda $10; sta $90; lda $11; ldx #$00; rts
+lda $13; ldx #$00; rts
+ldx $15; lda #$00; rts
+ldy $17; lda #$00; ldx #$00; ldz #$00; rts
+lda #$05; ldx #$00; rts
+ldz #$07; lda #$00; ldx #$00; ldy #$00; rts
+lda $19; taz; lda #$00; ldx #$00; ldy #$00; rts
+ldx $1b; txa; rts
+ldx $1d; lda #$01; sta $1d; txa; ldx #$00; rts
+lda $10; ldx #$00; rts
+ldz #$03; lda ($10),z; ldx #$00; rts
+lda $10; ldx #$00; ldy #$00; ldz #$04; rts
+T
+)
+[ "$D" = "$W" ] || lt_ok=0
+if [ $lt_ok -eq 1 ]; then
+    echo "SUCCESS: a load only transferred is a load of the other register; Z's liveness (#586)"
+    passed=$((passed + 1))
+else
+    echo "FAIL: load / transfer, Z liveness (#586): $D"
     failed=$((failed + 1))
 fi
 

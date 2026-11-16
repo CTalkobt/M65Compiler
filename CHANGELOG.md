@@ -4,6 +4,19 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### ca45: a register loaded only to be transferred; the Z register's liveness (#586)
+
+- The `ldx $zp … txa` → `lda $zp` rewrite covers every pair: `ldy … tya`,
+  `lda … tax`, `lda … tay` (a base-page byte or a constant), and with a
+  constant `ldz # … tza` and `lda # … taz`. `ldz` has no base-page form, so
+  it is never made from a base-page load (`lda $19 / taz` stays). The report
+  is `load-transfer` (was `ldx-txa`).
+- The dead-load pass follows Z as it does X, A and Y (an operand indexed by
+  Z reads it; a cc45 function's `rts` only with a `long`'s result,
+  `cc45.rety`): a dead `ldz #n` in a cc45 proc goes (`dead-ldz`), and so
+  does an `inz; dez` pair whose flags nothing reads.
+- The library: 331 bytes smaller (`c45.lib` 1,496,003 → 1,495,672).
+- Test: `src/test/test_assembler.sh` (each pair, the cases kept, Z).
 ### basic45: `#define` inside a longer name, `'` comments after a statement, procs named like keywords (#582, #583, #584)
 
 - A `#define` name was replaced inside a longer identifier that continued
