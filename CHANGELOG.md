@@ -4,6 +4,22 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### cc45: a store through a pointer went to a constant address the pointer no longer held (#581, #589)
+
+- cc45 writes `*p = v` as a store to the address itself when `p` was given a
+  constant (`char *p = (char *)0xD020`). It kept doing so after the pointer
+  changed, and took other things for that constant:
+  - `*d ^= 0xFF` / `*d |= K` stored `K` (the old value was not read);
+  - `d += 80` made `d` "the constant 80", and the name stayed so in the
+    functions after it: `void inv(unsigned char *d) { *d ^= 0xFF; }` stored
+    255 at `$0050`;
+  - a pointer stepped (`p++`, `p += 2`), assigned in a branch or a loop, or
+    changed through its address was still written at its first address.
+- Now only a pointer that cannot change is taken for its address: one
+  declared `T *const p`, or one the function never assigns, steps or takes
+  the address of; a compound assignment reads the old value; nothing is kept
+  from one function to the next. Test `test_ptr_const_store_xemu.c`.
+
 ### basic45 --compile --bank=N: arrays and string variables in bank 1, 4 or 5 (#580)
 
 - A compiled program's arrays and strings share its heap in bank 0: what is

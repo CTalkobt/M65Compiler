@@ -4262,6 +4262,14 @@ for blmode in "zp|" "stack|-fno-zpcall" "O0|-O0" "O3|-O3" "noinline|-fno-inline-
     xemu_case "FAIL: test_branch_liveness_xemu.c $blname (compilation/linking failed)" "src/test-resources/test_branch_liveness_xemu.c" "build/test/test_branch_liveness_${blname}_xemu.prg" "$blflags" -- "test_branch_liveness_$blname" "build/test/test_branch_liveness_${blname}_xemu.prg" "C0C0" 6 "01 01 01 01 01 AA"
 done
 
+# Test: a store through a pointer goes to a constant address only while the
+# pointer holds it (#581: *p ^= K, pointers stepped / assigned / aliased)
+for pcmode in "zp|" "stack|-fno-zpcall" "O0|-O0" "O1|-O1" "O3|-O3" "noinl|-fno-inline-small-functions"; do
+    IFS='|' read -r pcname pcflags <<< "$pcmode"
+    echo "Testing test_ptr_const_store_xemu.c ($pcname)..."
+    xemu_case "FAIL: test_ptr_const_store_xemu.c $pcname (compilation/linking failed)" "src/test-resources/test_ptr_const_store_xemu.c" "build/test/test_ptr_const_store_${pcname}_xemu.prg" "$pcflags" -- "test_ptr_const_store_$pcname" "build/test/test_ptr_const_store_${pcname}_xemu.prg" "C0C0" 11 "01 01 01 01 01 01 01 01 01 01 AA"
+done
+
 # Test: string/character literal encoding prefixes p"..." s"..." a"..." @"..."
 for spmode in "zp|" "stack|-fno-zpcall"; do
     IFS='|' read -r spname spflags <<< "$spmode"
