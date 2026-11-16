@@ -2599,6 +2599,10 @@ bool AssemblerOptimizer::optimizeInternal(
         static const std::set<std::string> onA = {"asl", "lsr", "rol", "ror", "asr", "inc", "dec", "neg"};
         static const std::set<std::string> readsY = {"sty", "tya", "cpy", "iny", "dey", "phy", "tys", "map"};
         static const std::set<std::string> writesY = {"ldy", "tay", "tsy", "ply", "ldq", "iny", "dey"};
+        // (Z, #586: an operand indexed by it reads it, below; any Q
+        // instruction but ldq is not known: everything read)
+        static const std::set<std::string> readsZ = {"stz", "tza", "cpz", "inz", "dez", "phz", "map"};
+        static const std::set<std::string> writesZ = {"ldz", "taz", "plz", "ldq", "inz", "dez"};
         // (A, Y and the inx / dex pairs only in cc45's procs, .var cc45.fp:
         // hand-written code keeps its loads)
         std::vector<bool> cc45At(n, false);
@@ -2616,7 +2620,8 @@ bool AssemblerOptimizer::optimizeInternal(
             }
             if (cc) for (size_t k = i; k < e; ++k) cc45At[k] = true;
         }
-        for (char reg : {'X', 'A', 'Y'}) {
+        for (char reg : {'X', 'A', 'Y', 'Z'}) {
+        if (reg == 'Z' && parser->cpu6502) continue;      // (no Z register on the 6502)
         std::vector<uint8_t> eff(n, 0);
         std::vector<long> jump(n, -1);
         for (size_t i = 0; i < n; ++i) {
@@ -2631,7 +2636,7 @@ bool AssemblerOptimizer::optimizeInternal(
             if (s->type == AssemblerParser::Statement::LDW && s->instr.operand == ".ax" && s->exprTokenIndex >= 0 &&
                 s->exprTokenIndex < (int)parser->tokens.size() &&
                 parser->tokens[s->exprTokenIndex].type == AssemblerTokenType::HASH) {
-                e = (reg == 'Y' ? 0 : WX) | WF | FALL;            // ldax #v: lda #<v / ldx #>v
+                e = (reg == 'Y' || reg == 'Z' ? 0 : WX) | WF | FALL;   // ldax #v: lda #<v / ldx #>v
                 continue;
             }
             if (s->type != AssemblerParser::Statement::INSTRUCTION) { e = OPAQUE; continue; }
@@ -2647,6 +2652,9 @@ bool AssemblerOptimizer::optimizeInternal(
                 case AddressingMode::BASE_PAGE_INDIRECT_Y: case AddressingMode::BASE_PAGE_INDIRECT_SP_Y:
                 case AddressingMode::STACK_RELATIVE_INDIRECT_Y: case AddressingMode::LINEAR_ABSOLUTE_Y:
                     if (reg == 'Y') e |= RX;
+                    break;
+                case AddressingMode::BASE_PAGE_INDIRECT_Z: case AddressingMode::FLAT_INDIRECT_Z:
+                    if (reg == 'Z') e |= RX;
                     break;
                 default: break;
             }
@@ -2668,7 +2676,7 @@ bool AssemblerOptimizer::optimizeInternal(
             // has them, #351; A with X: any result; Y: a long's, #586)
             if (m == "rts") {
                 int rr = rtsReads(i);
-                e = (rr & (reg == 'Y' ? 4 : 2) ? RX : 0) | (rr & 1 ? RF : 0);
+                e = (rr & (reg == 'Y' || reg == 'Z' ? 4 : 2) ? RX : 0) | (rr & 1 ? RF : 0);
                 continue;
             }
             if (reg == 'X') {
@@ -2677,6 +2685,9 @@ bool AssemblerOptimizer::optimizeInternal(
             } else if (reg == 'Y') {
                 if (readsY.count(m)) e |= RX;
                 if (writesY.count(m)) e |= WX;
+            } else if (reg == 'Z') {
+                if (readsZ.count(m)) e |= RX;
+                if (writesZ.count(m)) e |= WX;
             } else {
                 bool acc = onA.count(m) && (s->instr.mode == AddressingMode::ACCUMULATOR ||
                                             s->instr.mode == AddressingMode::IMPLIED);
@@ -2686,6 +2697,7 @@ bool AssemblerOptimizer::optimizeInternal(
             if (readsNZ.count(m)) e |= RF;
             if (writesNZ.count(m) || (reg == 'A' && m == "neg")) e |= WF;
             bool known = readsX.count(m) || writesX.count(m) || readsY.count(m) || writesY.count(m) ||
+                         readsZ.count(m) || writesZ.count(m) ||
                          readsA.count(m) || writesA.count(m) || onA.count(m) || readsNZ.count(m) ||
                          writesNZ.count(m) || passes.count(m);
             // (an instruction of the other registers' lists passes this one)
@@ -2712,17 +2724,18 @@ bool AssemblerOptimizer::optimizeInternal(
                 if (in != liveIn[k]) { liveIn[k] = in; more = true; }
             }
         }
-        const std::string ld = reg == 'X' ? "ldx" : reg == 'Y' ? "ldy" : "lda";
-        const std::string inc = reg == 'X' ? "inx" : "iny", dec = reg == 'X' ? "dex" : "dey";
+        const std::string ld = reg == 'X' ? "ldx" : reg == 'Y' ? "ldy" : reg == 'Z' ? "ldz" : "lda";
+        const std::string inc = reg == 'X' ? "inx" : reg == 'Z' ? "inz" : "iny";
+        const std::string dec = reg == 'X' ? "dex" : reg == 'Z' ? "dez" : "dey";
         for (size_t i = 0; i < n; ++i) {
             auto* s = st[i].get();
             if (s->deleted || s->noOpt || s->type != AssemblerParser::Statement::INSTRUCTION || !s->label.empty()) continue;
             std::string m = lower(s->instr.mnemonic);
             if (reg != 'X' || m != ld) { if (!cc45At[i]) continue; }
             if (m == ld && (s->instr.mode == AddressingMode::IMMEDIATE ||
-                            (reg != 'X' && s->instr.mode == AddressingMode::BASE_PAGE))) {
+                            (reg != 'X' && reg != 'Z' && s->instr.mode == AddressingMode::BASE_PAGE))) {
                 if (liveOut(i) == 0) {
-                    report(reg == 'X' ? "dead-ldx" : reg == 'Y' ? "dead-ldy" : "dead-lda", s, upper(ld) + " " + s->instr.operand + " eliminated (" + std::string(1, reg) +
+                    report(reg == 'X' ? "dead-ldx" : reg == 'Y' ? "dead-ldy" : reg == 'Z' ? "dead-ldz" : "dead-lda", s, upper(ld) + " " + s->instr.operand + " eliminated (" + std::string(1, reg) +
                                            " written before it is read)");
                     s->deleted = true;
                     s->size = 0;
@@ -2730,49 +2743,94 @@ bool AssemblerOptimizer::optimizeInternal(
                 }
                 continue;
             }
-            // ldx $zp ... txa, X not read after: lda $zp in the txa's place (the
-            // same base-page byte in the same mode; 1 byte less, #586). Between
-            // them only loads, transfers from A and stores of one base-page
-            // byte other than that one: X, the byte and the flags as they were.
-            if (reg == 'X' && m == "txa" && !(liveOut(i) & 1)) {
-                auto bpAddr = [](const std::string& o, long& v) {
-                    if (o.empty()) return false;
-                    char* end = nullptr;
-                    v = o[0] == '$' ? strtol(o.c_str() + 1, &end, 16) : strtol(o.c_str(), &end, 10);
-                    return end && *end == 0 && end != o.c_str() + (o[0] == '$' ? 1 : 0) && v >= 0 && v < 256;
-                };
-                std::vector<long> stored;
-                size_t k = i;
-                bool found = false;
-                while (k-- > 0) {
-                    auto* t = st[k].get();
-                    if (t->deleted) continue;
-                    if (t->type == AssemblerParser::Statement::DIRECTIVE && lower(t->dir.name) == "loc" && t->label.empty()) continue;
-                    if (t->type != AssemblerParser::Statement::INSTRUCTION || !t->label.empty() || t->noOpt || !cc45At[k]) break;
-                    std::string tm = lower(t->instr.mnemonic);
-                    AddressingMode md = t->instr.mode;
-                    if (tm == "ldx") { found = md == AddressingMode::BASE_PAGE; break; }
-                    long v;
-                    if ((tm == "sta" || tm == "sty" || tm == "stz") && md == AddressingMode::BASE_PAGE && bpAddr(t->instr.operand, v)) {
-                        stored.push_back(v);
+            // A register loaded only to be transferred (#586): ldx $zp ... txa
+            // with X not read after is lda $zp in the txa's place, and so
+            // for ldy / tya, lda / tax, lda / tay; with a constant also
+            // ldz # / tza and lda # / taz (ldz has no base-page form: never
+            // made from a base-page load). The same byte in the same mode, 1
+            // byte less. Between them only instructions that leave the
+            // loaded register, the byte and the flags' readers alone: loads
+            // and transfers of the other registers, clc / sec, stores of
+            // other single base-page bytes; no label.
+            {
+                static const struct { char from; const char* tr; const char* load; char to; } moves[] = {
+                    {'X', "txa", "lda", 'A'}, {'Y', "tya", "lda", 'A'}, {'Z', "tza", "lda", 'A'},
+                    {'A', "tax", "ldx", 'X'}, {'A', "tay", "ldy", 'Y'}, {'A', "taz", "ldz", 'Z'}};
+                const char* newLoad = nullptr;
+                char to = 0;
+                for (const auto& mv : moves)
+                    if (mv.from == reg && m == mv.tr) { newLoad = mv.load; to = mv.to; }
+                if (newLoad && !(liveOut(i) & 1)) {
+                    auto bpAddr = [](const std::string& o, long& v) {
+                        if (o.empty()) return false;
+                        char* end = nullptr;
+                        const char* b = o.c_str() + (o[0] == '$' ? 1 : 0);
+                        v = strtol(b, &end, o[0] == '$' ? 16 : 10);
+                        return end != b && *end == 0 && v >= 0 && v < 256;
+                    };
+                    auto bit = [](char r) { return r == 'A' ? 1 : r == 'X' ? 2 : r == 'Y' ? 4 : 8; };
+                    // what a plain instruction reads / writes of A, X, Y, Z (false: not one of them)
+                    auto plain = [&](const std::string& tm, AddressingMode md, const std::string& o, int& rd, int& wr, long& st1) {
+                        rd = wr = 0;
+                        st1 = -1;
+                        if (tm.size() == 3 && tm[0] == 's' && tm[1] == 't' && std::string("axyz").find(tm[2]) != std::string::npos) {
+                            if (md != AddressingMode::BASE_PAGE || !bpAddr(o, st1)) return false;
+                            rd = bit((char)toupper(tm[2]));
+                            return true;
+                        }
+                        if (tm.size() == 3 && tm[0] == 'l' && tm[1] == 'd' && std::string("axyz").find(tm[2]) != std::string::npos) {
+                            if (md != AddressingMode::IMMEDIATE && !(md == AddressingMode::BASE_PAGE && tm[2] != 'z')) return false;
+                            wr = bit((char)toupper(tm[2]));
+                            return true;
+                        }
+                        if (tm == "clc" || tm == "sec") return true;
+                        if (tm.size() == 3 && tm[0] == 't' && tm != "tab" && tm != "tba" && tm != "tsx" && tm != "txs" &&
+                            tm != "tsy" && tm != "tys" && tm != "trb" && tm != "tsb" &&
+                            std::string("axyz").find(tm[1]) != std::string::npos &&
+                            std::string("axyz").find(tm[2]) != std::string::npos && (tm[1] == 'a' || tm[2] == 'a')) {
+                            rd = bit((char)toupper(tm[1]));
+                            wr = bit((char)toupper(tm[2]));
+                            return true;
+                        }
+                        return false;
+                    };
+                    std::vector<long> stored;
+                    size_t k = i;
+                    bool found = false;
+                    while (k-- > 0) {
+                        auto* t = st[k].get();
+                        if (t->deleted) continue;
+                        if (t->type == AssemblerParser::Statement::DIRECTIVE && lower(t->dir.name) == "loc" && t->label.empty()) continue;
+                        if (t->type != AssemblerParser::Statement::INSTRUCTION || !t->label.empty() || t->noOpt || !cc45At[k]) break;
+                        std::string tm = lower(t->instr.mnemonic);
+                        AddressingMode md = t->instr.mode;
+                        if (tm == ld) {
+                            // (a base-page byte only when both loads have the form)
+                            found = md == AddressingMode::IMMEDIATE ||
+                                    (md == AddressingMode::BASE_PAGE && reg != 'Z' && to != 'Z');
+                            break;
+                        }
+                        int rd, wr;
+                        long v;
+                        if (!plain(tm, md, t->instr.operand, rd, wr, v) || ((rd | wr) & bit(reg))) break;
+                        if (v >= 0) stored.push_back(v);
+                    }
+                    long src = -1;
+                    if (found && (st[k]->instr.mode == AddressingMode::IMMEDIATE ||
+                                  (bpAddr(st[k]->instr.operand, src) &&
+                                   std::find(stored.begin(), stored.end(), src) == stored.end()))) {
+                        bool imm = st[k]->instr.mode == AddressingMode::IMMEDIATE;
+                        report("load-transfer", s, upper(ld) + (imm ? " #" : " ") + st[k]->instr.operand + " ... " + upper(m) + " -> " +
+                               upper(newLoad) + " (" + std::string(1, reg) + " not read after)");
+                        bool up = !st[k]->instr.mnemonic.empty() && st[k]->instr.mnemonic[0] == 'L';
+                        std::swap(st[k], st[i]);                 // (the load where the transfer was)
+                        st[i]->instr.mnemonic = up ? upper(newLoad) : std::string(newLoad);
+                        st[k]->deleted = true;
+                        st[k]->size = 0;
+                        changed = true;
                         continue;
                     }
-                    if ((tm == "lda" || tm == "ldy" || tm == "ldz") && (md == AddressingMode::IMMEDIATE || md == AddressingMode::BASE_PAGE)) continue;
-                    if (tm == "clc" || tm == "sec" || tm == "tay" || tm == "taz") continue;
-                    break;
                 }
-                long src;
-                if (found && bpAddr(st[k]->instr.operand, src) &&
-                    std::find(stored.begin(), stored.end(), src) == stored.end()) {
-                    report("ldx-txa", s, "LDX " + st[k]->instr.operand + " ... TXA -> LDA " + st[k]->instr.operand + " (X not read after)");
-                    bool up = !st[k]->instr.mnemonic.empty() && st[k]->instr.mnemonic[0] == 'L';
-                    std::swap(st[k], st[i]);                 // (the load where the txa was)
-                    st[i]->instr.mnemonic = up ? "LDA" : "lda";
-                    st[k]->deleted = true;
-                    st[k]->size = 0;
-                    changed = true;
-                }
-                continue;
             }
             // inx / dex (iny / dey) next to each other: X as it was, only the flags
             if (reg != 'A' && (m == inc || m == dec)) {

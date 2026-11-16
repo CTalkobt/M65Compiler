@@ -321,12 +321,18 @@ than a pointer, or inline asm / `__cpu` writes / an interrupt), so a load of
 either that only the return follows goes (`dead-lda`, `dead-ldy`). And ca45's
 redundant-load pass drops an `ldy #0` when Y is known to be 0, as it does any
 other constant load (it kept every one before): `*d ^= k` is `ldy #0 / lda
-($10),y / eor $12 / sta ($10),y`, one `ldy #0`, not two. And `ldx $zp … txa`
-with X not read after the `txa` is `lda $zp` there (`ldx-txa`; cc45's procs
-only): the same base-page byte in the same addressing mode, so it follows the
-relocated base page as the `ldx` did; only loads, `tay` / `taz`, `clc` /
-`sec` and stores of other single base-page bytes may lie between. Test:
-`test_redundant_ldy_xemu.c`.
+($10),y / eor $12 / sta ($10),y`, one `ldy #0`, not two. And a register
+loaded only to be transferred is the other register's load, in the
+transfer's place (`load-transfer`; cc45's procs only): `ldx $zp … txa` with X
+not read after the `txa` is `lda $zp`, and so `ldy … tya`, `lda … tax`,
+`lda … tay`; with a constant also `ldz # … tza` and `lda # … taz`. A
+base-page byte keeps its addressing mode, so it follows the relocated base
+page as before; `ldz` has no base-page form and is never made from a
+base-page load. Between the two only loads and transfers of the other
+registers, `clc` / `sec` and stores of other single base-page bytes may lie.
+The same pass follows Z too (an operand indexed by Z reads it): a dead `ldz
+#n` goes (`dead-ldz`). Tests: `test_redundant_ldy_xemu.c`,
+`src/test/test_assembler.sh`.
 
 `foldGlobalOffsetAccess` (`IROptimizer.cpp`, after `foldElemIndexOffset`;
 tag `globaloff`; under `addr-elem-fusion`'s switch) gives a load or store
