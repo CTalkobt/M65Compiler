@@ -15,8 +15,11 @@ std::string BasicMinifier::minify(const std::string& source) {
 
     while (std::getline(iss, line)) {
         inLine++;
-        // Remove REM comments if enabled
+        // Remove REM comments if enabled; a ' comment line too (joined to
+        // the line before, its words were statements, #598)
         if (removeComments) {
+            size_t b = line.find_first_not_of(" \t");
+            if (b != std::string::npos && line[b] == '\'') continue;
             line = removeRemComments(line);
         }
 
@@ -133,37 +136,30 @@ std::string BasicMinifier::removeRemComments(const std::string& line) {
 std::string BasicMinifier::stripWhitespaceInLine(const std::string& line) {
     std::string result;
     bool inString = false;
-    char stringChar = 0;
+    // (a name's characters: '_' too, so "goto __endif1", the jumps block IF,
+    // select and proc make, and "goto __lpask_done", a proc's local label,
+    // keep their blank, #598; a variable's $ or % ends a name)
+    auto nameChar = [](char c) { return std::isalnum((unsigned char)c) || c == '_'; };
+    auto nameEnd = [&](char c) { return nameChar(c) || c == '$' || c == '%'; };
 
     for (size_t i = 0; i < line.length(); i++) {
         char c = line[i];
 
-        // Handle string literals
-        if ((c == '"' || c == '\'') && (i == 0 || line[i-1] != '\\')) {
-            if (!inString) {
-                inString = true;
-                stringChar = c;
-                result += c;
-            } else if (c == stringChar) {
-                inString = false;
-                result += c;
-            } else {
-                result += c;
-            }
+        // String literals are kept as written (only "..." is one: an
+        // apostrophe is a character like any other)
+        if (c == '"') {
+            inString = !inString;
+            result += c;
             continue;
         }
 
         if (inString) {
             result += c;
         } else if (c == ' ' || c == '\t') {
-            // Collapse multiple spaces to single space, but preserve meaningful spaces
-            if (!result.empty() && result.back() != ' ' && result.back() != ':' &&
-                i + 1 < line.length() && line[i + 1] != ':' &&
-                !std::isspace(line[i + 1])) {
-                // Add space only if it's between tokens
-                if (std::isalnum(result.back()) && std::isalnum(line[i + 1])) {
-                    result += ' ';
-                }
+            // One blank where two names, keywords or numbers would run together
+            if (!result.empty() && result.back() != ' ' && i + 1 < line.length() &&
+                nameEnd(result.back()) && nameChar(line[i + 1])) {
+                result += ' ';
             }
         } else {
             result += c;

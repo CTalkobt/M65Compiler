@@ -495,5 +495,19 @@ out=$($B "$D/pn.bas" -o "$D/pn.prg" 2>&1); rc=$?
 [ $ok = 1 ] && pass "a proc named exactly like a keyword is an error; directory1, header1, helper are procs (#584)" ||
     fail "proc named like a keyword"
 
+# #598: --minify of a structured program: the generated jumps keep their
+# blank (goto __endif1), a proc's local label is found, comment lines go
+printf "' a comment line\n  x = 1\n' the comment between statements\n  if x then\n    print \"yes\"\n  else\n    print \"no\"\n  endif\n  call ask\n  end\n' a proc's comment\nproc ask\n.again:\n  getkey c\$\n  if c\$ = \"x\" then goto .done\n  goto .again\n.done:\nendproc\n" > "$D/mn.bas"
+out=$($B --strict --minify "$D/mn.bas" -o "$D/mn.prg" 2>&1); rc=$?
+$B --strict "$D/mn.bas" -o "$D/mp.prg" >/dev/null 2>&1
+if [ $rc = 0 ] && ! grep -qi 'warning\|error' <<< "$out" &&
+   [ "$(stat -c %s "$D/mn.prg")" -lt "$(stat -c %s "$D/mp.prg")" ] &&
+   [ "$($B --decompile "$D/mn.prg" -o - 2>/dev/null | grep -ci 'comment')" = 0 ] &&
+   [ "$($B --decompile "$D/mn.prg" -o - 2>/dev/null | grep -ci 'goto l\|then l\|then goto l')" -ge 3 ]; then
+    pass "--minify: block IF, proc and local labels keep their jumps; comment lines go (#598)"
+else
+    fail "--minify of a structured program ($rc): $out $($B --decompile "$D/mn.prg" -o - 2>/dev/null)"
+fi
+
 echo "basic45 tests: $passed passed, $failed failed"
 [ $failed -eq 0 ]

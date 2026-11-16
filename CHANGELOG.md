@@ -4,6 +4,19 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### basic45 `--minify`: structured programs and `'` comments (#598)
+
+- The blank between two words was dropped when the second began with `_`,
+  so the jumps block `if` / `else`, `select` / `case` and `proc` make, and a
+  proc's local labels, ran into their keyword: `goto__endif1`,
+  `THEN__CASE1_2`, `Undefined label: GOTO__LPASK_DONE`. A blank now stays
+  wherever two names, keywords or numbers would run together.
+- A `'` comment line was joined into the line before it, its words
+  statements and variables. Comment lines are removed, and an apostrophe no
+  longer starts a "string" for the whitespace pass.
+- Tests: `test_basic45_struct_xemu.bas` (as is and `--minify`, on xemu),
+  `src/test/test_basic45.sh`.
+
 ### cc45: an array member plus an integer lost the address's high byte (#594)
 
 - An array that is a member of a struct or union had its element's type

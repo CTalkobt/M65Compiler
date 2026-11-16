@@ -689,6 +689,20 @@ for bsmode in "plain|" "minify|--minify" "spaces|--preserve-spaces"; do
         failed=$((failed + 1))
     fi
 done
+# basic45: block IF, select, procs with local labels and ' comments, as is and
+# with --minify (#598: the generated jumps lost their blank, comment text
+# was joined into the code)
+for bmmode in "plain|" "minify|--minify"; do
+    IFS='|' read -r bmname bmflags <<< "$bmmode"
+    echo "Testing test_basic45_struct_xemu.bas ($bmname)..."
+    if ./bin/basic45 --strict $bmflags src/test-resources/test_basic45_struct_xemu.bas \
+           -o "build/test/test_basic45_struct_${bmname}_xemu.prg" >/dev/null 2>&1; then
+        run_xemu_test "test_basic45_struct_$bmname" "build/test/test_basic45_struct_${bmname}_xemu.prg" "C0C0" 7 "01 01 01 01 01 01 AA"
+    else
+        echo "FAIL: test_basic45_struct_xemu.bas $bmname (basic45 failed)"
+        failed=$((failed + 1))
+    fi
+done
 # basic45 --convert=basic7 (#368): a BASIC 7.0 listing converted, built and
 # run by BASIC 65: PLAY's voices and waits timed in frames; variables, TI, the graphics
 # statements, sprite and colour numbers, 40 columns, MOVSPR by distance;angle, RWINDOW(0/1)
