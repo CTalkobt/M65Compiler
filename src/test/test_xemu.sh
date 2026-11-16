@@ -4270,6 +4270,14 @@ for pcmode in "zp|" "stack|-fno-zpcall" "O0|-O0" "O1|-O1" "O3|-O3" "noinl|-fno-i
     xemu_case "FAIL: test_ptr_const_store_xemu.c $pcname (compilation/linking failed)" "src/test-resources/test_ptr_const_store_xemu.c" "build/test/test_ptr_const_store_${pcname}_xemu.prg" "$pcflags" -- "test_ptr_const_store_$pcname" "build/test/test_ptr_const_store_${pcname}_xemu.prg" "C0C0" 11 "01 01 01 01 01 01 01 01 01 01 AA"
 done
 
+# Test: ca45 drops an ldy #0 with Y already 0 and loads of A / Y a function's
+# rts does not return (#586); Y still loaded after a loop, a merge, a call
+for rlmode in "zp|" "stack|-fno-zpcall" "O0|-O0" "O1|-O1" "O3|-O3"; do
+    IFS='|' read -r rlname rlflags <<< "$rlmode"
+    echo "Testing test_redundant_ldy_xemu.c ($rlname)..."
+    xemu_case "FAIL: test_redundant_ldy_xemu.c $rlname (compilation/linking failed)" "src/test-resources/test_redundant_ldy_xemu.c" "build/test/test_redundant_ldy_${rlname}_xemu.prg" "$rlflags" -- "test_redundant_ldy_$rlname" "build/test/test_redundant_ldy_${rlname}_xemu.prg" "C0C0" 11 "01 01 01 01 01 01 01 01 01 01 AA"
+done
+
 # Test: string/character literal encoding prefixes p"..." s"..." a"..." @"..."
 for spmode in "zp|" "stack|-fno-zpcall"; do
     IFS='|' read -r spname spflags <<< "$spmode"

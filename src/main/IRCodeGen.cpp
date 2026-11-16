@@ -5496,6 +5496,10 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
         // an interrupt's)
         if (fn.returnType != ir::Type::VOID || asmBody || fn.isInterrupt)
             emit(".var cc45.retx = 1");
+        // (and Y / Z: a long's, #586)
+        if ((fn.returnType != ir::Type::VOID && fn.returnType != ir::Type::I8 && fn.returnType != ir::Type::I16 &&
+             fn.returnType != ir::Type::PTR) || asmBody || fn.isInterrupt)
+            emit(".var cc45.rety = 1");
     }
 
     // Emit .loc for function declaration line (before prologue and param loading,

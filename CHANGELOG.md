@@ -4,6 +4,21 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### cc45 / ca45: a repeated `ldy #0`, and A / Y loaded for nothing before a return (#586)
+
+- ca45's redundant-load pass kept every `ldy #0`, also with Y known to be 0.
+  It now goes like any other constant load: `*d ^= k` is `ldy #0 / lda ($10),y
+  / eor $12 / sta ($10),y` (9 bytes, 11 before; the issue's listing with its
+  `sta $32 / lda $32` was cc45's `-S` text, before ca45: those were already
+  gone in the object code).
+- cc45 marks a function whose result has Y and Z (`.var cc45.rety = 1`: a
+  `long`'s, or inline asm, `__cpu` / `__flags` writes, an interrupt); ca45
+  takes the `rts` of any other cc45 proc as not reading Y, and that of a
+  `void` one as not reading A: a load only the return follows goes.
+- The library: 2.1 KB smaller (`c45.lib` 1,498,235 → 1,496,067 bytes,
+  `c45_stack.lib` 1,484,842 → 1,482,795).
+- Test: `test_redundant_ldy_xemu.c` (zp, stack, `-O0`, `-O1`, `-O3`).
+
 ### cc45: a store through a pointer went to a constant address the pointer no longer held (#581, #589)
 
 - cc45 writes `*p = v` as a store to the address itself when `p` was given a
