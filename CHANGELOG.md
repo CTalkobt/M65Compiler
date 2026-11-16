@@ -4,6 +4,20 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### cc45: an array member plus an integer lost the address's high byte (#594)
+
+- An array that is a member of a struct or union had its element's type
+  where it decays to a pointer, so `s.a + n` (`u.r.a + 80 + c`, `u.m + c`,
+  `p->a + n`) took the address for a `char`: its low byte, the high byte 0,
+  a pointer into page 0. `s.w + n` of an `int` array was not scaled either.
+  A member array is now its address, a pointer to its element, as an array
+  variable is. `&s.a[n]`, `s.a[i]` and the array passed or assigned alone
+  were right before.
+- A row of a two-dimensional member (`s.g[2] + 3`, `sizeof s.g[2]`) is its
+  address and size too.
+- At all optimization levels. Test: `test_member_array_decay_xemu.c` (zp,
+  stack, `-O0`, `-O1`, `-O3`).
+
 ### ca45: a register loaded only to be transferred; the Z register's liveness (#586)
 
 - The `ldx $zp … txa` → `lda $zp` rewrite covers every pair: `ldy … tya`,

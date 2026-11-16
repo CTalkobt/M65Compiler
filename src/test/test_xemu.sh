@@ -4287,6 +4287,14 @@ for fmmode in "zp|" "stack|-fno-zpcall" "O0|-O0" "O1|-O1" "O3|-O3" "nocall|-fno-
     xemu_case "FAIL: test_far_index_mul_xemu.c $fmname (compilation/linking failed)" "src/test-resources/test_far_index_mul_xemu.c" "build/test/test_far_index_mul_${fmname}_xemu.prg" "$fmflags" -- "test_far_index_mul_$fmname" "build/test/test_far_index_mul_${fmname}_xemu.prg" "C0C0" 11 "01 01 01 01 01 01 01 01 01 01 AA"
 done
 
+# Test: an array member of a struct / union is its address (#594: s.a + n kept
+# the address's low byte); element scaling, ->, rows of a 2-D member
+for mdmode in "zp|" "stack|-fno-zpcall" "O0|-O0" "O1|-O1" "O3|-O3"; do
+    IFS='|' read -r mdname mdflags <<< "$mdmode"
+    echo "Testing test_member_array_decay_xemu.c ($mdname)..."
+    xemu_case "FAIL: test_member_array_decay_xemu.c $mdname (compilation/linking failed)" "src/test-resources/test_member_array_decay_xemu.c" "build/test/test_member_array_decay_${mdname}_xemu.prg" "$mdflags" -- "test_member_array_decay_$mdname" "build/test/test_member_array_decay_${mdname}_xemu.prg" "C0C0" 13 "01 01 01 01 01 01 01 01 01 01 01 01 AA"
+done
+
 # Test: string/character literal encoding prefixes p"..." s"..." a"..." @"..."
 for spmode in "zp|" "stack|-fno-zpcall"; do
     IFS='|' read -r spname spflags <<< "$spmode"
