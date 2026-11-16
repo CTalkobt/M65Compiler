@@ -4279,6 +4279,14 @@ for rlmode in "zp|" "stack|-fno-zpcall" "O0|-O0" "O1|-O1" "O3|-O3"; do
     xemu_case "FAIL: test_redundant_ldy_xemu.c $rlname (compilation/linking failed)" "src/test-resources/test_redundant_ldy_xemu.c" "build/test/test_redundant_ldy_${rlname}_xemu.prg" "$rlflags" -- "test_redundant_ldy_$rlname" "build/test/test_redundant_ldy_${rlname}_xemu.prg" "C0C0" 12 "01 01 01 01 01 01 01 01 01 01 01 AA"
 done
 
+# Test: a 16-bit value times a byte constant as a 32-bit product (a far struct
+# array's element offset, #585): __mul16y32, the value read before its widening
+for fmmode in "zp|" "stack|-fno-zpcall" "O0|-O0" "O1|-O1" "O3|-O3" "nocall|-fno-mul-call"; do
+    IFS='|' read -r fmname fmflags <<< "$fmmode"
+    echo "Testing test_far_index_mul_xemu.c ($fmname)..."
+    xemu_case "FAIL: test_far_index_mul_xemu.c $fmname (compilation/linking failed)" "src/test-resources/test_far_index_mul_xemu.c" "build/test/test_far_index_mul_${fmname}_xemu.prg" "$fmflags" -- "test_far_index_mul_$fmname" "build/test/test_far_index_mul_${fmname}_xemu.prg" "C0C0" 11 "01 01 01 01 01 01 01 01 01 01 AA"
+done
+
 # Test: string/character literal encoding prefixes p"..." s"..." a"..." @"..."
 for spmode in "zp|" "stack|-fno-zpcall"; do
     IFS='|' read -r spname spflags <<< "$spmode"

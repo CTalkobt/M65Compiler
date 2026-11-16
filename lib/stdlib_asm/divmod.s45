@@ -104,6 +104,16 @@ __mul16:
     rts
 
     .split "__mul32"
+; __mul16y32: A/X times the byte in Y, the product (24 bits) in A/X/Y, Z 0
+; (cc45: a value that fits 16 bits times a constant below 256, #585)
+.global __mul16y32
+__mul16y32:
+    sty __zp_scratch2
+    ldy #0
+    sty __zp_scratch2+1
+    sty __zp_scratch2+2
+    sty __zp_scratch2+3
+    ldz #0
 .global __mul32
 __mul32:
     mul.32 .AXYZ, __zp_scratch2

@@ -304,6 +304,16 @@ also drops a dead `lda` / `ldy` of an immediate or a base-page byte, and an
 `dead-ldy`, `dead-incdec`).
 Examples: 737 bytes.
 
+**A 16-bit value times a byte constant, 32 bits wide** (#585): `(uint32_t)l *
+12` (a far struct array's element offset, `l` a 16-bit index) is `lda / ldx`
+of `l`, `ldy #12`, `jsr __mul16y32` (`stdlib_asm/divmod.s45`: A/X times Y,
+the 24-bit product in A/X/Y, Z 0) instead of `l` widened to four bytes and a
+32-bit multiply by a four-byte 12. A widening whose one use is that multiply
+right after it emits nothing (`zext32Mul_`: the multiply reads its source);
+a value otherwise known to fit 16 bits is loaded as it is. In loops too;
+not with `-fno-mul-call`. `g = LINES[l].y`: 63 → 41 bytes. Test:
+`test_far_index_mul_xemu.c`.
+
 **A and Y at a return, a repeated `ldy #0`** (#586): the same marks say what
 the `rts` of a cc45 proc reads of the registers: A only with a result
 (`cc45.retx`), Y only with a `long`'s (`.var cc45.rety = 1`: a result wider
