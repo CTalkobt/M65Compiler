@@ -82,6 +82,12 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
   __mul16y32`. The issue's function: 63 → 41 bytes.
 - In loops too (the inline 32-bit multiply is 50 bytes); `-fno-mul-call`
   keeps the inline multiply.
+- The array's base is added to the product in Q: `clc / adcq <constant>` (the
+  constant four bytes in the data segment, one per file for all the sites
+  that add it) and one `stq`, instead of a `stq` and the bytes added one by
+  one in memory. Any constant with two or more bytes that are not 0, added
+  to a 32-bit product (`__mul16y32`'s or `__mul32`'s) whose one use it is.
+  The issue's function: 41 → 36 bytes, and 5 less for each further site.
 - Test: `test_far_index_mul_xemu.c` (zp, stack, `-O0`, `-O1`, `-O3`,
   `-fno-mul-call`).
 

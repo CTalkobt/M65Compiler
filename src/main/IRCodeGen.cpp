@@ -949,6 +949,46 @@ void IRCodeGen::emitF32AbsToVreg(const std::string& src, uint32_t vregId) {
     for (int b = 0; b < 5; b++) { emit("lda " + src + "+" + std::to_string(b)); emitF32Byte("sta", vregId, b); }
 }
 
+// #585: base + x * K of a far array: the product is in Q, and the base is
+// added there (clc; adcq <constant>: 6 bytes and the 4 of a constant the
+// file's sites share) instead of byte by byte in memory after a stq (10
+// with two bytes to add, 15 with three). A constant of one byte that is
+// not 0 stays byte by byte (6).
+bool IRCodeGen::addConstInQ(const ir::Inst& inst) {
+    if (!relocMode_ || !currentFn_ || !inst.dest.isVreg() || multiDefVregs_.count(inst.dest.vregId)) return false;
+    const auto& blk = currentFn_->blocks[currentBlockIdx_];
+    size_t j = currentInstInBlock_ + 1;
+    while (j < blk.insts.size() && blk.insts[j].op == ir::Op::NOP) j++;
+    if (j >= blk.insts.size()) return false;
+    const ir::Inst& a = blk.insts[j];
+    if (a.op != ir::Op::ADD || a.resultType != ir::Type::I32 || !a.dest.isVreg() || !a.args.empty()) return false;
+    auto isProd = [&](const ir::Operand& o) { return o.isVreg() && o.vregId == inst.dest.vregId; };
+    const ir::Operand* k = isProd(a.src1) && a.src2.isImm() ? &a.src2 : isProd(a.src2) && a.src1.isImm() ? &a.src1 : nullptr;
+    if (!k || a.dest.vregId == inst.dest.vregId || foldedAddrs_.count(a.dest.vregId) ||
+        multiDefVregs_.count(a.dest.vregId) || localSlotVregs_.count(a.dest.vregId) ||
+        vregUsedOutside(inst.dest.vregId, &inst, &a))
+        return false;
+    auto al = alloc_.getAlloc(a.dest.vregId);
+    if (al.loc == VRegAllocator::IN_FRAME && !currentFunctionUseSAC_) return false;
+    uint32_t c = (uint32_t)(k->immVal & 0xFFFFFFFF);
+    int nz = 0;
+    for (int b = 0; b < 4; b++) nz += ((c >> (8 * b)) & 0xFF) != 0;
+    if (nz < 2) return false;
+    std::string& lab = q32Lits_[c];
+    if (lab.empty()) {
+        std::stringstream ss;
+        ss << "__q32_" << std::hex << std::setfill('0') << std::setw(8) << c;
+        lab = ss.str();
+    }
+    emit("clc", "[a constant added to the product in Q]");
+    emit("adcq " + lab);
+    ms_.invalidateAll();
+    storeVreg(a.dest.vregId);
+    resultInAX_ = -1;
+    skipInsts_ = (int)(j - currentInstInBlock_);
+    return true;
+}
+
 const ir::Inst* IRCodeGen::peekNextInst() const {
     if (!currentFn_) return nullptr;
     const auto& block = currentFn_->blocks[currentBlockIdx_];
@@ -2827,6 +2867,7 @@ void IRCodeGen::generate(const ir::Module& mod, uint32_t zpStart, bool relocMode
     if (!mod.externs.empty()) emitBlank();
 
     // Emit global declarations (segment switching only in reloc mode)
+    q32Lits_.clear();
     placeNoescape(mod);
     emitGlobals(mod, relocMode);
 
@@ -2877,6 +2918,16 @@ void IRCodeGen::generate(const ir::Module& mod, uint32_t zpStart, bool relocMode
     // Emit string data
     emitStrings(mod);
     emitF32Konsts();
+
+    // the 32-bit constants added in Q (addConstInQ)
+    if (relocMode && !q32Lits_.empty()) {
+        emit(".segment \"data\"");
+        for (const auto& l : q32Lits_) {
+            emitLabel(l.second);
+            emit(".dword $" + hex16((uint16_t)(l.first >> 16)) + hex16((uint16_t)l.first));
+        }
+        emit(".segment \"code\"");
+    }
 
     // Aligned data/BSS: tell ln45 to start this object's part on that boundary
     if (relocMode) {
@@ -7529,6 +7580,7 @@ void IRCodeGen::emitInstBody(const ir::Inst& inst) {
                     emit(".extern __mul16y32");
                     emit("jsr __mul16y32");
                     ms_.invalidateAll();
+                    if (addConstInQ(inst)) break;
                     if (inst.dest.isVreg()) storeVreg(inst.dest.vregId);
                     break;
                 }
@@ -7552,6 +7604,7 @@ void IRCodeGen::emitInstBody(const ir::Inst& inst) {
                 emit(".extern " + fnName);
                 emit("jsr " + fnName);
                 ms_.invalidateAll();
+                if (is32 && addConstInQ(inst)) break;
                 if (inst.dest.isVreg()) storeVreg(inst.dest.vregId);
                 break;
             }
