@@ -18,6 +18,32 @@ int main() {
     
     __flags.Zero = 1;
     if (!__flags.Zero) return 6;
+
+    // (#609: Zero read as 1 and Negative as 0 whatever they were, and Zero
+    // was written the wrong way round)
+    __flags.Zero = 0;
+    if (__flags.Zero) return 10;
+    {
+        volatile unsigned char one = 1, none = 0;
+        __flags.Zero = one;
+        if (!__flags.Zero) return 11;
+        __flags.Zero = none;
+        if (__flags.Zero) return 12;
+        __flags.Negative = one;
+        if (!__flags.Negative) return 13;
+        __flags.Negative = none;
+        if (__flags.Negative) return 14;
+    }
+    __flags.Negative = 1;
+    if (!__flags.Negative) return 15;
+    __flags.Negative = 0;
+    if (__flags.Negative) return 16;
+    __flags.Overflow = 0;
+    if (__flags.Overflow) return 17;
+    __cpu.A = 0x80;                 // (a load sets N and clears Z)
+    if (!__flags.Negative) return 18;
+    __cpu.A = 0;
+    if (!__flags.Zero) return 19;
     
     // Test 3: Complex expressions
     __cpu.A = 10;

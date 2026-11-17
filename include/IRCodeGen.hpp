@@ -670,6 +670,27 @@ private:
     };
     FuncClobbers computeFuncClobbers(const ir::Function& fn);
     std::map<std::string, FuncClobbers> functionClobberInfo_;  // pre-computed clobber info including callee unions
+    // #607: what each function's emitted instructions change (measured from
+    // the text as it is written, the function's own instructions only: calls
+    // count by the estimate). Where that is more than the estimate said, the
+    // estimate was wrong: clobberFixes() gives what to add, and the module is
+    // generated again with it (setClobberOverrides), so the attributes
+    // declared and the registers cc45 itself keeps across a call are right.
+    std::map<std::string, FuncClobbers> measured_;
+    std::map<std::string, FuncClobbers> clobberOverrides_;
+    std::string measureFn_;                    // the function being emitted ("" outside one)
+    void measureLine(const std::string& line);
+public:
+    void setClobberOverrides(const std::map<std::string, std::pair<uint8_t, uint8_t>>& o) {
+        clobberOverrides_.clear();
+        for (const auto& [n, rf] : o) { FuncClobbers f; f.regs = rf.first; f.flags = rf.second; clobberOverrides_[n] = f; }
+    }
+    // function -> (registers, flags) its code changes beyond what was assumed
+    std::map<std::string, std::pair<uint8_t, uint8_t>> clobberFixes() const;
+private:
+    // functions with a call in their IR (an operator method, a runtime
+    // routine: not a FunctionCall of the source): not leaves (#608)
+    std::set<std::string> irCallers_;
 
     // Phase 2: Fine-grained register invalidation tracking
     // Maps function name → clobber mask for selective invalidation at call sites

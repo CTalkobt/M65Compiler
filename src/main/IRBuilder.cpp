@@ -14,6 +14,22 @@
 #include <sstream>
 #include <cctype>
 
+// Whether inline assembly text has a call or a jump out (jsr, bsr, lbsr,
+// jmp as whole words, any case): its function makes a call
+static bool asmTextCalls(const std::string& text) {
+    std::string t;
+    for (char c : text) t += (char)std::tolower((unsigned char)c);
+    for (const char* w : {"jsr", "bsr", "lbsr", "jmp"}) {
+        size_t n = strlen(w);
+        for (size_t at = t.find(w); at != std::string::npos; at = t.find(w, at + 1)) {
+            bool l = at == 0 || !(std::isalnum((unsigned char)t[at - 1]) || t[at - 1] == '_' || t[at - 1] == '.');
+            bool r = at + n >= t.size() || !(std::isalnum((unsigned char)t[at + n]) || t[at + n] == '_');
+            if (l && r) return true;
+        }
+    }
+    return false;
+}
+
 static const std::map<std::string, size_t>& printfLikeFunctions();
 
 IRBuilder::IRBuilder() {}
@@ -7613,6 +7629,7 @@ void IRBuilder::visit(FunctionCall& node) {
         // Store src/dst/len to ZP scratch area, then build 12-byte job on stack
         auto emitAsm = [&](const std::string& line) {
             ir::Inst a; a.op = ir::Op::ASM_INLINE; a.asmText = line; a.loc = loc(node); emit(a);
+            if (currentFunc_ && asmTextCalls(line)) currentFunc_->originalIsLeaf = false;
         };
 
         // Save args to ZP $02-$07 (scratch area, safe for DMA setup)
@@ -7666,6 +7683,7 @@ void IRBuilder::visit(FunctionCall& node) {
 
         auto emitAsm = [&](const std::string& line) {
             ir::Inst a; a.op = ir::Op::ASM_INLINE; a.asmText = line; a.loc = loc(node); emit(a);
+            if (currentFunc_ && asmTextCalls(line)) currentFunc_->originalIsLeaf = false;
         };
 
         // Save args to ZP $02-$06
@@ -10233,6 +10251,9 @@ void IRBuilder::visit(AsmStatement& node) {
     ir::Inst inst;
     inst.op = ir::Op::ASM_INLINE;
     inst.asmText = node.code;
+    // A call in the assembly (asm("jsr x"), __jsr / __jsr_raw): the function
+    // is not a leaf (al45's mega65-clobber-mismatch found one declared so)
+    if (currentFunc_ && asmTextCalls(node.code)) currentFunc_->originalIsLeaf = false;
 
     // When inlining, rewrite @_p_name and @_l_name references to use
     // the callee's SAC storage symbols, since proc-scoped .var declarations

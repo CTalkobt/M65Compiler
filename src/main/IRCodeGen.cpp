@@ -989,6 +989,69 @@ bool IRCodeGen::addConstInQ(const ir::Inst& inst) {
     return true;
 }
 
+// What one emitted instruction changes, into measured_[measureFn_] (#607).
+// Plain 45GS02 instructions only: directives, labels, calls and ca45's
+// simulated operations (mul.16, ldax.fp...) stay with the estimate.
+void IRCodeGen::measureLine(const std::string& line) {
+    size_t b = line.find_first_not_of(" \t");
+    if (b == std::string::npos || line[b] == '.' || line[b] == ';' || line[b] == '@') return;
+    size_t e = line.find_first_of(" \t;", b);
+    std::string m = line.substr(b, e == std::string::npos ? std::string::npos : e - b);
+    if (m.empty() || m.back() == ':' || m.find('.') != std::string::npos || m.find('=') != std::string::npos) return;
+    std::transform(m.begin(), m.end(), m.begin(), ::tolower);
+    std::string op;
+    if (e != std::string::npos) {
+        size_t o = line.find_first_not_of(" \t", e);
+        if (o != std::string::npos && line[o] != ';') {
+            size_t oe = line.find_first_of(" \t;", o);
+            op = line.substr(o, oe == std::string::npos ? std::string::npos : oe - o);
+            std::transform(op.begin(), op.end(), op.begin(), ::tolower);
+        }
+    }
+    constexpr uint8_t A = 1, X = 2, Y = 4, Z = 8, Q = 15;
+    constexpr uint8_t C = 1, N = 2, ZF = 4, V = 8, NZ = N | ZF;
+    bool acc = op.empty() || op == "a" || op == "q";
+    auto reg = [&](char c) -> uint8_t { return c == 'a' ? A : c == 'x' ? X : c == 'y' ? Y : c == 'z' ? Z : 0; };
+    uint8_t r = 0, f = 0;
+    if (m == "lda" || m == "ldx" || m == "ldy" || m == "ldz") { r = reg(m[2]); f = NZ; }
+    else if (m == "ldq") { r = Q; f = NZ; }
+    else if (m.size() == 3 && m[0] == 't' && reg(m[2]) && (reg(m[1]) || m[1] == 's' || m[1] == 'b')) { r = reg(m[2]); f = NZ; }
+    else if (m == "adc" || m == "sbc") { r = A; f = C | NZ | V; }
+    else if (m == "and" || m == "ora" || m == "eor" || m == "neg") { r = A; f = NZ; }
+    else if (m == "cmp" || m == "cpx" || m == "cpy" || m == "cpz" || m == "cmpq") f = C | NZ;
+    else if (m == "bit" || m == "bitq") f = NZ | V;
+    else if (m == "inc" || m == "dec") { r = acc ? A : 0; f = NZ; }
+    else if (m == "inx" || m == "dex" || m == "iny" || m == "dey" || m == "inz" || m == "dez") { r = reg(m[2]); f = NZ; }
+    else if (m == "inw" || m == "dew") f = NZ;
+    else if (m == "asl" || m == "lsr" || m == "rol" || m == "ror" || m == "asr") { r = acc ? A : 0; f = C | NZ; }
+    else if (m == "asw" || m == "row") f = C | NZ;
+    else if (m == "tsb" || m == "trb") f = ZF;
+    else if (m == "clc" || m == "sec") f = C;
+    else if (m == "clv") f = V;
+    else if (m == "pla" || m == "plx" || m == "ply" || m == "plz") { r = reg(m[2]); f = NZ; }
+    else if (m == "plp") f = C | NZ | V;
+    else if (m == "adcq" || m == "sbcq") { r = Q; f = C | NZ | V; }
+    else if (m == "andq" || m == "oraq" || m == "eorq" || m == "negq") { r = Q; f = NZ; }
+    else if (m == "inq" || m == "deq") { r = acc ? Q : 0; f = NZ; }
+    else if (m == "aslq" || m == "lsrq" || m == "rolq" || m == "rorq" || m == "asrq") { r = acc ? Q : 0; f = C | NZ; }
+    else return;
+    FuncClobbers& fc = measured_[measureFn_];
+    fc.regs |= r;
+    fc.flags |= f;
+}
+
+// What the functions' code changes beyond what generate() assumed of them
+std::map<std::string, std::pair<uint8_t, uint8_t>> IRCodeGen::clobberFixes() const {
+    std::map<std::string, std::pair<uint8_t, uint8_t>> fixes;
+    for (const auto& [name, m] : measured_) {
+        auto it = functionClobberInfo_.find(name);
+        if (it == functionClobberInfo_.end()) continue;
+        uint8_t r = m.regs & ~it->second.regs, f = m.flags & ~it->second.flags;
+        if (r || f) fixes[name] = {m.regs, m.flags};
+    }
+    return fixes;
+}
+
 const ir::Inst* IRCodeGen::peekNextInst() const {
     if (!currentFn_) return nullptr;
     const auto& block = currentFn_->blocks[currentBlockIdx_];
@@ -1037,6 +1100,7 @@ void IRCodeGen::emit(const std::string& line, const std::string& reason) {
     }
     out_ << "\n";
     noteEmitted(line);
+    if (!measureFn_.empty()) measureLine(line);
 
     // Phase 78: Track instruction offset for SMC parameter access recording
     // Estimate instruction size based on addressing mode patterns
@@ -2371,8 +2435,23 @@ void IRCodeGen::generate(const ir::Module& mod, uint32_t zpStart, bool relocMode
     countMulShapes(mod);
     functionFlagClobberMasks_.clear();
     functionClobberInfo_.clear();
+    measured_.clear();
+    irCallers_.clear();
+    std::map<std::string, std::set<std::string>> irCallees;
     for (const auto& fn : mod.functions) {
         FuncClobbers clobbers = computeFuncClobbers(fn);
+        // (what an earlier generation of the module measured, #607)
+        auto ov = clobberOverrides_.find(fn.name);
+        if (ov != clobberOverrides_.end()) { clobbers.regs |= ov->second.regs; clobbers.flags |= ov->second.flags; }
+        for (const auto& blk : fn.blocks)
+            for (const auto& in : blk.insts) {
+                if (in.op == ir::Op::CALL || in.op == ir::Op::CALL_VOID) {
+                    irCallers_.insert(fn.name);
+                    if (in.src1.kind == ir::OperandKind::GLOBAL) irCallees[fn.name].insert(in.src1.name);
+                } else if (in.op == ir::Op::CALL_INDIRECT) {
+                    irCallers_.insert(fn.name);
+                }
+            }
         baseClobbers[fn.name] = clobbers;
 
         // Register clobber mask (bit 0=A, 1=X, 2=Y, 3=Z)
@@ -2389,11 +2468,16 @@ void IRCodeGen::generate(const ir::Module& mod, uint32_t zpStart, bool relocMode
     }
 
     // Second pass: for non-leaf functions, union in the clobbers of all called functions
+    // (to a fixed point: a callee's own callees, and what was measured of them)
+    for (int round = 0; round < 8; round++)
     for (const auto& fn : mod.functions) {
-        if (!fn.originalIsLeaf && !fn.originalCallees.empty()) {
+        std::set<std::string> callees(fn.originalCallees.begin(), fn.originalCallees.end());
+        // (the calls of the IR too: operator methods, #608)
+        if (irCallees.count(fn.name)) callees.insert(irCallees[fn.name].begin(), irCallees[fn.name].end());
+        if (!callees.empty()) {
             FuncClobbers& myFC = baseClobbers[fn.name];
             // Union in clobbers from all called functions
-            for (const auto& calleeName : fn.originalCallees) {
+            for (const auto& calleeName : callees) {
                 // originalCallees stores C names; baseClobbers uses IR names (_ prefix)
                 std::string irName = "_" + calleeName;
                 if (baseClobbers.count(irName) > 0) {
@@ -3598,6 +3682,20 @@ IRCodeGen::FuncClobbers IRCodeGen::computeFuncClobbers(const ir::Function& fn) {
                     fc.flags |= C | N | ZF | V;
                     break;
             }
+            // Anything wider than 16 bits goes through Q (ldq, ldz #0, the
+            // library's 32-bit and float routines): Y and Z too, whatever
+            // the operation (a shift or a comparison of a long, a long cut
+            // down to a char: al45's mega65-clobber-mismatch found
+            // font_select declared without Z)
+            {
+                auto wide = [](ir::Type t) { return t == ir::Type::I32 || t == ir::Type::I_N || t == ir::Type::F32; };
+                bool w = wide(inst.resultType) || wide(inst.src1.type) || wide(inst.src2.type) || wide(inst.dest.type);
+                for (const auto& x : inst.args) w = w || wide(x.type);
+                if (w && inst.op != ir::Op::NOP && inst.op != ir::Op::BR && inst.op != ir::Op::PHI) {
+                    fc.regs |= A | X | Y | Z;
+                    fc.flags |= C | N | ZF | V;
+                }
+            }
         }
     }
 
@@ -3891,6 +3989,8 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
     emitComment("function " + fn.name);
     zpBitAlias_.clear();
     planF32Aliases(fn);
+    measureFn_ = fn.name;
+    struct MeasureEnd { std::string& m; ~MeasureEnd() { m.clear(); } } measureEnd{measureFn_};
 
     // Set current function context (used by loadVreg/storeVreg for SAC addressing)
     currentFunctionName_ = fn.name;
@@ -6122,7 +6222,7 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
         if (useSAC) funcFlags += ", static_alloc";
         if (zeroAllocLeaves_.count(fn.name)) funcFlags += ", zeroalloc";
         if (fn.isInterrupt) funcFlags += ", isr";
-        if (fn.originalIsLeaf) funcFlags += ", leaf";
+        if (fn.originalIsLeaf && !irCallers_.count(fn.name)) funcFlags += ", leaf";
         emit(".func_flags " + funcFlags);
     }
     // Emit parameter sizes so assembler can track actual sizes instead of assuming 2 bytes
@@ -10532,11 +10632,24 @@ void IRCodeGen::emitInstBody(const ir::Inst& inst) {
         case ir::Op::CPU_FLAG_READ: {
             std::string flag = inst.asmText;
             std::transform(flag.begin(), flag.end(), flag.begin(), ::toupper);
-            emit("lda #0");
-            if (flag == "CARRY") emit("adc #0");
-            else if (flag == "ZERO") { emit("bne *+3"); emit("lda #1"); }
-            else if (flag == "NEGATIVE") { emit("bpl *+3"); emit("lda #1"); }
-            else if (flag == "OVERFLOW") { emit("bvc *+3"); emit("lda #1"); }
+            // The flag is tested before A is loaded: lda sets N and Z
+            // itself (it read Zero as 1 and Negative as 0 whatever they
+            // were, #609)
+            if (flag == "CARRY") { emit("lda #0"); emit("adc #0"); }
+            else {
+                const char* br = flag == "ZERO" ? "beq" : flag == "NEGATIVE" ? "bmi" : flag == "OVERFLOW" ? "bvs" : nullptr;
+                if (br) {
+                    // (labels, not "*+6": ca45's optimizer may change what is between)
+                    std::string t = "@__fl_" + std::to_string(labelCounter_++), d = "@__fl_" + std::to_string(labelCounter_++);
+                    emit(std::string(br) + " " + t);
+                    emit("lda #0");
+                    emit("bra " + d);
+                    emitLabel(t);
+                    emit("lda #1");
+                    emitLabel(d);
+                } else emit("lda #0");
+            }
+            ms_.invalidateAll();
             if (inst.dest.isVreg()) storeVreg(inst.dest.vregId);
             break;
         }
@@ -10549,6 +10662,9 @@ void IRCodeGen::emitInstBody(const ir::Inst& inst) {
             if (inst.src1.isImm()) {
                 int val = (int)inst.src1.immVal;
                 if (flag == "CARRY") { emit(val ? "sec" : "clc"); optimized = true; }
+                // Zero set: a value of 0 loaded; Negative: bit 7 (#609)
+                else if (flag == "ZERO") { emit(val ? "lda #0" : "lda #1"); optimized = true; }
+                else if (flag == "NEGATIVE") { emit(val ? "lda #$80" : "lda #0"); optimized = true; }
                 else if (flag == "DECIMAL") { emit(val ? "sed" : "cld"); optimized = true; }
                 else if (flag == "INTERRUPT") { emit(val ? "sei" : "cli"); optimized = true; }
                 else if (flag == "OVERFLOW" && val == 0) { emit("clv"); optimized = true; }
@@ -10558,8 +10674,28 @@ void IRCodeGen::emitInstBody(const ir::Inst& inst) {
                 if (inst.src1.isVreg()) loadVreg(inst.src1.vregId);
                 else if (inst.src1.isImm()) emit("lda #$" + hex8((uint8_t)inst.src1.immVal));
                 if (flag == "CARRY") { emit("lsr a"); }
-                else if (flag == "ZERO") { emit("cmp #0"); }
+                // Zero := (value != 0): A = 0 for a value that is not 0
+                // (cmp #0 set it for a value of 0: the wrong way round, #609)
+                else if (flag == "ZERO") {
+                    std::string z = "@__fl_" + std::to_string(labelCounter_++), d = "@__fl_" + std::to_string(labelCounter_++);
+                    emit("cmp #0");
+                    emit("beq " + z);
+                    emit("lda #0");          // not 0: Z set
+                    emit("bra " + d);
+                    emitLabel(z);
+                    emit("lda #1");          // 0: Z clear
+                    emitLabel(d);
+                }
+                // Negative := (value != 0)
+                else if (flag == "NEGATIVE") {
+                    std::string d = "@__fl_" + std::to_string(labelCounter_++);
+                    emit("cmp #0");
+                    emit("beq " + d);
+                    emit("lda #$80");
+                    emitLabel(d);
+                }
             }
+            ms_.invalidateAll();
             break;
         }
 

@@ -283,20 +283,42 @@ void CodegenStage::generateAssembly() {
 
     // Generate assembly text for a module
     auto gen = [&](const ir::Module& mod) {
-        std::ostringstream ss;
-        IRCodeGen codegen(ss);
-        codegen.setFunctionSections(functionSections_);
-        codegen.setF32PtrCall(objectOnly_ && optOn("FloatCopyCall"));
-        // Parameters: module, zpStart, relocMode, zpCallMode, emitReasons, staticAllocMode, sacDebugMode, prgBase
-        codegen.generate(mod,
-                         0x08,              // zpStart
-                         objectOnly_,       // relocMode (true for -c/.o45, false for direct PRG)
-                         zpCallMode_,       // zpCallMode
-                         emitReasons_,      // emitReasons (-Rcodegen: why each instruction)
-                         staticAlloc_,      // staticAllocMode
-                         false,             // sacDebugMode (code of its own: not by -v)
-                         prgBase_);
-        std::string out = ss.str();
+        // #607: a function whose code changes a register or flag the
+        // estimate of it did not have (what its .reg_clobbers / .flag_clobbers
+        // declare, and what cc45 keeps in registers across a call of it) is
+        // generated again with what was measured, until nothing is missing
+        std::string out;
+        std::map<std::string, std::pair<uint8_t, uint8_t>> clobberOverrides;
+        for (int round = 0; round < 4; round++) {
+            std::ostringstream ss;
+            IRCodeGen codegen(ss);
+            codegen.setFunctionSections(functionSections_);
+            codegen.setF32PtrCall(objectOnly_ && optOn("FloatCopyCall"));
+            if (round == 3)   // (it did not settle: everything, for the functions in question)
+                for (auto& o : clobberOverrides) o.second = {0x0F, 0x0F};
+            codegen.setClobberOverrides(clobberOverrides);
+            // Parameters: module, zpStart, relocMode, zpCallMode, emitReasons, staticAllocMode, sacDebugMode, prgBase
+            codegen.generate(mod,
+                             0x08,              // zpStart
+                             objectOnly_,       // relocMode (true for -c/.o45, false for direct PRG)
+                             zpCallMode_,       // zpCallMode
+                             emitReasons_,      // emitReasons (-Rcodegen: why each instruction)
+                             staticAlloc_,      // staticAllocMode
+                             false,             // sacDebugMode (code of its own: not by -v)
+                             prgBase_);
+            out = ss.str();
+            auto fixes = codegen.clobberFixes();
+            if (fixes.empty()) break;
+            if (getenv("CC45_CLOBBER_TRACE"))
+                for (const auto& f : fixes)
+                    std::cerr << "clobbers of " << f.first << ": the code changes more than estimated (regs "
+                              << (int)f.second.first << ", flags " << (int)f.second.second << ")\n";
+            for (const auto& f : fixes) {
+                auto& o = clobberOverrides[f.first];
+                o.first |= f.second.first;
+                o.second |= f.second.second;
+            }
+        }
         // SAC locals never live at the same time share their storage (#324)
         if (staticAlloc_ && optOn("SacSlotSharing")) out = shareSacSlots(out);
         // many float copies as calls of __f32cpy (#485)

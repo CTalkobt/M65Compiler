@@ -4,6 +4,61 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### al45: the rules on data flow (#64 phase 3)
+
+- al45 follows what each instruction reads and writes (A, X, Y, Z, the
+  flags, the stack, base-page bytes) through the file's branches
+  (`src/main/AsmLintFlow.cpp`). Eight rules:
+  - `mega65-flag-stale` (warning): a comparison whose flags are set again
+    before a branch reads them (`cmp #5 / ldx #0 / beq`).
+  - `mega65-stack-balance` (warning): `rts` / `rti` with bytes still pushed.
+  - `mega65-clobber-mismatch` (warning): a proc that changes a register or
+    flag its `.reg_clobbers` / `.flag_clobbers` does not list, or is
+    declared `leaf` and calls. `al45 --suggest-clobbers` prints the lists
+    for every proc.
+  - `mega65-zp-param-block`, `mega65-lib-temps` (warning, profile cc45): a
+    byte of `$10`-`$2F` / `$F6`-`$FC` read after a call of a C function.
+  - `mega65-dead-reg-write`, `mega65-redundant-load`, `mega65-dead-store`
+    (info): a register loaded and overwritten unread, loaded with what it
+    holds, a base-page byte stored twice.
+- They err towards silence: calls, returns, jumps out of the file,
+  simulated operations and patched operands read everything; macros'
+  expansions and cc45's own procs are not judged for wasted work.
+- The library, linted with them: 45 `.flag_clobbers` / `.reg_clobbers` lists
+  left out a flag or register the proc changes (mostly V after `adc` /
+  `sbc`; `_dl_push_back` changes X, `___tgi_n_glyph` Y) and are corrected;
+  14 wasted loads are removed (`itoa`, `ltoa`, `utoa`, the TGI line
+  routines, `mainargs`, `rom_call`, BASIC's run time).
+- Tests: a fixture per rule and one of hand-written idioms nothing is
+  reported in (`src/test-resources/al45/`), `src/test/test_al45.sh`.
+
+### cc45: attributes that said less than the code does; `__flags` (#607, #608, #609)
+
+All found by al45's new rules run over cc45's own output.
+
+- `.reg_clobbers` / `.flag_clobbers` came from an estimate per IR operation
+  that left things out: Y and Z for a 32-bit shift, comparison or
+  truncation (`font_select`: `ldq` ... `ldz #0`, declared A, X, Y), Y for a
+  nested function's `tsy`, Z for a variadic call's `plz`, C and V for a
+  `clc` or `asl`. ca45's optimizer, ln45 and cc45 itself (what it keeps in
+  registers across a call) believe the lists. cc45 now measures what the
+  instructions it writes for a function change, and where that is more
+  than the estimate the module is generated again with it (1 of the
+  library's 115 C files). Operations wider than 16 bits are estimated as
+  changing everything (#607).
+- A function was a `leaf` by the calls of its source only: one whose call
+  is in inline assembly (`asm("jsr x")`, `__jsr`, `__jsr_raw`, a `jmp` out)
+  or is an operator method's (`a += b` of a struct) was declared `leaf`.
+  Assembly text with `jsr`, `bsr`, `lbsr` or `jmp`, and any call in the IR,
+  make it a non-leaf; a callee's clobbers reach its caller for those calls
+  too (#608).
+- `__flags.Zero` read 1 and `__flags.Negative` 0 whatever the flags were
+  (the read loaded A first), `__flags.Zero = v` set Z for a value of 0, and
+  the read's `bne *+3` landed inside the next instruction. The flag is
+  tested before the load, by labels; Zero and Negative are written as
+  "the value is not 0" (#609).
+- Tests: `src/test/test_func_attrs.sh` (`make test`),
+  `test_cpu_intrinsics_xemu.c`.
 ### cc45: a negative array size is an error (#602)
 
 - `typedef char t[-1];`, `char a[-4];`, `struct s { char m[-2]; };` compiled
