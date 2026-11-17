@@ -81,7 +81,7 @@ proc _romram_protect
 proc _romram_ranges
     .zp_uses $10
     .reg_clobbers A, X
-    .flag_clobbers N, Z
+    .flag_clobbers C, N, Z
     lda $10
     cmp #1                      ; ROMRAM_C64
     bne @none

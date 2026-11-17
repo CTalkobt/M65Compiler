@@ -27,6 +27,7 @@ proc _exit
     .zp_clobbers $10, $11
     .zp_release $10, $11
     .reg_clobbers A, X, Y, Z
+    .flag_clobbers N, Z
 
     lda $10
     ldx $11
@@ -44,6 +45,7 @@ proc __exit_
     .zp_clobbers $10, $11
     .zp_release $10, $11
     .reg_clobbers A, X
+    .flag_clobbers N, Z
 
     lda $10
     ldx $11

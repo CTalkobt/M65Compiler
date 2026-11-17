@@ -19,7 +19,7 @@ fail() { echo "FAIL: $1"; failed=$((failed + 1)); }
 for f in $F/*.s45; do
     n=$(basename $f .s45)
     opts=""
-    case $n in rom_call) opts="-c" ;; esac
+    case $n in rom_call|zp_param|clobber_mismatch) opts="-c" ;; esac
     want=$(grep -n "EXPECT mega65-" $f | sed -E 's/^([0-9]+):.*EXPECT (mega65-[a-z0-9-]+).*/\1 \2/' | sort)
     got=$($AL $opts $f 2>$D/$n.err | sed -nE 's/^[^:]+:([0-9]+):[0-9]+: [a-z]+: .* \[(mega65-[a-z0-9-]+)\]$/\1 \2/p' | sort)
     if [ "$want" = "$got" ] && [ ! -s $D/$n.err ]; then
@@ -75,6 +75,17 @@ assert any(x['id']=='mega65-dma-trigger-order' for x in r['tool']['driver']['rul
     pass "al45: JSON and SARIF output, --list-rules, --explain, -v leaves the output alone"
 else
     fail "al45 output formats"
+fi
+
+# --suggest-clobbers: the lists al45 works out, a line per proc; a register
+# pushed and pulled is not in them
+$AL -c --suggest-clobbers $F/clobber_mismatch.s45 > $D/sug.txt 2>&1
+if grep -q "proc _under: .reg_clobbers A, X  .flag_clobbers C, N, Z  ; leaf" $D/sug.txt &&
+   grep -q "proc _saves: .reg_clobbers A  .flag_clobbers N, Z  ; leaf" $D/sug.txt &&
+   grep -q "proc _calls: .reg_clobbers A, X, Y, Z  .flag_clobbers C, N, Z, V  ; (calls _other: everything)" $D/sug.txt; then
+    pass "al45 --suggest-clobbers"
+else
+    fail "al45 --suggest-clobbers: $(head -6 $D/sug.txt)"
 fi
 
 echo ""

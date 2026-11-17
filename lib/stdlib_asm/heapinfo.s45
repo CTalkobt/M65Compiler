@@ -78,7 +78,7 @@ endproc
 proc __heapmemavail
     .zp_clobbers $10, $11, $12, $13, $14, $15
     .reg_clobbers A, X, Y
-    .flag_clobbers C, N, Z
+    .flag_clobbers C, N, Z, V
     jsr __heapfirst
     php
     lda #0
@@ -117,7 +117,7 @@ endproc
 proc __heapmaxavail
     .zp_clobbers $10, $11, $12, $13, $14, $15
     .reg_clobbers A, X, Y
-    .flag_clobbers C, N, Z
+    .flag_clobbers C, N, Z, V
     jsr __heapfirst
     php
     lda #0
@@ -151,7 +151,7 @@ proc __heapblocksize
     .zp_uses $10, $11
     .zp_clobbers $10, $11
     .reg_clobbers A, X, Y
-    .flag_clobbers C, N, Z
+    .flag_clobbers C, N, Z, V
     lda $10
     sec
     sbc #2

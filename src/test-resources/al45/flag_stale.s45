@@ -1,0 +1,39 @@
+; mega65-flag-stale: a comparison whose flags are set again before a branch
+    * = $2000
+start:
+    lda $20
+    cmp #5
+    ldx #0
+    beq is5             ; EXPECT mega65-flag-stale
+    cmp #7              ; EXPECT mega65-flag-stale
+    lda $21
+    clc
+    adc #1
+    sta $22
+    cpx #3              ; EXPECT mega65-flag-stale
+    jsr helper          ; (a call leaves its own flags)
+    bne is5
+; used as they should be
+    lda $20
+    cmp #5
+    beq is5
+    bcc less
+    cmp #9
+    php                 ; (the flags kept across the load)
+    lda $23
+    plp
+    beq is5
+    cpy #4
+    sta $24             ; (a store sets no flag)
+    bne less
+    cmp #1              ; (returned to the caller)
+    rts
+is5:
+    cmp #2              ; (the carry is what is wanted: Z is the load's)
+    lda $25
+    beq less
+    bcs start
+less:
+    rts
+helper:
+    rts

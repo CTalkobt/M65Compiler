@@ -161,7 +161,6 @@ proc ___tgi_f_line
     dec ERR+1
     bpl @xright
     clc                     ; err < 0: err += dx, y + 1
-    lda ERR
     adc DX
     sta ERR
     lda ERR+1
@@ -200,7 +199,6 @@ proc ___tgi_f_line
     dec ERR+1
     bpl @xleft
     clc
-    lda ERR
     adc DX
     sta ERR
     lda ERR+1
@@ -252,7 +250,6 @@ proc ___tgi_f_line
     dec ERR+1
     bpl @yright
     clc                     ; err < 0: err += dy, x + 1
-    lda ERR
     adc DY
     sta ERR
     lda ERR+1
@@ -292,7 +289,6 @@ proc ___tgi_f_line
     dec ERR+1
     bpl @yleft
     clc
-    lda ERR
     adc DY
     sta ERR
     lda ERR+1

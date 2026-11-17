@@ -1,0 +1,57 @@
+; mega65-clobber-mismatch: what a proc changes against what it declares
+.extern _other
+.segment "code"
+.global _under
+proc _under
+    .reg_clobbers A
+    .flag_clobbers N, Z
+    lda $10
+    tax                 ; EXPECT mega65-clobber-mismatch
+    cmp #3              ; EXPECT mega65-clobber-mismatch
+    rts
+endproc
+proc _leafy
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    .func_flags leaf
+    jsr _other          ; EXPECT mega65-clobber-mismatch
+    rts
+endproc
+proc _through
+    .reg_clobbers A
+    .flag_clobbers C, N, Z, V
+    lda #1
+    jsr _leafy          ; EXPECT mega65-clobber-mismatch
+    rts
+endproc
+; as declared: a register saved and restored, flags kept by php / plp,
+; a call of a proc elsewhere (not judged), no clobber lists at all
+proc _saves
+    .reg_clobbers A
+    .flag_clobbers N, Z
+    phx
+    php
+    ldx #3
+    cpx $10
+    bcc @s
+    inx
+@s:
+    stx $11
+    plp
+    plx
+    lda #0
+    rts
+endproc
+proc _calls
+    .reg_clobbers A
+    .flag_clobbers N, Z
+    lda #0
+    jsr _other
+    rts
+endproc
+proc _silent
+    .func_flags zp_call
+    ldx #1
+    ldy #2
+    rts
+endproc

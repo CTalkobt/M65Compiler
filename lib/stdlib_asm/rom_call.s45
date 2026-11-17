@@ -107,7 +107,6 @@ __rc_jsr:
     tys
     ldx __re_spl
     txs
-    lda __re_p
     and #$DF                ; (PLP loads E: keep the 16-bit stack)
     pha
     lda __re_a

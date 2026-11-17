@@ -343,7 +343,6 @@ proc __bas_instr
     ; (P, Q to the first characters)
     inw P
     inw Q
-    ldy #0
     lda (Q),y
     cmp #92
     bne @plain

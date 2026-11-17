@@ -39,7 +39,7 @@ proc _malloc
     .zp_clobbers $10, $11, $12, $13, $14, $15, $16, $17
     .zp_release $10, $11
     .reg_clobbers A, X, Y
-    .flag_clobbers C, N, Z
+    .flag_clobbers C, N, Z, V
 
     ; Read size param and move to $16/$17 for working storage
     lda $10
@@ -262,7 +262,7 @@ proc _free
     .zp_clobbers $10, $11, $12, $13, $14, $15, $16, $17
     .zp_release $10, $11
     .reg_clobbers A, X, Y
-    .flag_clobbers C, N, Z
+    .flag_clobbers C, N, Z, V
 
     lda $10
     ora $11
@@ -450,7 +450,7 @@ proc _calloc
     .zp_clobbers $10, $11, $12, $13, $14, $15, $16, $17
     .zp_release $10, $11, $12, $13
     .reg_clobbers A, X, Y
-    .flag_clobbers C, N, Z
+    .flag_clobbers C, N, Z, V
 
     ; total = nmemb * size (malloc clobbers $12-$17: keep it on the stack)
     ; (the full 32-bit product: a total over 64 KB is NULL, not a short block)
@@ -497,8 +497,8 @@ proc _calloc
     sta $14             ; n lo
     jsr _memset
 
-    lda $16
-    ldx $17
+    lda $16  ; NOLINT(mega65-zp-param-block): memset leaves $16/$17 (its .zp_clobbers: $10-$15)
+    ldx $17  ; NOLINT(mega65-zp-param-block): as above
     rts
 @fail:
     pla
@@ -519,7 +519,7 @@ proc _realloc
     .zp_clobbers $10, $11, $12, $13, $14, $15, $16, $17
     .zp_release $10, $11, $12, $13
     .reg_clobbers A, X, Y
-    .flag_clobbers C, N, Z
+    .flag_clobbers C, N, Z, V
 
     ; If ptr is NULL, realloc is malloc
     lda $10
@@ -634,9 +634,9 @@ proc _realloc
     jsr _memcpy
 
     ; free(old_ptr)
-    lda $16
+    lda $16  ; NOLINT(mega65-zp-param-block): memcpy leaves $16/$17 (its .zp_clobbers: $10-$15)
     sta $10
-    lda $17
+    lda $17  ; NOLINT(mega65-zp-param-block): as above
     sta $11
     jsr _free
 

@@ -1,0 +1,44 @@
+; mega65-dead-reg-write: a register loaded and written again unread
+    * = $2000
+start:
+    lda #1              ; EXPECT mega65-dead-reg-write
+    lda #2
+    sta $20
+    ldx $21             ; EXPECT mega65-dead-reg-write
+    tay                 ; EXPECT mega65-dead-reg-write
+    lda $22
+    ldx #4
+    sta $23,x
+    ldy #0
+    beq @a              ; (its flags are tested)
+    ldy #1
+    sty $24
+@a:
+    ldy #2
+    sty $25
+; used: by a test of its flags, on one path only, by a call, by the hypervisor
+    lda $26
+    beq @b
+    lda #7
+@b:
+    sta $27
+    ldz #3
+    lda $28
+    bne @c
+    ldz #4
+@c:
+    stz $29
+    ldx #5
+    jsr sub
+    ldx #6
+    ldy #$10
+    lda #$2E
+    sta $D640           ; (a hypervisor trap: it takes X and Y)
+    clv
+    ldx #7
+    ldy #8
+    lda $DC0D           ; (an I/O read that acknowledges)
+    lda #0
+    rts
+sub:
+    rts

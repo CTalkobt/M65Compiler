@@ -579,6 +579,7 @@ endproc
 ; int wherex(void)
 proc _wherex
     .reg_clobbers A, X
+    .flag_clobbers N, Z
     lda __conio_cx
     ldx #0
     rts
@@ -588,6 +589,7 @@ endproc
 ; int wherey(void)
 proc _wherey
     .reg_clobbers A, X
+    .flag_clobbers N, Z
     lda __conio_cy
     ldx #0
     rts

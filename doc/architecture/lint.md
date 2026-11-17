@@ -1,7 +1,7 @@
 # Linters: al45 (assembly) and cl45 (C)
 
-Status: the shared core and al45's phases 1-2 are implemented
-(`doc/bin/al45.md`); al45's phase 3 and cl45 are planned (#199, #278, #64). The assembly half was planned on 2026-10-31; the C half on
+Status: the shared core and al45 (phases 1-3) are implemented
+(`doc/bin/al45.md`); al45's style rules and cl45 are planned (#199, #278, #64). The assembly half was planned on 2026-10-31; the C half on
 2026-11-12.
 
 Two tools on one core:
@@ -108,7 +108,17 @@ ca45's parsing options accepted (`-D`, `-I`, `.cpu`); the Makefile's
 | `mega65-unnamed-proc-attrs` | all | warning | function attributes in an unnamed `proc` |
 | `mega65-style-*` | all | off | columns, comment spacing, naming (regexes in the config): later |
 
-### Phase 3: flow analysis
+### Phase 3: flow analysis: done
+`src/main/AsmLintFlow.cpp`. As built: one control-flow graph over the file
+(not one per function; a routine's entry matters only to
+`mega65-stack-balance`); liveness of registers and flags, base-page bytes
+followed in straight-line code only; a callee's attributes when it is a
+proc of the file, else a call reads everything and what it changes is not
+known (al45 makes no summary of its own); `mega65-flag-stale` is about
+comparisons (the stale carry of `adc` / `rol` is not judged);
+`--suggest-clobbers` prints registers and flags (not `.zp_clobbers`). The
+plan was:
+
 A per-flag effect table for every 45GS02 opcode (Q forms and ca45's
 simulated ops included: registers and flags read and written, memory,
 stack delta), per-function CFGs, backward liveness (A/X/Y/Z, flags,

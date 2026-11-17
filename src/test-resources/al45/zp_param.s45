@@ -1,0 +1,45 @@
+; mega65-zp-param-block, mega65-lib-temps (profile cc45): a byte of the
+; parameter block or of the library's temporaries read after a C call
+.extern _malloc
+.extern _puts
+.extern __helper
+.segment "code"
+.global _f
+proc _f
+    lda $10
+    sta $F6
+    lda $12
+    pha
+    jsr _malloc
+    sta $20
+    lda $12             ; EXPECT mega65-zp-param-block
+    sta $21
+    lda ($14),y         ; EXPECT mega65-zp-param-block
+    lda $F6             ; EXPECT mega65-lib-temps
+    sta $22
+; set again, kept elsewhere, or another kind of call
+    pla
+    sta $12
+    ldx $12
+    sta $10
+    lda $10
+    jsr _puts
+    lda #1
+    sta $16
+    ldy $16
+    jsr __helper        ; (the runtime's own routine: not a C function)
+    lda $18
+    jsr _quiet
+    ldx $1A             ; (it declares what it changes: $10, $11)
+    lda $10             ; EXPECT mega65-zp-param-block
+    rts
+endproc
+proc _quiet
+    .zp_clobbers $10, $11
+    .reg_clobbers A
+    .flag_clobbers N, Z
+    lda #0
+    sta $10
+    sta $11
+    rts
+endproc

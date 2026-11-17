@@ -1,0 +1,58 @@
+; mega65-stack-balance: a return with bytes still pushed
+    * = $2000
+start:
+    jsr leaves1
+    jsr leaves3
+    jsr onepath
+    jsr fine
+    jsr trick
+    jsr inline
+    rts
+leaves1:
+    pha
+    lda #0
+    sta $20
+    rts                 ; EXPECT mega65-stack-balance
+leaves3:
+    phx
+    phw #$1234
+    rts                 ; EXPECT mega65-stack-balance
+onepath:
+    pha
+    lda $21
+    beq @out
+    pla
+    rts
+@out:
+    rts                 ; EXPECT mega65-stack-balance
+; balanced on every path
+fine:
+    pha
+    phy
+    lda $22
+    bne @a
+    ply
+    pla
+    rts
+@a:
+    ply
+    pla
+    rts
+; a jump through the stack: two bytes and rts
+trick:
+    lda #>(fine-1)
+    pha
+    lda #<(fine-1)
+    pha
+    rts
+; its own return address pulled (data after the jsr): al45 does not follow it
+inline:
+    pla
+    sta $23
+    pla
+    sta $24
+    pha
+    lda $23
+    pha
+    pha
+    rts

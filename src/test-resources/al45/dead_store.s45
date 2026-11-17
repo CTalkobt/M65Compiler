@@ -1,0 +1,34 @@
+; mega65-dead-store: a base-page byte stored twice, nothing reading it between
+    * = $2000
+start:
+    lda #1
+    sta $20             ; EXPECT mega65-dead-store
+    lda #2
+    sta $20
+    stx $21             ; EXPECT mega65-dead-store
+    ldy #3
+    sty $21
+; read between, or not known
+    sta $22
+    ldx $22
+    sta $22
+    stx $23
+    inc $23
+    stx $23
+    sta $24
+    lda ($30),y         ; (a pointer may point anywhere)
+    sta $24
+    sta $25
+    jsr sub             ; (the call may read it)
+    sta $25
+    sta $26
+    beq @a              ; (the other path may read it)
+    sta $26
+@a:
+    sta $00             ; (the CPU port)
+    sta $00
+    sta $D020
+    sta $D020           ; (not the base page)
+    rts
+sub:
+    rts

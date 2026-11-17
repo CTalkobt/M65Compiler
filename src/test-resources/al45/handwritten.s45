@@ -13,6 +13,6 @@ loop:
     cpx #10
     bne loop
 fall:                   ; (falls through into the next routine)
-    lda #2
+    ldy #2
 print:
     rts

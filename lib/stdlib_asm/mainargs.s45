@@ -72,7 +72,6 @@ ma_name_end:
     sta ma_text,x
     inx
     ; the arguments follow the first ':' outside quotes
-    lda #0
     sta ma_q
 ma_colon:
     lda BASIC_BUF,y

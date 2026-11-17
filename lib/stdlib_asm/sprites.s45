@@ -366,6 +366,7 @@ endproc
 proc _sprite_multicolors
     .zp_uses $10, $11, $12, $13
     .reg_clobbers A
+    .flag_clobbers N, Z
     lda $10
     sta $D025
     lda $12
@@ -431,6 +432,7 @@ endproc
 proc _sprite_height
     .zp_uses $10, $11
     .reg_clobbers A
+    .flag_clobbers N, Z
     lda $10
     sta $D056
     rts
@@ -491,7 +493,7 @@ endproc
 proc _sprite_palette_bank
     .zp_uses $10, $11
     .reg_clobbers A
-    .flag_clobbers N, Z
+    .flag_clobbers C, N, Z
     lda $10
     and #3
     asl a
@@ -535,6 +537,7 @@ endproc
 proc _sprite_alpha_level
     .zp_uses $10, $11
     .reg_clobbers A
+    .flag_clobbers N, Z
     lda $10
     sta $D075
     rts

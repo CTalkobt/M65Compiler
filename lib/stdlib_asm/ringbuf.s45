@@ -502,7 +502,7 @@ endproc
 proc _rb_clear
     .zp_uses $10, $11
     .reg_clobbers A, Y
-    .flag_clobbers N, Z
+    .flag_clobbers C, N, Z
     lda #0
     ldy #6
 @z:
@@ -629,7 +629,7 @@ endproc
 proc _rbb_count
     .zp_uses $10, $11
     .reg_clobbers A, X, Y
-    .flag_clobbers C, N, Z
+    .flag_clobbers C, N, Z, V
     ldy #1
     lda ($10),y
     sta CT_P

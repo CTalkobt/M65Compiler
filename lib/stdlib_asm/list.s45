@@ -100,7 +100,7 @@ endproc
 proc _dl_push_back
     .zp_uses $10, $11, $12, $13
     .zp_clobbers $10, $11
-    .reg_clobbers A, Y
+    .reg_clobbers A, X, Y
     .flag_clobbers N, Z
     ldy #2
     lda ($10),y
@@ -197,7 +197,7 @@ endproc
 proc _dl_splice
     .zp_uses $10, $11, $12, $13
     .reg_clobbers A, Y
-    .flag_clobbers N, Z
+    .flag_clobbers C, N, Z
     ldy #0              ; L_A = src's first
     lda ($12),y
     sta L_A
@@ -312,7 +312,7 @@ endproc
 proc _sl_remove
     .zp_uses $10, $11, $12, $13
     .reg_clobbers A, X, Y
-    .flag_clobbers N, Z
+    .flag_clobbers C, N, Z
     lda $10             ; L_A: the link before (the list's first is a next)
     sta L_A
     lda $11

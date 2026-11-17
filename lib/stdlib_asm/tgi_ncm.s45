@@ -481,7 +481,6 @@ proc ___tgi_n_line
     dec ERR+1
     bpl @ymaj
     clc                     ; err < 0: err += dy, x one step
-    lda ERR
     adc DY
     sta ERR
     lda ERR+1
@@ -895,7 +894,7 @@ endproc
 ; changed and written when one is, skipped when neither
 proc ___tgi_n_glyph
     .zp_uses $10, $11, $12, $13, $14, $15, $16, $17
-    .reg_clobbers A, X, Z
+    .reg_clobbers A, X, Y, Z
     .flag_clobbers C, N, Z, V
     jsr __n_colour
     ora __n_cl

@@ -135,6 +135,7 @@ endproc
 proc _tgi_settextdir
     .zp_uses $10
     .reg_clobbers A
+    .flag_clobbers N, Z
     lda $10
     sta _tgi_textdir
     rts
@@ -159,6 +160,7 @@ endproc
 proc _tgi_install_vectorfont
     .zp_uses $10, $11
     .reg_clobbers A
+    .flag_clobbers N, Z
     lda $10
     sta ___tgi_vfont
     lda $11
