@@ -9,6 +9,7 @@
 #include "FunctionAnalyzer.hpp"
 #include "IROptimizer.hpp"
 #include "OptimizationCatalog.hpp"
+#include "CLint.hpp"
 #include <iostream>
 #include <sstream>
 #include <memory>
@@ -39,6 +40,7 @@ Stage::Result CodegenStage::execute() {
 
         // Phase 7: Generate final assembly IR
         generateAssembly();
+        if (lint_ && irModule_) clint::runFrames(*lint_, *irModule_, frames_);
 
         if (verboseLevel_ >= 1) {
             Logger::stream(LogLevel::INFO) << "IR generation complete." << std::endl;
@@ -95,6 +97,10 @@ void CodegenStage::generateIR() {
     builder.setTypedefMappings(typedefMappings_);
     if (!sourceFile_.empty()) builder.setSourceInfo(sourceFile_);
 
+    if (lint_)
+        builder.lintReport = [this](const std::string& id, const std::string& file, int line, int col,
+                                    const std::string& msg) { lint_->report(id, file, line, col, msg); };
+
     // Generate IR from AST
     builder.generate(*ast_);
 
@@ -120,6 +126,11 @@ void CodegenStage::generateIR() {
     if (fastFloat_) irModule_->fastFloat = true;
     if (irModule_->stackSize < 0) irModule_->stackSize = stackSize_;
     if (irModule_->overlay.empty()) irModule_->overlay = overlay_;
+    // cl45: the rules on the IR as written (before any pass)
+    if (lint_) {
+        lint_->staticAlloc = staticAlloc_;
+        clint::runIR(*lint_, *irModule_, *ast_);
+    }
 
     if (verboseLevel_ >= 2) {
         Logger::stream(LogLevel::DEBUG) << "IR generated successfully" << std::endl;
@@ -297,6 +308,7 @@ void CodegenStage::generateAssembly() {
             if (round == 3)   // (it did not settle: everything, for the functions in question)
                 for (auto& o : clobberOverrides) o.second = {0x0F, 0x0F};
             codegen.setClobberOverrides(clobberOverrides);
+            codegen.setLintMode(lint_ != nullptr);
             // Parameters: module, zpStart, relocMode, zpCallMode, emitReasons, staticAllocMode, sacDebugMode, prgBase
             codegen.generate(mod,
                              0x08,              // zpStart
@@ -307,6 +319,7 @@ void CodegenStage::generateAssembly() {
                              false,             // sacDebugMode (code of its own: not by -v)
                              prgBase_);
             out = ss.str();
+            if (lint_) frames_ = codegen.frameSizes();
             auto fixes = codegen.clobberFixes();
             if (fixes.empty()) break;
             if (getenv("CC45_CLOBBER_TRACE"))
@@ -357,7 +370,7 @@ void CodegenStage::generateAssembly() {
     ir::optTrace = nullptr;
     std::string base = gen(*irModule_);
     irOutput_ = base;
-    if (!trial.empty() && sizeTrial_) {
+    if (!trial.empty() && sizeTrial_ && !lint_) {
         ir::Module rot = *irModule_;
         auto rotated = ir::optimizeLoopRotation(rot, [&](const ir::Function& f) { return trial.count(f.name) > 0; });
         // each function's code bytes: from its start (its name, or its SAC

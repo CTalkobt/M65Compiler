@@ -24,6 +24,11 @@ public:
     void generate(TranslationUnit& unit);
     void setSourceInfo(const std::string& filename);
     void emitWarning(const std::string& warning);
+    // cl45 (#199): a rule's finding, where the builder knows an expression's
+    // type; set in lint mode only. A warning cc45 gives itself that a rule
+    // covers goes through lintOr (to the rule in lint mode, else as before).
+    std::function<void(const std::string& id, const std::string& file, int line, int col, const std::string& msg)> lintReport;
+    void lintOr(const std::string& id, const std::string& file, int line, int col, const std::string& msg, bool note = false);
     void setExternalUsedVars(const std::set<std::string>& vars) { externalUsedVars_ = vars; }
     const ir::Module& getModule() const { return module_; }
     ir::Module& getModule() { return module_; }
@@ -542,6 +547,13 @@ private:
     bool completePointee(const IRTypeInfo& ti, const std::string& file, int line, int col);
 
     IRTypeInfo getExprTypeInfo(Expression* expr);
+    // cl45: a wider integer stored in a narrower one without a cast
+    // (mega65-implicit-narrowing); what: "'c'" or "the initializer of 'c'"
+    void lintNarrowing(const IRTypeInfo& to, Expression* value, const ASTNode& at, const std::string& what);
+    // cl45: / % >> of plain (unsigned) operands that standard C computes signed
+    void lintPlainArith(BinaryOperation& node);
+    std::set<std::string> lintPlainParams_;   // the function's plain (unsigned by default) parameters
+    std::set<const void*> lintSeen_;   // nodes already judged (a function can be lowered twice)
     static IRTypeInfo fixedInfo(int code);   // a fixed-point type's (IRBuilderFixed.cpp)
     // Far pointers (#68, IRBuilderFar.cpp): what a far pointer reaches
     struct FarElem {

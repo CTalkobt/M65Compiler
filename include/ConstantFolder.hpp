@@ -6,6 +6,7 @@
 #include "Diagnostic.hpp"
 #include "ConstEval.hpp"
 #include <memory>
+#include <functional>
 #include <map>
 #include <optional>
 #include <set>
@@ -40,6 +41,8 @@ public:
     // unsigned (VariableDeclaration::isPlainUnsigned). Checked here, before
     // folding and constant propagation can remove the comparison.
     std::vector<std::string> warnings;
+    // cl45: the plain-unsigned warnings go here instead (its rule mega65-signedness)
+    std::function<void(const ASTNode&, const std::string&)> plainHook;
 
     // A folded literal's value as its type says ((unsigned)65536 is 0):
     // conditions and alignments are decided on it, not on the raw value
@@ -864,9 +867,10 @@ private:
     void warnPlain(const ASTNode& at, const std::string& name, const std::string& type, const std::string& what) {
         std::string key = at.sourceFile + ":" + std::to_string(at.line) + ":" + std::to_string(at.column) + ":" + name;
         if (!warned_.insert(key).second) return;
-        warnings.push_back(formatDiagnostic(at.sourceFile, at.line, at.column, Severity::Warning,
-            "'" + name + "' is unsigned (plain " + type + " is unsigned in cc45): " + what +
-            "; declare it 'signed' (or use -fsigned-default)"));
+        std::string msg = "'" + name + "' is unsigned (plain " + type + " is unsigned in cc45): " + what +
+                          "; declare it 'signed' (or use -fsigned-default)";
+        if (plainHook) plainHook(at, msg);
+        else warnings.push_back(formatDiagnostic(at.sourceFile, at.line, at.column, Severity::Warning, msg));
     }
     // x = -1 / int x = -1
     void checkPlainStore(Expression* target, Expression* value, const ASTNode& at) {

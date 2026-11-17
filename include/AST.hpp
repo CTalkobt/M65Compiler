@@ -195,6 +195,7 @@ public:
     std::string targetType;
     int pointerLevel;
     bool isSigned = false;
+    bool isVolatile = false;    // (volatile T *): what the pointer reaches is volatile (cl45)
     std::unique_ptr<Expression> expression;
     CastExpression(const std::string& t, int p, bool s, std::unique_ptr<Expression> e)
         : targetType(t), pointerLevel(p), isSigned(s), expression(std::move(e)) {}
@@ -234,6 +235,7 @@ public:
     bool isPlainUnsigned = false;
     std::string name;
     bool isVolatile = false;
+    bool pointeeVolatile = false;   // volatile T *p: what p points to is volatile (cl45)
     bool isConst = false;        // const on the base type (pointed-to data is const)
     bool isPointerConst = false; // const on the pointer itself (pointer variable is const)
     // const on the pointers it points to: bit k for the one k dereferences
@@ -514,6 +516,8 @@ struct Parameter {
     int line = 0;
     int column = 0;
     bool isRestrict = false;  // T *restrict p, T p[restrict] (Issue #77): p's object is reached only through p
+    // a plain char/short/int/long (unsigned only by cc45's default; cl45's mega65-signedness)
+    bool isPlainUnsigned = false;
 };
 
 class FunctionDeclaration : public Statement {

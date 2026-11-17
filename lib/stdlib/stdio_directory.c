@@ -62,7 +62,7 @@ typedef struct {
  * line number (the size in blocks) and text up to a 0 byte. The first line
  * is the header (the disk name), the last "BLOCKS FREE.". One line into
  * *num and text; 1 at the end */
-static int dir_line(fd_t fd, unsigned int *num, unsigned char *text, int max) {
+static int dir_line(fd_t fd, unsigned int *num, unsigned char *text, unsigned char max) {
     unsigned char b[2];
     unsigned char c;
     int n = 0;

@@ -14,6 +14,7 @@ Stage::Result PreprocessStage::execute() {
     try {
         Preprocessor preprocessor(true);
         preprocessedSource_ = preprocessor.process(sourceRaw_, symbols_, includePaths_, inputFile_);
+        lintPragmas_ = preprocessor.lintPragmas;
 
         // Write output if specified
         if (!outputFile_.empty()) {

@@ -61,7 +61,7 @@ void _bas_scmp(void) {
             return;
         }
     }
-    _bas_n = la == lb ? 0 : (la < lb ? -1 : 1);
+    _bas_n = la == lb ? 0 : (la < lb ? -1 : 1);   /* NOLINT(mega65-signedness): stored in a signed int, the bits are the same */
 }
 
 /* the n characters of a from position p (1-based) into r */

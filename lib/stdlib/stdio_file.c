@@ -404,6 +404,7 @@ FILE *freopen(const char *filename, const char *mode, FILE *stream) {
 /**
  * fflush - Flush stream buffer
  */
+#pragma cc45 recurse     /* (fflush(NULL) calls itself for each open stream) */
 int fflush(FILE *stream) {
     if (!stream) {
         /* Flush all open files */

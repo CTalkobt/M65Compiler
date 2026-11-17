@@ -63,6 +63,11 @@ private:
     };
     std::vector<State> stateStack;
 
+public:
+    // #pragma cc45 lint(ignore | restore, id): where each was met (cl45)
+    struct LintPragma { std::string file; int line; std::string id; bool restore; };
+    std::vector<LintPragma> lintPragmas;
+private:
     std::vector<std::string> pendingPragmas_; // collected by expandMacros from _Pragma()
     int includeDepth_ = 0;          // current #include nesting level
     std::string currentFile_;       // current file being processed (for __has_include path resolution)

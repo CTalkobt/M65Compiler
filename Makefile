@@ -27,6 +27,7 @@ CC_TARGET = $(BIN_DIR)/cc45
 CA_TARGET = $(BIN_DIR)/ca45
 CP_TARGET = $(BIN_DIR)/cp45
 AL_TARGET = $(BIN_DIR)/al45
+CL_TARGET = $(BIN_DIR)/cl45
 NM_TARGET = $(BIN_DIR)/nm45
 PACK_TARGET = $(BIN_DIR)/pack45
 FONT_TARGET = $(BIN_DIR)/font45
@@ -75,7 +76,7 @@ $(LIB_DIR)/lib45-c-compile.a: $(addprefix $(OBJ_DIR)/, \
 
 # lib45-ir: Intermediate representation (basic IR structures, no codegen)
 $(LIB_DIR)/lib45-ir.a: $(addprefix $(OBJ_DIR)/, \
-    IRBuilder.o IRBuilderLoopIdiom.o IRBuilderFixed.o IRBuilderFar.o IRPrinter.o IROptimizer.o VRegAllocator.o)
+    IRBuilder.o IRBuilderLoopIdiom.o IRBuilderFixed.o IRBuilderFar.o IRPrinter.o IROptimizer.o VRegAllocator.o CLint.o)
 	@mkdir -p $(LIB_DIR)
 	@rm -f $@
 	$(AR) rcs $@ $^
@@ -233,7 +234,7 @@ $(LIB_DIR)/lib45-tools.a: $(LIB45_TOOLS_OBJS)
 # BINARY BUILD RULES
 # ============================================================================
 
-all: $(CC_TARGET) $(CA_TARGET) $(CP_TARGET) $(AL_TARGET) $(NM_TARGET) $(PACK_TARGET) $(FONT_TARGET) $(LN_TARGET) \
+all: $(CC_TARGET) $(CA_TARGET) $(CP_TARGET) $(AL_TARGET) $(CL_TARGET) $(NM_TARGET) $(PACK_TARGET) $(FONT_TARGET) $(LN_TARGET) \
      $(AR_TARGET) $(OD_TARGET) $(DISK_TARGET) $(ASMCVT45_TARGET) $(BASIC_TARGET) $(TUNE_TARGET) $(DBG45_TARGET) $(DEPLOY_TARGET) stdlib | $(LIB_DIR)/lib45-audio.a $(LIB_DIR)/lib45-phases.a
 
 # Rebuild stdlib whenever cc45 or ca45 changes
@@ -242,7 +243,7 @@ stdlib: $(CC_TARGET) $(CA_TARGET) $(AR_TARGET)
 
 man: $(MAN_DIR)/cc45.1 $(MAN_DIR)/ca45.1 $(MAN_DIR)/cp45.1 $(MAN_DIR)/ln45.1 $(MAN_DIR)/nm45.1 $(MAN_DIR)/ar45.1 $(MAN_DIR)/objdump45.1 \
      $(MAN_DIR)/disk45.1 $(MAN_DIR)/basic45.1 $(MAN_DIR)/asmCvt45.1 $(MAN_DIR)/tune45.1 $(MAN_DIR)/dbg45.1 $(MAN_DIR)/pack45.1 \
-     $(MAN_DIR)/deploy45.1 $(MAN_DIR)/font45.1 $(MAN_DIR)/al45.1
+     $(MAN_DIR)/deploy45.1 $(MAN_DIR)/font45.1 $(MAN_DIR)/al45.1 $(MAN_DIR)/cl45.1
 
 $(MAN_DIR)/%.1: doc/bin/%.md
 	@mkdir -p $(MAN_DIR)
@@ -277,6 +278,16 @@ $(CA_TARGET): $(OBJ_DIR)/ca45_main.o $(OBJ_DIR)/AsmLint.o $(OBJ_DIR)/AsmLintFlow
 $(CA_TARGET): $(LIBCA45_INT) $(LIB_DIR)/lib45-codegen.a $(LIB_DIR)/lib45-common.a
 	@mkdir -p $(BIN_DIR)
 	$(CXX) $(CXXFLAGS) -o $@ $(OBJ_DIR)/ca45_main.o $(OBJ_DIR)/AsmLint.o $(OBJ_DIR)/AsmLintFlow.o $(LIBCA45_INT) $(LIB_DIR)/lib45-codegen.a $(LIB_DIR)/lib45-common.a
+
+# The standard library through cl45 (its C) and al45 (its assembly): prints
+# the findings; none when it is clean (#199, doc/architecture/lint.md)
+lint-lib: $(CL_TARGET) $(AL_TARGET)
+	@$(MAKE) -s --no-print-directory -C lib lint | sed 's|^\([a-z_0-9]*/\)|lib/\1|'
+
+# The C linter (cl45) - symlink to cc45 (#199)
+$(CL_TARGET): $(CC_TARGET)
+	@mkdir -p $(BIN_DIR)
+	ln -sf cc45 $(CL_TARGET)
 
 # The assembly linter (al45) - symlink to ca45 (#64, #199)
 $(AL_TARGET): $(CA_TARGET)
@@ -515,6 +526,7 @@ $(LIB_DIR):
 .PHONY: libca45 lib45-libraries lib45-sizes lib45-clean show-lib-deps parallel-build
 .PHONY: all clean test man test-regression stdlib bench
 .PHONY: lib install install_local uninstall
+.PHONY: lint-lib
 .PHONY: uninstall_local cppcheck coverage coverage-build coverage-clean
 .PHONY: coverage-report docker docker-runtime test-assembler test-const
 .PHONY: test-restrict test-register test-cast-fold test-o45 test-move-fill
@@ -550,6 +562,7 @@ show-lib-deps:
 	@echo "ca45      : lib45-codegen lib45-common"
 	@echo "cp45      : symlink to cc45"
 	@echo "al45      : symlink to ca45 (assembly linter)"
+	@echo "cl45      : symlink to cc45 (C linter)"
 	@echo "ln45      : lib45-common"
 	@echo "nm45      : lib45-common"
 	@echo "ar45      : lib45-common"
@@ -789,6 +802,7 @@ install: all lib $(if $(HAVE_LIBCA45),$(LIBCA45))
 	install -m 755 $(CC_TARGET) $(CA_TARGET) $(NM_TARGET) $(PACK_TARGET) $(FONT_TARGET) $(LN_TARGET) $(AR_TARGET) $(OD_TARGET) $(DISK_TARGET) $(ASMCVT45_TARGET) $(BASIC_TARGET) $(TUNE_TARGET) $(DBG45_TARGET) $(DEPLOY_TARGET) $(DESTDIR)$(BINDIR)
 	ln -sf cc45 $(DESTDIR)$(BINDIR)/cp45
 	ln -sf ca45 $(DESTDIR)$(BINDIR)/al45
+	ln -sf cc45 $(DESTDIR)$(BINDIR)/cl45
 	install -d $(DESTDIR)$(LIBDIR)
 	install -m 644 lib/build/c45.lib lib/build/c45_zp.lib lib/build/c45_stack.lib $(DESTDIR)$(LIBDIR)
 	install -m 644 lib/build/crt0*.o45 lib/build/tuneplay.o45 $(DESTDIR)$(LIBDIR)
@@ -922,7 +936,7 @@ docker-runtime:
 	@docker build -f src/Docker/Dockerfile.runtime -t mega65-cc45:runtime .
 
 uninstall:
-	rm -f $(DESTDIR)$(BINDIR)/cc45 $(DESTDIR)$(BINDIR)/ca45 $(DESTDIR)$(BINDIR)/cp45 $(DESTDIR)$(BINDIR)/al45
+	rm -f $(DESTDIR)$(BINDIR)/cc45 $(DESTDIR)$(BINDIR)/ca45 $(DESTDIR)$(BINDIR)/cp45 $(DESTDIR)$(BINDIR)/al45 $(DESTDIR)$(BINDIR)/cl45
 	rm -f $(DESTDIR)$(BINDIR)/nm45 $(DESTDIR)$(BINDIR)/pack45 $(DESTDIR)$(BINDIR)/font45 $(DESTDIR)$(BINDIR)/ln45 $(DESTDIR)$(BINDIR)/ar45
 	rm -f $(DESTDIR)$(BINDIR)/objdump45 $(DESTDIR)$(BINDIR)/disk45 $(DESTDIR)$(BINDIR)/asmCvt45 $(DESTDIR)$(BINDIR)/cvt_asm
 	rm -f $(DESTDIR)$(BINDIR)/basic45 $(DESTDIR)$(BINDIR)/tune45 $(DESTDIR)$(BINDIR)/dbg45 $(DESTDIR)$(BINDIR)/deploy45
@@ -933,4 +947,4 @@ uninstall:
 	rm -f $(DESTDIR)$(MANDIR)/cc45.1 $(DESTDIR)$(MANDIR)/ca45.1 $(DESTDIR)$(MANDIR)/cp45.1
 	rm -f $(DESTDIR)$(MANDIR)/ln45.1 $(DESTDIR)$(MANDIR)/nm45.1 $(DESTDIR)$(MANDIR)/ar45.1
 	rm -f $(DESTDIR)$(MANDIR)/objdump45.1 $(DESTDIR)$(MANDIR)/disk45.1
-	rm -f $(DESTDIR)$(MANDIR)/basic45.1 $(DESTDIR)$(MANDIR)/asmCvt45.1 $(DESTDIR)$(MANDIR)/cvt_asm.1 $(DESTDIR)$(MANDIR)/tune45.1 $(DESTDIR)$(MANDIR)/dbg45.1 $(DESTDIR)$(MANDIR)/deploy45.1 $(DESTDIR)$(MANDIR)/pack45.1 $(DESTDIR)$(MANDIR)/font45.1 $(DESTDIR)$(MANDIR)/al45.1
+	rm -f $(DESTDIR)$(MANDIR)/basic45.1 $(DESTDIR)$(MANDIR)/asmCvt45.1 $(DESTDIR)$(MANDIR)/cvt_asm.1 $(DESTDIR)$(MANDIR)/tune45.1 $(DESTDIR)$(MANDIR)/dbg45.1 $(DESTDIR)$(MANDIR)/deploy45.1 $(DESTDIR)$(MANDIR)/pack45.1 $(DESTDIR)$(MANDIR)/font45.1 $(DESTDIR)$(MANDIR)/al45.1 $(DESTDIR)$(MANDIR)/cl45.1

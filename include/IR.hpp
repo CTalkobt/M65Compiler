@@ -268,6 +268,8 @@ struct Function {
     int align = 1;          // __attribute__((aligned(N))): code address alignment
     int staticLinkVreg = -1; // vreg holding the static link to parent frame
     int declLine = 0;                   // source line of function declaration
+    std::string declFile;               // its file and column (cl45's diagnostics)
+    int declColumn = 0;
 
     std::vector<Block> blocks;
     uint32_t nextVreg = 0;             // counter for allocating vRegs

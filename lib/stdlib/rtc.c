@@ -25,7 +25,7 @@ static unsigned char bcd_to_int(unsigned char bcd) {
 }
 
 /* Days from 2000-01-01 to y-m-d (m 1-12) */
-static long days_from_civil(long y, int m, int d) {
+static long days_from_civil(long y, int m, unsigned char d) {
     long era, yoe, doy, doe;
     if (m <= 2) y--;
     era = (y >= 0 ? y : y - 399) / 400;
@@ -133,18 +133,18 @@ char *asctime(struct tm *tm) {
     /* Month name */
     *p++ = mn[0]; *p++ = mn[1]; *p++ = mn[2]; *p++ = ' ';
     /* Day of month */
-    *p++ = (tm->tm_mday / 10) ? ('0' + tm->tm_mday / 10) : ' ';
-    *p++ = '0' + tm->tm_mday % 10;
+    *p++ = (char)((tm->tm_mday / 10) ? ('0' + tm->tm_mday / 10) : ' ');
+    *p++ = (char)('0' + tm->tm_mday % 10);
     *p++ = ' ';
     /* Time */
-    *p++ = '0' + tm->tm_hour / 10; *p++ = '0' + tm->tm_hour % 10; *p++ = ':';
-    *p++ = '0' + tm->tm_min / 10; *p++ = '0' + tm->tm_min % 10; *p++ = ':';
-    *p++ = '0' + tm->tm_sec / 10; *p++ = '0' + tm->tm_sec % 10; *p++ = ' ';
+    *p++ = (char)('0' + tm->tm_hour / 10); *p++ = (char)('0' + tm->tm_hour % 10); *p++ = ':';
+    *p++ = (char)('0' + tm->tm_min / 10); *p++ = (char)('0' + tm->tm_min % 10); *p++ = ':';
+    *p++ = (char)('0' + tm->tm_sec / 10); *p++ = (char)('0' + tm->tm_sec % 10); *p++ = ' ';
     /* Year */
-    *p++ = '0' + (year / 1000) % 10;
-    *p++ = '0' + (year / 100) % 10;
-    *p++ = '0' + (year / 10) % 10;
-    *p++ = '0' + year % 10;
+    *p++ = (char)('0' + (year / 1000) % 10);
+    *p++ = (char)('0' + (year / 100) % 10);
+    *p++ = (char)('0' + (year / 10) % 10);
+    *p++ = (char)('0' + year % 10);
     *p++ = '\n';
     *p = 0;
     return __asc_buf;

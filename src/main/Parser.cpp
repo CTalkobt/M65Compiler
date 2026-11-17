@@ -1194,6 +1194,7 @@ std::unique_ptr<FunctionDeclaration> Parser::parseFunctionDeclaration() {
         };
         do {
             bool pIsVolatile = false;
+            bool pPlain = false;      // no signed/unsigned written, not a typedef
             bool pIsConst = false;
             std::string pType;
             bool pIsSigned = false;
@@ -1210,6 +1211,8 @@ std::unique_ptr<FunctionDeclaration> Parser::parseFunctionDeclaration() {
                     pType = ts.name;
                     pIsSigned = ts.isSigned;
                     pBasePtrLevel = ts.pointerLevel;
+                    pPlain = !ts.fromTypedef && !ts.isUnsigned && !ts.isSigned &&
+                             (ts.name == "char" || ts.name == "short" || ts.name == "int" || ts.name == "long");
                     pBaseRestrict = ts.lastStarRestrict && ts.starsParsed > 0;
                     if (ts.isVolatile) pIsVolatile = true;
                     if (ts.isConst) pIsConst = true;
@@ -1424,6 +1427,7 @@ std::unique_ptr<FunctionDeclaration> Parser::parseFunctionDeclaration() {
                 pIsVolatile = pIsPointerConst = false;
             }
             params.push_back({pType, pPtrLevel, pIsSigned, pName, pIsVolatile, pIsConst, pIsPointerConst, false, nullptr});
+            params.back().isPlainUnsigned = pPlain && pPtrLevel == 0;
             params.back().isRestrict = (pRestrict || (pBaseRestrict && pPtrLevel == pBasePtrLevel)) && pPtrLevel > 0;
             params.back().vlaSizeExpr = std::move(pVlaSize);
             params.back().innerArrayDims = pInnerDims;
@@ -2589,6 +2593,7 @@ std::unique_ptr<Statement> Parser::parseVariableDeclaration(bool isVolatile, boo
     decl->isSigned = declSigned;
     decl->isPlainUnsigned = plainInt && !isSigned && ptrLevel == 0 && !farPtr;
     decl->isVolatile = declVolatile;
+    decl->pointeeVolatile = ptrLevel > 0 && isVolatile;
     decl->isConst = isConst;
     decl->isStatic = isStatic;
     decl->isRegister = isRegister;
@@ -2721,6 +2726,7 @@ std::unique_ptr<Statement> Parser::parseVariableDeclaration(bool isVolatile, boo
             extraDecl->isSigned = extraSigned;
             extraDecl->isPlainUnsigned = plainInt && !isSigned && extraPtr == 0 && !extraFar;
             extraDecl->isVolatile = extraPtr > basePtrLevel ? extraPtrVolatile : isVolatile;
+            extraDecl->pointeeVolatile = extraPtr > 0 && isVolatile;
             extraDecl->isConst = isConst;
             extraDecl->isStatic = isStatic;
             extraDecl->isRegister = isRegister;
@@ -3502,7 +3508,8 @@ std::unique_ptr<Expression> Parser::parseUnary() {
             castType = ts.name;
             castSigned = ts.isSigned;
             castPtrLevel = ts.pointerLevel;
-            castVolatile = ts.isVolatile;
+            // (a typedef's qualifiers are not kept: cl45 takes its pointee as volatile)
+            castVolatile = ts.isVolatile || ts.fromTypedef;
             castConst = ts.isConst;
             // (pair __far *) with typedef T pair[N]: a far pointer to the
             // array (#347); (pair *): a pointer to it, cast as void * (a
@@ -3620,7 +3627,9 @@ std::unique_ptr<Expression> Parser::parseUnary() {
             }
             auto operand = parseUnary();
             castPtrLevel += (int)castArrayDims.size();  // a cast to an array type decays
-            return setPos(std::make_unique<CastExpression>(castType, castPtrLevel, castSigned, std::move(operand)), startToken);
+            auto castNode = std::make_unique<CastExpression>(castType, castPtrLevel, castSigned, std::move(operand));
+            castNode->isVolatile = castVolatile;
+            return setPos(std::move(castNode), startToken);
         } else {
             pos = savedPos; // backtrack, let parsePrimary handle it as parenthesized expr
         }

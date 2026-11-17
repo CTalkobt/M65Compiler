@@ -767,7 +767,7 @@ void _bas_dos16(void) {
             {
                 /* the blocks, right-aligned in 4 */
                 unsigned char dg[6], m = 0;
-                do { dg[m++] = '0' + blocks % 10; blocks /= 10; } while (blocks);
+                do { dg[m++] = (char)('0' + blocks % 10); blocks /= 10; } while (blocks);
                 for (k = m; k < 4; k++) _bas_putc(' ');
                 while (m) _bas_putc(dg[--m]);
             }
