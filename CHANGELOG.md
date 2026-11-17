@@ -4,6 +4,19 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### cc45: a negative array size is an error (#602)
+
+- `typedef char t[-1];`, `char a[-4];`, `struct s { char m[-2]; };` compiled
+  without a message (the array got one element). A size that is a constant
+  below 0 is now an error, "the size of an array is negative (-1)", wherever
+  a size is written: variables, typedefs, members, parameters, pointers to
+  arrays, casts, `sizeof` type names. The compile-time assert `typedef char
+  check[(sizeof(big) <= LIMIT) ? 1 : -1];` works, with plain `int` unsigned
+  as well as with `-fsigned-default`.
+- A size of 0 is a warning, "the size of an array is 0"; not for a struct's
+  member (`char tail[0]`, the old flexible array member).
+- Test: `src/test/test_array_size.sh` (`make test`).
+
 ### basic45: smaller `proc` and `select`; `--minify` and hex constants (#603, #605)
 
 - `--minify` joined a keyword and a `$` hex or `%` binary constant after it:

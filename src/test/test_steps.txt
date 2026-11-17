@@ -16,6 +16,7 @@ Running restrict qualifier tests...|bash src/test/test_restrict.sh
 Running register keyword tests...|bash src/test/test_register.sh
 Running cast fold type preservation tests...|bash src/test/test_cast_fold.sh
 Running incomplete struct type tests...|bash src/test/test_incomplete_types.sh
+Running array size tests...|bash src/test/test_array_size.sh
 Running deploy45 tests...|bash src/test/test_deploy45.sh
 Running inline control tests...|bash src/test/test_inline_control.sh
 Running ?: sign warning tests...|bash src/test/test_ternary_sign_warning.sh

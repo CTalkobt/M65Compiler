@@ -208,6 +208,7 @@ private:
     void recordVarSize(const std::string& name, const std::string& type, int ptrLevel, const std::vector<int>& dims);
     // Evaluate an integer constant expression (ConstEval); false if it isn't one
     bool evalConstInt(Expression* e, long& out);
+    bool evalArrayDim(Expression* e, long& out, bool member = false);
     // ConstEvalContext: enum constants, sizeof / _Alignof as far as the
     // declarations so far say
     bool identifier(VariableReference& node, ConstValue& out) override;
