@@ -8,6 +8,7 @@
 #include "CodegenStage.hpp"
 #include "AssemblyStage.hpp"
 #include "LinkingStage.hpp"
+#include "CLint.hpp"
 #include "OptimizationCatalog.hpp"
 #include "O45Reader.hpp"
 #include "O45Archive.hpp"
@@ -170,6 +171,11 @@ CompilationResult CompilationPipeline::compile() {
             return result;
         }
         std::string preprocessedSource = preprocessStage.getPreprocessedSource();
+        if (config_.lint) {
+            std::vector<clint::Context::Pragma> ps;
+            for (const auto& lp : preprocessStage.getLintPragmas()) ps.push_back({lp.file, lp.line, lp.id, lp.restore});
+            config_.lint->addPragmas(ps);
+        }
 
         if (config_.preprocessOnly) {
             std::ofstream out(config_.outputFile);
@@ -190,6 +196,7 @@ CompilationResult CompilationPipeline::compile() {
             return result;
         }
         auto ast = parseStage.getAST();
+        if (config_.lint && ast) clint::runAST(*config_.lint, *ast);   // (before folding: casts are still casts)
 
         // Phase 102: Extract typedef information for IR generation
         // Build typedef mappings for struct/union types from parseStage
@@ -208,6 +215,7 @@ CompilationResult CompilationPipeline::compile() {
                                    config_.verboseLevel, config_.inlineSmallFunctions);
         optimizeStage.setOptOverrides(config_.optOverrides);
         optimizeStage.setTraceIROpt(config_.traceIROpt);
+        optimizeStage.setLint(config_.lint);
         auto optimizeResult = runStage(optimizeStage);
         if (!optimizeResult.success) {
             result.success = false;
@@ -246,6 +254,7 @@ CompilationResult CompilationPipeline::compile() {
         codegenStage.setOptOverrides(config_.optOverrides);
         codegenStage.setFutureWarnings(config_.futureWarnings);
         codegenStage.setTraceIROpt(config_.traceIROpt);
+        codegenStage.setLint(config_.lint);
 
         // -f/-fno- of the optimizations ca45 implements: forwarded as -P<name>/-PNo<name>
         bool needRelocatable = config_.objectOnly || !config_.assemblyOnly;
@@ -325,6 +334,10 @@ CompilationResult CompilationPipeline::compile() {
             result.errorPrinted = codegenStage.errorsPrinted();
             remove(tempAsmFile.c_str());
             dropTrials("");
+            return result;
+        }
+        if (config_.lint) {       // cl45: nothing is assembled or written
+            result.success = true;
             return result;
         }
         std::string irOutput = codegenStage.getIROutput();

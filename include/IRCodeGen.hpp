@@ -687,6 +687,14 @@ public:
     }
     // function -> (registers, flags) its code changes beyond what was assumed
     std::map<std::string, std::pair<uint8_t, uint8_t>> clobberFixes() const;
+    // cl45 (#199): the stack frame of each function that has one (bytes),
+    // and no warning of its own about recursion (the linter's rule reports it)
+    void setLintMode(bool on) { lintMode_ = on; }
+    const std::map<std::string, int>& frameSizes() const { return frameSizes_; }
+private:
+    bool lintMode_ = false;
+    std::map<std::string, int> frameSizes_;
+public:
 private:
     // functions with a call in their IR (an operator method, a runtime
     // routine: not a FunctionCall of the source): not leaves (#608)

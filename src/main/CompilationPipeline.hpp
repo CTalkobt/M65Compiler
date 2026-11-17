@@ -6,11 +6,16 @@
 #include <memory>
 #include "Stage.hpp"
 
+namespace clint { struct Context; }
+
 // Compilation configuration
 struct CompilationConfig {
     // Input/output
     std::string inputFile;
     std::string outputFile;
+
+    // cl45: lint the file (the front end and the code generator run; nothing is written)
+    clint::Context* lint = nullptr;
 
     // Compilation flags
     bool assemblyOnly = false;  // -S: stop after codegen

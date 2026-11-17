@@ -27,6 +27,11 @@ dependencies (SQLite and FUSE only for disk45):
 - **al45** — the assembly linter (#64, #199): a link to ca45, chosen by program name; ca45's front end, no optimizer, no
   output; rules by `mega65-*` id (`src/main/AsmLint.cpp`; those on data flow — stale flags, stack balance, declared clobbers, wasted loads and stores — `AsmLintFlow.cpp`) over the shared core (`include/Lint.hpp`: `.cc45-lint.yml`,
   `NOLINT`, text / JSON / SARIF); `doc/bin/al45.md`, plan and the C linter's in `doc/architecture/lint.md`
+- **cl45** — the C linter (#199): a link to cc45, chosen by program name; cc45's front end and code generator over a
+  file as it is compiled (same `-I`/`-D`/`-f`/`-O`), no output; rules on the AST as parsed, in the IRBuilder where types
+  are known (`IRBuilder::lintReport`), on the unoptimized IR and on the frames (`src/main/CLint.cpp`,
+  `CompilationConfig::lint`); `// NOLINT(id)`, `#pragma cc45 lint(ignore, id)`; `make lint-lib` runs both linters over
+  the library (kept clean); `doc/bin/cl45.md`
 - **objdump45** — object/PRG/binary/`.ovd`/`.ov1` inspector and disassembler (45GS02, or 65CE02 / 6502 / 6510 with `--cpu`; a `$0801` PRG is 6510; ROM routines and I/O registers by name from `-S` symbol files, `lib/symbols/c64.sym` / `mega65.sym`; `--source`: ca45 source that assembles back to the same bytes; `--cycles[=MHZ]` (the 45GS02's at 40 MHz measured: `include/CpuCycles.hpp`), `--vice`; `--html` / `--tree` / `--json`: everything in the files as a page, a terminal tree to browse, or data (`objdump45_html.cpp`, `objdump45_tree.cpp`, #201); also BASIC listing with `-bas`)
 - **basic45** — BASIC 65 program generator (label-based source, PETSCII tokenizer, preprocessor,
   long variable names, block IF / proc, `--link` C functions, `--decompile`, `--disk`, `--emulator`;
@@ -289,7 +294,7 @@ Only these read configuration (`doc/bin/CONFIGURATION.md`):
 - cc45/cp45: `~/.config/m65/cc45.conf` / `cp45.conf` (options before the command line; `#` comment lines)
 - ca45: `~/.config/m65/ca45.conf`, `./.ca45rc`, `CA45_OPTIMIZE`, `CA45_WARNINGS`
 - asmCvt45: `.asmCvt45rc`
-- al45 (and the C linter to come): `~/.config/m65/cc45-lint.yml`, then `.cc45-lint.yml` searched upward from the source
+- al45 and cl45: `~/.config/m65/cc45-lint.yml`, then `.cc45-lint.yml` searched upward from the source
 
 ln45, ar45, nm45, objdump45, disk45, tune45 and deploy45 have no config files (deploy45: `M65_HOST`,
 `M65_DEVICE`, `M65_SPEED`, `U64_HOST`, `U64_PASSWORD`, `ETHERLOAD`, `M65`, `MEGA65_FTP`). Environment:

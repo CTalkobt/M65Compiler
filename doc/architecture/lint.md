@@ -1,7 +1,8 @@
 # Linters: al45 (assembly) and cl45 (C)
 
-Status: the shared core and al45 (phases 1-3) are implemented
-(`doc/bin/al45.md`); al45's style rules and cl45 are planned (#199, #278, #64). The assembly half was planned on 2026-10-31; the C half on
+Status: the shared core, al45 (phases 1-3; `doc/bin/al45.md`) and cl45
+(phases 1-2 and `make lint-lib`; `doc/bin/cl45.md`) are implemented; al45's
+style rules (#611) and the LSP server running the linters are planned (#199, #278, #64). The assembly half was planned on 2026-10-31; the C half on
 2026-11-12.
 
 Two tools on one core:
@@ -140,12 +141,36 @@ the call graph of the file) and that the compiler does not already handle.
 
 ### How it runs
 `cc45_main.cpp`: program name `cl45` → lint mode: cc45's options (`-I`,
-`-D`, `-f...`, `-O<n>`), the preprocessor and parser as for compiling, the
-AST checks, then IRBuilder (and, for the rules that need it, the IR passes:
-frame sizes, the call graph); no code generation. A rule is an `ASTWalker`
-(`AST.hpp`) or a pass over the IR with the source locations both carry.
-Diagnostics through the shared core; cc45's own warnings keep going to
-stderr as now (a rule may take one over: `mega65-recursion-frame`).
+`-D`, `-f...`, `-O<n>`), the whole pipeline up to the generated assembly,
+nothing assembled or written. As built (`include/CLint.hpp`,
+`src/main/CLint.cpp`; `CompilationConfig::lint`):
+
+- **The AST as parsed**, before constant folding (`clint::runAST`, an
+  `ASTWalker`): `mega65-io-not-volatile` on constant addresses. The AST
+  carries no expression types, only what the parser read: casts keep
+  `volatile` (`CastExpression::isVolatile`; a typedef's qualifiers are not
+  kept, so a cast to a typedef name counts as volatile), declarations what
+  they point at (`VariableDeclaration::pointeeVolatile`).
+- **Where the types are known**: the IRBuilder reports the rules that need
+  an expression's type itself (`IRBuilder::lintReport`, set in lint mode):
+  `mega65-implicit-narrowing`, `mega65-signedness`'s `/ % >>`. The warnings
+  cc45 gives that a rule covers go through `IRBuilder::lintOr` (and the
+  constant folder's `plainHook`): to the rule in lint mode, to stderr as
+  before otherwise.
+- **The IR as the IRBuilder wrote it**, no pass run (`clint::runIR`):
+  constant addresses followed through a block's temporaries and local
+  slots (`mega65-dma-trigger-order`, `mega65-io-personality`), the direct
+  calls (`mega65-recursion-frame`, `mega65-sac-interrupt`,
+  `mega65-isr-rom-call`), `mega65-wide-arith` as a pattern (widened
+  operands, a result only truncated; no known-bits analysis).
+- **The frames** the code generator laid out (`IRCodeGen::frameSizes`,
+  `clint::runFrames`): `mega65-stack-frame-limit`.
+
+`clint::Context::report` drops findings in the system headers, reads a
+file's `NOLINT` comments the first time something is reported in it, and
+keeps one of a finding reported twice (a function can be lowered twice).
+`#pragma cc45 lint(...)` is recorded by the preprocessor
+(`Preprocessor::lintPragmas`) and leaves no trace in the compiled file.
 
 ### Rules
 
@@ -172,14 +197,14 @@ stderr as now (a rule may take one over: `mega65-recursion-frame`).
 - C-to-assembly mapping: `objdump45 --source` / `--html`, `-S` with `.loc`.
 
 ### Phases
-1. The `cl45` symlink and lint mode on the shared core; the AST rules
+1. Done: the `cl45` symlink and lint mode on the shared core; the AST rules
    (`dma-trigger-order`, `io-not-volatile`, `signedness`,
    `implicit-narrowing`); `doc/bin/cl45.md`; `src/test/test_cl45.sh` with
    fixtures in `src/test-resources/cl45/`.
-2. The IR rules (`stack-frame-limit`, `recursion-frame`, `sac-interrupt`,
+2. Done: the IR rules (`stack-frame-limit`, `recursion-frame`, `sac-interrupt`,
    `isr-rom-call`, `narrow-param`, `wide-arith`).
-3. `make lint-lib` over the library's C and assembly; the LSP server
-   (`tools/ide/lsp-server`) running both linters.
+3. Done: `make lint-lib` over the library's C and assembly. Not yet: the LSP
+   server (`tools/ide/lsp-server`) running both linters.
 
 ## Acceptance
 - The library lints clean at default severities; each suppression in it

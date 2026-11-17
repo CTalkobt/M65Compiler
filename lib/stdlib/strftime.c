@@ -30,12 +30,12 @@ static void put(char c) {
     room--;
 }
 
-static void puts_n(const char *s, int n) {
+static void puts_n(const char *s, unsigned char n) {
     while (*s && n--) put(*s++);
 }
 
 /* v in at least width digits, padded with pad (0: none) */
-static void num(long v, int width, char pad) {
+static void num(long v, unsigned char width, char pad) {
     char d[11];
     int n = 0;
     if (v < 0) {
@@ -76,6 +76,8 @@ static int iso_week(const struct tm *tm, long *year) {
 
 static void format(const char *f, const struct tm *tm);
 
+/* (conv and format call each other: %c, %D... are formats themselves) */
+#pragma cc45 recurse
 static void conv(char c, const struct tm *tm) {
     long y = tm->tm_year + 1900L, iy;
     int h12 = tm->tm_hour % 12;
@@ -122,6 +124,7 @@ static void conv(char c, const struct tm *tm) {
     }
 }
 
+#pragma cc45 recurse
 static void format(const char *f, const struct tm *tm) {
     char c;
     while ((c = *f++) != 0) {

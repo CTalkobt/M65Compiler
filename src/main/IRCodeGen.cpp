@@ -5222,6 +5222,7 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
             if (hasSelfCall) break;
         }
         if (hasSelfCall) {
+            if (!lintMode_)
             std::cerr << fn.name << ": warning: recursive function uses a stack frame instead of static allocation"
                       << " (add #pragma cc45 recurse before the function to silence)\n";
             useSAC = false;  // Fall back to a stack frame for this function
@@ -5732,6 +5733,7 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
     // without this a caller that uses FP-relative locals reads the callee's
     // frame after any call (and recursion fails).
     savedCallerFP_ = !useSAC && localFrameSize > 0;
+    if (savedCallerFP_) frameSizes_[fn.name] = localFrameSize;
     // Push $FD then $FE through A: "phw $00FD" is absolute and would read the
     // ROM's page 0 rather than the program's relocated base page.
     if (savedCallerFP_) {

@@ -4,6 +4,49 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### cl45: the C linter (#199)
+
+- `cl45` (a link to cc45, chosen by program name) lints a C file as cc45
+  compiles it (the same `-I`, `-D`, `-f...`, `-O<n>`) and writes no file.
+  Findings by rule on stdout as text, JSON or SARIF; `.cc45-lint.yml`
+  (`c_checks.enabled`, `options`, `overrides`), `--checks`, `--disable`,
+  `--severity`, `--list-rules`, `--explain`; `// NOLINT(id)`,
+  `// NOLINTNEXTLINE(id)` and `#pragma cc45 lint(ignore | restore, id)`.
+  Findings in the system headers are not reported. `doc/bin/cl45.md`.
+- Eleven rules:
+  - `mega65-dma-trigger-order` (warning): a DMA list address byte written
+    after the trigger, in the same block.
+  - `mega65-io-not-volatile` (warning): I/O (`$D000`-`$DFFF`) through a
+    pointer that is not to a volatile type; a variable placed in I/O with
+    `__section` that is not volatile.
+  - `mega65-io-personality` (info, profile standalone): VIC-III/IV
+    registers written and no knock in the file.
+  - `mega65-isr-rom-call`, `mega65-sac-interrupt` (warning): what an
+    `__interrupt` handler reaches in the file: a ROM call; a
+    static-allocation function (ln45 refuses it at link time).
+  - `mega65-recursion-frame` (info), `mega65-stack-frame-limit` (warning,
+    option `mega65-stack-frame-limit`, 256): a function on a call cycle; a
+    stack frame over the limit.
+  - `mega65-narrow-param`, `mega65-wide-arith`, `mega65-implicit-narrowing`
+    (info): an `int` parameter always given a small constant; `long`
+    arithmetic that fits an `int`; a wider integer stored in a narrower one
+    without a cast.
+  - `mega65-signedness` (warning): a plain (unsigned in cc45) integer with a
+    negative constant, `x < 0`, and `/ % >>` of a difference or negation
+    (`(a - b) / 2`), for variables and parameters.
+- The warnings cc45 gives that a rule covers (plain integers, the parameter
+  notes, recursion) are that rule's findings under cl45; cc45 prints them as
+  before.
+- `make lint-lib`: the library's C through cl45 (both calling conventions)
+  and its assembly through al45. It lints clean; getting there: four static
+  functions' `int` parameters are `unsigned char` (`strftime`, `rtc`,
+  `stdio_directory`; their objects are smaller), `stdio_rel`'s "no record
+  cached" constant fits its field, casts where digits are stored in a
+  `char`, `#pragma cc45 recurse` on `fflush` and `strftime`'s two mutually
+  recursive functions.
+- Tests: `src/test/test_cl45.sh` (18 checks; a fixture per rule in
+  `src/test-resources/cl45/`, each line a finding is expected on marked).
+
 ### al45: the rules on data flow (#64 phase 3)
 
 - al45 follows what each instruction reads and writes (A, X, Y, Z, the

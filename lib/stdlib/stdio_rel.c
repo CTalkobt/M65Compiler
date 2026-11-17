@@ -78,7 +78,7 @@ static void _rel_init_handles(void) {
         for (i = 0; i < 8; i++) {
             rel_files[i].fd = -1;
             rel_files[i].current_record = 0;
-            rel_files[i].cached_record = 0xFFFFFFFF;  /* Invalid cache */
+            rel_files[i].cached_record = 0xFFFF;  /* Invalid cache */
             rel_files[i].cache_valid = 0;
             rel_files[i].last_record = 0;
             rel_files[i].seq_count = 0;
@@ -164,7 +164,7 @@ static int _rel_is_cached(int handle, unsigned int record_num) {
 static void _rel_invalidate_cache(int handle) {
     if (handle >= 0 && handle < 8 && rel_files[handle].fd >= 0) {
         rel_files[handle].cache_valid = 0;
-        rel_files[handle].cached_record = 0xFFFFFFFF;
+        rel_files[handle].cached_record = 0xFFFF;
     }
 }
 
@@ -265,7 +265,7 @@ int cbm_rel_open(unsigned char device, const char *filename,
     rel_files[slot].dirty = 0;
 
     /* Phase 4c: Initialize cache state */
-    rel_files[slot].cached_record = 0xFFFFFFFF;  /* Invalid cache */
+    rel_files[slot].cached_record = 0xFFFF;  /* Invalid cache */
     rel_files[slot].cache_valid = 0;
     rel_files[slot].last_record = 0;
     rel_files[slot].seq_count = 0;
@@ -548,7 +548,7 @@ int cbm_rel_close(int handle) {
     /* Clear handle, cache, and error state */
     rel_files[handle].fd = -1;
     rel_files[handle].current_record = 0;
-    rel_files[handle].cached_record = 0xFFFFFFFF;
+    rel_files[handle].cached_record = 0xFFFF;
     rel_files[handle].cache_valid = 0;
     rel_files[handle].last_record = 0;
     rel_files[handle].seq_count = 0;

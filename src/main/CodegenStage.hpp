@@ -16,6 +16,8 @@ namespace ir { struct Module; }
 
 // IR code generation stage
 // Generates intermediate representation from AST with optimization
+namespace clint { struct Context; }
+
 class CodegenStage : public Stage {
 public:
     CodegenStage(std::shared_ptr<TranslationUnit> ast,
@@ -71,6 +73,7 @@ public:
     void setOptOverrides(const std::map<std::string, bool>& o) { optOverrides_ = o; }
     void setFutureWarnings(bool f) { futureWarnings_ = f; }
     void setTraceIROpt(bool t) { traceIROpt_ = t; }
+    void setLint(clint::Context* c) { lint_ = c; }   // cl45: its rules on the IR and the frames
     void setEmitReasons(bool r) { emitReasons_ = r; }   // -Rcodegen
     // Assemble trial texts (ca45, at once): for each, where its exported code
     // symbols start and its code's size (loop rotation keeps what is not
@@ -112,6 +115,8 @@ private:
     std::map<std::string, bool> optOverrides_;
     bool futureWarnings_ = false;
     bool traceIROpt_ = false;
+    clint::Context* lint_ = nullptr;
+    std::map<std::string, int> frames_;   // (cl45) function -> bytes of its stack frame
     bool emitReasons_ = false;
     SizeTrial sizeTrial_;
 

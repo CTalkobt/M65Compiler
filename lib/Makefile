@@ -45,6 +45,7 @@ LIB_CFLAGS = -O2 -fimplicit-function-declaration -fsigned-default -funsigned-cha
 # Rebuild objects when the tools or library headers change
 C_TOOL_DEPS = $(CC45) $(CA45) $(wildcard include/*.h)
 
+.PHONY: lint
 .PHONY: all clean
 
 all: $(BUILD)/c45.lib $(BUILD)/c45_zp.lib $(BUILD)/c45_stack.lib $(BUILD)/tuneplay.o45
@@ -84,6 +85,19 @@ $(BUILD)/tuneplay.o45: tools/tuneplay.c $(C_TOOL_DEPS) | $(BUILD)
 
 $(BUILD):
 	mkdir -p $(BUILD)
+
+# The library through the linters (#199): its C with cl45, in both calling
+# conventions and with the options it is compiled with, its assembly with
+# al45. Prints the findings (none: the library is kept clean; a suppression
+# in it has its reason beside it). cc45's own warnings are the build's.
+lint:
+	@{ for f in $(STDLIB_C_SOURCES); do \
+	       ../bin/cl45 -fzpcall $(LIB_CFLAGS) $$f 2>/dev/null; \
+	       ../bin/cl45 -fno-zpcall $(LIB_CFLAGS) $$f 2>/dev/null; \
+	   done; \
+	   for f in $(STDLIB_ASM_SOURCES) $(sort $(wildcard crt0*.s45)); do \
+	       ../bin/al45 -c -Istdlib_asm -Iinclude $$f 2>&1; \
+	   done; } | sort -u
 
 clean:
 	rm -rf $(BUILD)

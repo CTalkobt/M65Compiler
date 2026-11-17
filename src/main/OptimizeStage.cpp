@@ -5,6 +5,7 @@
 #include "LoopInterchange.hpp"
 #include "OptimizationCatalog.hpp"
 #include "FunctionAnalyzer.hpp"
+#include "CLint.hpp"
 #include <iostream>
 #include <algorithm>
 
@@ -51,6 +52,10 @@ void OptimizeStage::performConstantFolding() {
 
     // Apply constant folder visitor to entire AST
     ConstantFolder folder;
+    if (lint_)
+        folder.plainHook = [this](const ASTNode& at, const std::string& msg) {
+            lint_->report("mega65-signedness", at.sourceFile, at.line, at.column, msg);
+        };
     if (ast_) {
         // The ConstantFolder visitor modifies the AST in place
         ast_->accept(folder);

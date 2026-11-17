@@ -1308,6 +1308,18 @@ void Preprocessor::handlePragma(std::istream& ss, std::ostream& output, const st
             std::string addr;
             for (char ch : rest) if (std::isxdigit((unsigned char)ch) || ch == '$' || ch == 'x' || ch == 'X') addr += ch;
             output << (addr.empty() ? std::string("\n") : "__asm__(\".stack_top " + addr + "\");\n");
+        } else if (cc45Arg.rfind("lint", 0) == 0 && (cc45Arg.size() == 4 || cc45Arg[4] == '(')) {
+            // lint(ignore, id[, id]) / lint(restore, id): cl45's rules off from
+            // here on / on again (cc45 itself takes no notice)
+            std::string rest = cc45Arg.substr(4), tail, item;
+            while (std::getline(ss, tail)) rest += tail;
+            for (char& ch : rest) if (ch == '(' || ch == ')' || ch == ',') ch = ' ';
+            std::istringstream is(rest);
+            std::string verb;
+            is >> verb;
+            if (verb == "ignore" || verb == "restore")
+                while (is >> item) lintPragmas.push_back({currentFile, pragmaLine_, item, verb == "restore"});
+            output << "\n";
         } else if (cc45Arg == "set_bp") {
             std::string bpVal;
             ss >> bpVal;

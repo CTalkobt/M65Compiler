@@ -6,6 +6,7 @@
 
 class TranslationUnit;
 class FunctionAnalyzer;
+namespace clint { struct Context; }
 
 // AST-level optimization stage
 // Performs constant folding, function analysis, inline selection, and cross-function optimizations
@@ -32,6 +33,7 @@ public:
     // -f<opt>/-fno-<opt> (catalog name -> on/off) and -Roptir
     void setOptOverrides(const std::map<std::string, bool>& o) { optOverrides_ = o; }
     void setTraceIROpt(bool t) { traceIROpt_ = t; }
+    void setLint(clint::Context* c) { lint_ = c; }   // cl45: the signedness warnings as its rule
 
 private:
     std::shared_ptr<TranslationUnit> ast_;
@@ -41,6 +43,7 @@ private:
     std::shared_ptr<FunctionAnalyzer> analyzer_;
     std::map<std::string, bool> optOverrides_;
     bool traceIROpt_ = false;
+    clint::Context* lint_ = nullptr;
 
     // Helper methods for optimization phases
     void performConstantFolding();

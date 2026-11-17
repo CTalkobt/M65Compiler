@@ -1,3 +1,5 @@
+#include "Lint.hpp"
+#include "CLint.hpp"
 #include "CompilerLog.hpp"
 #include <iostream>
 #include <string>
@@ -435,7 +437,21 @@ int main(int argc, char** argv) {
     // Parse arguments
     CompilationConfig config;
     config.preprocessOnly = (programName == "cp45");
-    Logger::setTool(programName == "cp45" ? "cp45" : "cc45");
+    // cl45: cc45 as the C linter (a symlink, chosen by program name; #199,
+    // doc/architecture/lint.md)
+    const bool lintMode = programName == "cl45";
+    Logger::setTool(programName == "cp45" ? "cp45" : lintMode ? "cl45" : "cc45");
+    lint::Engine lintEngine;
+    clint::Context lintCtx;
+    std::vector<std::string> lintCli;
+    std::string lintFormat = "text", lintConfigFile, lintExplain;
+    bool lintList = false;
+    if (lintMode) {
+        lintEngine.lang = "c";
+        lintEngine.profile = "cc45";
+        clint::registerRules(lintEngine);
+        lintCtx.engine = &lintEngine;
+    }
     std::vector<std::string> includePaths;
     std::map<std::string, std::string> symbols;
     bool outputFileSet = false;
@@ -473,8 +489,38 @@ int main(int argc, char** argv) {
     for (size_t i = 0; i < allArgs.size(); ++i) {
         std::string arg = allArgs[i];
         if (arg == "-V" || arg == "--version") {
-            std::cout << suiteVersionString("cc45") << std::endl;
+            std::cout << suiteVersionString(lintMode ? "cl45" : "cc45") << std::endl;
             return 0;
+        } else if (lintMode && (arg == "-?" || arg == "--help")) {
+            std::cout << "Usage: cl45 [options] <input_file.c>\n"
+                         "The C linter: cc45's front end and code generator over a file, MEGA65 rules, no output file.\n"
+                         "  --checks=LIST       Rules on or off: globs, '-' removes (--checks=-*,mega65-signedness)\n"
+                         "  --disable=ID[,ID]   Rules off\n"
+                         "  --severity=ID=LEVEL A rule's level: off, info, warning, error\n"
+                         "  --profile=P         cc45 (linked with c45.lib; the default) or standalone\n"
+                         "  --config=FILE       This configuration, not ~/.config/m65/cc45-lint.yml and .cc45-lint.yml\n"
+                         "  --format=F          text (default), json or sarif\n"
+                         "  --list-rules        The rules: id, default level, profile, summary\n"
+                         "  --explain=ID        A rule in full\n"
+                         "  -I -D -O<n> -f...   As cc45 (the file is linted as it would be compiled)\n"
+                         "  -v ... -vvvv        Log to stderr\n"
+                         "Exit status 1 when a finding is an error. See doc/bin/cl45.md.\n";
+            return 0;
+        } else if (lintMode && (arg.rfind("--checks=", 0) == 0 || arg.rfind("--disable=", 0) == 0 ||
+                                arg.rfind("--profile=", 0) == 0 || arg.rfind("--severity=", 0) == 0)) {
+            lintCli.push_back(arg);
+        } else if (lintMode && arg.rfind("--format=", 0) == 0) {
+            lintFormat = arg.substr(9);
+            if (lintFormat != "text" && lintFormat != "json" && lintFormat != "sarif") {
+                std::cerr << "cl45: --format=text, json or sarif" << std::endl;
+                return 1;
+            }
+        } else if (lintMode && arg.rfind("--config=", 0) == 0) {
+            lintConfigFile = arg.substr(9);
+        } else if (lintMode && arg == "--list-rules") {
+            lintList = true;
+        } else if (lintMode && arg.rfind("--explain=", 0) == 0) {
+            lintExplain = arg.substr(10);
         } else if (arg == "-?" || arg == "--help") {
             // Phase 5.1: Dynamic program name in help output
             std::string inputType = (programName == "cp45") ? "<input_file.c>" : "[options] <input_file.c>";
@@ -723,6 +769,42 @@ int main(int argc, char** argv) {
         }
     }
 
+    // cl45: the configuration (files, then the command line), --list-rules, --explain
+    if (lintMode) {
+        std::string dir = ".";
+        size_t sl = config.inputFile.find_last_of('/');
+        if (sl != std::string::npos) dir = config.inputFile.substr(0, sl);
+        std::string err;
+        bool ok = lintConfigFile.empty() ? lintEngine.config.loadDefaults(dir, err)
+                                         : lintEngine.config.loadFile(lintConfigFile, err);
+        for (const auto& a : lintCli) ok = ok && lintEngine.config.applyOption(a, err);
+        if (!ok) {
+            std::cerr << "cl45: error: " << err << std::endl;
+            return 1;
+        }
+        Logger::setLevel(config.verboseLevel);
+        for (const auto& f : lintEngine.config.sources) LOG_INFO("cl45", "configuration " << f);
+        if (!lintEngine.config.profile.empty()) lintEngine.profile = lintEngine.config.profile;
+        if (!lintExplain.empty()) {
+            if (!lintEngine.explain(std::cout, lintExplain)) {
+                std::cerr << "cl45: no rule '" << lintExplain << "' (--list-rules)" << std::endl;
+                return 1;
+            }
+            return 0;
+        }
+        if (lintList) {
+            lintEngine.listRules(std::cout);
+            return 0;
+        }
+        // (the system headers: the last include path, as set up above)
+        lintCtx.systemDirs.push_back(includePaths.empty() ? std::string() : includePaths.back());
+        for (auto& d : lintCtx.systemDirs) if (!d.empty() && d.back() != '/') d += '/';
+        config.lint = &lintCtx;
+        config.objectOnly = true;      // (as a file is compiled for a program: relocatable)
+        config.assemblyOnly = false;
+        config.preprocessOnly = false;
+    }
+
     if (config.inputFile.empty()) {
         // Phase 5.1: Dynamic program name in error message
         std::cerr << "Usage: " << programName << " [options] <input_file.c>" << std::endl;
@@ -741,6 +823,10 @@ int main(int argc, char** argv) {
     if (!result.success) {
         if (!result.errorPrinted) std::cerr << "Compilation error: " << result.error << std::endl;
         return result.exitCode;
+    }
+    if (lintMode) {
+        lintEngine.write(std::cout, lintFormat, "cl45");
+        return lintEngine.anyError() ? 1 : 0;
     }
 
     LOG_INFO(Logger::tool(), "Compilation successful: " << result.outputFile);

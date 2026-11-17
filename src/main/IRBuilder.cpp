@@ -226,10 +226,12 @@ void IRBuilder::generate(TranslationUnit& unit) {
         // Build map of function name → param types
         std::map<std::string, std::vector<ir::Type>> funcParams;
         std::map<std::string, int> funcDeclLines;
+        std::map<std::string, std::string> funcDeclFiles;
         for (const auto& fn : module_.functions) {
             if (fn.isStatic && fn.name != "_main") {
                 funcParams[fn.name] = fn.paramTypes;
                 funcDeclLines[fn.name] = fn.declLine;
+                funcDeclFiles[fn.name] = fn.declFile.empty() ? module_.sourceFile : fn.declFile;
             }
         }
         // Build CONST vreg map for each function (to resolve CONST vreg args)
@@ -297,8 +299,7 @@ void IRBuilder::generate(TranslationUnit& unit) {
                     std::stringstream ss;
                     ss << "parameter " << (i + 1) << " of '" << cleanName
                        << "' could be 'unsigned char' (all call sites pass 0-255)";
-                    warnings_.push_back(formatDiagnostic(module_.sourceFile, funcDeclLines[name], 0,
-                        Severity::Note, ss.str()));
+                    lintOr("mega65-narrow-param", funcDeclFiles[name], funcDeclLines[name], 0, ss.str(), true);
                 } else if (params[i] == ir::Type::I16 && !allConst[i] &&
                            allNonNegPtr && i < allNonNegPtr->size() && (*allNonNegPtr)[i] &&
                            paramSigned(name.substr(1), i)) {
@@ -307,8 +308,7 @@ void IRBuilder::generate(TranslationUnit& unit) {
                     std::stringstream ss;
                     ss << "parameter " << (i + 1) << " of '" << cleanName
                        << "' could be 'unsigned int' (all call sites pass non-negative values)";
-                    warnings_.push_back(formatDiagnostic(module_.sourceFile, funcDeclLines[name], 0,
-                        Severity::Note, ss.str()));
+                    lintOr("mega65-narrow-param", funcDeclFiles[name], funcDeclLines[name], 0, ss.str(), true);
                 }
             }
         }
@@ -485,6 +485,120 @@ int IRBuilder::getTypeSize(const std::string& typeName, int ptrLevel) {
 }
 
 // A variable of a plain integer type that is unsigned only by cc45's default
+void IRBuilder::lintOr(const std::string& id, const std::string& file, int line, int col, const std::string& msg, bool note) {
+    if (lintReport) { lintReport(id, file, line, col, msg); return; }
+    warnings_.push_back(formatDiagnostic(file, line, col, note ? Severity::Note : Severity::Warning, msg));
+}
+
+// cl45, mega65-implicit-narrowing: the bytes an integer expression's value
+// needs, as written (a constant by its value, c + 1 as wide as c, n & 0xFF a
+// byte); 0 when it is not an integer
+static int lintIntBytes(ir::Type t) {
+    return t == ir::Type::I8 ? 1 : t == ir::Type::I16 ? 2 : t == ir::Type::I32 ? 4 : 0;
+}
+
+void IRBuilder::lintNarrowing(const IRTypeInfo& to, Expression* value, const ASTNode& at, const std::string& what) {
+    int tb = lintIntBytes(to.type);
+    if (!lintReport || !tb || !value || isBoolType(to.typeName) || structOf(to.typeName)) return;
+    if (dynamic_cast<CastExpression*>(value) || dynamic_cast<InitializerList*>(value)) return;
+    std::function<int(Expression*)> bytes = [&](Expression* e) -> int {
+        if (!e) return 0;
+        if (auto* l = dynamic_cast<IntegerLiteral*>(e)) {
+            if (!l->castType.empty()) return lintIntBytes(mapType(l->castType, l->castPointerLevel));
+            return l->value >= -128 && l->value <= 255 ? 1 : l->value >= -32768 && l->value <= 65535 ? 2 : 4;
+        }
+        if (auto* b = dynamic_cast<BinaryOperation*>(e)) {
+            static const std::set<std::string> cmp = {"<", "<=", ">", ">=", "==", "!=", "&&", "||"};
+            if (cmp.count(b->op)) return 1;
+            int l = bytes(b->left.get()), r = bytes(b->right.get());
+            if (b->op == ">>") return l;
+            if (b->op == "&") return l && r ? std::min(l, r) : 0;
+            if (b->op == "+" || b->op == "-" || b->op == "*" || b->op == "/" || b->op == "%" || b->op == "|" || b->op == "^")
+                return l && r ? std::max(l, r) : 0;
+        }
+        if (auto* u = dynamic_cast<UnaryOperation*>(e)) {
+            if (u->op == "!") return 1;
+            if (u->op == "-" || u->op == "~" || u->op == "+") return bytes(u->operand.get());
+        }
+        if (auto* se = dynamic_cast<StatementExpression*>(e)) return bytes(se->result.get());
+        if (auto* c = dynamic_cast<ConditionalExpression*>(e)) {
+            int l = bytes(c->thenExpr ? c->thenExpr.get() : c->condition.get()), r = bytes(c->elseExpr.get());
+            return l && r ? std::max(l, r) : 0;
+        }
+        IRTypeInfo ti = getExprTypeInfo(e);
+        if (structOf(ti.typeName)) return 0;
+        return lintIntBytes(ti.type);
+    };
+    int fb = bytes(value);
+    if (fb <= tb) return;
+    static const char* const names[] = {"", "char", "int", "", "long"};
+    lintReport("mega65-implicit-narrowing", at.sourceFile, at.line, at.column,
+               std::string(fb == 2 ? "an " : "a ") + names[fb] + " value is stored in " + what + " (" + names[tb] +
+               "): its upper byte" + (fb - tb > 1 ? "s are" : " is") + " dropped; cast it if that is meant");
+}
+
+// cl45, mega65-signedness: / % >> whose result differs from standard C's
+// because a plain operand is unsigned here
+void IRBuilder::lintPlainArith(BinaryOperation& node) {
+    if (!lintReport) return;
+    // (a parameter too: cc45's own warnings know only variables)
+    auto plainVar = [this](Expression* e, std::string& name) {
+        if (plainUnsignedVar(e, name)) return true;
+        auto* vr = dynamic_cast<VariableReference*>(e);
+        return vr && locals_.count(vr->name) && lintPlainParams_.count(vr->name) && (name = vr->name, true);
+    };
+    static const std::set<std::string> cmpOps = {"<", "<=", ">", ">=", "==", "!="};
+    if (cmpOps.count(node.op)) {
+        // a plain parameter compared with a negative constant (variables: the folder's)
+        for (int side = 0; side < 2; side++) {
+            auto* vr = dynamic_cast<VariableReference*>(side ? node.right.get() : node.left.get());
+            auto* lit = dynamic_cast<IntegerLiteral*>(side ? node.left.get() : node.right.get());
+            if (vr && lit && lit->value < 0 && lit->castType.empty() && locals_.count(vr->name) &&
+                lintPlainParams_.count(vr->name))
+                lintReport("mega65-signedness", node.sourceFile, node.line, node.column,
+                           "'" + vr->name + "' is unsigned (plain integers are unsigned in cc45): compared with " +
+                           std::to_string(lit->value) + ", which becomes a large positive value; declare it 'signed' "
+                           "(or use -fsigned-default)");
+        }
+        return;
+    }
+    if (node.op != "/" && node.op != "%" && node.op != ">>") return;
+    auto negConst = [](Expression* e, int64_t& v) {
+        auto* l = dynamic_cast<IntegerLiteral*>(e);
+        if (!l || l->value >= 0 || !l->castType.empty()) return false;
+        v = l->value;
+        return true;
+    };
+    std::string name;
+    int64_t v;
+    // x / -2, -8 >> x
+    for (int side = 0; side < 2; side++) {
+        Expression* var = side ? node.right.get() : node.left.get();
+        Expression* other = side ? node.left.get() : node.right.get();
+        if (plainVar(var, name) && negConst(other, v) && !(node.op == ">>" && side == 0)) {
+            lintReport("mega65-signedness", node.sourceFile, node.line, node.column,
+                       "'" + name + "' is unsigned (plain integers are unsigned in cc45): '" + node.op + "' with " +
+                       std::to_string(v) + " is computed unsigned, not as in standard C; declare it 'signed' (or use -fsigned-default)");
+            return;
+        }
+    }
+    // (a - b) / n, (a - b) >> n, -a / n: the left operand would be negative in standard C
+    Expression* l = node.left.get();
+    std::string a, b;
+    bool diff = false;
+    if (auto* s = dynamic_cast<BinaryOperation*>(l)) {
+        if (s->op == "-" && plainVar(s->left.get(), a) &&
+            (plainVar(s->right.get(), b) || dynamic_cast<IntegerLiteral*>(s->right.get())))
+            diff = true;
+    } else if (auto* u = dynamic_cast<UnaryOperation*>(l)) {
+        if (u->op == "-" && plainVar(u->operand.get(), a)) diff = true;
+    }
+    if (!diff || getExprTypeInfo(l).isSigned) return;
+    lintReport("mega65-signedness", node.sourceFile, node.line, node.column,
+               "the left operand of '" + node.op + "' is never negative ('" + a + "' is a plain integer, unsigned in cc45): "
+               "the result differs from standard C when the difference is below 0; declare the variables 'signed'");
+}
+
 bool IRBuilder::plainUnsignedVar(Expression* e, std::string& name) {
     auto* vr = dynamic_cast<VariableReference*>(e);
     if (!vr) return false;
@@ -1732,6 +1846,8 @@ void IRBuilder::visit(FunctionDeclaration& node) {
     recurseNextFunction_ = false;
     fn.isInterrupt = node.isInterrupt;
     fn.declLine = node.line;
+    fn.declFile = node.sourceFile;
+    fn.declColumn = node.column;
     fn.isNaked = node.isNaked;
     fn.isRegparm = node.isRegparm;
     fn.isFar = node.isFar;
@@ -1974,6 +2090,7 @@ void IRBuilder::visit(FunctionDeclaration& node) {
         currentFuncParams_.insert(p.name);
     }
 
+    lintPlainParams_.clear();
     for (const auto& p : node.parameters) {
         if (p.isFunctionPointer && p.funcPtrSig) fnPtrSigs_[p.name] = p.funcPtrSig;
         bool byCopy = aggregateBlockSize(p.type, p.pointerLevel) > 0;
@@ -2030,6 +2147,7 @@ void IRBuilder::visit(FunctionDeclaration& node) {
             }
         }
         if (p.isVolatile) currentFunc_->memoryVregs.insert(vreg.vregId);
+        if (p.isPlainUnsigned) lintPlainParams_.insert(p.name);
         currentFunc_->localSlotVregs.insert(vreg.vregId);
         if (p.isRestrict) currentFunc_->restrictVregs.insert(vreg.vregId);
 
@@ -4023,6 +4141,13 @@ void IRBuilder::visit(StatementExpression& node) {
 
 void IRBuilder::visit(VariableDeclaration& node) {
     if (packedBitDecls_.count(&node)) return;   // (a bit of a __bitvars byte)
+    if (lintReport && node.initializer && node.pointerLevel == 0 && node.arrayDims.empty() && !node.isFunctionPointer &&
+        lintSeen_.insert(&node).second) {
+        IRTypeInfo to;
+        to.type = mapType(node.type, 0);
+        to.typeName = node.type;
+        lintNarrowing(to, node.initializer.get(), node, "'" + node.name + "'");
+    }
     // (after the declaration, however it returns: a const string's bytes)
     struct NoteConstString {
         IRBuilder* b; VariableDeclaration& n;
@@ -4556,7 +4681,7 @@ void IRBuilder::visit(VariableDeclaration& node) {
         localTypeNames_[node.name] = resolvedGlobalTypeName;
         localPtrLevel_[node.name] = node.pointerLevel;
         localSigned_[node.name] = node.isSigned;
-        localPlainUnsigned_[node.name] = node.isPlainUnsigned;
+        localPlainUnsigned_[node.name] = node.isPlainUnsigned; lintPlainParams_.erase(node.name);
         localConst_[node.name] = node.isConst && node.pointerLevel == 0;
         localPointsToConst_[node.name] = node.isConst && node.pointerLevel > 0;
         localDeclLocs_[node.name] = declLoc(node);
@@ -4603,7 +4728,7 @@ void IRBuilder::visit(VariableDeclaration& node) {
         paramArrayDims_.erase(node.name);
     }
     localSigned_[node.name] = node.isSigned;
-    localPlainUnsigned_[node.name] = node.isPlainUnsigned;
+    localPlainUnsigned_[node.name] = node.isPlainUnsigned; lintPlainParams_.erase(node.name);
     localConst_[node.name] = node.isConst && node.pointerLevel == 0;
     localPointsToConst_[node.name] = node.isConst && node.pointerLevel > 0;
     if (node.pointerLevel > 0) {
@@ -5220,6 +5345,16 @@ bool IRBuilder::pointerNeverChanges(const std::string& name) {
 }
 
 void IRBuilder::visit(Assignment& node) {
+    if (lintReport && node.op == "=" && !lintSeen_.count(&node)) {
+        lintSeen_.insert(&node);
+        std::string tn;
+        if (auto* vr = dynamic_cast<VariableReference*>(node.target.get())) tn = "'" + vr->name + "'";
+        else if (dynamic_cast<ArrayAccess*>(node.target.get())) tn = "an element";
+        else if (auto* ma = dynamic_cast<MemberAccess*>(node.target.get())) tn = "'" + ma->memberName + "'";
+        else tn = "the target";
+        if (tn.compare(0, 3, "'__") != 0)     // (not the variables of cc45's own builtins: __jsr's)
+            lintNarrowing(getExprTypeInfo(node.target.get()), node.expression.get(), node, tn);
+    }
     if (farUsed_ && emitFarAssign(node)) return;
     if (farUsed_ && node.op == "=") {
         // a near pointer stored in a pointer or far pointer: its address
@@ -6295,6 +6430,7 @@ void IRBuilder::visit(BinaryOperation& node) {
 
     IRTypeInfo lhsInfo = getExprTypeInfo(node.left.get());
     IRTypeInfo rhsInfo = getExprTypeInfo(node.right.get());
+    if (lintReport) lintPlainArith(node);
 
     // `x < 0` / `0 > x` can never be true when x is unsigned (cc45 integers are
     // unsigned unless declared signed)
@@ -6317,8 +6453,8 @@ void IRBuilder::visit(BinaryOperation& node) {
             std::string what = alwaysFalse ? "< 0 is always false" : ">= 0 is always true";
             std::string key = node.sourceFile + ":" + std::to_string(node.line) + ":" + std::to_string(node.column) + ":lt0";
             if (!plainUnsignedVar(var, vn) && reportedUnused_.insert(key).second)
-                warnings_.push_back(formatDiagnostic(node.sourceFile, node.line, node.column, Severity::Warning,
-                    "comparison of unsigned expression " + what + " (declare it 'signed' if it can be negative)"));
+                lintOr("mega65-signedness", node.sourceFile, node.line, node.column,
+                    "comparison of unsigned expression " + what + " (declare it 'signed' if it can be negative)");
         }
     }
 
@@ -8943,10 +9079,10 @@ void IRBuilder::visit(ConditionalExpression& node) {
             std::string key = node.sourceFile + ":" + std::to_string(node.line) + ":" +
                               std::to_string(node.column) + ":condsign";
             if (reportedUnused_.insert(key).second)
-                warnings_.push_back(formatDiagnostic(node.sourceFile, node.line, node.column, Severity::Warning,
+                lintOr("mega65-signedness", node.sourceFile, node.line, node.column,
                     std::string("?: of a signed and a plain (unsigned in cc45) operand is unsigned: the ") +
                     (thenS ? "third" : "second") + " operand makes the signed one unsigned "
-                    "(cast it to signed, e.g. (signed)0)"));
+                    "(cast it to signed, e.g. (signed)0)");
         }
     }
 

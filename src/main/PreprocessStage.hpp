@@ -3,6 +3,7 @@
 #include <string>
 #include <vector>
 #include <map>
+#include "Preprocessor.hpp"
 
 // C Preprocessor stage
 class PreprocessStage : public Stage {
@@ -25,6 +26,7 @@ public:
 
     // Get preprocessed source
     std::string getPreprocessedSource() const { return preprocessedSource_; }
+    const std::vector<Preprocessor::LintPragma>& getLintPragmas() const { return lintPragmas_; }
 
 private:
     std::string inputFile_;
@@ -34,4 +36,5 @@ private:
     std::map<std::string, std::string> symbols_;
     std::string outputFile_;
     std::string preprocessedSource_;
+    std::vector<Preprocessor::LintPragma> lintPragmas_;
 };
