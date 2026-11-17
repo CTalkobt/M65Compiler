@@ -49,7 +49,8 @@ check "" 10 0 "c ? signed : 0u"
 check "" 11 0 "c ? signed : (signed)0"
 check "" 12 0 "c ? -1 : 0 (a signed result)"
 check "" 13 0 "c ? plain : 0 (no signed operand)"
-check "-fsigned-default" 5 1 "-fsigned-default: c ? signed : 0 (the literal is still unsigned)"
+check "-fsigned-default" 5 0 "-fsigned-default: c ? signed : 0 (the literal is a signed int, #612)"
+check "-fsigned-default" 6 0 "-fsigned-default: c ? 0 : signed"
 check "-fsigned-default" 7 0 "-fsigned-default: c ? signed : int variable"
 
 # the text says which operand, and once a place

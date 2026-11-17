@@ -1155,8 +1155,8 @@ IRBuilder::IRTypeInfo IRBuilder::getExprTypeInfo(Expression* expr) {
     // cond ? a : b — the usual arithmetic conversions of a and b (a float
     // branch makes the result float; a pointer branch makes it a pointer)
     if (auto* ce = dynamic_cast<ConditionalExpression*>(expr)) {
-        IRTypeInfo a = ce->thenExpr ? getExprTypeInfo(ce->thenExpr.get()) : getExprTypeInfo(ce->condition.get());
-        IRTypeInfo b = getExprTypeInfo(ce->elseExpr.get());
+        IRTypeInfo a = condArmInfo(ce->thenExpr ? ce->thenExpr.get() : ce->condition.get());
+        IRTypeInfo b = condArmInfo(ce->elseExpr.get());
         // a fixed-point branch: the (wider) fixed type, the other converted
         if (a.type != ir::Type::PTR && b.type != ir::Type::PTR) {
             int f = fixedCombine(fixedFracOf(a.typeName), fixedFracOf(b.typeName));
@@ -1167,6 +1167,14 @@ IRBuilder::IRTypeInfo IRBuilder::getExprTypeInfo(Expression* expr) {
         if (b.type == ir::Type::F32) return b;
         if (a.type == ir::Type::PTR) return a;
         if (b.type == ir::Type::PTR) return b;
+        // two integers of one size, the second arm the unsigned one: unsigned
+        // (c ? s : u; the other order has always been). A literal that fits
+        // the signed type leaves it signed, as in a binary operation.
+        if (ir::typeSize(a.type) == ir::typeSize(b.type) && a.isSigned && !b.isSigned &&
+            (a.type == ir::Type::I8 || a.type == ir::Type::I16 || a.type == ir::Type::I32) && a.type == b.type) {
+            auto* bl = dynamic_cast<IntegerLiteral*>(ce->elseExpr.get());
+            if (!(bl && bl->castType.empty() && bl->value >= 0 && bl->value <= 32767)) return b;
+        }
         return ir::typeSize(a.type) >= ir::typeSize(b.type) ? a : b;
     }
 
@@ -1251,6 +1259,20 @@ IRBuilder::IRTypeInfo IRBuilder::getExprTypeInfo(Expression* expr) {
     }
 
     return {ir::Type::I16, "int", false, ir::Type::VOID, 2};
+}
+
+// An operand of ?: as its type: with signed_default an unsuffixed literal is
+// what C says, a signed int when it fits one (a signed long past 16 bits;
+// 32768 to 65535 stay an unsigned int), so c ? 0 : -1 and c ? 0 : s are
+// signed (#612). Only here: elsewhere a literal takes the other operand's
+// signedness, and the 8-bit comparisons rely on its being unsigned.
+IRBuilder::IRTypeInfo IRBuilder::condArmInfo(Expression* e) {
+    IRTypeInfo t = getExprTypeInfo(e);
+    if (!signedDefault_) return t;
+    if (auto* lit = dynamic_cast<IntegerLiteral*>(e); lit && lit->castType.empty() &&
+        (lit->value <= 32767 || (lit->value > 65535 && lit->value <= 0x7FFFFFFFLL)))
+        t.isSigned = true;
+    return t;
 }
 
 ir::Operand IRBuilder::emitCast(ir::Operand src, ir::Type targetType, bool isSigned) {
@@ -2091,6 +2113,7 @@ void IRBuilder::visit(FunctionDeclaration& node) {
     }
 
     lintPlainParams_.clear();
+    signedDefault_ = node.signedDefault;
     for (const auto& p : node.parameters) {
         if (p.isFunctionPointer && p.funcPtrSig) fnPtrSigs_[p.name] = p.funcPtrSig;
         bool byCopy = aggregateBlockSize(p.type, p.pointerLevel) > 0;
@@ -9055,14 +9078,15 @@ void IRBuilder::visit(ConditionalExpression& node) {
     // each arm widened to the result by its own signedness (lastValueSigned_
     // is not set by every load: a signed char array element or global was
     // zero-extended, c ? dx[d] : 0 giving 255 for -1)
-    IRTypeInfo thenInfo = getExprTypeInfo(node.thenExpr ? node.thenExpr.get() : node.condition.get());
-    IRTypeInfo elseInfo = getExprTypeInfo(node.elseExpr.get());
+    IRTypeInfo thenInfo = condArmInfo(node.thenExpr ? node.thenExpr.get() : node.condition.get());
+    IRTypeInfo elseInfo = condArmInfo(node.elseExpr.get());
 
     // cc45's plain int is unsigned: c ? s : 0 with a signed s has an unsigned
     // result, so s is converted to unsigned (in standard C the 0 is a signed
     // int and the result stays signed). Said once a place, when the unsigned
     // arm is unsigned only by that default: a literal with no U suffix or
-    // cast (unsigned in -fsigned-default too), or a plain-int variable.
+    // cast (signed with -fsigned-default, so never met here then), or a
+    // plain-int variable.
     {
         auto isInt = [](const IRTypeInfo& t) {
             return (t.type == ir::Type::I8 || t.type == ir::Type::I16 || t.type == ir::Type::I32) &&

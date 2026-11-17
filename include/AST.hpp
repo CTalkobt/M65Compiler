@@ -534,6 +534,9 @@ public:
     bool isVariadic = false;
     bool isFastcall = false;
     bool isInterrupt = false;
+    // -fsigned-default / #pragma cc45 signed_default in force where the body
+    // starts: its unsuffixed literals are signed ints (#612)
+    bool signedDefault = false;
     bool isNaked = false;
     bool isRegparm = false;
     bool isFar = false;           // __far: kept in far memory, run through the mapped window (ln45)
