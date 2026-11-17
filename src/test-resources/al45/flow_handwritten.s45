@@ -1,0 +1,37 @@
+; hand-written code with no proc or attributes and the idioms al45 leaves
+; alone: nothing reported
+    * = $2000
+.macro clear addr
+    lda #0
+    sta addr
+.endmacro
+start:
+    clear $20           ; (what a macro repeats is not judged)
+    clear $21
+    ldx #2
+push:                   ; (a loop that pushes: two depths at one place)
+    lda $30,x
+    pha
+    dex
+    bpl push
+    ldx #2
+pull:
+    pla
+    sta $30,x
+    dex
+    bpl pull
+    lda #5
+patch:
+    cmp #0              ; (its operand is written before it runs)
+    sta patch+1
+    bne out
+    lda $22
+    cmp #$3A            ; (the carry returned)
+    rts
+out:
+    sec
+    lda $23
+    sbc $24
+    tay
+    lda #0
+    rts

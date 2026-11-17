@@ -875,7 +875,6 @@ __bas_gbox:
     ldy #0
 @side:
     sty bk
-    ldx #3
 @s1:
     lda cx0,y
     sta __bas_lx0
@@ -1311,7 +1310,6 @@ fedge:
     lda #0
     bcs @pos
     sec
-    lda #0
     sbc edy,x
     sta edy,x
     lda #0

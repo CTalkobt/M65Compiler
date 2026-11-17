@@ -16,7 +16,7 @@ proc _strcat
     .zp_clobbers $10, $11, $12, $13
     .zp_release $12, $13
     .reg_clobbers A, X, Y
-    .flag_clobbers C, N, Z
+    .flag_clobbers C, N, Z, V
 
     ; dest=$10/$11, src=$12/$13
     ; Save original dest for return

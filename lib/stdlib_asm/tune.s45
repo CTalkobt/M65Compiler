@@ -3071,6 +3071,7 @@ endproc
 ; unsigned char tune_playing(void)
 proc _tune_playing
     .reg_clobbers A, X
+    .flag_clobbers N, Z
     lda __tune_active
     ldx #0
     rts
@@ -3147,6 +3148,7 @@ endproc
 proc _tune_vibrato
     .zp_uses $10, $11
     .reg_clobbers A
+    .flag_clobbers N, Z
     lda $10
     sta __tune_vibx
     rts
@@ -3172,6 +3174,7 @@ endproc
 proc _tune_samples
     .zp_uses $10, $11, $12, $13
     .reg_clobbers A
+    .flag_clobbers N, Z
     lda $10
     sta __tune_sbank
     lda $11
@@ -3201,6 +3204,7 @@ endproc
 proc _tune_digi_volume
     .zp_uses $10, $11
     .reg_clobbers A
+    .flag_clobbers N, Z
     lda $10
     sta __tune_dvol
     rts

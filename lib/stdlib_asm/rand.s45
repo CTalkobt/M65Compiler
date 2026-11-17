@@ -89,7 +89,7 @@ endproc
 
 proc __randomize
     .reg_clobbers A, X
-    .flag_clobbers N, Z
+    .flag_clobbers C, N, Z, V
     ldx #0
 @byte:
     bit $D7FE           ; the next random byte, ready when bit 7 is clear

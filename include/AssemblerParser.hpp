@@ -136,6 +136,18 @@ public:
         try { out = evaluateExpressionAt(tokenIndex, scopePrefix); } catch (...) { return false; }
         return true;
     }
+    // ... as that statement sees it: its local (@) label scope and its address (*)
+    struct Statement;
+    bool lintEvalAt(const Statement& s, int tokenIndex, uint32_t& out) {
+        std::string keepScope = currentLocalScope_;
+        uint32_t keepPc = pc;
+        currentLocalScope_ = s.localLabelScope;
+        pc = s.address;
+        bool ok = lintEval(tokenIndex, s.scopePrefix, out);
+        currentLocalScope_ = keepScope;
+        pc = keepPc;
+        return ok;
+    }
     std::string lintTokenFile(const AssemblerToken& t) const { return tokenFile(t); }
     // an operand naming a relocatable symbol (a label of a segment, BSS, an
     // .extern): its value is not an address until linked
@@ -148,6 +160,20 @@ public:
             if (t.type != AssemblerTokenType::IDENTIFIER) continue;
             if (isRelocatableSymbol(scopePrefix + t.value) || isRelocatableSymbol(t.value) ||
                 isRelocatableSymbolIn(t.value, scopePrefix) || externIndex.count(t.value))
+                return true;
+        }
+        return false;
+    }
+
+    // an operand naming a symbol whose code may be elsewhere: an .extern, or
+    // a weak symbol (another object's definition replaces this one)
+    bool lintExternal(int tokenIndex) {
+        for (int i = tokenIndex; i >= 0 && i < (int)tokens.size(); i++) {
+            const auto& t = tokens[i];
+            if (t.type == AssemblerTokenType::NEWLINE || t.type == AssemblerTokenType::END_OF_FILE ||
+                t.type == AssemblerTokenType::COMMA)
+                break;
+            if (t.type == AssemblerTokenType::IDENTIFIER && (externIndex.count(t.value) || weakSymbols.count(t.value)))
                 return true;
         }
         return false;

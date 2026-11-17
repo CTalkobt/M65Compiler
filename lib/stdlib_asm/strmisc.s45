@@ -23,7 +23,7 @@ proc _stpcpy
     .zp_uses $10, $11, $12, $13
     .zp_clobbers $10, $11, $12, $13
     .reg_clobbers A, X, Y
-    .flag_clobbers C, N, Z
+    .flag_clobbers C, N, Z, V
     ldy #0
 @loop:
     lda ($12),y
@@ -80,7 +80,7 @@ proc _strxfrm
     .zp_uses $10, $11, $12, $13, $14, $15
     .zp_clobbers $10, $11, $12, $13
     .reg_clobbers A, X, Y
-    .flag_clobbers C, N, Z
+    .flag_clobbers C, N, Z, V
     lda $12
     sta $0A
     lda $13

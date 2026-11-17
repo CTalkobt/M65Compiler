@@ -117,7 +117,6 @@ proc __ltoa
     pha
 
     ; Dividend ($D770-$D773)
-    lda $10
     sta $d770
     lda $11
     sta $d771

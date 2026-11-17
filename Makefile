@@ -273,10 +273,10 @@ $(CP_TARGET): $(CC_TARGET)
 
 # Assembler (ca45) - the assembler from libca45, its preprocessor and .o45
 # output from codegen + common
-$(CA_TARGET): $(OBJ_DIR)/ca45_main.o $(OBJ_DIR)/AsmLint.o | $(LIB_DIR)
+$(CA_TARGET): $(OBJ_DIR)/ca45_main.o $(OBJ_DIR)/AsmLint.o $(OBJ_DIR)/AsmLintFlow.o | $(LIB_DIR)
 $(CA_TARGET): $(LIBCA45_INT) $(LIB_DIR)/lib45-codegen.a $(LIB_DIR)/lib45-common.a
 	@mkdir -p $(BIN_DIR)
-	$(CXX) $(CXXFLAGS) -o $@ $(OBJ_DIR)/ca45_main.o $(OBJ_DIR)/AsmLint.o $(LIBCA45_INT) $(LIB_DIR)/lib45-codegen.a $(LIB_DIR)/lib45-common.a
+	$(CXX) $(CXXFLAGS) -o $@ $(OBJ_DIR)/ca45_main.o $(OBJ_DIR)/AsmLint.o $(OBJ_DIR)/AsmLintFlow.o $(LIBCA45_INT) $(LIB_DIR)/lib45-codegen.a $(LIB_DIR)/lib45-common.a
 
 # The assembly linter (al45) - symlink to ca45 (#64, #199)
 $(AL_TARGET): $(CA_TARGET)

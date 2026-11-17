@@ -25,7 +25,7 @@ dependencies (SQLite and FUSE only for disk45):
 - **ar45** — archiver for `.lib` static libraries
 - **nm45** — symbol/attribute/relocation inspector for `.o45` and `.lib` (and ln45's `.ovd`/`.ov1` overlay files)
 - **al45** — the assembly linter (#64, #199): a link to ca45, chosen by program name; ca45's front end, no optimizer, no
-  output; rules by `mega65-*` id (`src/main/AsmLint.cpp`) over the shared core (`include/Lint.hpp`: `.cc45-lint.yml`,
+  output; rules by `mega65-*` id (`src/main/AsmLint.cpp`; those on data flow — stale flags, stack balance, declared clobbers, wasted loads and stores — `AsmLintFlow.cpp`) over the shared core (`include/Lint.hpp`: `.cc45-lint.yml`,
   `NOLINT`, text / JSON / SARIF); `doc/bin/al45.md`, plan and the C linter's in `doc/architecture/lint.md`
 - **objdump45** — object/PRG/binary/`.ovd`/`.ov1` inspector and disassembler (45GS02, or 65CE02 / 6502 / 6510 with `--cpu`; a `$0801` PRG is 6510; ROM routines and I/O registers by name from `-S` symbol files, `lib/symbols/c64.sym` / `mega65.sym`; `--source`: ca45 source that assembles back to the same bytes; `--cycles[=MHZ]` (the 45GS02's at 40 MHz measured: `include/CpuCycles.hpp`), `--vice`; `--html` / `--tree` / `--json`: everything in the files as a page, a terminal tree to browse, or data (`objdump45_html.cpp`, `objdump45_tree.cpp`, #201); also BASIC listing with `-bas`)
 - **basic45** — BASIC 65 program generator (label-based source, PETSCII tokenizer, preprocessor,

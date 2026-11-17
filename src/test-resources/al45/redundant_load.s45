@@ -1,0 +1,51 @@
+; mega65-redundant-load: the value the register already holds
+    * = $2000
+SIZE = 0
+start:
+    lda #0
+    sta $20
+    lda #0              ; EXPECT mega65-redundant-load
+    sta $21
+    lda $22
+    sta $23
+    ldx #1
+    lda $22             ; EXPECT mega65-redundant-load
+    sta $24
+    sta $25
+    lda $25             ; EXPECT mega65-redundant-load
+    pha
+    ldy #3
+    sty $26
+    iny
+    ldy #3
+    sty $27
+; not the same, or not known to be
+    lda #0
+    sta $28
+    lda #<SIZE          ; (another way of writing it: kept)
+    sta $29
+    lda $2A
+    sta $2A
+    inc $2A
+    lda $2A
+    sta $2B
+    lda $2C
+    jsr sub
+    lda $2C             ; (the call may have changed it)
+    sta $2D
+    lda $2E
+    sta $31
+    inx
+    lda $2E             ; (N and Z are tested: they were the inx's)
+    beq start
+    lda $D012
+    cmp #1
+    lda $D012           ; (an I/O register)
+    sta $2F
+again:
+    lda #0              ; (a label: other paths arrive)
+    sta $30
+    pla
+    rts
+sub:
+    rts

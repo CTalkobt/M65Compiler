@@ -431,7 +431,7 @@ int main(int argc, char** argv) {
     lint::Engine lintEngine;
     std::vector<std::string> lintCli;
     std::string lintFormat = "text", lintConfigFile, lintExplain;
-    bool lintList = false;
+    bool lintList = false, lintSuggest = false;
     if (lintMode) asmlint::registerRules(lintEngine);
     std::string input_file;
     std::string output_file;
@@ -554,6 +554,8 @@ int main(int argc, char** argv) {
             lintConfigFile = arg.substr(9);
         } else if (lintMode && arg == "--list-rules") {
             lintList = true;
+        } else if (lintMode && arg == "--suggest-clobbers") {
+            lintSuggest = true;
         } else if (lintMode && arg.rfind("--explain=", 0) == 0) {
             lintExplain = arg.substr(10);
         } else if (arg == "-c") {
@@ -793,7 +795,7 @@ int main(int argc, char** argv) {
             parser.pass2(false);
             for (const auto& w : parser.getWarnings()) std::cerr << w << std::endl;
             if (lintEngine.config.profile.empty()) lintEngine.profile = asmlint::defaultProfile(parser, relocMode);
-            asmlint::run(lintEngine, parser, input_file);
+            asmlint::run(lintEngine, parser, input_file, lintSuggest);
             lintEngine.write(std::cout, lintFormat, "al45");
             return lintEngine.anyError() ? 1 : 0;
         }

@@ -966,7 +966,7 @@ endproc
 proc _tmap__init
     .zp_uses $10, $11, $12, $13, $14, $15, $16, $17
     .reg_clobbers A, Y
-    .flag_clobbers C, N, Z
+    .flag_clobbers C, N, Z, V
     ldy #8              ; ksize
     lda $12
     sta ($10),y

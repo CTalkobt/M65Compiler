@@ -17,7 +17,7 @@ proc _atoi
     .zp_clobbers $10, $11, $12, $13, $14, $15, $16
     .zp_release $10, $11
     .reg_clobbers A, X, Y
-    .flag_clobbers C, N, Z
+    .flag_clobbers C, N, Z, V
 
     ; s=$10/$11 — use as indirect pointer
     ldy #0

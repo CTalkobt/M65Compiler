@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <cctype>
 #include <fstream>
+#include <iostream>
 #include <map>
 #include <set>
 #include <sstream>
@@ -59,6 +60,7 @@ void registerRules(lint::Engine& e) {
            "Function attributes (.func_flags) in an unnamed proc: ignored",
            ".func_flags attaches to the global symbol 'proc <name>' names; in a bare 'proc' it is dropped.\n"
            "Name the function: proc <name> (and .global <name>)."});
+    registerFlowRules(e);
 }
 
 namespace {
@@ -89,7 +91,7 @@ std::string defaultProfile(const AssemblerParser&, bool relocMode) {
     return relocMode ? "cc45" : "standalone";
 }
 
-void run(lint::Engine& e, AssemblerParser& p, const std::string& mainFile) {
+void run(lint::Engine& e, AssemblerParser& p, const std::string& mainFile, bool suggest) {
     auto fileOf = [&](const ST& s) { return s.asmFile.empty() ? mainFile : s.asmFile; };
 
     // NOLINT comments of every file the statements come from
@@ -149,6 +151,23 @@ void run(lint::Engine& e, AssemblerParser& p, const std::string& mainFile) {
         }
         return false;
     };
+
+    // the rules on data flow, with the statements a store patches
+    {
+        std::set<const void*> patchedStmts;
+        std::vector<std::string> pend;
+        for (const auto& sp : p.statements) {
+            const ST& s = *sp;
+            if (!s.label.empty()) pend.push_back(s.label);
+            if (s.type == ST::NONE || s.type == ST::DIRECTIVE) continue;
+            for (std::string l : pend) {
+                size_t c = l.rfind(':');
+                if (patched.count(l) || (c != std::string::npos && patched.count(l.substr(c + 1)))) patchedStmts.insert(&s);
+            }
+            pend.clear();
+        }
+        runFlow(e, p, mainFile, patchedStmts, suggest, &std::cout);
+    }
 
     bool cle = false;                 // the file selects the 16-bit stack
     bool knock = false;               // a store to $D02F

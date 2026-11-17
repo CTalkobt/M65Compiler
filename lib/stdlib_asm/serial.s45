@@ -141,7 +141,7 @@ endproc
 proc _ser_open
     .zp_uses $10, $11
     .reg_clobbers A, X, Y
-    .flag_clobbers C, N, Z
+    .flag_clobbers C, N, Z, V
     lda __ser_state
     bne @drv
     lda #ERR_NO_DRIVER

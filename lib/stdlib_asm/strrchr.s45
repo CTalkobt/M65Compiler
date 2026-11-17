@@ -16,7 +16,7 @@ proc _strrchr
     .zp_clobbers $10, $11, $12, $13, $14, $15
     .zp_release $10, $11, $12, $13
     .reg_clobbers A, X, Y
-    .flag_clobbers C, N, Z
+    .flag_clobbers C, N, Z, V
 
     ; s=$10/$11, c=$12 (low byte only)
     ; result in $14/$15

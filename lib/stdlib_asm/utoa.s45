@@ -21,7 +21,7 @@ proc _utoa
     .zp_clobbers $10, $11, $12, $13, $14, $15, $16, $17
     .zp_release $10, $11, $14, $15
     .reg_clobbers A, X, Y
-    .flag_clobbers C, N, Z
+    .flag_clobbers C, N, Z, V
 
     ; Copy value to working location ($16/$17) so we can modify it
     lda $10
@@ -68,7 +68,6 @@ proc _utoa
     pha
 
     ; Divide value by base using hardware divider
-    lda $16
     sta $d770
     lda $17
     sta $d771

@@ -346,7 +346,6 @@ proc __fcm_glyph
     rol __fd_src+1
     asl __fd_src
     rol __fd_src+1
-    lda #0
     sta __fd_src+2
     sta __fd_src+3
     ldq __fd_src

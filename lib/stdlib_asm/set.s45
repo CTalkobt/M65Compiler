@@ -266,16 +266,16 @@ proc _set__init
     .flag_clobbers N, Z
     jsr _vec_init
     ldy #8
-    lda $14
+    lda $14  ; NOLINT(mega65-zp-param-block): vec_init changes no base-page byte (it has no .zp_clobbers)
+    sta ($10),y  ; NOLINT(mega65-zp-param-block): as above
+    iny
+    lda $15  ; NOLINT(mega65-zp-param-block): as above
+    sta ($10),y  ; NOLINT(mega65-zp-param-block): as above
+    iny
+    lda $12             ; ksize = esize  ; NOLINT(mega65-zp-param-block): as above
     sta ($10),y
     iny
-    lda $15
-    sta ($10),y
-    iny
-    lda $12             ; ksize = esize
-    sta ($10),y
-    iny
-    lda $13
+    lda $13  ; NOLINT(mega65-zp-param-block): as above
     sta ($10),y
     rts
     .func_flags zp_call
@@ -541,7 +541,7 @@ endproc
 proc _map__init
     .zp_uses $10, $11, $12, $13, $14, $15, $16, $17
     .reg_clobbers A, X, Y
-    .flag_clobbers C, N, Z
+    .flag_clobbers C, N, Z, V
     lda $12             ; set::init(ksize + vsize, cmp), then ksize
     pha
     lda $13
