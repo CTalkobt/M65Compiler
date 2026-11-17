@@ -4,6 +4,46 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### cc45: a negative array size is an error (#602)
+
+- `typedef char t[-1];`, `char a[-4];`, `struct s { char m[-2]; };` compiled
+  without a message (the array got one element). A size that is a constant
+  below 0 is now an error, "the size of an array is negative (-1)", wherever
+  a size is written: variables, typedefs, members, parameters, pointers to
+  arrays, casts, `sizeof` type names. The compile-time assert `typedef char
+  check[(sizeof(big) <= LIMIT) ? 1 : -1];` works, with plain `int` unsigned
+  as well as with `-fsigned-default`.
+- A size of 0 is a warning, "the size of an array is 0"; not for a struct's
+  member (`char tail[0]`, the old flexible array member).
+- Test: `src/test/test_array_size.sh` (`make test`).
+
+### basic45: smaller `proc` and `select`; `--minify` and hex constants (#603, #605)
+
+- `--minify` joined a keyword and a `$` hex or `%` binary constant after it:
+  `poke $d1, 0` became the string variable `poke$` (then renamed `po$`) and
+  a variable `d1`, `sys $ff81` became `sy$ff`. The blank is kept (#603).
+- `proc`: no `GOTO` around a proc that nothing can run into — the line
+  before ends in `GOTO`, `RETURN`, `END`, `RUN` or `RESUME`, with no `IF` on
+  it and no label between — so procs after the program's `END` cost
+  nothing. Procs one after the other share one `GOTO`, to the end of the
+  last (it was a chain of them, each jumping to the next).
+- `select`: a case's statements are on the line of its test, `if zs=133 then
+  sys 14164, 7 : goto <end>`, instead of `if((zs=133))=0 then <next>` and a
+  second line. For a case of plain statements (no label, `IF`, `REM`,
+  `DATA`, `BEGIN`/`BEND` or block in it) whose line stays within 160
+  characters; another keeps its lines, its test now `if zs<>133 then
+  <next>`. No `GOTO` to the end after a case that leaves (`GOTO`, `RETURN`)
+  or the last one.
+- A block `if`'s jump to its `else` tests the opposite comparison, `if a>=b
+  then <else>` for `if a < b then`, instead of `if(a<b)=0 then`; a
+  condition with `AND`, `OR`, `NOT`, `XOR` or several comparisons keeps
+  `(...)=0`.
+- A program of two `select`s (eight cases) and a proc: 472 → 344 bytes; two
+  procs after `END`: 92 → 67 (#605).
+- `--compile` reads `%` binary constants (`%1010`), as BASIC 65 does.
+- Tests: `test_basic45_struct_xemu.bas` (as is, `--minify`, and now
+  `--compile`), `src/test/test_basic45.sh`.
+
 ### basic45 `--map`: the link map of a `--link` / `--compile` build; ln45's map says more (#595)
 
 - `basic45 --map out.map` writes ln45's `-M` map of the program's link

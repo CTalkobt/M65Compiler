@@ -508,6 +508,53 @@ if [ $rc = 0 ] && ! grep -qi 'warning\|error' <<< "$out" &&
 else
     fail "--minify of a structured program ($rc): $out $($B --decompile "$D/mn.prg" -o - 2>/dev/null)"
 fi
+
+# #603: --minify keeps the blank between a keyword and a hex or binary
+# constant ("poke $d1" joined was the variable poke$)
+printf 'poke $d1, 0 : print peek($d1)\nsys $ff81\npoke 1, %%101\n' > "$D/mh.bas"
+out=$($B --strict --minify "$D/mh.bas" -o "$D/mh.prg" 2>&1); rc=$?
+dec=$($B --decompile "$D/mh.prg" -o - 2>/dev/null)
+if [ $rc = 0 ] && ! grep -qi 'warning\|error' <<< "$out" &&
+   grep -q 'poke \$d1, 0' <<< "$dec" && grep -q 'sys \$ff81' <<< "$dec" && grep -q 'poke 1, %101' <<< "$dec"; then
+    pass "--minify: a hex or binary constant after a keyword stays one (#603)"
+else
+    fail "--minify of 'poke \$d1' ($rc): $out $dec"
+fi
+
+# #605: no GOTO around a proc nothing can run into (after END, after
+# another proc); one where the line before runs on. A case's statements on
+# its test's line; a case with an IF in it keeps its own lines
+printf 'start:\n  i = 2\n  on i gosub one, two\n  end\nproc one\n  print "one"\nendproc\nproc two\n  print "two"\nendproc\n' > "$D/pg.bas"
+printf '  call one\n  call two\n  print "on"\nproc one\n  print "one"\nendproc\nproc two\n  print "two"\nendproc\n  print "after"\n' > "$D/ph.bas"
+printf '  select k\n    case 133\n      sys 4660, 7\n    case 1, 2\n      print "b"\n    case 5 to 9\n      if x then print "r"\n    case is > 200\n      goto fin\n    case else\n      print "o"\n  endselect\nfin:\n  print "done"\n' > "$D/sc.bas"
+$B --strict "$D/pg.bas" -o "$D/pg.prg" >/dev/null 2>&1; r1=$?
+$B --strict "$D/ph.bas" -o "$D/ph.prg" >/dev/null 2>&1; r2=$?
+$B "$D/sc.bas" -o "$D/sc.prg" >/dev/null 2>&1; r3=$?
+pg=$($B --decompile "$D/pg.prg" -o - 2>/dev/null)
+ph=$($B --decompile "$D/ph.prg" -o - 2>/dev/null)
+sc=$($B --decompile "$D/sc.prg" -o - 2>/dev/null)
+if [ $r1 = 0 ] && [ $r2 = 0 ] && [ $r3 = 0 ] &&
+   [ "$(grep -ci 'goto' <<< "$pg")" = 0 ] && [ "$(grep -ci 'goto' <<< "$ph")" = 1 ] &&
+   grep -q 'if zs = 133 then sys 4660, 7 : goto l' <<< "$sc" &&
+   grep -q 'if zs = 1 or zs = 2 then print "b" : goto l' <<< "$sc" &&
+   grep -q 'if zs < 5 or zs > 9 then l' <<< "$sc" &&
+   grep -q 'if zs > 200 then goto l[0-9]*$' <<< "$sc" && ! grep -q '= 0 then' <<< "$sc"; then
+    pass "proc: no GOTO around it where nothing runs into it; select: a case on its test's line (#605)"
+else
+    fail "proc / select lowering ($r1 $r2 $r3): $pg / $ph / $sc"
+fi
+
+# #605: a block IF jumps to its else on the opposite comparison; a condition
+# with AND keeps (...)=0
+printf '  if a < b then\n    print 1\n  else\n    print 2\n  endif\n  if x then\n    print 3\n  endif\n  if a$ = "x=1" and b then\n    print 4\n  endif\n  if (a = 1) = (b = 2) then\n    print 5\n  endif\n' > "$D/bi.bas"
+$B "$D/bi.bas" -o "$D/bi.prg" >/dev/null 2>&1; rc=$?
+bi=$($B --decompile "$D/bi.prg" -o - 2>/dev/null)
+if [ $rc = 0 ] && grep -q 'if a >= b then l' <<< "$bi" && grep -q 'if x = 0 then l' <<< "$bi" &&
+   grep -q 'if(a\$ = "x=1" and b) = 0 then l' <<< "$bi" && grep -q 'if(a = 1) <>(b = 2) then l' <<< "$bi"; then
+    pass "block IF: the opposite comparison; (cond)=0 for a condition with AND (#605)"
+else
+    fail "block IF lowering ($rc): $bi"
+fi
 # #595: --map writes ln45's -M map of a --link and of a --compile build, with
 # the calls through pointers and the base-page blocks the -vv log has; a
 # warning when nothing is linked

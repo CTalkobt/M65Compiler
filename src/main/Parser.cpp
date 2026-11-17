@@ -339,7 +339,7 @@ std::unique_ptr<TranslationUnit> Parser::parse() {
                             } else {
                                 auto szExpr = parseExpression();
                                 int sz = 1;
-                                { long cv; if (evalConstInt(szExpr.get(), cv)) sz = (int)cv; }
+                                { long cv; if (evalArrayDim(szExpr.get(), cv)) sz = (int)cv; }
                                 vDecl->arrayDims.push_back(sz);
                                 expect(TokenType::CLOSE_SQUARE, "Expected ']'");
                             }
@@ -369,7 +369,7 @@ std::unique_ptr<TranslationUnit> Parser::parse() {
                                 else {
                                     auto se = parseExpression();
                                     int ss = 1;
-                                    { long cv; if (evalConstInt(se.get(), cv)) ss = (int)cv; }
+                                    { long cv; if (evalArrayDim(se.get(), cv)) ss = (int)cv; }
                                     ev->arrayDims.push_back(ss);
                                     expect(TokenType::CLOSE_SQUARE, "Expected ']'");
                                 }
@@ -1274,7 +1274,7 @@ std::unique_ptr<FunctionDeclaration> Parser::parseFunctionDeclaration() {
                     while (match(TokenType::OPEN_SQUARE)) {
                         auto szExpr = parseExpression();
                         long cv = 1;
-                        if (!evalConstInt(szExpr.get(), cv) || cv <= 0)
+                        if (!evalArrayDim(szExpr.get(), cv) || cv <= 0)
                             throw std::runtime_error(formatDiagnostic(nameTok.sourceFile, nameTok.line, nameTok.column,
                                 Severity::Error, "a pointer to an array needs constant dimensions"));
                         dims.push_back((int)cv);
@@ -1388,7 +1388,7 @@ std::unique_ptr<FunctionDeclaration> Parser::parseFunctionDeclaration() {
                 if (peek().type != TokenType::CLOSE_SQUARE) {
                     auto dimExpr = parseExpression();
                     long cv;
-                    if (dimExpr && !evalConstInt(dimExpr.get(), cv)) pVlaSize = std::move(dimExpr);
+                    if (dimExpr && !evalArrayDim(dimExpr.get(), cv)) pVlaSize = std::move(dimExpr);
                 }
                 expect(TokenType::CLOSE_SQUARE, "Expected ']' in array parameter");
                 // Additional dimensions: int a[][M], int a[2][3] — kept when
@@ -1399,7 +1399,7 @@ std::unique_ptr<FunctionDeclaration> Parser::parseFunctionDeclaration() {
                     if (peek().type != TokenType::CLOSE_SQUARE) {
                         auto dimExpr = parseExpression();
                         long cv;
-                        if (dimExpr && evalConstInt(dimExpr.get(), cv) && cv > 0) {
+                        if (dimExpr && evalArrayDim(dimExpr.get(), cv) && cv > 0) {
                             pInnerDims.push_back((int)cv);
                             pInnerDimExprs.push_back(nullptr);
                         } else if (dimExpr) {
@@ -1810,7 +1810,7 @@ std::unique_ptr<Statement> Parser::parseStatement() {
                 } else {
                     auto szExpr = parseExpression();
                     int sz = 1;
-                    { long cv; if (evalConstInt(szExpr.get(), cv)) sz = (int)cv; }
+                    { long cv; if (evalArrayDim(szExpr.get(), cv)) sz = (int)cv; }
                     vDecl->arrayDims.push_back(sz);
                     expect(TokenType::CLOSE_SQUARE, "Expected ']'");
                 }
@@ -1839,7 +1839,7 @@ std::unique_ptr<Statement> Parser::parseStatement() {
                     else {
                         auto se = parseExpression();
                         int ss = 1;
-                        { long cv; if (evalConstInt(se.get(), cv)) ss = (int)cv; }
+                        { long cv; if (evalArrayDim(se.get(), cv)) ss = (int)cv; }
                         ev->arrayDims.push_back(ss);
                         expect(TokenType::CLOSE_SQUARE, "Expected ']'");
                     }
@@ -2346,7 +2346,7 @@ std::unique_ptr<Statement> Parser::parseVariableDeclaration(bool isVolatile, boo
                     } else {
                         auto szExpr = parseExpression();
                         int sz = 1;
-                        { long cv; if (evalConstInt(szExpr.get(), cv)) sz = (int)cv; }
+                        { long cv; if (evalArrayDim(szExpr.get(), cv)) sz = (int)cv; }
                         decl->arrayDims.push_back(sz);
                         expect(TokenType::CLOSE_SQUARE, "Expected ']'");
                     }
@@ -2445,7 +2445,7 @@ std::unique_ptr<Statement> Parser::parseVariableDeclaration(bool isVolatile, boo
             } else {
                 auto szExpr = parseExpression();
                 int arrSize = 1;
-                { long cv; if (evalConstInt(szExpr.get(), cv)) arrSize = (int)cv; }
+                { long cv; if (evalArrayDim(szExpr.get(), cv)) arrSize = (int)cv; }
                 fpArrayDims.push_back(arrSize);
                 expect(TokenType::CLOSE_SQUARE, "Expected ']'");
             }
@@ -2478,7 +2478,7 @@ std::unique_ptr<Statement> Parser::parseVariableDeclaration(bool isVolatile, boo
             while (match(TokenType::OPEN_SQUARE)) {
                 auto szExpr = parseExpression();
                 int arrSize = 1;
-                { long cv; if (evalConstInt(szExpr.get(), cv)) arrSize = (int)cv; }
+                { long cv; if (evalArrayDim(szExpr.get(), cv)) arrSize = (int)cv; }
                 decl->ptrArrayDims.push_back(arrSize);
                 expect(TokenType::CLOSE_SQUARE, "Expected ']'");
             }
@@ -2545,7 +2545,7 @@ std::unique_ptr<Statement> Parser::parseVariableDeclaration(bool isVolatile, boo
             // Evaluate constant array size: integer literals, sizeof, constant expressions
             int arrSize = 0;
             long cv;
-            bool constSize = evalConstInt(sizeExpr.get(), cv);
+            bool constSize = evalArrayDim(sizeExpr.get(), cv);
             if (constSize) arrSize = (int)cv;
             else if (auto* szExpr = dynamic_cast<SizeofExpression*>(sizeExpr.get())) {
                 if (szExpr->typeName == "int" || szExpr->typeName == "short") arrSize = 2;
@@ -2702,7 +2702,7 @@ std::unique_ptr<Statement> Parser::parseVariableDeclaration(bool isVolatile, boo
                     const Token& dimTok = peek();
                     auto stExpr = parseExpression();
                     long cv;
-                    if (!evalConstInt(stExpr.get(), cv))
+                    if (!evalArrayDim(stExpr.get(), cv))
                         throw std::runtime_error(formatDiagnostic(dimTok.sourceFile, dimTok.line, dimTok.column, Severity::Error,
                             "array size of '" + extraName + "' is not a constant expression"));
                     extraDims.push_back((int)cv);
@@ -3041,7 +3041,7 @@ std::unique_ptr<StructDefinition> Parser::parseStructDefinition(bool isUnion) {
                 auto mSizeExpr = parseExpression();
                 int mArrSize = 0;
                 long cv;
-                if (evalConstInt(mSizeExpr.get(), cv)) {
+                if (evalArrayDim(mSizeExpr.get(), cv, true)) {
                     mArrSize = (int)cv;
                     memberVlaDims.push_back(nullptr);
                 } else {
@@ -3110,7 +3110,7 @@ std::unique_ptr<StructDefinition> Parser::parseStructDefinition(bool isUnion) {
                     const Token& sizeTok = peek();
                     auto sizeExpr = parseExpression();
                     long cv;
-                    if (!evalConstInt(sizeExpr.get(), cv))
+                    if (!evalArrayDim(sizeExpr.get(), cv, true))
                         throw std::runtime_error(formatDiagnostic(sizeTok.sourceFile, sizeTok.line, sizeTok.column, Severity::Error,
                             "The array size of member '" + extraName + "' is not a constant"));
                     extraDims.push_back((int)cv);
@@ -3427,7 +3427,7 @@ std::unique_ptr<Expression> Parser::parseUnary() {
                 while (match(TokenType::OPEN_SQUARE)) {
                     auto szExpr = parseExpression();
                     long cv = 0;
-                    if (!evalConstInt(szExpr.get(), cv)) cv = 1;
+                    if (!evalArrayDim(szExpr.get(), cv)) cv = 1;
                     declDims.push_back((int)cv);
                     expect(TokenType::CLOSE_SQUARE, "Expected ']'");
                 }
@@ -3527,7 +3527,7 @@ std::unique_ptr<Expression> Parser::parseUnary() {
                     while (match(TokenType::OPEN_SQUARE)) {
                         auto szExpr = parseExpression();
                         long cv = 1;
-                        if (!evalConstInt(szExpr.get(), cv) || cv <= 0)
+                        if (!evalArrayDim(szExpr.get(), cv) || cv <= 0)
                             throw std::runtime_error(formatDiagnostic(startToken.sourceFile, startToken.line, startToken.column,
                                 Severity::Error, "a pointer to an array needs constant dimensions"));
                         dims.push_back((int)cv);
@@ -4820,7 +4820,7 @@ void Parser::parseTypedef() {
             auto szExpr = parseExpression();
             int arrSize = 1;
             long cv;
-            if (evalConstInt(szExpr.get(), cv)) {
+            if (evalArrayDim(szExpr.get(), cv)) {
                 arrSize = (int)cv;
                 vlaDimVars.push_back("");
             } else if (!currentFunctionName.empty()) {
@@ -5113,6 +5113,23 @@ Parser::EnumScope::~EnumScope() {
         else p.enumConstants.erase(it->first);
     }
     p.enumScopes_.pop_back();
+}
+
+// An array dimension (#602): a constant below 0 is an error (C11 6.7.6.2: a
+// size is greater than zero; "typedef char check[(cond) ? 1 : -1]" is the
+// compile-time assert that relies on it), 0 a warning but for a struct's
+// member (the old way of writing a flexible array member). Reported at the
+// expression's last token.
+bool Parser::evalArrayDim(Expression* e, long& out, bool member) {
+    if (!evalConstInt(e, out)) return false;
+    const Token& at = tokens[pos > 0 ? pos - 1 : 0];
+    if (out < 0)
+        throw std::runtime_error(formatDiagnostic(at.sourceFile, at.line, at.column, Severity::Error,
+            "the size of an array is negative (" + std::to_string(out) + ")"));
+    if (out == 0 && !member)
+        std::cerr << formatDiagnostic(at.sourceFile, at.line, at.column, Severity::Warning,
+            "the size of an array is 0") << "\n";
+    return true;
 }
 
 bool Parser::evalConstInt(Expression* e, long& out) {

@@ -141,6 +141,9 @@ std::string BasicMinifier::stripWhitespaceInLine(const std::string& line) {
     // keep their blank, #598; a variable's $ or % ends a name)
     auto nameChar = [](char c) { return std::isalnum((unsigned char)c) || c == '_'; };
     auto nameEnd = [&](char c) { return nameChar(c) || c == '$' || c == '%'; };
+    // (a hex or binary constant after a name or keyword: "poke $d1" joined
+    // would be the string variable poke$ and a variable d1, #603)
+    auto wordStart = [&](char c) { return nameChar(c) || c == '$' || c == '%'; };
 
     for (size_t i = 0; i < line.length(); i++) {
         char c = line[i];
@@ -158,7 +161,7 @@ std::string BasicMinifier::stripWhitespaceInLine(const std::string& line) {
         } else if (c == ' ' || c == '\t') {
             // One blank where two names, keywords or numbers would run together
             if (!result.empty() && result.back() != ' ' && i + 1 < line.length() &&
-                nameEnd(result.back()) && nameChar(line[i + 1])) {
+                nameEnd(result.back()) && wordStart(line[i + 1])) {
                 result += ' ';
             }
         } else {

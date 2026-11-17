@@ -46,7 +46,7 @@ Without `-o` the output is the input name with its extension replaced by `.prg` 
 | `--label-table <file>` | Write a tab-separated label table: label, line number, address of the line |
 | `--docs <file>` | Write markdown documentation of labeled sections |
 | `-I <path>` | Include search path for `#include` (one path; a later `-I` replaces an earlier one) |
-| `--minify` | Remove `REM` and `'` comments and whitespace (a blank stays where two names, keywords or numbers would run together, `_` counted as a name's character: `goto __endif1`), and join lines into the line before them: never across a label (a jump target starts its own line), never onto a line containing `IF` (statements after `THEN` run only when the condition holds), at most 160 characters per line |
+| `--minify` | Remove `REM` and `'` comments and whitespace (a blank stays where two names, keywords or numbers would run together, `_` counted as a name's character: `goto __endif1`; and before a `$` hex or `%` binary constant after one: `poke $d1`), and join lines into the line before them: never across a label (a jump target starts its own line), never onto a line containing `IF` (statements after `THEN` run only when the condition holds), at most 160 characters per line |
 | `--preserve-spaces` | Keep the blanks the source has between tokens (outside strings) instead of basic45's spacing (one space after a keyword before a name, number or operator), so the program lists as it was typed. Not the indentation: BASIC lists one space after the line number |
 | `--validate` | Run the preprocessor and validation only; write nothing |
 | `--strict` | Treat validation warnings as errors (exit status 1) |
@@ -248,15 +248,15 @@ endproc                        ' return
 
 | Source | BASIC |
 |--------|-------|
-| `if <cond> then` (nothing after `THEN`) | `IF (<cond>)=0 THEN <else>` — `=0` is "false" for any value (BASIC's `NOT` is bitwise) |
+| `if <cond> then` (nothing after `THEN`) | `IF <the opposite> THEN <else>`: `a < b` is `a >= b`, `x` is `x=0`; a condition with `AND`, `OR`, `NOT`, `XOR` or several comparisons outside parentheses is `IF (<cond>)=0 THEN <else>` — `=0` is "false" for any value (BASIC's `NOT` is bitwise) |
 | `else` | `GOTO <endif>`, and the else part's label |
 | `endif` (or `end if`) | the label after the block |
-| `proc name` or `proc name(a, b$, ...)` | `GOTO <after>` and the label `name` (a name that is exactly a BASIC keyword, `directory`, `help`, is an error; `directory1` is fine) |
-| `endproc` | `RETURN` and the label after it |
+| `proc name` or `proc name(a, b$, ...)` | `GOTO <after>` and the label `name` (a name that is exactly a BASIC keyword, `directory`, `help`, is an error; `directory1` is fine). No `GOTO` where nothing can run into the proc: the line before ends in `GOTO`, `RETURN`, `END`, `RUN` or `RESUME` with no `IF` on it and no label between (procs after the program's `END`). Procs one after the other share one `GOTO`, to the end of the last |
+| `endproc` | `RETURN` and, for a proc with a `GOTO` around it, the label after it |
 | `call name` | `GOSUB name` |
 | `call name(x, y$, ...)` | `A = x : B$ = y$ : GOSUB name` — the arguments are assigned to the parameters left to right (they are ordinary, global variables) |
 | `select <expr>` | `ZSELn = <expr>` (`ZSELn$` when the expression is a string; renamed like any long name) |
-| `case 1, 2` / `case 3 to 5` / `case is > 10` | `IF (ZSELn=1 OR ZSELn=2)=0 THEN <next case>`; a range is `>=` and `<=`, `is` takes `= <> < > <= >=`; several items are or-ed |
+| `case 1, 2` / `case 3 to 5` / `case is > 10` | `IF ZSELn=1 OR ZSELn=2 THEN <the case's statements> : GOTO <endselect>` on one line; a range is `>=` and `<=`, `is` takes `= <> < > <= >=`; several items are or-ed. No `GOTO` for the last case or after a statement that leaves (`GOTO`, `RETURN`). A case with a label, an `IF`, `REM`, `DATA`, `BEGIN`/`BEND` or a block in it, or whose line would pass 160 characters, keeps its own lines: `IF ZSELn<>1 AND ZSELn<>2 THEN <next case>`, the statements, `GOTO <endselect>`. An item with a comparison or `AND`/`OR`/`NOT`/`XOR` outside parentheses is tested as `(ZSELn=item)` (and `(...)=0` for the opposite) |
 | `case else` | the code when no case matched |
 | `endselect` (or `end select`) | the label after the block |
 | `.name` | a label local to its `proc` (or to the code outside procs): `.loop:` defines it, `goto .loop` uses it; two procs can each have a `.loop` |
@@ -1066,7 +1066,7 @@ A label is recognised when `name:` is followed by a space or the end of the line
 - `--send`'s default commands (`etherload -r`, `m65 -F -r`) are untested; use `--send-cmd` with the options your tools need.
 - `--compile` does not compile the statements that work on the program's text, `MERGE` among them ([Compiling](#compiling-compile)), and not with `--link` or `asm` blocks yet.
 
-`test_basic45_xemu.bas` (as is, `--minify` and `--preserve-spaces`), `test_basic45_struct_xemu.bas` (block IF, select, procs with local labels, comments; as is and `--minify`), `test_basic45_features_xemu.bas` (as is, decompiled and rebuilt, and formatted), `test_basic45_link_xemu.bas` (C, asm, incbin, datainc) and `test_basic45_numbered_xemu.bas` (a numbered program; `MOD`, `LOG10`, `WPEEK`, `POINTER`, `WPOKE`, `<<`, `>>`) are run by BASIC 65 on xemu; `src/test/test_basic45.sh` (`make test`) checks the tokens and messages.
+`test_basic45_xemu.bas` (as is, `--minify` and `--preserve-spaces`), `test_basic45_struct_xemu.bas` (block IF, select, procs with local labels, comments; as is, `--minify` and `--compile`), `test_basic45_features_xemu.bas` (as is, decompiled and rebuilt, and formatted), `test_basic45_link_xemu.bas` (C, asm, incbin, datainc) and `test_basic45_numbered_xemu.bas` (a numbered program; `MOD`, `LOG10`, `WPEEK`, `POINTER`, `WPOKE`, `<<`, `>>`) are run by BASIC 65 on xemu; `src/test/test_basic45.sh` (`make test`) checks the tokens and messages.
 
 ## See Also
 

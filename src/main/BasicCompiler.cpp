@@ -169,6 +169,17 @@ std::vector<Seg> lexLine(const std::vector<uint8_t>& b, std::string& err) {
             add(t);
             continue;
         }
+        if (c == '%' && i + 1 < b.size() && (b[i + 1] == '0' || b[i + 1] == '1')) {
+            // a binary number (%1010; a variable's % is taken with its name)
+            i++;
+            long v = 0;
+            while (i < b.size() && (b[i] == '0' || b[i] == '1')) v = v * 2 + (b[i] - '0'), i++;
+            Tok t{TK::Num};
+            t.num = (double)v;
+            t.whole = true;
+            add(t);
+            continue;
+        }
         if (isLetter(c)) {
             Tok t{TK::Name};
             while (i < b.size() && (isLetter(b[i]) || isDigit(b[i]))) t.text += (char)b[i++];
