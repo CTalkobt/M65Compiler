@@ -101,15 +101,81 @@ bool isStringExpr(const std::string& e) {
     return false;
 }
 
+// Whether word (lower case) is in text as a whole word, outside strings
+bool hasWord(const std::string& text, const char* word) {
+    size_t n = strlen(word);
+    bool inString = false;
+    auto nameCh = [](char c) { return std::isalnum((unsigned char)c) || c == '_'; };
+    for (size_t i = 0; i < text.size(); i++) {
+        if (text[i] == '"') { inString = !inString; continue; }
+        if (inString || (i > 0 && nameCh(text[i - 1])) || i + n > text.size()) continue;
+        if (lower(text.substr(i, n)) == word && (i + n == text.size() || !nameCh(text[i + n]))) return true;
+    }
+    return false;
+}
+
+// Whether the line after this one cannot be reached by running this one:
+// its last statement is a GOTO, RETURN, END, RUN or RESUME and nothing on
+// the line is conditional (#605)
+bool neverFallsThrough(const std::string& line) {
+    if (hasWord(line, "if") || hasWord(line, "then") || hasWord(line, "else")) return false;
+    size_t start = 0;
+    bool inString = false;
+    for (size_t i = 0; i < line.size(); i++) {
+        if (line[i] == '"') inString = !inString;
+        else if (!inString && line[i] == ':') start = i + 1;
+    }
+    std::string last = lower(trim(line.substr(start)));
+    if (last == "return" || last == "end" || last == "run" || last == "resume") return true;
+    for (const char* w : {"goto ", "run ", "resume "})
+        if (last.compare(0, strlen(w), w) == 0) return true;
+    return false;
+}
+
+// Whether e has no comparison or logical operator outside parentheses and
+// strings: v = e, v <> e, v >= e then mean what they say
+bool plainOperand(const std::string& e) {
+    int depth = 0;
+    bool inString = false;
+    std::string top;
+    for (char c : e) {
+        if (c == '"') { inString = !inString; top += ' '; continue; }
+        if (inString) continue;
+        if (c == '(') depth++;
+        else if (c == ')') depth--;
+        else if (depth == 0) {
+            if (c == '=' || c == '<' || c == '>') return false;
+            top += c;
+            continue;
+        }
+        top += ' ';
+    }
+    for (const char* w : {"and", "or", "not", "xor"})
+        if (hasWord(top, w)) return false;
+    return !trim(e).empty();
+}
+
 }  // namespace
 
 BasicStructuredResult lowerBasicStructured(const std::string& source,
                                            const std::function<std::string(int)>& fileOf) {
     BasicStructuredResult r;
-    std::ostringstream out;
+    std::vector<std::string> lines;
+    static const std::regex loneLabelRe(R"(^[A-Za-z_]\w*\s*:$)");
+    // whether the next line can be reached from the one before it or by a
+    // jump to a label in front of it
+    bool reach = true;
+    // the __endprocN: line just written with nothing run after it, and the
+    // line of the GOTO that jumps to it: the next proc's skip is that GOTO
+    int chainEnd = -1, chainGoto = -1;
     auto emit = [&](const std::string& line, int from) {
-        out << line << "\n";
+        lines.push_back(line);
         r.origin.push_back(from);
+        std::string t = trim(line);
+        if (t.empty() || isComment(t)) return;
+        chainEnd = chainGoto = -1;
+        if (t[0] == '#' || std::regex_match(t, loneLabelRe)) reach = true;
+        else reach = !neverFallsThrough(t);
     };
     auto error = [&](int line, const std::string& msg) { r.errors.push_back({line, msg}); };
 
@@ -202,9 +268,56 @@ BasicStructuredResult lowerBasicStructured(const std::string& source,
         return fs::absolute(p);
     };
 
-    struct Block { char kind; int id; bool hasElse; int line; int cases; std::string var; };
+    // skip: a proc's GOTO around it (the line's index, -1: none). test: the
+    // line of a select's current case test (-1: none, case else), pos: what
+    // the case tests
+    struct Block { char kind; int id; bool hasElse; int line; int cases; std::string var;
+                   int skip = -1; int test = -1; std::string pos; };
     std::vector<Block> stack;
     int nextId = 1;
+
+    // A case's statements on the line of its test (#605): "if v=N then
+    // <statements> : goto <end>" instead of a jump over them to the next
+    // case's line. Where they are plain statements (no label, no IF: its
+    // THEN would take the GOTO with it; no REM or DATA, which take the rest
+    // of the line; no block) and the line stays within what --minify joins.
+    // last: the select's last case, which needs no GOTO.
+    auto closeCase = [&](Block& b, bool last) {
+        if (b.test < 0) return false;
+        std::string body;
+        for (size_t k = b.test + 1; k < lines.size(); k++) {
+            std::string t = trim(lines[k]);
+            if (t.empty() || isComment(t)) continue;
+            std::smatch lm;
+            if (t[0] == '#' || std::regex_match(t, loneLabelRe) ||
+                (std::regex_match(t, lm, labelRe) && !basic45IsReservedWord(lm[1].str())))
+                return false;
+            for (const char* w : {"if", "then", "else", "rem", "data", "begin", "bend"})
+                if (hasWord(t, w)) return false;
+            body += (body.empty() ? "" : " : ") + t;
+        }
+        std::string end = "__endsel" + std::to_string(b.id);
+        std::string line = "if " + b.pos + " then ";
+        if (body.empty()) {
+            if (last) return false;
+            line += end;
+        } else {
+            line += body;
+            if (!last && !neverFallsThrough(body)) line += " : goto " + end;
+        }
+        if (line.size() > 160) return false;
+        for (size_t k = lines.size() - 1; k > (size_t)b.test; k--) {
+            std::string t = trim(lines[k]);
+            if (t.empty() || isComment(t)) continue;
+            lines.erase(lines.begin() + k);
+            r.origin.erase(r.origin.begin() + k);
+        }
+        lines[b.test] = line;
+        b.test = -1;
+        chainEnd = chainGoto = -1;
+        reach = true;
+        return true;
+    };
     std::string scope = "main";          // for .local labels
     bool inAsm = false;
     int asmLine = 0;
@@ -290,7 +403,7 @@ BasicStructuredResult lowerBasicStructured(const std::string& source,
         } else if (std::regex_match(code, m, ifThenRe) && std::count(code.begin(), code.end(), '"') % 2 == 0) {
             // (an even number of quotes: the final THEN is not inside a string)
             int id = nextId++;
-            stack.push_back({'i', id, false, lineNum, 0, ""});
+            stack.push_back(Block{'i', id, false, lineNum, 0, ""});
             emit(prefix + "if (" + m[1].str() + ")=0 then __else" + std::to_string(id), lineNum);
         } else if (lc == "else" && !stack.empty() && stack.back().kind == 'i') {
             Block& b = stack.back();
@@ -311,9 +424,22 @@ BasicStructuredResult lowerBasicStructured(const std::string& source,
             if (basic45IsReservedWord(m[1].str()))
                 error(lineNum, "proc name '" + m[1].str() + "' is a BASIC keyword");
             int id = nextId++;
-            stack.push_back({'p', id, false, lineNum, 0, ""});
+            stack.push_back(Block{'p', id, false, lineNum, 0, ""});
+            // The GOTO around the proc (#605): none where the line before
+            // cannot run into it (a GOTO, RETURN, END; a proc that needed
+            // none); right after another proc, that proc's GOTO jumps
+            // around this one too
+            int ce = chainEnd, cg = chainGoto;
             labelAlone();
-            emit("goto __endproc" + std::to_string(id), lineNum);
+            if (label.empty() && ce >= 0 && cg >= 0) {
+                lines[cg] = "goto __endproc" + std::to_string(id);
+                lines.erase(lines.begin() + ce);
+                r.origin.erase(r.origin.begin() + ce);
+                stack.back().skip = cg;
+            } else if (!label.empty() || reach) {
+                emit("goto __endproc" + std::to_string(id), lineNum);
+                stack.back().skip = (int)lines.size() - 1;
+            }
             emit(m[1].str() + ":", lineNum);
             r.procs.push_back({m[1].str(), lineNum});
             scope = "p" + lower(m[1].str());
@@ -325,50 +451,81 @@ BasicStructuredResult lowerBasicStructured(const std::string& source,
             Block b = stack.back();
             stack.pop_back();
             emit(prefix + "return", lineNum);
-            emit("__endproc" + std::to_string(b.id) + ":", lineNum);
+            if (b.skip >= 0) {
+                emit("__endproc" + std::to_string(b.id) + ":", lineNum);
+                chainEnd = (int)lines.size() - 1;
+                chainGoto = b.skip;
+            }
             scope = "main";
         } else if (std::regex_match(code, m, selectRe) && lower(code.substr(0, 7)) == "select ") {
             int id = nextId++;
             std::string expr = m[1].str();
             std::string var = "zsel" + std::to_string(id) + (isStringExpr(expr) ? "$" : "");
-            stack.push_back({'s', id, false, lineNum, 0, var});
+            stack.push_back(Block{'s', id, false, lineNum, 0, var});
             emit(prefix + var + " = " + expr, lineNum);
         } else if (std::regex_match(code, m, caseRe) && lower(code.substr(0, 5)) == "case ") {
             if (stack.empty() || stack.back().kind != 's') { error(lineNum, "case outside select"); continue; }
             Block& b = stack.back();
             if (b.hasElse) { error(lineNum, "case after case else"); continue; }
             std::string sel = std::to_string(b.id);
-            if (b.cases > 0) {
-                emit("goto __endsel" + sel, lineNum);
+            if (b.cases > 0 && !closeCase(b, false)) {
+                if (reach) emit("goto __endsel" + sel, lineNum);
                 emit("__case" + sel + "_" + std::to_string(b.cases + 1) + ":", lineNum);
             }
             labelAlone();
             b.cases++;
+            b.test = -1;
             std::string what = trim(m[1].str());
             if (lower(what) == "else") {
                 b.hasElse = true;
                 continue;
             }
-            std::string cond;
-            for (const auto& item : splitTop(what)) {
+            // What the case tests, and its opposite (the jump to the next
+            // case): v=a or v=b / v<>a and v<>b where the items are plain
+            // operands (#605), else (v=a) or (v=b) / (...)=0
+            std::string cond, pos, neg;
+            bool plain = true;
+            std::vector<std::string> items = splitTop(what);
+            for (const auto& item : items) {
                 std::smatch im;
-                std::string c;
-                if (std::regex_match(item, im, rangeRe))
+                std::string c, p, n;
+                if (std::regex_match(item, im, rangeRe)) {
                     c = "(" + b.var + ">=" + im[1].str() + " and " + b.var + "<=" + im[2].str() + ")";
-                else if (std::regex_match(item, im, isRe))
-                    c = "(" + b.var + im[1].str() + im[2].str() + ")";
-                else
+                    p = b.var + ">=" + im[1].str() + " and " + b.var + "<=" + im[2].str();
+                    n = b.var + "<" + im[1].str() + " or " + b.var + ">" + im[2].str();
+                    if (items.size() > 1) n = "(" + n + ")";
+                    plain = plain && plainOperand(im[1].str()) && plainOperand(im[2].str());
+                } else if (std::regex_match(item, im, isRe)) {
+                    std::string op = im[1].str();
+                    std::string inv = op == "=" ? "<>" : op == "<>" ? "=" : op == "<" ? ">=" :
+                                      op == ">" ? "<=" : op == "<=" ? ">" : "<";
+                    c = "(" + b.var + op + im[2].str() + ")";
+                    p = b.var + op + im[2].str();
+                    n = b.var + inv + im[2].str();
+                    plain = plain && plainOperand(im[2].str());
+                } else {
                     c = "(" + b.var + "=" + item + ")";
+                    p = b.var + "=" + item;
+                    n = b.var + "<>" + item;
+                    plain = plain && plainOperand(item);
+                }
                 cond += (cond.empty() ? "" : " or ") + c;
+                pos += (pos.empty() ? "" : " or ") + p;
+                neg += (neg.empty() ? "" : " and ") + n;
             }
-            emit("if (" + cond + ")=0 then __case" + sel + "_" + std::to_string(b.cases + 1), lineNum);
+            if (!plain) { pos = cond; neg = "(" + cond + ")=0"; }
+            emit("if " + neg + " then __case" + sel + "_" + std::to_string(b.cases + 1), lineNum);
+            b.test = (int)lines.size() - 1;
+            b.pos = pos;
         } else if (lc == "endselect" || lc == "end select") {
             if (stack.empty() || stack.back().kind != 's') { error(lineNum, "endselect without select"); continue; }
             Block b = stack.back();
             stack.pop_back();
+            bool joined = b.cases > 0 && closeCase(b, true);
             labelAlone();
             std::string sel = std::to_string(b.id);
-            if (b.cases > 0 && !b.hasElse) emit("__case" + sel + "_" + std::to_string(b.cases + 1) + ":", lineNum);
+            if (b.cases > 0 && !b.hasElse && !joined)
+                emit("__case" + sel + "_" + std::to_string(b.cases + 1) + ":", lineNum);
             emit("__endsel" + sel + ":", lineNum);
         } else {
             emit(prefix + lowerCalls(code, lineNum), lineNum);
@@ -378,6 +535,6 @@ BasicStructuredResult lowerBasicStructured(const std::string& source,
     for (const auto& b : stack)
         error(b.line, b.kind == 'i' ? "if block without endif" :
                       b.kind == 's' ? "select without endselect" : "proc without endproc");
-    r.text = out.str();
+    for (const auto& l : lines) r.text += l + "\n";
     return r;
 }

@@ -691,13 +691,14 @@ for bsmode in "plain|" "minify|--minify" "spaces|--preserve-spaces"; do
 done
 # basic45: block IF, select, procs with local labels and ' comments, as is and
 # with --minify (#598: the generated jumps lost their blank, comment text
-# was joined into the code)
-for bmmode in "plain|" "minify|--minify"; do
+# was joined into the code; #603: a hex constant after a keyword; #605: a
+# case's statements on its test's line, procs with no GOTO around them)
+for bmmode in "plain|" "minify|--minify" "compile|--compile"; do
     IFS='|' read -r bmname bmflags <<< "$bmmode"
     echo "Testing test_basic45_struct_xemu.bas ($bmname)..."
     if ./bin/basic45 --strict $bmflags src/test-resources/test_basic45_struct_xemu.bas \
            -o "build/test/test_basic45_struct_${bmname}_xemu.prg" >/dev/null 2>&1; then
-        run_xemu_test "test_basic45_struct_$bmname" "build/test/test_basic45_struct_${bmname}_xemu.prg" "C0C0" 7 "01 01 01 01 01 01 AA"
+        run_xemu_test "test_basic45_struct_$bmname" "build/test/test_basic45_struct_${bmname}_xemu.prg" "C0C0" 10 "01 01 01 01 01 01 01 01 01 AA"
     else
         echo "FAIL: test_basic45_struct_xemu.bas $bmname (basic45 failed)"
         failed=$((failed + 1))
