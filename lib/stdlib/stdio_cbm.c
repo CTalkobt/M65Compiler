@@ -148,7 +148,7 @@ int cbm_close(fd_t fd) {
         for (i = 3; i <= 14 && !lfn_used[i]; i++) ;
         if (i > 14) { cbm_k_close(15); __cbm_cmd_device = 0; }
     }
-    return (status == 0) ? 0 : -1;   /* NOLINT(mega65-signedness): stored in a signed int, the bits are the same */
+    return (status == 0) ? 0 : -1;
 }
 
 /* ============================================================================

@@ -1618,6 +1618,7 @@ std::unique_ptr<FunctionDeclaration> Parser::parseFunctionDeclaration() {
     {
         EnumScope paramScope(*this);   // the parameters hide enum constants
         for (const auto& prm : func->parameters) hideEnumConstant(prm.name);
+        func->signedDefault = signedDefault;
         func->body = parseCompoundStatement();
     }
 

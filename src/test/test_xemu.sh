@@ -4399,6 +4399,14 @@ xemu_case "FAIL: test_logical_value_xemu.c (compilation/linking failed)" "src/te
 echo "Testing test_dma_xemu.c (DMA fill and copy)..."
 xemu_case "FAIL: test_dma_xemu.c (compilation/linking failed)" "src/test-resources/test_dma_xemu.c" "build/test/test_dma_xemu.prg" -- "test_dma" "build/test/test_dma_xemu.prg" "C0C0" 3 "01 01 AA"
 
+# With signed_default an unsuffixed literal is a signed int: c ? 0 : -1 and
+# c ? 0 : s are signed and sign-extended (#612); the default mode unchanged
+for slmode in "zp|" "stack|-fno-zpcall" "sd|-fsigned-default"; do
+    IFS='|' read -r slname slflags <<< "$slmode"
+    echo "Testing test_signed_default_literal_xemu.c ($slname)..."
+    xemu_case "FAIL: test_signed_default_literal_xemu.c $slname (compilation/linking failed)" "src/test-resources/test_signed_default_literal_xemu.c" "build/test/test_signed_default_literal_${slname}_xemu.prg" "$slflags" -- "test_signed_default_literal_$slname" "build/test/test_signed_default_literal_${slname}_xemu.prg" "C0C0" 14 "01 01 01 01 01 01 01 01 01 01 01 01 01 AA"
+done
+
 # for (;;) keeps its branch back; *p = *p + 1 adds to the loaded byte (#385)
 for fe in "zp|" "stack|-fno-zpcall" "O0|-O0" "O0stack|-O0 -fno-zpcall"; do
     fename=${fe%%|*}; feflags=${fe#*|}

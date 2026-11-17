@@ -82,12 +82,12 @@ float strtof(char *nptr, char **endptr) {
     /* Scale in steps of up to 10^9, so underflow reaches 0 and overflow
        stops at the largest float */
     while (e10 > 0 && result != 0.0 && !sf_is_max(result)) {
-        int k = e10 > 9 ? 9 : e10;   /* NOLINT(mega65-signedness): stored in a signed int, the bits are the same */
+        int k = e10 > 9 ? 9 : e10;
         result = result * sf_pow10[k];
         e10 = e10 - k;
     }
     while (e10 < 0 && result != 0.0) {
-        int k = e10 < -9 ? 9 : -e10;   /* NOLINT(mega65-signedness): stored in a signed int, the bits are the same */
+        int k = e10 < -9 ? 9 : -e10;
         result = result / sf_pow10[k];
         e10 = e10 + k;
     }

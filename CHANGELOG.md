@@ -4,6 +4,19 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### cc45: literals are signed ints with -fsigned-default (#612)
+
+- With `-fsigned-default` / `#pragma cc45 signed_default` an unsuffixed
+  integer literal as an operand of `?:` is a signed `int` when it fits one (a signed `long` past 16
+  bits; 32768 to 65535 stay an unsigned `int`). `long r = c ? 0 : -1;` and
+  `c ? 0 : s` gave 65535 for -1 there (the literal made the result unsigned,
+  with the plain-operand warning); they are signed and sign-extended now, and
+  the warning is not given. The default (unsigned) mode is unchanged.
+- In both modes `c ? s : u` with a signed and an unsigned operand of one size
+  is unsigned, as `c ? u : s` already was.
+- The library's four `NOLINT(mega65-signedness)` comments are gone.
+- Test `test_signed_default_literal_xemu.c`.
+
 ### cl45: the C linter (#199)
 
 - `cl45` (a link to cc45, chosen by program name) lints a C file as cc45
