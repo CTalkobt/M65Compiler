@@ -34,6 +34,10 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
   characters; another keeps its lines, its test now `if zs<>133 then
   <next>`. No `GOTO` to the end after a case that leaves (`GOTO`, `RETURN`)
   or the last one.
+- A block `if`'s jump to its `else` tests the opposite comparison, `if a>=b
+  then <else>` for `if a < b then`, instead of `if(a<b)=0 then`; a
+  condition with `AND`, `OR`, `NOT`, `XOR` or several comparisons keeps
+  `(...)=0`.
 - A program of two `select`s (eight cases) and a proc: 472 → 344 bytes; two
   procs after `END`: 92 → 67 (#605).
 - `--compile` reads `%` binary constants (`%1010`), as BASIC 65 does.

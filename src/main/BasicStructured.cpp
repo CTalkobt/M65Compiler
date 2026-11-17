@@ -155,6 +155,42 @@ bool plainOperand(const std::string& e) {
     return !trim(e).empty();
 }
 
+// The opposite of a block IF's condition (#605): "a < b" is "a >= b", "x"
+// (true when not 0) is "x=0". Empty for a condition with AND, OR, NOT, XOR
+// or more than one comparison outside parentheses: that one is "(cond)=0".
+std::string oppositeCond(const std::string& cond) {
+    int depth = 0, ops = 0;
+    bool inString = false;
+    size_t opAt = 0, opLen = 0;
+    std::string top;
+    for (size_t i = 0; i < cond.size(); i++) {
+        char c = cond[i];
+        if (c == '"') { inString = !inString; top += ' '; continue; }
+        if (inString) { top += ' '; continue; }
+        if (c == '(') depth++;
+        else if (c == ')') depth--;
+        else if (depth == 0) {
+            if (c == '=' || c == '<' || c == '>') {
+                if (ops && opAt + opLen == i) opLen++;
+                else { ops++; opAt = i; opLen = 1; }
+                top += ' ';
+            } else top += c;
+            continue;
+        }
+        top += ' ';
+    }
+    for (const char* w : {"and", "or", "not", "xor"})
+        if (hasWord(top, w)) return "";
+    if (ops == 0) return trim(cond).empty() ? "" : trim(cond) + "=0";
+    if (ops != 1) return "";
+    std::string op = cond.substr(opAt, opLen);
+    std::string inv = op == "=" ? "<>" : op == "<>" ? "=" : op == "<" ? ">=" : op == ">" ? "<=" :
+                      op == "<=" ? ">" : op == ">=" ? "<" : "";
+    std::string l = trim(cond.substr(0, opAt)), r = trim(cond.substr(opAt + opLen));
+    if (inv.empty() || l.empty() || r.empty()) return "";
+    return l + inv + r;
+}
+
 }  // namespace
 
 BasicStructuredResult lowerBasicStructured(const std::string& source,
@@ -404,7 +440,9 @@ BasicStructuredResult lowerBasicStructured(const std::string& source,
             // (an even number of quotes: the final THEN is not inside a string)
             int id = nextId++;
             stack.push_back(Block{'i', id, false, lineNum, 0, ""});
-            emit(prefix + "if (" + m[1].str() + ")=0 then __else" + std::to_string(id), lineNum);
+            std::string opp = oppositeCond(m[1].str());
+            emit(prefix + "if " + (opp.empty() ? "(" + m[1].str() + ")=0" : opp) + " then __else" + std::to_string(id),
+                 lineNum);
         } else if (lc == "else" && !stack.empty() && stack.back().kind == 'i') {
             Block& b = stack.back();
             if (b.hasElse) { error(lineNum, "second else in one if block"); continue; }

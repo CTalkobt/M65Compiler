@@ -543,6 +543,18 @@ if [ $r1 = 0 ] && [ $r2 = 0 ] && [ $r3 = 0 ] &&
 else
     fail "proc / select lowering ($r1 $r2 $r3): $pg / $ph / $sc"
 fi
+
+# #605: a block IF jumps to its else on the opposite comparison; a condition
+# with AND keeps (...)=0
+printf '  if a < b then\n    print 1\n  else\n    print 2\n  endif\n  if x then\n    print 3\n  endif\n  if a$ = "x=1" and b then\n    print 4\n  endif\n  if (a = 1) = (b = 2) then\n    print 5\n  endif\n' > "$D/bi.bas"
+$B "$D/bi.bas" -o "$D/bi.prg" >/dev/null 2>&1; rc=$?
+bi=$($B --decompile "$D/bi.prg" -o - 2>/dev/null)
+if [ $rc = 0 ] && grep -q 'if a >= b then l' <<< "$bi" && grep -q 'if x = 0 then l' <<< "$bi" &&
+   grep -q 'if(a\$ = "x=1" and b) = 0 then l' <<< "$bi" && grep -q 'if(a = 1) <>(b = 2) then l' <<< "$bi"; then
+    pass "block IF: the opposite comparison; (cond)=0 for a condition with AND (#605)"
+else
+    fail "block IF lowering ($rc): $bi"
+fi
 # #595: --map writes ln45's -M map of a --link and of a --compile build, with
 # the calls through pointers and the base-page blocks the -vv log has; a
 # warning when nothing is linked

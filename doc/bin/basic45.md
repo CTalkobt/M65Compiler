@@ -248,7 +248,7 @@ endproc                        ' return
 
 | Source | BASIC |
 |--------|-------|
-| `if <cond> then` (nothing after `THEN`) | `IF (<cond>)=0 THEN <else>` — `=0` is "false" for any value (BASIC's `NOT` is bitwise) |
+| `if <cond> then` (nothing after `THEN`) | `IF <the opposite> THEN <else>`: `a < b` is `a >= b`, `x` is `x=0`; a condition with `AND`, `OR`, `NOT`, `XOR` or several comparisons outside parentheses is `IF (<cond>)=0 THEN <else>` — `=0` is "false" for any value (BASIC's `NOT` is bitwise) |
 | `else` | `GOTO <endif>`, and the else part's label |
 | `endif` (or `end if`) | the label after the block |
 | `proc name` or `proc name(a, b$, ...)` | `GOTO <after>` and the label `name` (a name that is exactly a BASIC keyword, `directory`, `help`, is an error; `directory1` is fine). No `GOTO` where nothing can run into the proc: the line before ends in `GOTO`, `RETURN`, `END`, `RUN` or `RESUME` with no `IF` on it and no label between (procs after the program's `END`). Procs one after the other share one `GOTO`, to the end of the last |
