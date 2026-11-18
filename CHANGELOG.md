@@ -40,6 +40,22 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
   (`share/doc/m65compiler/zlib-LICENSE`); the static Linux build no longer
   installs Alpine's zlib. The Docker images are built without a zlib package.
 
+### ln45: the call graph counts tail calls (#615)
+
+- ln45's call graph was made of `JSR`s only, so a call cc45 compiled as a
+  tail `JMP` was missing from the static-allocation recursion check, the
+  interrupt-handler checks, the calling-convention bridges, the transitive
+  clobber sets and the map's "Call Graph" (the graph of the storage overlays
+  had them). `f` calling `g` with `g` ending in `f(x)` linked, and `f`'s
+  static frame was overwritten; it is the link error it should be now.
+- A tail call between conventions is reported and gets its bridge thunk, in
+  objects cc45 made: a `JMP` from one routine of a hand-written object to
+  another is a continuation (the library's `__dma_mem` ends in
+  `jmp __dma_start`) and is never bridged.
+- A function is recursive when something it calls by `JSR` reaches it again;
+  a cycle of tail calls alone is a loop, and links as before.
+- Test `src/test/test_ln45_tailcalls.sh`.
+
 ### Prebuilt release archives (#621)
 
 - `src/release/package.sh` builds the suite and packs the installed tree as

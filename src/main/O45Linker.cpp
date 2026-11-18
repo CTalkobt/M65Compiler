@@ -1985,8 +1985,17 @@ void O45Linker::buildFuncAttrs() {
 // We also need to determine which function "owns" each call site.
 void O45Linker::buildCallGraph() {
     callGraph_.clear();
+    tailOnlyEdges_.clear();
+    asmTailEdges_.clear();
+    std::set<std::pair<std::string, std::string>> asmTails;   // tail calls in hand-written objects
+    // caller -> callees reached by a JSR (the rest of an entry of callGraph_
+    // are tail calls: JMP)
+    std::map<std::string, std::set<std::string>> jsrEdges;
 
     for (const auto& input : objects_) {
+        bool isCc45 = false;
+        for (const auto& exp : input.obj.exports)
+            if (exp.name == "cc45.mode_zp" || exp.name == "cc45.mode_stack") isCc45 = true;
         // Build a map of text-segment offset -> function name for this object.
         // Exports in text segment, sorted by offset, define function boundaries.
         struct FuncRange {
@@ -2013,7 +2022,9 @@ void O45Linker::buildCallGraph() {
             funcs[i].endOff = (i + 1 < funcs.size()) ? funcs[i + 1].startOff : objTextEnd;
         }
 
-        // Decode text relocations and identify JSR call sites
+        // Decode text relocations and identify the call sites: a JSR, or a
+        // JMP to a function's entry (a tail call: cc45's JSR + RTS made a
+        // JMP), as the graph of the storage overlays counts them (#615)
         auto textRelocs = O45RelocDecoder::decode(input.obj.textRelocs);
         for (const auto& r : textRelocs) {
             if (r.type != R_WORD) continue;
@@ -2023,7 +2034,8 @@ void O45Linker::buildCallGraph() {
             if (r.offset == 0) continue; // can't look back
             if (r.offset - 1 >= input.obj.textBody.size()) continue;
             uint8_t opcode = input.obj.textBody[r.offset - 1];
-            if (opcode != 0x20) continue; // not JSR
+            if (opcode != 0x20 && opcode != 0x4C) continue; // not JSR / JMP
+            bool tail = opcode == 0x4C;
 
             // Resolve the callee name based on relocation segment type
             std::string callee;
@@ -2072,12 +2084,27 @@ void O45Linker::buildCallGraph() {
             for (const auto& fn : funcs) {
                 if (siteInMerged >= fn.startOff && siteInMerged < fn.endOff) {
                     if (!callee.empty()) {
-                        callGraph_[sacBase(fn.name)].insert(sacBase(callee));
+                        std::string from = sacBase(fn.name), to = sacBase(callee);
+                        // a JMP that stays in its function (to its own entry:
+                        // a loop; to its X__sac body; to one of its
+                        // computed-goto labels) is no call
+                        if (tail && (from == to || callee.find("__lbl_") != std::string::npos)) break;
+                        callGraph_[from].insert(to);
+                        if (!tail) jsrEdges[from].insert(to);
+                        else if (!isCc45) asmTails.insert({from, to});
                     }
                     break;
                 }
             }
         }
+    }
+    for (const auto& [from, tos] : callGraph_) {
+        auto j = jsrEdges.find(from);
+        for (const auto& to : tos)
+            if (j == jsrEdges.end() || !j->second.count(to)) {
+                tailOnlyEdges_.insert({from, to});
+                if (asmTails.count({from, to})) asmTailEdges_.insert({from, to});
+            }
     }
 }
 
@@ -2138,6 +2165,11 @@ bool O45Linker::callNeedsThunk(const std::string& callerName, const std::string&
     std::string caller = callerName;
     if (!funcAttrs_.count(caller) && caller.size() > 5 && caller.compare(caller.size() - 5, 5, "__sac") == 0)
         caller = caller.substr(0, caller.size() - 5);
+    // A JMP from one routine of a hand-written object to another is a
+    // continuation: the registers and the stack go on as they are, whatever
+    // conventions the two declare (the library's __dma_mem ends in
+    // jmp __dma_start). Only cc45's tail calls are calls to bridge (#615)
+    if (asmTailEdges_.count({caller, callee})) return false;
     auto callerIt = funcAttrs_.find(caller);
     auto calleeIt = funcAttrs_.find(callee);
     int callerMode = funcMode(caller);
@@ -2208,9 +2240,14 @@ void O45Linker::verifyStaticAllocSafety() {
         std::vector<std::string> toVisit;
         bool hasRecursion = false;
 
+        // The function is entered again while it is active when something
+        // it calls by JSR reaches it, by any calls. What it only jumps to (a
+        // tail call) runs after it has finished: a cycle of tail calls alone
+        // (a -> b -> a, each a JMP) is a loop, not a recursion (#615)
         auto it = callGraph_.find(sacFunc);
         if (it != callGraph_.end()) {
             for (const auto& callee : it->second) {
+                if (tailOnlyEdges_.count({sacFunc, callee})) continue;
                 toVisit.push_back(callee);
             }
         }
@@ -4047,7 +4084,15 @@ void O45Linker::generateThunks() {
             const auto& r = textRelocs[rIdx];
             if (r.type != R_WORD) continue;
             if (r.offset == 0 || r.offset - 1 >= input.obj.textBody.size()) continue;
-            if (input.obj.textBody[r.offset - 1] != 0x20) continue; // not JSR
+            // (a tail call's JMP too, #615: the bridge is entered by the
+            // jump and returns to the jumping function's caller; in an
+            // object cc45 made: a hand-written JMP is a continuation)
+            if (input.obj.textBody[r.offset - 1] == 0x4C) {
+                bool isCc45 = false;
+                for (const auto& exp : input.obj.exports)
+                    if (exp.name == "cc45.mode_zp" || exp.name == "cc45.mode_stack") isCc45 = true;
+                if (!isCc45) continue;
+            } else if (input.obj.textBody[r.offset - 1] != 0x20) continue;
 
             // Get callee name
             std::string callee;
