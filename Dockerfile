@@ -46,9 +46,12 @@ RUN git clone --filter=blob:none "$XEMU_REPO" /xemu && cd /xemu && git checkout 
 # --- Runtime image ---
 FROM ubuntu:22.04
 
+# (g++: make checks for the compiler before any target, and make test builds
+# the test programs; git, bsdextrautils (hexdump), zip, unzip: what the test
+# scripts use, src/deps/deps_table.sh's list; #630)
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    libstdc++6 make libfuse3-3 libsqlite3-0 fuse3 \
-    libsdl2-2.0-0 python3 xxd file && \
+    libstdc++6 make g++ libfuse3-3 libsqlite3-0 fuse3 \
+    libsdl2-2.0-0 python3 xxd file git bsdextrautils zip unzip && \
     rm -rf /var/lib/apt/lists/* && \
     useradd -m -u 1000 m65
 
