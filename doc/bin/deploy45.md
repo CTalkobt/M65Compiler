@@ -98,6 +98,27 @@ The Ultimate 64's REST API over HTTP: `POST v1/runners:run_prg` (or `load_prg` w
 `GET v1/info` (the answer printed); `PUT v1/machine:reset`; a SID's `--song N` is `?songnr=N`. The kind of file is its extension (`.prg`, `.crt`, `.sid`, a disk image's). The host may be written `http://name[:port]/` (port 80 by default). A device with a network password refuses a request without it (HTTP 403:
 "wrong network password").
 
+## What `--dry-run` Prints
+
+`--dry-run` (`-n`; after the command, as every option) prints the command deploy45 would run, or the HTTP request it would send, and exits 0; nothing is contacted:
+
+```
+$ deploy45 m65ether --dry-run -i 192.168.1.50 avg.prg
+etherload -i 192.168.1.50 -5 -r avg.prg
+$ deploy45 m65serial --dry-run -l /dev/ttyUSB1 avg.prg
+m65 -l /dev/ttyUSB1 -F -r avg.prg
+$ deploy45 m65mount --dry-run -l /dev/ttyUSB1 game.d81
+mega65_ftp -l /dev/ttyUSB1 -c 'put game.d81 GAME.D81' -c 'mount GAME.D81' -c exit
+$ deploy45 m65mount --dry-run -i 192.168.1.50 game.d81
+mega65_ftp -e -i 192.168.1.50 -c 'put game.d81 GAME.D81' -c 'mount GAME.D81' -c exit
+$ deploy45 u64 --dry-run -i 192.168.1.64 avg.prg
+POST http://192.168.1.64/v1/runners:run_prg (4255 bytes)
+$ deploy45 u64 --dry-run -i 192.168.1.64 game.d81
+POST http://192.168.1.64/v1/drives/a:mount?type=d81&mode=readwrite (819200 bytes)
+```
+
+For the MEGA65 commands the file is not opened (a name that does not exist is printed as it is); `u64` reads it, for the body's size.
+
 ## Exit Status
 
 0 when the transfer succeeded; the mega65-tools program's own status when it failed; 124 when it did not finish

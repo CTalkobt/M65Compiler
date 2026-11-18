@@ -4,6 +4,16 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### Documentation: basic45, dbg45 and deploy45 examples (#647)
+
+- **basic45.md**: a compile step by step (`--checks`, `--line-numbers`, a `TRAP` handler and what the program
+  prints with and without them; `--bank=N`, `--map` and an excerpt of the map), a listing before and after for each
+  `--convert` dialect, the warning for a `.prg` at another load address, the format of `REM PRAGMA EXPORT`'s map.
+- **dbg45.md**: a session with its output (breakpoint, `run`, `bt`, `info args`, `print`, `next`, `info locals`,
+  `finish`, `list`, `continue`), where the `.dbg` file is looked for, the capabilities the DAP server announces.
+- **deploy45.md**: what `--dry-run` prints for each command.
+- Everything shown is the tools' output, the programs' from xemu.
+
 ### disk45: subdirectories in extract-all and copy -r; the rest of #633
 
 - **`extract-all` goes into subdirectories**: one becomes a directory of its name with its files, and so on down

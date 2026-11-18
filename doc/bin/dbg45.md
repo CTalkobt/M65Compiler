@@ -60,7 +60,77 @@ As gdb names them; RETURN at the prompt repeats the last command (at a terminal;
 
 The program's end is reported with its exit status (`[program exited with status 11]`: `main`'s return value or `exit()`'s, at crt0's `__exit`).
 
-## How it works
+## A Session
+
+`sum.c`, built with `cc45 -O2 -g sum.c -o sum.prg`. The build writes `sum.dbg` beside the program; dbg45 looks for
+the debug file under the program's name with its extension replaced by `.dbg`, in the program's directory.
+
+```c
+#include <stdio.h>
+
+struct point { int x, y; };
+
+int sum(struct point *p, int n) {
+    int total = 0;
+    for (int i = 0; i < n; i++)
+        total += p[i].x + p[i].y;
+    return total;
+}
+
+int main(void) {
+    struct point pts[2] = { {1, 2}, {3, 5} };
+    int t = sum(pts, 2);
+    printf("%d\n", t);
+    return t;
+}
+```
+
+The session below is `dbg45 --headless --batch` with each command as an `-ex` (batch mode prints the command
+after the prompt; at a terminal it is what you type):
+
+```
+(dbg45) break sum
+Breakpoint 1 at $2124: sum
+(dbg45) info breakpoints
+1   sum at $2124
+(dbg45) run
+
+Breakpoint 1, sum (p=0x2b48, n=2) at sum.c:6
+6	    int total = 0;
+(dbg45) bt
+#0  sum (p=0x2b48, n=2) at sum.c:6
+#1  main () at sum.c:14
+(dbg45) info args
+p = 0x2b48
+n = 2
+(dbg45) print *p
+*p = {x = 1, y = 2}
+(dbg45) print p[1].y
+p[1].y = 5
+(dbg45) next
+7	    for (int i = 0; i < n; i++)
+(dbg45) next
+8	        total += p[i].x + p[i].y;
+(dbg45) info locals
+total = 0
+i = 0
+(dbg45) finish
+Run till exit from sum (p=0x2b48, n=2) at sum.c:8
+main () at sum.c:14
+14	    int t = sum(pts, 2);
+(dbg45) list
+  10	}
+  11	
+  12	int main(void) {
+  13	    struct point pts[2] = { {1, 2}, {3, 5} };
+=>14	    int t = sum(pts, 2);
+  15	    printf("%d\n", t);
+  16	    return t;
+  17	}
+(dbg45) continue
+[program exited with status 11]
+```
+
 
 - **Breakpoints** are xemu's `k` list: they stop before the instruction at the address. A stop at an address whose bytes are not the program's (the ROM's code, mapped there while BASIC runs before the program is loaded) resumes by itself. A function breakpoint covers both entries of a static-allocation function (`f` and `f__sac`, which callers that know it call).
 - **next** and **finish** set temporary breakpoints (the function's other line starts and its return address; the return address) and run at full speed, going on past a stop deeper in the stack (recursion). **step** runs one instruction at a time until the line changes (xemu's monitor answers once a frame while paused, so long lines step slowly). A call cc45 inlined (`-O2`'s small functions) is part of its statement's line: `next` and `step` go over it, and the function's own lines are not stepped through.
@@ -70,6 +140,8 @@ The program's end is reported with its exit status (`[program exited with status
 ## Debug Adapter Protocol
 
 `dbg45 --dap` handles `initialize`, `launch` (`program`, `xemu`, `xemuArgs`, `headless`, `fast`, `stopOnEntry`), `setBreakpoints`, `setFunctionBreakpoints`, `setExceptionBreakpoints` (none), `configurationDone` (starts the program), `threads` (one: the MEGA65), `stackTrace`, `scopes` (Locals, Arguments, Globals), `variables` (structs, unions and arrays expand), `evaluate`, `continue`, `next`, `stepIn`, `stepOut`, `pause` (also while the program runs), `disconnect` and `terminate`; it sends `initialized`, `stopped`, `exited`, `terminated` and `output`.
+
+To `initialize` it answers the capabilities `supportsConfigurationDoneRequest`, `supportsFunctionBreakpoints`, `supportsEvaluateForHovers` and `supportsTerminateRequest`; nothing else is announced (no conditional breakpoints, no setting of variables, no stepping back).
 
 In VS Code, the extension in `tools/ide/vscode-extension` contributes the `cc45` debug type (setting `m65.dbg45Path`, default `${workspaceFolder}/bin/dbg45`):
 
