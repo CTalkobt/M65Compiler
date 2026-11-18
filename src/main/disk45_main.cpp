@@ -69,6 +69,8 @@ static void usage() {
               << "  disk45 bfill <image> <t> <s> <val>        Fill sector with value\n"
 #ifdef HAVE_FUSE3
               << "  disk45 mount <image> <mountpoint> [-ro]   FUSE mount as directory\n"
+#else
+              << "  disk45 mount ...                          (not in this build: built without FUSE 3)\n"
 #endif
               << "  disk45 convert <source> <target>          Convert between formats\n"
               << "  disk45 chain <image> <filename>           Show file sector chain\n"
@@ -2818,6 +2820,12 @@ static int processCommand(int argc, char** argv) {
         }
         return disk45_fuse_main(imagePath, mountpoint, ro, (int)extraArgs.size(),
                                  extraArgs.empty() ? nullptr : extraArgs.data());
+    }
+#else
+    if (cmd == "mount") {
+        std::cerr << "Error: disk45 mount is not available: this disk45 was built without FUSE 3\n"
+                  << "       (install FUSE 3's development package and build again: make check-deps names it)\n";
+        return 1;
     }
 #endif
     if (cmd == "catalog") {

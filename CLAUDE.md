@@ -252,6 +252,11 @@ doc/examples/        the examples with screenshots (examples/capture_screens.py)
   `-l` lists them, `TV_VERBOSE=1` shows the PASS lines; `make test-validation-<x>` runs one
 - `make clean`, `make install` (PREFIX=/usr/local: `bin/`, `lib/cc45/`, `include/cc45/`), `make install_local`, `make man`
 - `make coverage`, `make test-o45`, `make docker` (Alpine `src/Docker/Dockerfile`: `make install PREFIX=/app`, entrypoint cc45; `src/Docker/docker-aliases.sh`), `make docker-runtime` (`src/Docker/Dockerfile.runtime`: the toolchain and xemu, `m65run`; #99); the root `Dockerfile` is Ubuntu, with the source tree for `make test` and xemu for `make test-xemu`. The images' xemu is CTalkobt/xemu `cc45-dev` (pinned); the MEGA65 ROM is mounted at `/rom/MEGA65.ROM` (`doc/architecture/DOCKER.md`)
+- Release archives (#621): `src/release/package.sh linux-static|native [OUTDIR]` builds and packs the `make install`
+  tree as `m65compiler-<version>-<os>-<arch>.tar.gz` (`linux-static`: in an Alpine container, `-static` with musl,
+  SQLite and libfuse 3 linked in) and checks it (the unpacked cc45 builds a program); `.github/workflows/release.yml` runs it for a tag `v*`
+  (Linux x86_64 and arm64, macOS arm64) and attaches the archives and `SHA256SUMS` to the tag's release (a draft when
+  new); by hand (`workflow_dispatch`) it only builds
 - `make bench` — the 6502 C compiler benchmarks (c-bench-64, downloaded into `build/bench/`) in xemu, beside cc65's, llvm-mos's, Oscar64's… published results (`src/bench/run_bench.py`, `BENCH_ARGS`; `doc/architecture/benchmarks.md`, #129)
 - `bench-optimizer` (a size benchmark) still uses mmemu — **runtime tests are run on xemu-xmega65, never mmemu**.
 
