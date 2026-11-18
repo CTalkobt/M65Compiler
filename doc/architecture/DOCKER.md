@@ -21,7 +21,7 @@ docker build -t cc45 .
 docker build -t cc45:vX.Y.Z .      # with a version tag
 ```
 
-The builder stage runs `make clean && make all && make -C lib` (with FUSE3, SQLite and zlib, so `disk45 mount` and the catalog are available). The runtime image contains:
+The builder stage runs `make clean && make all && make -C lib` (with FUSE3, SQLite and zlib, so `disk45 mount` and the catalog are available; a build without FUSE3 or SQLite leaves that command out). The runtime image contains:
 
 | Path | Contents |
 |------|----------|

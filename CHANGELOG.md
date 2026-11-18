@@ -16,6 +16,33 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
   `-ffast-float` did), 0 off. `-ffast-float` alone is `=1`, deprecated.
 - Test `test_float_map_xemu.c` (float calls inside `__far` functions).
 
+### Build: make works, or says what to install, on a fresh machine (#619)
+
+- SQLite is optional and detected, as FUSE 3 is: without its headers every
+  tool is still built, disk45 without `catalog` (it says "this disk45 was
+  built without SQLite" and returns 1; the usage text says so too). Before, a
+  missing `sqlite3.h` stopped `make` with no tool built, and took asmCvt45
+  and basic45 with it: `disk45_catalog.o` was in `lib45-tools.a`, which they
+  link. It is linked into disk45 alone now. `make HAVE_SQLITE=` /
+  `make HAVE_FUSE3=` build without a library that is there; disk45 is rebuilt
+  when either changes.
+- A build starts with what is in and what is left out, and the package that
+  adds it (not under `make -s`, not for `clean`, the tests…); without the
+  C++17 compiler or zlib's headers `make` stops at once with the command that
+  installs them, instead of a compile error far down the output.
+- `make check-deps`: what the build and the tests need, what the machine has,
+  and the install command for what is missing on this distribution (Debian /
+  Ubuntu, Fedora, RHEL / Rocky, Arch, openSUSE, Alpine, macOS); fails only
+  when a required one is missing. `src/deps/check_deps.sh`, POSIX sh.
+- One package table, `src/deps/deps_table.sh`, split into the build's and the
+  tests' packages: `make check-deps` prints it, `test_distro_builds.sh`
+  installs the build's alone (the tests' with `DISTRO_TEST=1` /
+  `DISTRO_EXAMPLES=1`), README.md lists "to build" and "to run the tests" per
+  distribution. The CI also builds `alpine-min`: compiler, make and zlib only.
+- README: a macOS section; GNU make 3.81 is enough (a full build, `make lib`
+  and `make install` were run with a 3.81).
+- `test_disk45.sh` skips its catalog checks with a disk45 built without SQLite.
+
 ### cc45: literals are signed ints with -fsigned-default (#612)
 
 - With `-fsigned-default` / `#pragma cc45 signed_default` an unsuffixed
