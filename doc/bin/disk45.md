@@ -472,7 +472,7 @@ Make sure a directory has at least N free entry slots, adding sectors (8 slots e
 disk45 mount <image> <mountpoint> [-ro|--readonly] [fuse options...]
 ```
 
-Mount an image as a Linux directory using FUSE3. Only available when disk45 was built with libfuse3 (the Makefile detects it with `pkg-config fuse3`; the command then appears in the usage text). disk45 stays in the foreground until unmounted; extra arguments are passed to FUSE.
+Mount an image as a Linux directory using FUSE3. Only available when disk45 was built with libfuse3 (the Makefile detects it with `pkg-config fuse3`, and says at the start of a build whether it is in; the command then appears in the usage text). disk45 stays in the foreground until unmounted; extra arguments are passed to FUSE.
 
 - Files appear with type extensions (`GAME.prg`, `README.seq`). CBM subdirectories appear as directories at any depth (`SUB/INNER/NOTE.seq`): files in them are created, written, renamed and deleted as in the root, `mkdir`/`rmdir` create and remove (empty) subdirectories, and `mv` moves a file between directories (a directory is renamed but not moved: `EXDEV`).
 - Read/write: create, write, truncate, rename and delete files; the image is saved after every change. A new file's type comes from its extension (`.prg`, `.seq`, `.usr`, `.rel`; others become PRG); names are limited to 16 characters.
@@ -572,7 +572,7 @@ GEOS files on D64, D71, D81, D65 and D80/D82 images ([GEOS.TXT](https://ist.uwat
 
 ### Catalog (Collection Indexing)
 
-SQLite index of image collections with a CRC32 of each file's contents. disk45 is always linked with SQLite. Every subcommand accepts `--db <file>`; the default database is `~/.disk45-catalog.db`. Running `disk45 catalog` alone prints the subcommand list.
+SQLite index of image collections with a CRC32 of each file's contents. It is in a disk45 built with SQLite: the Makefile detects SQLite's headers and says at the start of a build whether the catalog is in (`make check-deps` names the package to install; `make HAVE_SQLITE=` builds without it). Without SQLite `disk45 catalog` prints `disk45 catalog is not available: this disk45 was built without SQLite` and returns 1, and the usage text says so. Every subcommand accepts `--db <file>`; the default database is `~/.disk45-catalog.db`. Running `disk45 catalog` alone prints the subcommand list.
 
 Indexed: every disk image format disk45 reads (`.d64 .d71 .d81 .d65 .d80 .d82 .d90 .d60 .d1m .d2m .d4m .dnp .x64 .g64 .g71 .nib .nbz .t64 .tap .ark .arc .sda .lnx .p00 .cvt`, also with `.gz`, and Zipcode sets by their `1!` file), and the disk images inside containers: each image in a `.zip` and each disk image file on a MEGA65 SD card image is indexed as its own image, with the path `pack.zip:disk.d64` or `card.img:/GAMES/X.D81` (paths that disk45's other commands open too). A GEOS file's CRC32 and size are those of its Convert (CVT) form (its info block and every VLIR record), and `search` marks it `(GEOS Application, VLIR)`; a catalog made by an older disk45 gains the column on the next build.
 

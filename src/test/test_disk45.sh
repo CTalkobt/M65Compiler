@@ -870,6 +870,11 @@ fi
 # ============================================================================
 echo "=== Catalog ==="
 
+# (a disk45 built without SQLite has no catalog, #619: it says so)
+if $DISK45 catalog list --db "$TMPDIR/none.db" 2>&1 | grep -q 'built without SQLite'; then
+    echo "  SKIP: catalog (disk45 built without SQLite)"
+else
+
 # a collection of formats, a zip of two images, an SD card image with a D81,
 # a GEOS disk; the catalog indexes every disk image (container members as
 # "<container>:<member>")
@@ -919,6 +924,7 @@ PY
 $DISK45 catalog build "$CAT/geos.d71" --db "$TMPDIR/old.db" >/dev/null 2>&1 &&
     $DISK45 catalog search '*' --db "$TMPDIR/old.db" | grep -q 'GEOS' &&
     pass "catalog: an older database gains the GEOS column" || fail "catalog migration"
+fi
 
 # A directory longer than one sector stays on the directory track (the DOS
 # follows the chain there only): D81 track 40, D64 track 18

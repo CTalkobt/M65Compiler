@@ -12,11 +12,70 @@ OBJCOPY ?= objcopy
 HAVE_LIBCA45 ?= $(shell [ "$$(uname -s)" != Darwin ] && $(OBJCOPY) --version 2>/dev/null | grep -q GNU && echo 1)
 CXXFLAGS = -std=c++17 -Wall -Wextra -Iinclude -MMD -MP -DGIT_HASH='"$(GIT_HASH)"' $(EXTRA_CXXFLAGS)
 
-# Optional FUSE3 support for disk45 mount command
-HAVE_FUSE3 := $(shell pkg-config --exists fuse3 2>/dev/null && echo 1)
+# ----------------------------------------------------------------------------
+# What the machine has (#619). Required: the C++17 compiler and zlib's
+# headers. Optional, the feature left out without it: SQLite (disk45 catalog)
+# and FUSE 3 (disk45 mount). Detected by src/deps/check_deps.sh --probe (the
+# headers through the compiler, FUSE 3 through pkg-config), once: a sub-make
+# is given the result. `make HAVE_SQLITE=` / `make HAVE_FUSE3=` build without
+# one that is there; `make check-deps` reports everything, with the command
+# that installs what is missing on this distribution.
+# ----------------------------------------------------------------------------
+DEPS_SH = src/deps/check_deps.sh
+deps_sh = CXX='$(CXX)' EXTRA_CXXFLAGS='$(EXTRA_CXXFLAGS)' sh $(DEPS_SH)
+
+# Goals that compile nothing: no detection, no summary, no error for them
+NOBUILD_GOALS := clean lib45-clean coverage-clean coverage-report uninstall uninstall_local man \
+                 check-deps docker docker-runtime test-distros show-lib-deps lib45-sizes cppcheck
+BUILDING := $(if $(MAKECMDGOALS),$(if $(filter-out $(NOBUILD_GOALS),$(MAKECMDGOALS)),1),1)
+
+ifeq ($(BUILDING),1)
+  ifeq ($(origin M65_DEPS),undefined)
+    M65_DEPS := $(shell $(deps_sh) --probe)
+    M65_DEPS_FIRST := 1
+  endif
+  export M65_DEPS
+  ifeq ($(origin HAVE_SQLITE),undefined)
+    HAVE_SQLITE := $(if $(filter sqlite,$(M65_DEPS)),1)
+  endif
+  ifeq ($(origin HAVE_FUSE3),undefined)
+    HAVE_FUSE3 := $(if $(filter fuse3,$(M65_DEPS)),1)
+  endif
+endif
+# (only 1 is "yes": HAVE_SQLITE=0 and HAVE_SQLITE= both build without it)
+ifneq ($(HAVE_SQLITE),1)
+  override HAVE_SQLITE :=
+endif
+ifneq ($(HAVE_FUSE3),1)
+  override HAVE_FUSE3 :=
+endif
+
+ifeq ($(HAVE_SQLITE),1)
+  SQLITE_CFLAGS := -DHAVE_SQLITE
+  SQLITE_LIBS := -lsqlite3
+endif
 ifeq ($(HAVE_FUSE3),1)
   FUSE3_CFLAGS := $(shell pkg-config --cflags fuse3) -DHAVE_FUSE3
   FUSE3_LIBS := $(shell pkg-config --libs fuse3)
+endif
+
+# The top-level make of a build, once: a clear error for a missing required
+# dependency, then (for the goals that build the tools; not under -s) what is
+# in and what is left out
+ifeq ($(M65_DEPS_FIRST),1)
+  ifeq ($(filter cxx,$(M65_DEPS)),)
+    $(error No C++17 compiler: '$(CXX)' is missing or too old (GCC 11 or newer, or clang; another one: make CXX=clang++). Install: $(shell $(deps_sh) --hint base))
+  endif
+  ifeq ($(filter zlib,$(M65_DEPS)),)
+    $(error zlib's headers (zlib.h) were not found: disk45, asmCvt45 and basic45 need them. Install: $(shell $(deps_sh) --hint zlib))
+  endif
+  ifneq ($(if $(MAKECMDGOALS),$(filter all lib stdlib install install_local parallel-build lib45-libraries bin/%,$(MAKECMDGOALS)),1),)
+    ifeq ($(findstring s,$(firstword -$(MAKEFLAGS))),)
+      $(info Configuration ($(CXX); `make check-deps` for all of it):)
+      $(info $(empty)  disk45 catalog (SQLite): $(if $(HAVE_SQLITE),yes,no - $(if $(filter sqlite,$(M65_DEPS)),HAVE_SQLITE is off,$(shell $(deps_sh) --add sqlite))))
+      $(info $(empty)  disk45 mount   (FUSE 3): $(if $(HAVE_FUSE3),yes,no - $(if $(filter fuse3,$(M65_DEPS)),HAVE_FUSE3 is off,$(shell $(deps_sh) --add fuse))))
+    endif
+  endif
 endif
 SRC_DIR = src/main
 OBJ_DIR = obj
@@ -209,9 +268,11 @@ $(LIB_DIR)/lib45-audio.a: $(addprefix $(OBJ_DIR)/, \
 	@rm -f $@
 	$(AR) rcs $@ $^
 
-# lib45-tools: Disk utilities, format converters (includes optional FUSE3 support)
+# lib45-tools: Disk utilities, format converters (includes optional FUSE3 support).
+# Not disk45's catalog (disk45_catalog.o, the one user of SQLite): asmCvt45
+# and basic45 link this archive too, and need no SQLite (#619)
 LIB45_TOOLS_OBJS = $(addprefix $(OBJ_DIR)/, \
-    disk45_catalog.o disk45_sd.o SdCardImage.o DiskImage.o DiskImageFactory.o BAMOperations.o \
+    disk45_sd.o SdCardImage.o DiskImage.o DiskImageFactory.o BAMOperations.o \
     D64Image.o D71Image.o D81Image.o D65Image.o ArkImage.o ArcImage.o \
     LnxImage.o TapImage.o T64Image.o G64Image.o D80Image.o GeosCvtImage.o \
     P00Image.o X64Image.o ZipcodeImage.o D90Image.o CmdImage.o NibImage.o \
@@ -225,10 +286,10 @@ ifeq ($(HAVE_FUSE3),1)
   LIB45_TOOLS_OBJS += $(OBJ_DIR)/disk45_fuse.o
 endif
 
-$(LIB_DIR)/lib45-tools.a: $(LIB45_TOOLS_OBJS)
+$(LIB_DIR)/lib45-tools.a: $(LIB45_TOOLS_OBJS) $(OBJ_DIR)/disk45.config
 	@mkdir -p $(LIB_DIR)
 	@rm -f $@
-	$(AR) rcs $@ $^
+	$(AR) rcs $@ $(filter %.o,$^)
 
 # ============================================================================
 # BINARY BUILD RULES
@@ -359,11 +420,23 @@ $(OD_TARGET): $(LIB_DIR)/lib45-codegen.a $(LIB_DIR)/lib45-basic.a $(LIB_DIR)/lib
 	@mkdir -p $(BIN_DIR)
 	$(CXX) $(CXXFLAGS) -o $@ $(OBJ_DIR)/objdump45_main.o $(OBJ_DIR)/objdump45_html.o $(OBJ_DIR)/objdump45_tree.o $(OBJ_DIR)/objdump45_analysis.o $(LIB_DIR)/lib45-codegen.a $(LIB_DIR)/lib45-basic.a $(LIB_DIR)/lib45-common.a
 
-# Disk Utility (disk45) - uses tools + common
-$(DISK_TARGET): $(OBJ_DIR)/disk45_main.o | $(LIB_DIR)
+# Disk Utility (disk45) - uses tools + common; its catalog (SQLite) only when
+# SQLite is there (HAVE_SQLITE)
+ifeq ($(HAVE_SQLITE),1)
+  DISK45_CATALOG_OBJ = $(OBJ_DIR)/disk45_catalog.o
+endif
+$(DISK_TARGET): $(OBJ_DIR)/disk45_main.o $(DISK45_CATALOG_OBJ) | $(LIB_DIR)
 $(DISK_TARGET): $(LIB_DIR)/lib45-tools.a $(LIB_DIR)/lib45-basic.a $(LIB_DIR)/lib45-common.a
 	@mkdir -p $(BIN_DIR)
-	$(CXX) $(CXXFLAGS) -o $@ $(OBJ_DIR)/disk45_main.o $(LIB_DIR)/lib45-tools.a $(LIB_DIR)/lib45-basic.a $(LIB_DIR)/lib45-common.a -lz -lsqlite3 $(FUSE3_LIBS)
+	$(CXX) $(CXXFLAGS) -o $@ $(OBJ_DIR)/disk45_main.o $(DISK45_CATALOG_OBJ) $(LIB_DIR)/lib45-tools.a $(LIB_DIR)/lib45-basic.a $(LIB_DIR)/lib45-common.a -lz $(SQLITE_LIBS) $(FUSE3_LIBS)
+
+# What disk45 is built with, in a file that changes only when that does:
+# disk45_main.o (its #ifdef HAVE_SQLITE / HAVE_FUSE3) and the archive are
+# made again when a library appears or is turned off
+DISK45_CONFIG = sqlite=$(HAVE_SQLITE) fuse3=$(HAVE_FUSE3)
+$(OBJ_DIR)/disk45.config: FORCE | $(OBJ_DIR)
+	@[ -f $@ ] && [ "`cat $@`" = '$(DISK45_CONFIG)' ] || echo '$(DISK45_CONFIG)' > $@
+FORCE:
 
 # Assembly Format Converter (asmCvt45) - uses tools, codegen, opt + common
 $(ASMCVT45_TARGET): $(OBJ_DIR)/asmCvt45_main.o | $(LIB_DIR)
@@ -392,9 +465,9 @@ $(BASIC_TARGET): $(LIB_DIR)/lib45-basic.a $(LIB_DIR)/lib45-tools.a $(LIB_DIR)/li
 $(OBJ_DIR)/disk45_fuse.o: $(SRC_DIR)/disk45_fuse.cpp | $(OBJ_DIR)
 	$(CXX) $(CXXFLAGS) $(FUSE3_CFLAGS) -c -o $@ $<
 
-# disk45_main needs HAVE_FUSE3 define
-$(OBJ_DIR)/disk45_main.o: $(SRC_DIR)/disk45_main.cpp | $(OBJ_DIR)
-	$(CXX) $(CXXFLAGS) $(FUSE3_CFLAGS) -c -o $@ $<
+# disk45_main needs the HAVE_FUSE3 and HAVE_SQLITE defines
+$(OBJ_DIR)/disk45_main.o: $(SRC_DIR)/disk45_main.cpp $(OBJ_DIR)/disk45.config | $(OBJ_DIR)
+	$(CXX) $(CXXFLAGS) $(FUSE3_CFLAGS) $(SQLITE_CFLAGS) -c -o $@ $<
 
 # Pipeline objects (compiler-only)
 $(OBJ_DIR)/CompilationPipeline.o: $(SRC_DIR)/CompilationPipeline.cpp | $(OBJ_DIR)
@@ -526,7 +599,7 @@ $(LIB_DIR):
 .PHONY: libca45 lib45-libraries lib45-sizes lib45-clean show-lib-deps parallel-build
 .PHONY: all clean test man test-regression stdlib bench
 .PHONY: lib install install_local uninstall
-.PHONY: lint-lib
+.PHONY: lint-lib check-deps FORCE
 .PHONY: uninstall_local cppcheck coverage coverage-build coverage-clean
 .PHONY: coverage-report docker docker-runtime test-assembler test-const
 .PHONY: test-restrict test-register test-cast-fold test-o45 test-move-fill
@@ -604,6 +677,12 @@ test: all lib $(BIN_DIR)/test_o45 $(BIN_DIR)/test_ast_walker $(BIN_DIR)/test_con
 # the runtime tests in xemu (parallel runs: XEMU_JOBS)
 test-xemu: all lib
 	@bash src/test/test_xemu.sh
+
+# What the build needs and what this machine has, with the command that
+# installs what is missing on this distribution (#619); fails only when a
+# required one is missing
+check-deps:
+	@GNU_MAKE_VERSION='$(MAKE_VERSION)' $(deps_sh)
 
 # a clean build (make all, make lib) in a container of each common Linux
 # distribution, with the packages README.md lists (needs Docker; DISTROS=...)

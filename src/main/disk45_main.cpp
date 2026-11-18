@@ -35,18 +35,12 @@ extern int disk45_fuse_main(const std::string& imagePath, const std::string& mou
                              bool readonly, int argc, char** argv);
 #endif
 
-// Forward declaration for catalog (in disk45_catalog.cpp)
+// Forward declaration for catalog (in disk45_catalog.cpp): only in a build
+// with SQLite (the Makefile's HAVE_SQLITE, #619)
+#ifdef HAVE_SQLITE
 extern int disk45_catalog(int argc, char** argv);
-extern int disk45_sd(int argc, char** argv);
-
-// Forward declaration for FUSE mount (in disk45_fuse.cpp)
-#ifdef HAVE_FUSE3
-extern int disk45_fuse_main(const std::string& imagePath, const std::string& mountpoint,
-                             bool readonly, int argc, char** argv);
 #endif
-
-// Forward declaration for catalog (in disk45_catalog.cpp)
-extern int disk45_catalog(int argc, char** argv);
+extern int disk45_sd(int argc, char** argv);
 
 static void usage() {
     std::cerr << "disk45 — CBM Disk Image Utility v" << VERSION << "\n"
@@ -95,11 +89,15 @@ static void usage() {
               << "  disk45 rel-write <img> <name> <rec#> <d>  Write REL record\n"
               << "  disk45 rel-list <img> <name>              List REL records\n"
               << "  disk45 sd <command> <card.img> ...      MEGA65 SD card images (disk45 sd --help)\n"
+#ifdef HAVE_SQLITE
               << "  disk45 catalog build <dir>... [--db file]  Index image collection\n"
               << "  disk45 catalog search <pattern> [--db f]  Search indexed files\n"
               << "  disk45 catalog list [--db file]           List indexed images\n"
               << "  disk45 catalog duplicates [--db file]     Find duplicate files\n"
               << "  disk45 catalog stats [--db file]          Collection statistics\n"
+#else
+              << "  disk45 catalog ...                        (not in this build: built without SQLite)\n"
+#endif
               << "  disk45 -a2p                               ASCII→PETSCII filter (stdin→stdout)\n"
               << "  disk45 -p2a                               PETSCII→ASCII filter (stdin→stdout)\n"
               << "  disk45 batch <scriptfile>                 Run commands from file\n"
@@ -2822,7 +2820,15 @@ static int processCommand(int argc, char** argv) {
                                  extraArgs.empty() ? nullptr : extraArgs.data());
     }
 #endif
-    if (cmd == "catalog")    return disk45_catalog(subArgc, subArgv);
+    if (cmd == "catalog") {
+#ifdef HAVE_SQLITE
+        return disk45_catalog(subArgc, subArgv);
+#else
+        std::cerr << "Error: disk45 catalog is not available: this disk45 was built without SQLite\n"
+                  << "       (install SQLite's development package and build again: make check-deps names it)\n";
+        return 1;
+#endif
+    }
     if (cmd == "sd")         return disk45_sd(subArgc, subArgv);
     if (cmd == "convert")    return cmdConvert(subArgc, subArgv);
     if (cmd == "dir-shrink") return cmdDirShrink(subArgc, subArgv);

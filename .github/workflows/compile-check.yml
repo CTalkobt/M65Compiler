@@ -13,12 +13,15 @@ jobs:
   # src/test/test_distro_builds.sh, one distribution per job. One of each
   # compiler / C library: debian13 (GCC; also builds the examples), fedora
   # (GCC), fedora-clang (clang), arch (the newest GCC), alpine (musl).
+  # Each with the build's packages of src/deps/deps_table.sh alone (#619);
+  # alpine-min with the required ones only (no SQLite, no FUSE 3, no
+  # pkg-config): every tool must still be built, disk45 without catalog.
   distros:
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        distro: [debian13, fedora, fedora-clang, arch, alpine]
+        distro: [debian13, fedora, fedora-clang, arch, alpine, alpine-min]
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -40,6 +43,9 @@ jobs:
 
       - name: Install GNU make
         run: brew install make
+
+      - name: What the build needs (make check-deps)
+        run: gmake check-deps
 
       - name: Build the tools
         run: gmake -j"$(sysctl -n hw.ncpu)" all

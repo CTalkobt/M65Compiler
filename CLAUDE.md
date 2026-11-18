@@ -14,7 +14,7 @@ against the source on 2026-10-11) win — and the source wins over both.
 ## Project Overview
 
 A toolchain for the MEGA65 (45GS02 CPU), written in C++17 with no external
-dependencies (SQLite and FUSE only for disk45):
+dependencies (zlib for disk45's compressed images; SQLite and FUSE, both optional, only for disk45):
 
 - **cc45** — C compiler (one input file per run; `-S`, `-c`, or a one-step build to a `.prg`)
 - **cp45** — the C preprocessor (a link to cc45, selected by program name)
@@ -234,7 +234,13 @@ doc/examples/        the examples with screenshots (examples/capture_screens.py)
 
 ## Build System
 
-- `make` / `make all` — build all tools (bin/)
+- `make` / `make all` — build all tools (bin/). Needs a C++17 compiler, GNU make and zlib's headers (a clear
+  error at the start without them); SQLite (`disk45 catalog`) and FUSE 3 (`disk45 mount`) are detected and the
+  command left out without them (`HAVE_SQLITE`, `HAVE_FUSE3`; `make HAVE_SQLITE=` forces one off), as the
+  summary at the start of a build says (#619)
+- `make check-deps` — what the build and the tests need, what is there, and the install command for this
+  distribution (`src/deps/check_deps.sh`; the packages are `src/deps/deps_table.sh`'s, which
+  `test_distro_builds.sh` installs and README.md repeats: change them there)
 - `make lib` — build the standard libraries (lib/build/)
 - `make test` — compiler/assembler unit tests, validation units and examples: the steps of
   `src/test/test_steps.txt` in parallel (`run_parallel.sh`, `TEST_JOBS`), then the examples

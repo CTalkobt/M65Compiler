@@ -127,71 +127,110 @@ without arguments); the reference pages are in [doc/bin/](doc/bin/).
 
 ## Building from Source
 
-The tools are C++17 with no third-party libraries beyond SQLite and zlib (disk45's catalog and compressed
-images) and, optionally, FUSE 3 (`disk45 mount`; left out when `pkg-config` does not find it). Building needs
-GNU make and a C++17 compiler: GCC 11 or newer, or clang. `make test` also uses `python3`, `xxd`,
-`hexdump`, `diff`/`cmp` and `zip`/`unzip`.
+The tools are C++17. To build them you need:
+
+- a C++17 compiler: GCC 11 or newer, or clang (`make CXX=clang++`);
+- GNU make 3.81 or newer;
+- zlib's headers (disk45's compressed images);
+- optionally SQLite's headers, for `disk45 catalog`, and FUSE 3 with `pkg-config`, for `disk45 mount`. The
+  build detects the two and leaves the command out when one is missing (every tool is still built); its
+  first lines say which are in, and the package that adds the other:
+
+```
+Configuration (g++; `make check-deps` for all of it):
+  disk45 catalog (SQLite): yes
+  disk45 mount   (FUSE 3): no - to add it: sudo apt-get install libfuse3-dev pkg-config
+```
+
+Everything else is in the repository. `make check-deps` lists what the build and the tests need, what this
+machine has, and the command that installs what is missing on this distribution; without the compiler or
+zlib, `make` stops at once with that command. `make HAVE_SQLITE=` (or `HAVE_FUSE3=`) builds without a library
+that is there.
+
+`make test` also uses `bash`, `python3`, `xxd`, `hexdump`, `diff`/`cmp` and `zip`/`unzip`: the second line of
+each distribution below. The build itself needs none of them (nor git).
 
 ### Dependencies
 
+For the smallest build, the compiler with make and zlib are enough: the packages of a "to build" line before
+SQLite's (on Debian `build-essential zlib1g-dev`).
+
 **Debian / Ubuntu** (also Mint, Pop!_OS, Raspberry Pi OS):
 ```bash
-sudo apt-get install build-essential pkg-config libsqlite3-dev zlib1g-dev libfuse3-dev git \
-                     python3 xxd bsdextrautils zip unzip
+sudo apt-get install build-essential zlib1g-dev libsqlite3-dev libfuse3-dev pkg-config      # to build
+sudo apt-get install git python3 xxd bsdextrautils zip unzip      # to run the tests
 ```
 (Ubuntu 22.04 and Debian 12 have `xxd` in `xxd`; on older releases it is in `vim-common`.)
 
 **Fedora**:
 ```bash
-sudo dnf install gcc-c++ make pkgconf-pkg-config sqlite-devel zlib-ng-compat-devel fuse3-devel git \
-                 python3 xxd util-linux diffutils zip unzip
+sudo dnf install gcc-c++ make zlib-ng-compat-devel sqlite-devel fuse3-devel pkgconf-pkg-config      # to build
+sudo dnf install git python3 xxd util-linux diffutils zip unzip      # to run the tests
 ```
 
 **RHEL / Rocky / AlmaLinux 9** (`fuse3-devel` is in CRB):
 ```bash
-sudo dnf install dnf-plugins-core && sudo dnf config-manager --set-enabled crb
-sudo dnf install gcc-c++ make pkgconf-pkg-config sqlite-devel zlib-devel fuse3-devel git \
-                 python3 vim-common util-linux diffutils zip unzip
+sudo dnf install dnf-plugins-core && sudo dnf config-manager --set-enabled crb      # for fuse3-devel
+sudo dnf install gcc-c++ make zlib-devel sqlite-devel fuse3-devel pkgconf-pkg-config      # to build
+sudo dnf install git python3 vim-common util-linux diffutils zip unzip      # to run the tests
 ```
 
 **Arch Linux / Manjaro**:
 ```bash
-sudo pacman -S --needed base-devel sqlite zlib fuse3 git python tinyxxd util-linux diffutils zip unzip
+sudo pacman -S --needed base-devel zlib sqlite fuse3 pkgconf      # to build
+sudo pacman -S --needed git python tinyxxd util-linux diffutils zip unzip      # to run the tests
 ```
 
 **openSUSE Tumbleweed / Leap**:
 ```bash
-sudo zypper install gcc-c++ make pkgconf sqlite3-devel zlib-devel fuse3-devel git python3 xxd util-linux \
-                    diffutils findutils gawk zip unzip
+sudo zypper install gcc-c++ make zlib-devel sqlite3-devel fuse3-devel pkgconf      # to build
+sudo zypper install git python3 xxd util-linux diffutils findutils gawk zip unzip      # to run the tests
 ```
 
 **Alpine Linux**:
 ```bash
-sudo apk add build-base pkgconf sqlite-dev zlib-dev fuse3-dev git python3 linux-headers bash xxd hexdump zip unzip
+sudo apk add build-base zlib-dev sqlite-dev fuse3-dev pkgconf      # to build
+sudo apk add git python3 bash xxd hexdump zip unzip      # to run the tests
 ```
 
-Optional:
+**macOS** (Apple clang from the Xcode command line tools; zlib and SQLite are in the macOS SDK; there is no
+FUSE 3, so disk45 is built without `mount`):
+```bash
+xcode-select --install      # the compiler, if it is not there yet
+brew install make           # GNU make 4 as gmake (what the CI builds with)
+gmake -j"$(sysctl -n hw.ncpu)" && gmake lib
+```
+The Makefile needs nothing newer than GNU make 3.81, the version of macOS's own `make` (checked with a 3.81 on
+Linux, not on a Mac: the CI uses Homebrew's `gmake`). `libca45.a`, the assembler as a C++ library, is not built
+on macOS (it needs GNU objcopy on ELF objects). The tests are not run on macOS by the CI.
+
+These lists are `src/deps/deps_table.sh`: `make check-deps` prints from it, and `make test-distros` installs
+exactly the "to build" packages in a fresh container of each distribution before building.
+
+Optional, at run time:
 - `pandoc`, for `make man`.
 - [xemu](https://github.com/lgblgblgb/xemu)'s `xemu-xmega65`, for the runtime tests (`make test-xemu`) and
   dbg45. The Docker images build it for you (`make docker-runtime`, see
   [doc/architecture/DOCKER.md](doc/architecture/DOCKER.md)).
 - `pw-play`, `paplay` or `aplay`, for `tune45 play` (it can write a `.wav` without them).
+- `ffmpeg`, for `pack45` on MP4 / M4A sound (WAV, AU and MP3 are read without it).
 
 ### Build
 
 ```bash
 git clone https://github.com/CTalkobt/M65Compiler.git
 cd M65Compiler
-make -j"$(nproc)"     # the tools, in bin/
-make lib              # the standard libraries, in lib/build/ (built with bin/cc45 and bin/ca45)
+make check-deps       # optional: what is needed, what is there, what to install
+make -j"$(nproc)"     # the tools, in bin/, and the standard libraries, in lib/build/
 make test             # optional: unit tests and examples (about 6 minutes)
 ```
 
 `make CXX=clang++` builds with clang. `make install` (below) builds everything first.
 
-These distributions build the tree from a clean checkout with the packages above (`make test-distros`, which
-needs Docker, repeats the check). The CI builds Debian 13, Fedora (GCC and clang), Arch and Alpine on each
-push, and macOS (Apple clang: the tools, the library, an install, a program compiled with it):
+These distributions build the tree from a clean checkout with the "to build" packages above (`make
+test-distros`, which needs Docker, repeats the check). The CI builds Debian 13, Fedora (GCC and clang), Arch
+and Alpine on each push, Alpine again with the compiler, make and zlib alone (`alpine-min`: no SQLite, no
+FUSE 3), and macOS (Apple clang: the tools, the library, an install, a program compiled with it):
 
 | Distribution | Compiler |
 |---|---|
