@@ -1,8 +1,8 @@
 # O45 Object Format I/O Tests
 
-The `.o45` object format code (`O45Reader.cpp`, `O45Writer.cpp`, `O45Linker.cpp`, `O45Archive.cpp`) had the lowest coverage in the 2026-07-17 gcov run (40–60%, see [COVERAGE_ANALYSIS.md](COVERAGE_ANALYSIS.md)). Two test programs target it. **Neither is part of `make test`**, so they do not contribute to `make coverage` unless run separately.
+The `.o45` object format code (`O45Reader.cpp`, `O45Writer.cpp`, `O45Linker.cpp`, `O45Archive.cpp`) had the lowest coverage in the 2026-07-17 gcov run (40–60%, see [COVERAGE_ANALYSIS.md](COVERAGE_ANALYSIS.md)). Two test programs target it. The first, `bin/test_o45`, is a step of `make test` (`src/test/test_steps.txt`); **the shell script is not**, so it does not contribute to `make coverage` unless run separately.
 
-## `make test-o45` — format unit test
+## `make test-o45` — format unit test (also in `make test`)
 
 `src/test/test_o45.cpp`, built as `bin/test_o45` and linked directly against `O45Writer`, `O45Reader`, `O45IRSerializer`, `O45Linker` and `O45Archive`. It writes objects in memory and checks the exact bytes and the read-back (header layout, segments, symbol and relocation tables, …).
 
@@ -12,7 +12,7 @@ make test-o45
 
 ## `src/test/test_o45_io_coverage.sh` — tool round trips
 
-A shell script that drives the built tools (`bin/ca45`, `bin/ln45`, `bin/nm45`, `bin/objdump45`) on generated assembly in `build/test/o45_io_coverage/`. It makes 10 checks:
+A shell script that drives the built tools (`bin/ca45`, `bin/ln45`, `bin/nm45`, `bin/objdump45`) on generated assembly in `build/test/o45_io_coverage/`. It makes 9 checks:
 
 | Group | Checks |
 |-------|--------|
@@ -49,4 +49,4 @@ else
 fi
 ```
 
-To run it with the main suite, add `@bash src/test/test_o45_io_coverage.sh` (and `@$(MAKE) test-o45`) to the `test` target in the top-level `Makefile`.
+To run it with the main suite, add a line for it to `src/test/test_steps.txt` (`title|bash src/test/test_o45_io_coverage.sh`), the list of steps `make test` runs in parallel; it writes only to its own directory, `build/test/o45_io_coverage/`, as a step must.

@@ -1,6 +1,6 @@
 # v1.1 Optimization Roadmap — Code Size & Performance
 
-**Written:** 2026-07-19 (planning) · **Status reviewed:** 2026-10-11 against the current compiler
+**Written:** 2026-07-19 (planning) · **Status reviewed:** 2026-10-11 against the compiler of that date; item 4 and the Future Enhancements table again on 2026-11-18
 
 This plan targeted frame-pointer overhead in the **stack calling convention**. Since it was written, the defaults changed: cc45 now uses the ZP calling convention (`-fzpcall`) and static allocation (SAC, `-fstaticalloc`) by default, so most functions have no stack frame and no frame-pointer setup at all. The items below say what the compiler does today; the original percentage estimates were never measured and have been removed.
 
@@ -70,8 +70,8 @@ See [calling-conventions.md](../architecture/calling-conventions.md).
 | Item | Status |
 |------|--------|
 | Inlining | Available: `-finline-functions`, `-fmax-inline-ir-size=N`, `always_inline`/`noinline` |
-| Loop unrolling | `repeat(N)` and vector operations unroll (`-fmax-unroll-bytes=N`) |
-| Loop-invariant code motion | Not observed: a loop-invariant `k * 3` in a simple `for` loop is recomputed each iteration at `-O2` |
-| Tail-call optimization | Not observed: `return g(x + 1);` compiles to `jsr _g` … `rts` at `-O2` |
+| Loop unrolling | `repeat(N)` and vector operations unroll (`-fmax-unroll-bytes=N`); `-O4` and up unroll loops (`-floop-unrolling`) |
+| Loop-invariant code motion | Available from `-O1` (the IR pass `licm`): a loop-invariant `k * 3` in a simple `for` loop is computed once before the loop at `-O2` |
+| Tail-call optimization | Available (a ca45 pass): `return g(x + 1);` ends in `jmp _g` at `-O2` |
 | Dead code elimination | Unused `static` functions are removed; exported functions are kept for the linker |
 | Variable packing | Not applicable (see item 3) |

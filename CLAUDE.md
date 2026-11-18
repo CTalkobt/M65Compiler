@@ -24,7 +24,7 @@ FUSE, both optional, only for disk45):
   `ca45::assembleLine`, for mmsim's dot-assembly; #117), which ca45 itself links
 - **ln45** — linker (`.o45` objects + `.lib` archives → PRG or flat binary)
 - **ar45** — archiver for `.lib` static libraries
-- **nm45** — symbol/attribute/relocation inspector for `.o45` and `.lib` (and ln45's `.ovd`/`.ov1` overlay files)
+- **nm45** — symbol/attribute/relocation inspector for `.o45` (and ln45's `.ovd`/`.ov1` overlay files; a `.lib` is listed with `ar45 t`)
 - **al45** — the assembly linter (#64, #199): a link to ca45, chosen by program name; ca45's front end, no optimizer, no
   output; rules by `mega65-*` id (`src/main/AsmLint.cpp`; those on data flow — stale flags, stack balance, declared clobbers, wasted loads and stores — `AsmLintFlow.cpp`) over the shared core (`include/Lint.hpp`: `.cc45-lint.yml`,
   `NOLINT`, text / JSON / SARIF); `doc/bin/al45.md`, plan and the C linter's in `doc/architecture/lint.md`
@@ -281,7 +281,7 @@ default level), so a personal `~/.config/m65/cc45.conf` (e.g. `-O1`) does
 not change what is tested; a test's own later `-O` still wins. Use an
 explicit `-O<n>` in ad-hoc test commands too.
 
-- `make test` — unit tests (no emulator).
+- `make test` — unit tests; its example and library steps (`test_examples.sh`, `test_stdlib_new.sh`) run in xemu when it is there and are skipped without.
 - `bash src/test/test_xemu.sh` (`make test-xemu`) — runtime tests on xemu (1092 pass, about 1.5 minutes): each
   `*_xemu.c` writes results to `$C0C0` (01 = pass, `$AA` sentinel), built in
   both conventions. New runtime tests follow this pattern and are registered

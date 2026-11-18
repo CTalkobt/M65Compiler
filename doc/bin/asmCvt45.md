@@ -38,14 +38,14 @@ asmCvt45 [options] <input-file> [<input-file> ...]
 | `--clear-cache` | Clear the include-file cache before the batch |
 | `--init-config` | Write a default `.asmCvt45rc` in the current directory and exit |
 | `--show-config` | Print the configuration in effect and exit |
-| `--help` | Show usage |
+| `--help` | Show usage (there is no `-h`) |
 | `--version` | Show version |
 
 With one input and no `-o`, the result goes to stdout. With several inputs and no `-o`, each result is written to `<basename><target extension>` in the current directory. The exit status is 1 if any file failed.
 
 ### Input format detection
 
-Without `-f`, asmCvt45 looks for an editor modeline in the first or last five lines — `vim: ft=<name>` / `vim: filetype=<name>` or `-*- mode: <name> -*-` — then falls back to the file extension. Modeline names may also be aliases: `45gs02`/`mega65` (ca45), `cc65`/`c65` (ca65), `a65` (acme), `merlin`/`m64`/`m6502` (merlin64), `commodore` (oscar), `kickass`/`ka` (kickassembler).
+Without `-f`, asmCvt45 looks for an editor modeline in the first or last five lines — `vim: ft=<name>` / `vim: filetype=<name>` or `-*- mode: <name> -*-` — then falls back to the file extension. Modeline names may also be aliases: `45gs02`/`mega65` (ca45), `cc65`/`c65` (ca65), `a65` (acme), `merlin`/`m64`/`m6502` (merlin64), `commodore` (oscar), `bitshift` (bsa), `kickass`/`ka` (kickassembler). `-f` and `-t` take only the canonical names (`-f cc65` is `Unsupported input format`).
 
 ```bash
 asmCvt45 input.s45                       # ca45 -> ca45 (normalise) to stdout
@@ -129,25 +129,13 @@ main:
 
 **ca45 → kickassembler / ca65**: the same lines with four-space indentation. **merlin64 / oscar**: labels without a colon, tab-indented instructions.
 
-**KickAssembler namespaces** are flattened to dotted labels:
+Every writer but ca45's, Merlin 64's, Oscar's and x65's puts the CPU first (`.cpu _45gs02`, `.setcpu "4510"`, `!cpu m65`, `.CPU 45GS02`); ACME and BSA output of a source without an origin also gets the comment and warning described under [Limitations](#limitations).
 
-```asm
-!namespace game
-    main:
-        lda #$42
-        rts
-!endnamespace
-```
-→ (`asmCvt45 n.ka`)
-```asm
-game.main:
-  LDA #$42
-  RTS
-```
+**KickAssembler namespaces** are not converted: `.namespace game { … }` is passed on under its own name (its closing `}` kept as written, with a warning) and the labels inside stay unqualified (`main:`, not `game.main:`).
 
 ## Readers and writers
 
-The six non-ca45 readers share one line-based reader (`DialectReader`), set up per dialect, which reads a line as ca45's own reader does: a label, then a constant, an origin, a directive or an instruction, with its comment. An instruction's addressing mode comes from its operand (`#e`, `e,x`, `e,y`, `(e,x)`, `(e),y`, `(e)`, `e`); another operand (and any operand of an instruction that is not a 6502/65C02/45GS02 opcode, such as ca45's simulated `push a` or `add.16`) is kept as written. A directive the dialect's table does not know is passed on under its own name, as the writers pass on ca45-only directives, and macro definitions are read into the module (their calls are expanded, also a macro's use of another macro; a parameter is replaced where its name is a whole word outside literals, and `\1`, `\2`, … by position).
+The seven non-ca45 readers share one line-based reader (`DialectReader`), set up per dialect, which reads a line as ca45's own reader does: a label, then a constant, an origin, a directive or an instruction, with its comment. An instruction's addressing mode comes from its operand (`#e`, `e,x`, `e,y`, `(e,x)`, `(e),y`, `(e)`, `e`); another operand (and any operand of an instruction that is not a 6502/65C02/45GS02 opcode, such as ca45's simulated `push a` or `add.16`) is kept as written. A directive the dialect's table does not know is passed on under its own name, as the writers pass on ca45-only directives, and macro definitions are read into the module (their calls are expanded, also a macro's use of another macro; a parameter is replaced where its name is a whole word outside literals, and `\1`, `\2`, … by position).
 
 | Reader | Labels | Constants, origin | Data and strings | Symbols, other |
 |--------|--------|-------------------|------------------|----------------|
@@ -175,9 +163,10 @@ Strings and character constants keep their bytes: a reader writes a dialect's st
 
 Known problems:
 
-- A reader knows the common directives of its assembler, not all of them: ca65 `.scope` (its labels become global), KickAssembler namespaces (flattened to dotted names), KickAssembler's script language (`.for`, `.function`, `.eval`), ACME's `!for`/`!do`/`!set` and `.fill` with an expression of the index are not translated; an unknown directive reaches ca45 under its own name, where ca45 reports it.
+- A reader knows the common directives of its assembler, not all of them: ca65 `.scope` (its labels become global), KickAssembler namespaces (passed on as written; their labels are not qualified), KickAssembler's script language (`.for`, `.function`, `.eval`), ACME's `!for`/`!do`/`!set` and `.fill` with an expression of the index are not translated; an unknown directive reaches ca45 under its own name, where ca45 reports it.
 - Conditional assembly is resolved from the constants defined above it; a condition on anything else (a label's address) is kept as written, with a warning. ca45 has no conditional assembly of its own.
 - Macros are expanded; their definitions are not written to any target.
+- `--parallel` (and `parallel_default`) writes the output files but asmCvt45 then does not exit (1.1.0.dev; seen with two inputs, with and without `--threads`): convert without it.
 - Merlin's `ASC` is taken as ASCII as written (the Apple II versions set bit 7 for some delimiters).
 - ACME's `!24` has no ca45 equivalent and is passed on unchanged.
 - The Merlin 64, Oscar and x65 output follows their documented syntax but has not been checked with their assemblers.

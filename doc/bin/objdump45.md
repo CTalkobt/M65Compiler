@@ -16,7 +16,7 @@ The disassembly shows the 45GS02's 32-bit instructions as such: `NEG NEG` ($42 $
 objdump45 [options] <file> [...]
 ```
 
-At least one display option (`-f`, `-h`, `-t`, `-r`, `-s`, `-d`, `-a`, `-bas`, `--html`, `--tree` or `--json`) is required, or `-D` with two files.
+At least one display option (`-f`, `-h`, `-t`, `-r`, `-s`, `-d`, `-g`, `-a`, `-bas`, `--html`, `--tree` or `--json`) is required, or `-D` with two files. `--source`, `--cycles`, `--vice` and `--compare` are display options too (the first three imply `-d`).
 
 ## Options
 
@@ -36,7 +36,7 @@ At least one display option (`-f`, `-h`, `-t`, `-r`, `-s`, `-d`, `-a`, `-bas`, `
 | `--source` | A PRG or binary as ca45 source that assembles back to its bytes (see [Assemblable source](#assemblable-source)); `--entry ADDR` (again for more) code a pointer reaches, `--data A-B` a range that is data |
 | `--cycles[=MHZ]` | `-d` with each instruction's cycle count (see [Cycle counts](#cycle-counts)): the 45GS02's at `40` MHz (the default), `3.5`, `2` or `1`; the 65CE02's or the 6502's with `--cpu` |
 | `--vice` | `-d` as VICE's monitor shows it: `.C:0801  A9 00       LDA #$00` (see [VICE format](#vice-format)) |
-| `--html FILE` | One self-contained page (no other files) that shows everything there is in the files, to browse in any browser (`-` writes it to the standard output); see [HTML view](#html-view) |
+| `--html FILE` | (`--html=FILE` too) One self-contained page (no other files) that shows everything there is in the files, to browse in any browser (`-` writes it to the standard output); see [HTML view](#html-view) |
 | `--tree` | The same as a tree in the terminal: arrow keys to move, open and close; not on a terminal, the whole tree as indented text; see [Tree view](#tree-view) |
 | `--json` | The files as one JSON document (what `--html` and `--tree` show); see [JSON model](#json-model) |
 | `--compare A B` | What changed from A to B: sizes, symbols, function attributes, relocations, each function's instructions; as text, or in `--html` / `--tree` / `--json`; see [Comparing two files](#comparing-two-files) |
@@ -61,7 +61,7 @@ architecture: 45GS02, flags $8800 (SIZE32, CPUEXT)
   option: ASM "ca45"
 ```
 
-Options are named `FNAME`, `OS`, `ASM`, `AUTHOR`, `CREATED`, `LINEINFO` (`$11`), `DEBUG_SYMBOLS` (`$12`); others (e.g. `$10` sub-segment) show as `USER`. For a PRG:
+Options are named `FNAME`, `OS`, `ASM`, `AUTHOR`, `CREATED`, `LINEINFO` (`$11`), `DEBUG_SYMBOLS` (`$12`), `DEBUG_TYPES` (`$17`), `DEBUG_VARS` (`$18`); others (e.g. `$10` sub-segment) show as `USER`. For a PRG:
 
 ```
 program.prg:     file format prg
@@ -88,11 +88,12 @@ SYMBOL TABLE (math.o45):
          U __bp_prog
 00000101 W __sp_base
 ...
-00000000 T _add  [zp_call leaf uses:- clobbers:- releases:- regs:AX flags:CNZV]
+00000000 T _add  [zp_call leaf static_alloc uses:- clobbers:- releases:- regs:AX flags:CNZV]
+00000000 B _add__ar
 00000000 B _add__param_a
 ```
 
-Imports, then exports in file order. Letters as in [nm45](nm45.md): `U`, `T`, `D`, `B`, `Z`, `A`, `W` (weak); functions with an attribute record show it in brackets.
+Imports, then exports in file order. Letters as in [nm45](nm45.md): `U`, `T`, `D`, `B`, `Z`, `A`, `W` (weak); functions with an attribute record show it in brackets (as `nm45 -f`: the convention, the `leaf`, `reentrant`, `static_alloc`, `zeroalloc` and `isr` flags, the base-page bytes used, clobbered and released as hex address ranges, the registers and flags clobbered).
 
 ### Relocation Entries (`-r`)
 
@@ -116,7 +117,7 @@ Contents of section DATA:
 
 ### Disassembly (`-d`)
 
-All 45GS02 addressing modes are decoded (including `($nn,SP),Y`, `[zp],Z`, 16-bit branches, `PHW #imm16`). Export symbols become labels, branch targets inside the section are resolved, and `; file:line` comments come from the object's line info (or the map's Source Lines).
+All 45GS02 addressing modes are decoded (including `($nn,SP),Y`, `[zp],Z`, 16-bit branches, `PHW #imm16`). Export symbols become labels, branch targets inside the section are resolved, and `; file:line` comments come from the object's line info (or the map's Source Lines), followed by the line's text when the source file can be read from where objdump45 runs. Addresses a [symbol file](#symbol-files) names are shown by name (by default the MEGA65 set: `jsr CHROUT ; $ffd2`; `-S none` leaves the numbers).
 
 ```
 Disassembly of section TEXT (autil.o45):
@@ -127,7 +128,7 @@ Disassembly of section TEXT (autil.o45):
     0004:	a0 00       	ldy	#$00
     0006:	b1 fb       	lda	($fb),y
     0008:	f0 06       	beq	$0010
-    000a:	20 d2 ff    	jsr	$ffd2
+    000a:	20 d2 ff    	jsr	CHROUT	; $ffd2
     000d:	c8          	iny
     000e:	d0 f6       	bne	$0006
     0010:	60          	rts
@@ -318,7 +319,7 @@ The functions' attributes are taken from all the files given, so a call into ano
 `objdump45 --compare A B` writes what changed from A to B: each segment's size, the symbols added, removed and
 changed (segment, weak, the function's attribute record), the relocations against each symbol, and for each
 function its instructions in A against those in B (a diff that leaves out the addresses: an operand that is the
-code's own address shows as `<label>`, a relocated one by its symbol). With `--html FILE` the comparison is the first
+code's own address shows as `<label>`, a relocated one by its symbol). As text, the comparison is followed by the two files as `--tree` writes them. With `--html FILE` the comparison is the first
 entry of the page, before the two files; with `--tree` the first node; with `--json` the first entry
 (`kind: comparison`).
 
@@ -333,11 +334,11 @@ $ objdump45 --html diff.html --compare old.o45 new.o45
 by kind `format`, `cpu`, `mode`, `options`, `segments` (`name`, `type`, `base`, `size`, `relocs`), `sections`,
 `symbols` (`name`, `value`, `seg` — `U` for an import —, `weak`, `attr`: `conv`, `flags`, `regs`, `cflags`, `zpUses`,
 `zpClobbers`, `zpRelease`, `params`, `frame`), `relocs` (`seg`, `offset`, `type`, `symbol` or `target`, `extra`),
-`disasm` (sections: `name`, `base`, `size`, `cpu`, `lines`), `data` (`name`, `base`, `hex`, `labels`); a library's
-`members` (each an object entry) and `index` (`name`, `member`); a PRG's `stub` and `map`; an overlay file's
-`overlays`; each file's `checks` (`severity`, `kind`, `message`, `a`). A comparison (`--compare`) has `a`, `b`,
+`disasm` (sections: `name`, `base`, `size`, `cpu`, `lines`), `data` (`name`, `base`, `hex`, `labels`, `relocNames`); a library's
+`members` (each an object entry) and `index` (`name`, `member`); a PRG's `base`, `size`, `stub` (`size`, `line`, `sys`, `hex`) and `map`; an overlay file's
+`mapped`, `region`, `loadAddress` and `overlays` (`name`, `size`, `at`); each file's `checks` (`severity`, `kind`, `message`, `a`). A comparison (`--compare`) has `a`, `b`,
 `segments` (`name`, `a`, `b`, `delta`), `added`, `removed`, `changed`, `relocs` and `functions` (`name`, `a`, `b`,
-`added`, `removed`, `lines`: `+ `, `- ` or two spaces before each instruction). A line in `lines` has `t` — `L` a label (`name`), `S` a source line (`file`, `line`, `text`), `I` an
+`added`, `removed`, `lines`: `+ `, `- ` or two spaces before each instruction) and `unchanged`. A line in `lines` has `t` — `L` a label (`name`), `S` a source line (`file`, `line`, `text`), `I` an
 instruction (`b` its bytes, `m`, `o` the operand, `n` the note, `g` the address it branches, jumps or calls to,
 `c` the cycles with `--cycles`, `u` undocumented), `B` a byte — and `a`, its address.
 
@@ -369,8 +370,11 @@ Disassembly of section PRG (program.prg):
 Disassembly of section code (program.prg):
 
 0000200d <__init>:
-    200d:	ba          	tsx
-    200e:	8e 5d 20    	stx	$205d
+    200d:	a9 00       	lda	#$00
+    200f:	8d f8 20    	sta	$20f8	; <__bc_mode>
+
+00002012 <__start>:
+    2012:	ba          	tsx
     ...
 ```
 
@@ -421,7 +425,7 @@ objdump45 -d main_o0.o45 > o0.asm; objdump45 -d main_o2.o45 > o2.asm; diff o0.as
 
 ## Format Detection
 
-ln45's overlay description (a file that starts and ends with `OVL45`) and a file named `.ov1`–`.ov9` are read as code overlay files (the code needs the `.ovd` next to it; the description without its code files gives the sections and symbols, not `-s`/`-d`). Otherwise `objdump45` tries to read each file as `.o45`. If that fails, a `.prg` extension selects PRG mode, a `.bin` extension or `-b` selects raw-binary mode; otherwise the read error is reported. For PRG/binaries `-h`, `-t` and `-r` print nothing. `.o65` files (magic `"o65"`) are not accepted as objects (see [nm45](nm45.md#supported-formats)).
+ln45's overlay description (a file that starts and ends with `OVL45`) and a file named `.ov1`–`.ov9` are read as code overlay files (the code needs the `.ovd` next to it; the description without its code files gives the sections and symbols, not `-s`/`-d`). Otherwise `objdump45` tries to read each file as `.o45`. If that fails, a `.prg` extension selects PRG mode, a `.bin` extension or `-b` selects raw-binary mode; otherwise the read error is reported. For PRG/binaries `-h`, `-t`, `-r` and `-g` print nothing. A `.lib` archive is read only by `--html`, `--tree` and `--json` (each member); the other options report it as an unrecognized format (list it with `ar45 t`, extract with `ar45 x`). An overlay kept in attic RAM shows the low 24 bits of its far address as LMA (the description has no more). `.o65` files (magic `"o65"`) are not accepted as objects (see [nm45](nm45.md#supported-formats)).
 
 ## See Also
 

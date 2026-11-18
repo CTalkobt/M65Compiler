@@ -39,8 +39,8 @@ Comments and blank lines are kept. Warnings go to stderr and name the line; a co
 | | |
 |---|---|
 | **Kept** | Labels, `@cheap` locals, constants (`=`, `:=`), `.byte`/`.byt`, `.word`/`.addr`, `.dword`, `.res`, `.align`, `.org`, `.incbin`, segments (`.code`, `.data`, `.rodata` → `.data`, `.bss`, `.segment`), `.import`/`.export` (also `zp`). |
-| **Translated** | `.proc name` → the label `name` (each procedure's `@locals` are its own); unnamed labels `:` with `:-`/`:+`/`:--`/`:++` → generated names; `.define NAME value` → a constant; `.asciiz` → the string and a 0; `.lobytes`/`.hibytes` → `.byte <…`/`>…`; `.macro` calls expanded; conditionals resolved; the file starts in `.code`, as ca65's does, when code comes before the first segment switch. |
-| **Lost** | `.endproc`; `.scope`/`.endscope` (their labels become global: `scope::name` references do not convert, warned); `.setcpu`, `.p02`, `.p4510` (ca45 is a 45GS02 assembler). |
+| **Translated** | `.setcpu "x"` → `.cpu x`; `.proc name` → the label `name` (each procedure's `@locals` are its own); unnamed labels `:` with `:-`/`:+`/`:--`/`:++` → generated names; `.define NAME value` → a constant; `.asciiz` → the string and a 0; `.lobytes`/`.hibytes` → `.byte <…`/`>…`; `.macro` calls expanded; conditionals resolved; the file starts in `.code`, as ca65's does, when code comes before the first segment switch. |
+| **Lost** | `.endproc`; `.scope`/`.endscope` (their labels become global: `scope::name` references do not convert, warned); `.p02`, `.pc02`, `.p816`, `.p4510`, `.debuginfo`, `.autoimport`, `.feature`, `.smart` (each left out, with a warning). |
 | **Note** | ca65 code is relocatable: its address comes from ld65. Assemble the result with `ca45 -c` and link with `ln45` (see [the cc65 example](#1-a-cc65-module-into-a-mega65-program)). |
 
 **Writing ca65:**
@@ -81,7 +81,7 @@ Comments and blank lines are kept. Warnings go to stderr and name the line; a co
 | **Kept** | Labels, `.const`/`.var`/`.label`, `*=`/`.pc =`, `.byte`, `.word`, `.dword`, `.fill`, `.align`, `.cpu`; `//` and `/* */` comments. |
 | **Translated** | Multi-labels (`!:`, `!loop:`, referenced as `!-`, `!+`, `!loop--`, …) → generated names; `.macro name(a, b) { … }` with `name(x, y)` calls expanded; `.if (…) { } else { }` resolved; `((zp)),z` → ca45's `[zp],z`; `.import binary "f"` → `.incbin "f"`; `.text` in the current `.encoding` (screencode_mixed by default) → byte lists. |
 | **Lost** | `.filenamespace`, `.print`, `.file`, `.disk`, `.segmentdef`, `.memblock`. |
-| **Not translated** | KickAssembler's script language (`.for`, `.function`, `.eval`, lists and hashtables), `!namespace` scoping (flattened to dotted names), `.fill` with an expression of the index. |
+| **Not translated** | KickAssembler's script language (`.for`, `.function`, `.eval`, lists and hashtables), `.namespace` scoping (the directive is passed on as written and the labels inside are not qualified), `.fill` with an expression of the index. |
 
 **Writing KickAssembler:**
 
@@ -316,7 +316,7 @@ copy4:  ldq src         ; 4 bytes at once (A, X, Y, Z: the Q register)
 
 19 bytes become 14, and the copy no longer loops. Others worth looking for: `dew` for 16-bit decrements, `asw`/`row` for 16-bit shifts, `phw #`/`phw` to push words, `bra` and the 16-bit branches (`lbne`, …) for `jmp`s and branch-over-`jmp` sequences, `(zp),z` instead of `(zp),y` when Y is needed for something else, `[zp],z` to reach memory beyond 64 KB without banking, and ca45's simulated 16-bit instructions (`add.16`, `cmp.16`, … in [opcodes](opcodes.md)), which ca45 expands into the shortest sequence. Note the base page: on the MEGA65 it can be moved (`tab`), and a cc45 program has its own (see [CLAUDE.md](../../CLAUDE.md) and [calling conventions](calling-conventions.md)): `inw` and the `[zp],z` pointers need their variables in it.
 
-Keep a converted file in ca45 once it uses 45GS02 instructions: of the other targets only ACME and KickAssembler have them (see the table above).
+Keep a converted file in ca45 once it uses 45GS02 instructions: of the other targets only ACME, KickAssembler and BSA have them (see the table above).
 
 ## Checking a conversion
 

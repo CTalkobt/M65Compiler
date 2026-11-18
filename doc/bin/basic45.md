@@ -1,6 +1,6 @@
 # basic45 — MEGA65 BASIC Program Generator
 
-**Version:** the suite version (`basic45 --version` prints e.g. `basic45 v1.1.0 (55f03ab1)`)
+**Version:** the suite version (`basic45 --version` prints e.g. `basic45 v1.1.0.dev (57944258)`)
 
 ## Overview
 
@@ -15,7 +15,7 @@
 - **Block IF, select and procedures** — `if ... then` / `else` / `endif`, `select` / `case`, `proc name(params)` / `call`, local `.labels` ([Block IF and Procedures](#block-if-and-procedures))
 - **Assembly and binary data** — `asm` … `endasm`, `incbin`, `datainc` ([Assembly and Binary Data](#assembly-and-binary-data))
 - **Calling C** — `--link file.c`: C functions called with `SYS {name}` ([Calling C Functions](#calling-c-functions-link))
-- **Compiling** — `--compile`: the program as machine code, through cc45's IR and code generator; BASIC 65 but for the statements that work on the program's text ([Compiling](#compiling-compile))
+- **Compiling** — `--compile`: the program as machine code, through cc45's IR and code generator; BASIC 65 but for the statements that work on the program's text and five functions ([Compiling](#compiling-compile))
 - **Listing, source map, decompiler** — `--list`, `--source-map`, `--decompile` ([Listing, Source Map and Decompiling](#listing-source-map-and-decompiling))
 - **Converting other dialects** — `--convert=basic7`, `basic35`, `simons`, `basic8`: a BASIC 7.0 (C128), BASIC 3.5 (C16 / Plus/4), Simons' BASIC (C64) or BASIC 8 (C128) program as BASIC 65 source ([Converting BASIC 7.0 Programs](#converting-basic-70-programs-convertbasic7))
 - **Disk image, emulator, hardware** — `--disk`, `--emulator` (xemu), `--send` (a MEGA65), `--watch`
@@ -48,7 +48,7 @@ Without `-o` the output is the input name with its extension replaced by `.prg` 
 | `-I <path>` | Include search path for `#include` (one path; a later `-I` replaces an earlier one) |
 | `--minify` | Remove `REM` and `'` comments and whitespace (a blank stays where two names, keywords or numbers would run together, `_` counted as a name's character: `goto __endif1`; and before a `$` hex or `%` binary constant after one: `poke $d1`), and join lines into the line before them: never across a label (a jump target starts its own line), never onto a line containing `IF` (statements after `THEN` run only when the condition holds), at most 160 characters per line |
 | `--preserve-spaces` | Keep the blanks the source has between tokens (outside strings) instead of basic45's spacing (one space after a keyword before a name, number or operator), so the program lists as it was typed. Not the indentation: BASIC lists one space after the line number |
-| `--validate` | Run the preprocessor and validation only; write nothing |
+| `--validate` | Run the preprocessor and validation only; write nothing. With `--link` or an `asm` / `incbin` block only the block structure is checked (the labels and the rest need the link: build to see those messages) |
 | `--strict` | Treat validation warnings as errors (exit status 1) |
 | `--dry-run` | Compile, but only report what would be written |
 | `--watch` | Build, then rebuild whenever the source, an `#include`d file, a `--link` file, the `--symbols` file or `incbin`/`datainc` data changes (polled every half second; Ctrl-C stops). With `--emulator` xemu is restarted after each good build, with `--send` the program is sent again |
@@ -60,12 +60,12 @@ Without `-o` the output is the input name with its extension replaced by `.prg` 
 | `--emulator` | After writing the output, run it in xemu (`xemu-xmega65 -prgmode 65 -prg`), with the `--disk` image as drive 8 |
 | `--emulator-path <file>` | The xemu binary (default: `xemu-xmega65` found on `PATH`) |
 | `--send` | Send the program to a MEGA65 and run it: `etherload -r <prg>` (mega65-tools, over Ethernet) when `etherload` is on `PATH`, else `m65 -F -r <prg>` (serial/JTAG). These defaults are not tested here (no MEGA65 attached); `--send-cmd` sets the command |
-| `--send-cmd <command>` | The command for `--send`, `{prg}` standing for the program file (e.g. `--send-cmd "etherload -i 192.168.1.65 -r {prg}"`) |
+| `--send-cmd <command>` | The command for `--send` (which it implies), `{prg}` standing for the program file, shell-quoted (e.g. `--send-cmd "etherload -i 192.168.1.65 -r {prg}"`) |
 | `--encoding <e>` | Encoding of strings without a prefix: `upper` (default), `petscii`, `screencode`, `ascii` ([Strings and Escape Sequences](#strings-and-escape-sequences)) |
 | `--report` | Print the memory use: the BASIC program's range and size, the linked code, the free program space up to `$F6FF`, the longest line, the number of scalar variables (of 256) and arrays |
 | `--format` | Print the source re-laid out (to standard output, or to the `-o` file) and build nothing ([Formatting](#formatting)) |
-| `--link <file>` | Link a C (`.c`, compiled with `cc45 -c -O2`), assembly (`.s45`) or object (`.o45`) file after the program; repeatable ([Calling C Functions](#calling-c-functions-link)) |
-| `--lib <file>` | The library for `--link` (default: `c45.lib` next to the tools, else `ln45`'s `CC45_LIB` search) |
+| `--link <file>` | Link a C (`.c`, compiled with `cc45 -c -O2`), assembly (`.s45`, `.s`, `.asm`: `ca45 -c`) or object (any other name: given to ln45 as it is) file after the program; repeatable ([Calling C Functions](#calling-c-functions-link)) |
+| `--lib <file>` | The library for `--link` and `--compile` (default: `c45.lib` next to the tools, `bin/../lib/build` or `bin/../lib/cc45`, else `ln45`'s `CC45_LIB` search) |
 | `--map <file>` | Write the link map of a `--link` or `--compile` build: `ln45 -M` (segments, objects, symbols with their addresses, the call graph, calls through pointers, base-page blocks; see [ln45's map](ln45.md#map-file-format)). A warning without either option (nothing is linked) |
 | `--decompile` | Turn a tokenized BASIC `.prg` into basic45 source ([Listing, Source Map and Decompiling](#listing-source-map-and-decompiling)) |
 | `--compile` | Compile the program (the source, or a tokenized BASIC 65 `.prg`) to machine code: a `.prg` started with `RUN` ([Compiling](#compiling-compile)) |
@@ -76,7 +76,7 @@ Without `-o` the output is the input name with its extension replaced by `.prg` 
 | `--line-numbers` | `--compile`: each line that can raise an error records its number, for the messages' ` IN line` and `EL` (as the interpreter's). Off by default: smaller and faster code (8 bytes a line), an error's message without ` IN line` and `EL` 65535 (#483) |
 | `--bank=N` | `--compile`: the arrays and the string variables in bank N (1, 4 or 5) instead of the program's heap in bank 0 (`--bank=0`, the default): room for 53 KB (bank 1) or 65 KB of them whatever the program's size, an element's access some 10 % slower (see Compiling, #580) |
 | `--speed`, `-Ospeed` | `--compile`: `-O3` and float `+ - * /` and comparisons by the library's RAM routines (`float_fast.s45`) instead of the ROM's: faster, with the ROM's rounding fixes (see Compiling) |
-| `--convert=<dialect>` | Another BASIC's `.prg` or text listing as BASIC 65 basic45 source, with warnings for what needs a hand: `basic7` (C128 BASIC 7.0), `basic35` (C16 / Plus/4 BASIC 3.5), `simons` (C64 Simons' BASIC and TSB), `tsbneo` (TSBneo: `AT(row, column)`), `basic8` (C128 BASIC 8) ([Converting BASIC 7.0 Programs](#converting-basic-70-programs-convertbasic7)) |
+| `--convert=<dialect>` (or `--convert <dialect>`) | Another BASIC's `.prg` or text listing as BASIC 65 basic45 source (`-o`: default the input name with `.bas`; `-o -` standard output), with warnings for what needs a hand: `basic7` (C128 BASIC 7.0), `basic35` (C16 / Plus/4 BASIC 3.5), `simons` (C64 Simons' BASIC and TSB), `tsbneo` (TSBneo: `AT(row, column)`), `basic8` (C128 BASIC 8) ([Converting BASIC 7.0 Programs](#converting-basic-70-programs-convertbasic7)) |
 | `--ntsc`, `--pal` | With `--convert`: the source machine's video timing, for `TEMPO` and BASIC 3.5's `SOUND` (default `--pal`) |
 | `--data-loader` | The input is machine code (a `.prg`, or a binary with `--load-at`): write a BASIC program that POKEs it from `DATA` lines and SYSes it, a type-in listing ([DATA Loaders](#data-loaders-data-loader)); with `--hex`, `--checksum`, `--per-line <n>`, `--start <line>`, `--increment <n>`, `--no-sys`, `--load-at <addr>` |
 | `--list-tokens` | List all keywords with their token values and exit |
@@ -313,6 +313,8 @@ basic45 --link routines.c menu.bas -o menu.prg
 - Other `{name}` references are the addresses of C symbols, e.g. `peek({counter})` (a C global). BASIC's `PEEK` and `POKE` use the current `BANK`; the default bank shows ROM over parts of bank 0, so read the C data with `BANK 0 : V = PEEK({counter}) : BANK 128`, and call `SYS` in the default `BANK 128` (the C code calls the ROM).
 - The code is linked (`ln45 -prg -t`) at the first page boundary after the BASIC program and written into the same `.prg`; the program and the code load together. A `main` is not needed (a weak one is supplied).
 - The C files are compiled with `cc45 -c -O2` (the ZP convention, `c45.lib`).
+- A linked assembly file is assembled with `ca45 -c`; `SYS {label}` calls its label directly, as an `asm` block's (no thunk). The label must be exported there (`.global label`): the labels of an `asm` block are made global by basic45, those of a file are not, and `{label}` of one that is not exported is left as it is (a variable's name to BASIC).
+- `--map file` writes the link's `ln45 -M` map; `-v` shows the cc45, ca45 and ln45 commands. `BASIC45_KEEP_TMP=1` in the environment keeps the build's temporary directory (`basic45_link_<pid>`, `basic45_compile_<pid>` in the system's temporary directory): the thunks, the objects, the compiled program's assembly.
 
 `examples/basic/c_routines` is a complete example; `test_basic45_link_xemu.bas` with `test_basic45_link_xemu.c` is run by BASIC 65 on xemu.
 
@@ -320,7 +322,7 @@ basic45 --link routines.c menu.bas -o menu.prg
 linked code are one link (`ln45 -basic`): the program already runs as C, so `SYS {name}` calls the function
 directly (no thunk, no `__basic_call`): A, X and Y (a missing one: the last value, as SYS's) its first three
 parameters, its result in A / X for `RREG`. Other `{name}` references are the symbols' addresses (asm blocks'
-labels and `incbin` data too), and `SYS {label}` of assembly is SYS's call with the registers. The C files must
+labels and `incbin` data too; a name alone: `{name+1}` is not substituted here, write `{name} + 1`), and `SYS {label}` of assembly is SYS's call with the registers. The C files must
 not define `main` (the program is). Test: the same `test_basic45_link_xemu.bas`, compiled (with and without
 `--checks`).
 
@@ -346,11 +348,11 @@ status at `$FD`/`$FE` is the error number), after which BASIC's `READY.` follows
 
 | | |
 |---|---|
-| Statements | `LET` and assignments, `PRINT` (`;`, `,`, `TAB(`, `SPC(`), `IF` … `THEN` / `GOTO` (a line number or statements), `ELSE`, `BEGIN` / `BEND`, `GOTO`, `GO TO`, `GOSUB`, `RETURN`, `ON` … `GOTO` / `GOSUB`, `FOR` … `TO` … `STEP` / `NEXT` (a float or an integer variable, `FOR I%`; `NEXT a, b`), `POKE`, `DIM`, `INPUT` (a prompt with `;` or `,`), `GET`, `GETKEY`, `DO` … `LOOP` (`WHILE` / `UNTIL` on either), `EXIT`, `READ`, `DATA`, `RESTORE` (a line number or none), `DEF FN`, `WPOKE`, `WAIT`, `SLEEP`, `SCNCLR` (the text screen), `BANK`, `TRAP` (a line number, an expression or none), `RESUME` (none, `NEXT` or a line), `OPEN`, `CLOSE`, `PRINT#`, `INPUT#`, `GET#`, `CMD`, `DOPEN`, `APPEND`, `DCLOSE`, `DLOAD`, `LOAD` (chaining), `HEADER`, `SCRATCH` / `ERASE` / `DELETE "name"`, `RENAME`, `COPY` (on one unit), `CONCAT`, `COLLECT`, `DCLEAR`, `BACKUP`, `RECORD#`, `BLOAD`, `BSAVE`, `BVERIFY`, `DIR` / `CATALOG`, `FREAD#`, `FWRITE#`, `LINE INPUT`, `LINE INPUT#`, `SPRITE` (and `SPRITE CLR`), `SPRCOLOR`, `MOVSPR`, `SPRSAV`, `COLLISION`, `COLOR` / `FOREGROUND`, `BACKGROUND`, `BORDER`, `HIGHLIGHT`, `CURSOR`, `RCURSOR`, `WINDOW`, `SPEED` / `FAST`, `PALETTE COLOR` / `PALETTE RESTORE`, `VSYNC`, `SCREEN`, `PEN`, `DMODE`, `DPAT`, `DOT`, `LINE`, `BOX`, `CIRCLE`, `ELLIPSE`, `POLYGON`, `PALETTE` of a screen, `SCNCLR colour`, `GRAPHIC CLR`, `LOADIFF`, `SAVEIFF`, `SYS`, `RREG`, `DMA`, `EDMA`, `MOUSE`, `RMOUSE`, `PLAY` (string constants), `SOUND`, `TEMPO`, `VOL`, `ENVELOPE`, `FILTER`, `PRINT USING`, `RUN` (a line or a program), `FGOTO`, `FGOSUB`, `KEY`, `FONT`, `CHAR DEF`, `TYPE`, `DISK`, `LOCK`, `UNLOCK`, `MKDIR`, `CHDIR`, `SET DEF` / `DISK` / `VERIFY` / `BIT`, `CLR BIT`, `BOOT` (and `BOOT SYS`), `MOUNT`, `SPRITE SAVE` / `LOAD`, `CLR` (also `CLR` a variable, `ERR$`, `TI`, `ST`, `DS`), `TRON` / `TROFF` (`[line]` before each statement while on, as the interpreter's), `MEM` (its values checked; a compiled program allocates nothing in banks 4-5), `FREEZER`, `IMPORT` (`?DIRECT MODE ONLY` when it runs, as in the interpreter), `FORMAT` (`HEADER`'s other name),
+| Statements | `LET` and assignments, `PRINT` (`;`, `,`, `TAB(`, `SPC(`), `IF` … `THEN` / `GOTO` (a line number or statements), `ELSE`, `BEGIN` / `BEND`, `GOTO`, `GO TO`, `GOSUB`, `RETURN`, `ON` … `GOTO` / `GOSUB`, `FOR` … `TO` … `STEP` / `NEXT` (a float or an integer variable, `FOR I%`; `NEXT a, b`), `POKE`, `DIM`, `INPUT` (a prompt with `;` or `,`), `GET`, `GETKEY`, `DO` … `LOOP` (`WHILE` / `UNTIL` on either), `EXIT`, `READ`, `DATA`, `RESTORE` (a line number or none), `DEF FN`, `WPOKE`, `WAIT`, `SLEEP`, `SCNCLR` (the text screen), `BANK`, `TRAP` (a line number, an expression or none), `RESUME` (none, `NEXT` or a line), `OPEN`, `CLOSE`, `PRINT#`, `INPUT#`, `GET#`, `CMD`, `DOPEN`, `APPEND`, `DCLOSE`, `DLOAD`, `LOAD` (chaining), `HEADER`, `SCRATCH` / `ERASE` / `DELETE "name"`, `RENAME`, `COPY` (on one unit), `CONCAT`, `COLLECT`, `DCLEAR`, `BACKUP`, `RECORD#`, `BLOAD`, `BSAVE`, `BVERIFY`, `DIR` / `CATALOG`, `FREAD#`, `FWRITE#`, `LINE INPUT`, `LINE INPUT#`, `SPRITE` (and `SPRITE CLR`), `SPRCOLOR`, `MOVSPR`, `SPRSAV`, `COLLISION`, `COLOR` / `FOREGROUND`, `BACKGROUND`, `BORDER`, `HIGHLIGHT`, `CURSOR`, `RCURSOR`, `WINDOW`, `SPEED` / `FAST`, `PALETTE COLOR` / `PALETTE RESTORE`, `VSYNC`, `SCREEN`, `PEN`, `DMODE`, `DPAT`, `DOT`, `LINE`, `BOX`, `CIRCLE`, `ELLIPSE`, `POLYGON`, `PALETTE` of a screen, `SCNCLR colour`, `GRAPHIC CLR`, `PAINT`, `VIEWPORT`, `GCOPY`, `CUT`, `PASTE`, `CHAR`, `LOADIFF`, `SAVEIFF`, `SYS`, `RREG`, `DMA`, `EDMA`, `MOUSE`, `RMOUSE`, `PLAY` (string expressions, up to 6 voices), `SOUND`, `TEMPO`, `VOL`, `ENVELOPE`, `FILTER`, `PRINT USING`, `RUN` (a line or a program), `FGOTO`, `FGOSUB`, `KEY`, `FONT`, `CHAR DEF`, `TYPE`, `DISK`, `LOCK`, `UNLOCK`, `MKDIR`, `CHDIR`, `SET DEF` / `DISK` / `VERIFY` / `BIT`, `CLR BIT`, `BOOT` (and `BOOT SYS`), `MOUNT`, `SPRITE SAVE` / `LOAD`, `CLR` (also `CLR` a variable, `ERR$`, `TI`, `ST`, `DS`), `TRON` / `TROFF` (`[line]` before each statement while on, as the interpreter's), `MEM` (its values checked; a compiled program allocates nothing in banks 4-5), `FREEZER`, `IMPORT` (`?DIRECT MODE ONLY` when it runs, as in the interpreter), `FORMAT` (`HEADER`'s other name),
 `TURBO` (nothing, as the ROM's: parameters are a `?SYNTAX ERROR`), `SYS {name}` of C linked with `--link`, `END`, `STOP`, `REM`; `POKE` / `WPOKE` with a list of values |
 | Values | floats, `%` integers (-32768..32767), strings (up to 255 characters); arrays of each (`DIM a(n, m)`; `DIM a` of a scalar does nothing, up to 8 subscripts; sizes at run time) |
 | Operators | `+ - * / ^`, unary `-`, `= <> < > <= >=` (numbers and strings), `AND`, `OR`, `XOR`, `NOT` (-32768..65535, as BASIC 65's), `<<`, `>>` |
-| Functions | `ABS`, `INT`, `SGN`, `SQR`, `USR`, `FRE`, `JOY`, `POT`, `LPEN`, `RPLAY`, `DECBIN`, `POINTER`, `SIN`, `COS`, `TAN`, `ATN`, `LOG`, `EXP`, `PEEK`, `LEN`, `ASC`, `CHR$`, `STR$`, `LEFT$`, `RIGHT$`, `MID$`, `RND`, `FN`, `POS`, `VAL`, `DEC`, `HEX$`, `STRBIN$`, `INSTR` (a pound sign's pattern too), `MOD`, `WPEEK`, `RPT$`, `ERR$`, `RSPRITE`, `RSPCOLOR`, `RSPPOS`, `BUMP`, `RCOLOR`, `RWINDOW`, `RSPEED`, `RGRAPHIC`, `PIXEL`, `RPEN`, `RPALETTE`, π; the variables `TI`, `TI$`, `ER`, `EL`, `ST`, `DS` and `DS$` (`ST$`, `ER$`, `EL$` and every `%` form, `TI%` too, are ordinary variables, as in the interpreter) |
+| Functions | `ABS`, `INT`, `SGN`, `SQR`, `USR`, `FRE`, `JOY`, `POT`, `LPEN`, `RPLAY`, `DECBIN`, `POINTER`, `SIN`, `COS`, `TAN`, `ATN`, `LOG`, `EXP`, `PEEK`, `LEN`, `ASC`, `CHR$`, `STR$`, `LEFT$`, `RIGHT$`, `MID$`, `RND`, `FN`, `POS`, `VAL`, `DEC`, `HEX$`, `STRBIN$`, `INSTR` (a pound sign's pattern too), `MOD`, `WPEEK`, `RPT$`, `ERR$`, `RSPRITE`, `RSPCOLOR`, `RSPPOS`, `BUMP`, `RCOLOR`, `RWINDOW`, `RSPEED`, `RGRAPHIC`, `PIXEL`, `RPEN`, `RPALETTE`, π; the variables `TI`, `TI$`, `ER`, `EL`, `ST`, `DS` and `DS$` (`ST$`, `ER$`, `EL$` and every `%` form, `TI%` too, are ordinary variables, as in the interpreter). Not compiled yet: `LOG10`, `LOG2`, `HASBIT`, `RDISK` and `RSPRSYS` (an error: `LOG10 is not a value in an expression`), and a value given to `TI`, `TI$`, `ST`, `DS`, `DS$`, `ER` or `EL` by an assignment, `INPUT`, `READ` or `FOR` (`TI (a reserved variable) is not supported by --compile yet`; `CLR TI` is compiled) |
 
 **How**: the program is one function; each line and statement starts a block. `GOTO` is a branch; `GOSUB`
 pushes the address of the code after it on BASIC's stack and `RETURN` jumps back to it. `FOR` pushes its
@@ -425,7 +427,7 @@ same drive). `FREAD# lf, address, size` / `FWRITE#` move `size` bytes (0: 65536)
 as `InputBuffer`), `LINE INPUT ["prompt";] a$ [, ...]` the rest of the typed line as it is (commas, colons,
 leading spaces). `DIRECTORY` is `DIR` (basic45 crunches it as BASIC 65 does: `DIR` and the `ECTORY` token, `$FE $29`). `DIR` of the SD card (`U12`) is the ROM's `dir_sd`, ported to assembly (`stdlib_asm/basic_dirsd.s45`, linked only by a program with `DIR` or `CATALOG`): the hypervisor's directory, each entry's size and name, the pattern's `*`, `?`, `#` (a digit) and `$` (a letter) as the ROM matches them, `[MORE]` in the page mode; test `test_dirsd_xemu.bas` (the interpreter's screen and the compiled program's, on a card disk45 makes).
 `DSAVE`, `SAVE`, `VERIFY` and `DVERIFY` are errors: they save or compare the BASIC program's text, which a compiled
-program does not have. So is `MERGE`, which adds lines to it, and so are the editor's commands (`LIST`, `NEW`,
+program does not have. So is `MERGE`, which adds lines to it, `DELETE` of lines (`DELETE 10-20`: direct mode only), and so are the editor's commands (`LIST`, `NEW`,
 `CONT`, `AUTO`, `RENUMBER`, `EDIT`, `FIND`, `CHANGE`, `HELP`, `INFO`, `MONITOR`: the program's text or direct
 mode). These will stay errors: they are not to be compiled. A keyword out of place (a function starting a
 statement, a statement's keyword in an expression, something that is no parameter of a disk statement) is a
@@ -712,7 +714,7 @@ Integer code is some 38 times as fast. Float arithmetic gains less: through the 
 operation calls it with `JSRFAR` (and once more to round the result), so a loop of floats only is 1.3 times as
 fast; the RAM routines of `--speed` make it about three times as fast, a float operation still being hundreds
 of cycles. The compiled program is about five times the size of the tokenized one, six with `--speed`
-(`test_basic_compile_xemu.bas`: 2,956 bytes → 15,009, `--speed` 18,850):
+(`test_basic_compile_xemu.bas`: 2,956 bytes → 15,051, `--speed` 18,890):
 integers in 16 bits when their bounds allow, float constants as data and floats read and written in
 place (cc45's code generator), `__bas_line` stored only where a line that can raise an error is entered,
 `NEXT` one call (`__bas_next`: a FOR's entry holds its step code's address), conditions of comparisons
@@ -752,7 +754,7 @@ basic45 --data-loader --load-at 7000 code.bin -o -      # a raw binary, to stdou
 - The loader starts with `BANK 0`: BASIC 65's `POKE` and `SYS` use the current bank, and the default, 128, is the system mapping, where most addresses are not RAM.
 - `--per-line <n>` bytes per `DATA` line (default 8, at most 30), lines from `--start <line>` (default: the increment) by `--increment <n>` (default 10). `--hex` writes the bytes in hex (`a9,01,60`, read with `DEC()`). `--no-sys` only loads the code.
 - `--checksum` adds a checksum to each `DATA` line (the sum of its bytes `AND 255`), checked while loading: a mistyped line prints `DATA ERROR IN LINE n` and stops before the code runs.
-- The code must not overwrite the loader itself, the BASIC program at `$2001`: that is an error (link the code elsewhere, e.g. `ln45 -prg -t 7000`). Code below `$2000` (BASIC 65's system and screen memory) is a warning.
+- The code must not overwrite the loader itself, the BASIC program at `$2001`: that is an error when the loader is built as a `.prg` (link the code elsewhere, e.g. `ln45 -prg -t 7000`; not checked when only the source is written). The code must end below `$10000`. `--link` does not go with `--data-loader`. Code below `$2000` (BASIC 65's system and screen memory) is a warning.
 
 `test_xemu.sh` runs loaders on BASIC 65 (decimal with checksums, hex, and a mistyped line that must stop before `SYS`); `src/test/test_basic45.sh` checks the source and the errors.
 
@@ -1022,20 +1024,20 @@ basic45 program.bas -I ./includes -o program.prg
 
 ## Symbol Substitution
 
-With `--symbols <file>`, every `{...}` in the source (after preprocessing) is replaced by a decimal number when it is a known symbol or an expression of symbols and numbers (`+ - * / %`, decimal or `0x` hex constants; no parentheses). Anything else is left alone.
+With `--symbols <file>`, every `{...}` in the source (after preprocessing) is replaced by a decimal number when it is a known symbol, a number, or one operation on two of them (`{sym+3}`, `{a-b}`: `+ - * / %`, decimal or `0x` hex constants; no parentheses, no second operator). Anything else is left alone (a warning `Unresolved symbol`, unless it is a PETSCII escape). The `{...}` of `--link` follow the same rules.
 
 Symbol file: one `<hex-address> <name>` per line; lines starting with `;` or `#` are skipped, as are lines that do not parse. This matches the symbol map that `ln45 -m` prints (names carry cc45's leading `_`):
 
 ```bash
-cc45 -c routines.c -o routines.o45
+cc45 -O2 -c routines.c -o routines.o45      # (with a main: ln45 -prg links crt0, which calls it)
 ln45 -prg -m routines.o45 -L lib/build -l c45.lib -o routines.prg \
   | grep '^  [0-9a-f]\{8\} ' > symbols.txt     # "  00002079 _myroutine"
 basic45 program.bas --symbols symbols.txt -o program.prg
 ```
 
 ```basic
-go: sys {_myroutine}
-go2: sys {_myroutine+3}
+first: sys {_myroutine}
+second: sys {_myroutine+3}
 ```
 
 ## Documentation Generation
@@ -1064,7 +1066,10 @@ A label is recognised when `name:` is followed by a space or the end of the line
 
 - `--link` uses the ZP calling convention and `c45.lib`; for stack-convention C, declare the called functions `__fastcall__`.
 - `--send`'s default commands (`etherload -r`, `m65 -F -r`) are untested; use `--send-cmd` with the options your tools need.
-- `--compile` does not compile the statements that work on the program's text, `MERGE` among them ([Compiling](#compiling-compile)), and not with `--link` or `asm` blocks yet.
+- `--compile` does not compile the statements that work on the program's text, `MERGE` among them, the functions `LOG10`, `LOG2`, `HASBIT`, `RDISK` and `RSPRSYS`, or a value given to a reserved variable (`TI$ = "000000"`; [Compiling](#compiling-compile)).
+- `--validate` checks only the block structure of a program with `--link` or `asm` / `incbin` blocks (exit status 0 with an undefined label).
+- A label named as a keyword is not a label: `go: sys 8192` is the statement `GO` (see [Lines and Labels](#lines-and-labels)).
+- `--preserve-spaces` is not listed by `--help`.
 
 `test_basic45_xemu.bas` (as is, `--minify` and `--preserve-spaces`), `test_basic45_struct_xemu.bas` (block IF, select, procs with local labels, comments; as is, `--minify` and `--compile`), `test_basic45_features_xemu.bas` (as is, decompiled and rebuilt, and formatted), `test_basic45_link_xemu.bas` (C, asm, incbin, datainc) and `test_basic45_numbered_xemu.bas` (a numbered program; `MOD`, `LOG10`, `WPEEK`, `POINTER`, `WPOKE`, `<<`, `>>`) are run by BASIC 65 on xemu; `src/test/test_basic45.sh` (`make test`) checks the tokens and messages.
 

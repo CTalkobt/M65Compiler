@@ -13,7 +13,7 @@ This document describes the configuration files and environment variables the to
 | `cl45` | `~/.config/m65/cc45-lint.yml`, then the first `.cc45-lint.yml` from the source file's directory upward | YAML subset (see [cl45](cl45.md#configuration-cc45-lintyml)); also `~/.config/m65/cl45.conf` (cc45's options, as `cc45.conf`: cl45 is cc45) |
 | `al45` | `~/.config/m65/cc45-lint.yml`, then the first `.cc45-lint.yml` from the source file's directory upward | YAML subset (see [al45](al45.md#configuration-cc45-lintyml)); also `~/.config/m65/ca45.conf` and `./.ca45rc` (al45 is ca45) |
 
-`ln45`, `ar45`, `nm45`, `objdump45`, `basic45`, `disk45` and `deploy45` read no configuration file (`deploy45` takes its hosts, serial port and tool paths from the environment: [deploy45](deploy45.md)).
+`ln45`, `ar45`, `nm45`, `objdump45`, `basic45`, `disk45`, `pack45`, `font45`, `tune45`, `dbg45` and `deploy45` read no configuration file (`deploy45` takes its hosts, serial port and tool paths from the environment: [deploy45](deploy45.md)).
 
 Configuration arguments are placed in front of the command-line arguments and parsed with them, so for options that set a value (`-O2`, `-fzpcall`/`-fno-zpcall`, ...) the command line wins because it comes later.
 
@@ -65,7 +65,7 @@ For the options cc45 accepts see [cc45](cc45.md) (`cc45 -?`). Besides the `-O` l
 | `TailCall` | JSR + RTS → JMP |
 | `BranchInvert` | Inverted branch instead of branch over BRA |
 | `JmpBra` | JMP → BRA |
-| `NoOpBra` | Remove BRA to the next instruction |
+| `NoOpBra` | Remove BRA to the next instruction (`-PNoOpBra` is read as "no `OpBra`" and changes nothing, so after `-O0` the pass cannot be turned on by name; its off form is `-PNoNoOpBra`) |
 | `CmpElimination` | Remove redundant compares |
 | `RedundantLoad` | Remove loads of values already in a register |
 | `DeadStore` | Remove dead stores |
@@ -87,11 +87,13 @@ See [asmCvt45](asmCvt45.md#configuration-file-asmcvt45rc). `asmCvt45 --init-conf
 | Variable | Tools | Description |
 |----------|-------|-------------|
 | `CC45_INCLUDE` | cc45, cp45, ca45 | Colon-separated include directories, searched before cc45's standard headers (`<bin>/../lib/include`, or `<bin>/../include/cc45` when installed) |
-| `CC45_LIB` | ln45 | Colon-separated library directories (see [ln45](ln45.md#environment-variables)) |
+| `CC45_LIB` | ln45, cc45 | Colon-separated library directories (see [ln45](ln45.md#environment-variables)); cc45's one-step build leaves the search to ln45 when the library is not next to `bin/` |
 | `CA45_OPTIMIZE` | ca45 | Adds `-O<value>` (after the config files, before the command line) |
-| `CA45_WARNINGS` | ca45 | Colon-separated warning names, each added as `-W<name>` (e.g. `overflow:underflow`) |
-| `CC45_DUMP_IR` | cc45 | Non-empty and not `0`: print the IR module to stderr during code generation |
-| `HOME` | cc45, cp45, ca45 | Locates `~/.config/m65/` (ca45 falls back to the password database) |
+| `CA45_WARNINGS` | ca45 | Warning names separated by colons or commas, each added as `-W<name>` (e.g. `overflow:underflow`) |
+| `CC45_DUMP_IR` | cc45 | Non-empty and not starting with `0`: print the optimized IR module to stderr during code generation |
+| `CC45_OPMARK` | cc45 | Set: a `; @op …` comment before each IR instruction's code in the assembly (see [cc45](cc45.md#environment-variables)) |
+| `TMPDIR` | cc45 | Where cc45 makes its private directory of temporary files (`cc45-XXXXXX`; default `/tmp`) |
+| `HOME` | cc45, cp45, cl45, ca45, al45 | Locates `~/.config/m65/` (ca45 falls back to the password database) |
 
 ## Creating, Checking and Disabling a Configuration
 

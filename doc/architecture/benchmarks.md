@@ -39,6 +39,7 @@ python3 src/bench/run_bench.py --json r.json  # the results as JSON too
 | `--xemu PATH` | the emulator (default `xemu-xmega65`, or `XEMU`) |
 | `--rom PATH` | the MEGA65 ROM xemu runs (default `MEGA65_ROM`, `/rom/MEGA65.ROM`, xemu's own) |
 | `--timeout S` | seconds per run (default 900) |
+| `--work DIR` | the download and build directory (default `build/bench`) |
 | `--json FILE` | write the results |
 | `--fetch-only` | download the suite and stop |
 

@@ -209,8 +209,11 @@ Frame-pointer facts:
   2 bytes of saved FP, 2 bytes of return address, and then the stack
   parameters. In `id` above that puts `@_p_a` at offset 6.
 - **Access** is `lda ($FD),y` with the offset in Y; the assembler pseudo-ops
-  are `ldax.local`, `stax.local` and `ldax.param`. Offsets must fit in 8
-  bits, and cc45 warns when a frame is larger than 128 bytes.
+  are `ldax.local`, `stax.local` and `ldax.param`; `leax.local N` is the
+  address FP + N. A frame can be larger than 255 bytes (no warning is
+  given): scalars get the lowest offsets and arrays follow, reached through
+  their addresses. Such a frame is pushed in a loop (or made by moving SP)
+  and dropped by setting SP from FP.
 - **ZP parameters** are copied into the frame at entry when a ZP-convention
   function has a frame.
 
@@ -308,7 +311,12 @@ ln45 checks over the whole program:
 
 - A SAC function that can reach itself through the call graph (a
   cross-module cycle) is an error: `'f' uses static allocation but is
-  recursive`.
+  recursive`. The graph has an edge for each `JSR` and for each `JMP` to a
+  function's entry (a tail call, which the assembler makes of a call
+  followed by a return; #615). A function is recursive when something it
+  calls by `JSR` reaches it again, by calls or tail calls; what it only
+  tail-calls runs after it has finished, so a cycle of tail calls alone is
+  a loop and links.
 - A SAC function reachable from an `__interrupt` handler is an error:
   `'f' uses static allocation but is reachable from ISR handler`. Mark such
   functions `#pragma cc45 recurse`.
@@ -327,10 +335,16 @@ All of these addresses are offsets in the program's base page:
 | `$08-$0F` | `__zp_scratch`, `__zp_scratch2`, `__zp_scratch3`, `__zp_scratch4` (2 bytes each) |
 | `$10-$2F` | ZP parameter block |
 | `$30-$7F` | register-allocator pool (temporaries / virtual registers) |
-| `$80-$F1` | functions' own base-page blocks (the most used variables of static-allocation functions that make calls), placed by ln45 (`.zar`; ln45 "base-page blocks"), and `__zp` variables; the area starts at the end of the pool the program uses (ca45's `cc45.bptop`), which can be below `$80` |
+| `$80-$F1` | functions' own base-page blocks (the most used variables of static-allocation functions that make calls, up to 16 bytes a function: `-fzp-locals-max=N`, `-fno-zp-locals`), placed by ln45 (`.zar`; ln45 "base-page blocks"), and `__zp` variables at the top; the area starts at the end of the pool the program uses (ca45's `cc45.bptop`), which can be below `$80` |
 | `$F2-$F5` | 32-bit temporary (cc45) |
 | `$F6-$FC` | library temporaries (float code `$F6-$FA`, `puts` and large frames `$FB-$FC`) |
 | `$FD-$FE` | frame pointer |
+
+Which variables go into the base-page blocks is chosen per file by cc45, or
+for the whole program by a two-pass build: `ln45 --zp-plan-out=FILE` writes
+the plan, `cc45 -fzp-plan=FILE` compiles with it (#304; see
+[ln45](../bin/ln45.md#the-program-wide-base-page-plan) and
+[optimizations.md](optimizations.md)).
 
 ### 6.2 Relocated base page
 
@@ -344,6 +358,16 @@ KERNAL and BASIC routines expect B=0, so calls to them are bracketed by:
 - `jsr __bp_rom`: sets B=0 and preserves A/X/Y/Z.
 - `jsr __bp_prog`: restores the program's page and preserves A/X/Y/Z and
   the flags.
+
+The float runtime (`lib/src/float_rom.s45`) brackets its ROM calls the same
+way, but reaches the BASIC 65 ROM's float routines through the library's own
+map switch, `__float_romcall` (`lib/stdlib_asm/float_map.s45`, #614), not the
+KERNAL's JSRFAR: it maps `$4000-$7FFF` to the ROM for the call and puts the
+map found at `$011C` back afterwards. While such a routine runs the program's
+memory at `$4000-$7FFF` is not visible, so the CPU stack must not be there.
+With `-ffast-float=1` (or `-Ospeed`; `-ffast-float=0` / `-fno-fast-float` is
+the default) float `+ - * /` and comparisons call RAM routines instead
+(`__ffast_add` … in `lib/stdlib_asm/float_fast.s45`) and make no ROM call.
 
 An instruction that has no base-page addressing mode is assembled absolute and
 ignores B. Examples: `ldz $xx`, `lda $xx,y`, `jmp ($xx)`. Generated code
@@ -405,7 +429,14 @@ still records the caller's return address and stack pointer — but needless.)
 
 Limitations:
 
-- Only direct `JSR` relocations are redirected.
+- Only direct calls are redirected: a `JSR`, and in an object cc45 made
+  (one with a `cc45.mode_zp` / `cc45.mode_stack` marker) also a `JMP` to a
+  function's entry, which is a tail call (#615): the bridge is entered by
+  the jump and returns to the jumping function's caller. A `JMP` from one
+  routine of a hand-written object to another is a continuation (the
+  registers and the stack go on as they are; the library's `__dma_mem` ends
+  in `jmp __dma_start`) and is never bridged, whatever conventions the two
+  declare. Test: `src/test/test_ln45_tailcalls.sh`.
 - ln45 decides per object, not per call site, whether a stack-mode object
   calls a function the ZP way (`cc45.zpcall.<callee>`); cc45 therefore rejects
   a `__fastcall__` declaration after a stack-convention call to it (§3.4). A function pointer taken in
@@ -420,19 +451,34 @@ Limitations:
 
 crt0 (`lib/crt0.s45`) runs these steps:
 
-1. Saves the caller's SP and flags.
+1. Saves the caller's SP (the flags are saved in step 5).
 2. Sends the `GS` knock to `$D02F`.
 3. Sets the exit status at ROM `$FD/$FE` to `$FFFF`.
 4. Relocates the base page.
-5. Switches to a **16-bit stack** whose top byte is `__stack_top`:
+5. Saves the caller's flags and switches to a **16-bit stack** whose top
+   byte is `__stack_top`:
    `sei`, `cle`, then `tys`/`txs` with `__stack_top`, then restores the
    caller's I flag. `__stack_top` defaults to `$BFFF` (from the library).
    - `-fstack-top=ADDR` or `#pragma cc45 stack_top(ADDR)` moves the top.
    - `-fno-stack16` or `#pragma cc45 no_stack16` keeps the ROM's 8-bit
      page-1 stack: the main module then defines `__stack_top = 0`.
-6. Calls `_init_features`.
-7. Calls `main` with argc = 0 and argv = NULL. These are written to
-   `$10-$13` and also pushed as two words, so both conventions see them.
+6. Fills BSS (`__bss_start` to `__bss_end`, the private base page with it)
+   with `__bss_fill` (0; cc45 `-fbss-fill=V`, ln45 `--bss-fill=V`) by a DMA
+   fill job, then calls `__zp_init` (the initial values of `__zp`
+   variables; weak, from ln45).
+7. Calls `_init_features` (weak `rts`), then `__ovl_init` (loads the code
+   overlays; weak).
+8. Calls `___mainargs`, which returns a pointer to argc and argv, and then
+   `main`: the two words are written to `$10-$13` and also pushed, so both
+   conventions see them. crt0's weak default gives argc = 0 and argv =
+   NULL; when `main` is defined with parameters the library's `mainargs`
+   member replaces it and parses the BASIC line (see
+   [stdlib.md](stdlib.md)).
+9. After `main` returns, runs the `atexit` handlers (`___atexit_run`) and
+   falls into `__exit` with `main`'s result in A:X.
+
+`crt0.s45` and `crt0_zp.s45` are the same code (the library member of each
+convention).
 
 `__exit` then:
 
@@ -443,7 +489,7 @@ crt0 (`lib/crt0.s45`) runs these steps:
 
 `__basic_call` (the library's `basic_call.s45`, with crt0's start-up; linked only when a program has such functions, #322) runs a single C function for a BASIC `SYS` (the thunks
 `basic45 --link` makes store the function's address in `___bc_target` and
-jump to it). It does steps 1-5 like `__init` (the BSS fill only on the first
+jump to it). It does steps 1-6 like `__init` (the BSS fill only on the first
 call, so globals keep their values between calls; `_init_features` then
 too), puts the SYS's A, X and Y in the first three parameter slots (`$10`,
 `$12`, `$14`, high bytes 0; they also stay in A, X, Y), calls the function,
