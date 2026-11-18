@@ -460,6 +460,18 @@ otherwise keeps its variables empty. In the interpreter the pragmas are `REM`s, 
 the variables they name. Run time: `basic_rt.s45`'s `__bas_chain`, `basic_io.c`'s `_bas_chainprep` and
 `_bas_x*`. Test: `test_basic_compile6_xemu.bas` / `test_basic_compile6b_xemu.bas`.
 
+The map is text: comment lines (`;`), the exporter's id (a hash of its variables: the importing program checks
+the block is that exporter's), then a line per variable with its slot in the block, its name and its type
+(`string`, `float` or `integer`). `rem pragma export a$, n` in `exp.bas` gives `exp.map`:
+
+```
+; basic45 --compile: the variables exp.bas passes to the program it loads (REM PRAGMA EXPORT; #369)
+; a program reads them with REM PRAGMA IMPORT "<this file>" [name, ...]
+id 449A2375
+0 A$ string
+1 N float
+```
+
 **Sprites**: `SPRITE n [, on] [, colour] [, behind] [, x expanded] [, y expanded] [, multicolour]` (each value set as it
 is read, an empty one skipped; a flag other than 0 / 1 is `?ILLEGAL QUANTITY` after those before it), `SPRITE CLR`
 (all off, unexpanded, in front, hires, stopped, the data pointers at `$0600`), `SPRCOLOR [mc1] [, mc2]`, `MOVSPR n, x, y`
@@ -725,7 +737,93 @@ strings in A/X, `$12` and `$14` (`basic_ax.s45`; an entry only when its uses sav
 `test_basic_compile_xemu.bas` and `test_basic_compile2_xemu.bas` (input, loops, RND, DATA) are run interpreted and compiled (`-O2`, `-O0`, `--speed`) on xemu with the same results;
 `test_basic45.sh` checks the output, the errors and a `.prg` input.
 
-## Formatting
+### A Compile, Step by Step
+
+`avg.bas`, with a subscript out of range, a division by zero and a `CHR$` out of range for its `TRAP` handler to report:
+
+```basic
+10 trap 100
+20 dim a(9)
+30 n = 12 : x = 300
+40 print a(n)
+50 print 10 / (n - 12)
+60 print chr$(x)
+70 end
+100 print "error"; er; "in line"; el
+110 resume next
+```
+
+```bash
+basic45 --compile --checks --line-numbers avg.bas -o avg.prg   # the checks, and the line for EL
+basic45 --compile avg.bas -o avg.prg                           # neither
+```
+
+With both options the program (4255 bytes) reports the three errors and their lines, as the interpreter does:
+
+```
+ERROR 18 IN LINE 40
+ERROR 20 IN LINE 50
+ERROR 14 IN LINE 60
+```
+
+Without them (4133 bytes) basic45 warns when compiling, since the program has a `TRAP`:
+
+```
+avg.bas:1:1: (line 10): warning: without --checks only the errors of files, the disk and memory reach TRAP's handler
+```
+
+and the program prints
+
+```
+ERROR 18 IN LINE 65535
+ERROR 20 IN LINE 65535
+,
+```
+
+The array's subscript and the division are caught all the same (the run time's own routines raise them), `EL` is
+65535 without `--line-numbers`, and `CHR$(300)` is not checked: its result is whatever the low byte gives.
+Without the `TRAP` lines, the `--checks --line-numbers` program stops at the first error with the interpreter's
+message:
+
+```
+?BAD SUBSCRIPT ERROR IN 40
+```
+
+`--bank=N` moves the arrays and the string variables out of the program's memory, and `--map` writes the link's map:
+
+```bash
+basic45 --compile --bank=4 --map avg.map avg.bas -o avg.prg
+```
+
+The map is ln45's (`-M`, see [ln45](ln45.md#map-file-format)); of a compiled program it shows the run time's pieces that
+were linked. Its parts, each cut short here:
+
+```
+Memory Layout
+-------------
+  TEXT   $200D - $3247  (4667 bytes)
+  DATA   $3248 - $3262  (27 bytes)
+  BSS    $3263 - $35FF  (925 bytes)
+  (base-page blocks $4E - $55, 8 bytes; 69 asked for by 12 functions)
+
+Call Graph
+----------
+  __bas_areff -> __bas_error __mul16 _falloc__basic_bank
+  __bas_error -> __bas_gtext __bas_msgptr __bas_out __bp_prog __bp_rom __exit __float_fout __float_utof
+  __bas_fdiv -> __bas_raise __float_div
+  ...
+
+Base Page
+---------
+  base-page block: __bas_afree at $4e len 8
+  base-page block: __bas_afreef at $4e len 8
+  base-page block: __bas_areff at $4e len 8
+  ...
+```
+
+`__bas_areff` is the array access of a `--bank` program (it calls `_falloc__basic_bank`, the bank's allocator);
+without `--bank` the map has `__bas_aref` in its place.
+
 
 `basic45 --format prog.bas` prints the source with keywords in lower case, one space between words outside strings, code indented two spaces plus two per open block (`if … then`/`else`/`endif`, `proc`/`endproc`, `select`/`case`/`endselect`, `for`/`next`, `do`/`loop`) and labels in column 0. Strings, `REM` and `DATA` text, `#` lines, `'` comments (re-indented) and `asm` blocks are kept as written. With `-o` the result goes to a file. The formatted source builds to the same program, and formatting it again changes nothing.
 
@@ -990,6 +1088,112 @@ and warned.
 
 Tests: `src/test/test_basic45.sh` (a listing, and a `.prg` written byte by byte), `src/test-resources/test_convert8_xemu.txt`
 (a BASIC 8 listing run by BASIC 65 on xemu: each command's pixels read back with `@PIXEL`, the window, `THEN :`).
+
+### Before and After
+
+A short listing in each dialect and what `basic45 --convert=<dialect> listing.txt -o -` writes for it. The
+comment lines at the top say what the conversion added: its own variables (`zc()`, `zx`, `zy`, `za`, `ya`, `yb`)
+and the subroutines after the `END`.
+
+**BASIC 3.5** (`--convert=basic35`):
+
+```
+10 COLOR 0,2,7:COLOR 4,3,5
+20 VOL 8:SOUND 1,810,30
+30 SCNCLR:PRINT "DONE"
+```
+
+```
+' converted from BASIC 3.5 (C16 / Plus/4) by basic45 --convert=basic35 (PAL timing): check the warnings
+' zc(): BASIC 3.5's colour sources (0-6, colours 0-15), zx, zy: its pixel cursor
+' za: the SID's frequency counts per Hz (for SOUND)
+' the first line: BASIC 3.5's 40-column screen and its defaults
+' after the END: subroutines the conversion added (the waits before PLAY, 40/80 columns, closing a screen)
+  gosub l32 : dim zc(6) : zc(0) = 1 : zc(1) = 0 : zc(2) = 2 : zc(3) = 5 : zx = 0 : zy = 0 : za = 16.519 : if peek(53359) and 128 then za = 16.404
+  zc(0) = 1 : background 1 : border 10
+  vol 15 : do while peek(4804) < 128 : loop : sound 1, int(517.946 * za), 30
+  : scnclr : print "done"
+  end
+l32: if rwindow(2) = 80 then print chr$(27) + "x";
+  return
+```
+
+**BASIC 7.0** (`--convert=basic7`):
+
+```
+10 COLOR 4,6:COLOR 0,1
+20 SLOW:WINDOW 0,0,19,9
+30 PRINT "FREE";FRE(1)
+```
+
+```
+' converted from BASIC 7.0 (C128) by basic45 --convert=basic7 (PAL timing): check the warnings
+' zc(): BASIC 7.0's colour sources (0-6, colours 0-15), zx, zy: its pixel cursor
+' the first line: BASIC 7.0's 40-column screen and its defaults
+' after the END: subroutines the conversion added (the waits before PLAY, 40/80 columns, closing a screen)
+  gosub l32 : dim zc(6) : zc(0) = 11 : zc(1) = 1 : zc(2) = 2 : zc(3) = 5 : zx = 0 : zy = 0
+  border 5 : zc(0) = 0 : background 0
+  speed 1 : window 0, 0, 19, 9
+  print "free"; fre(1)
+  end
+l32: if rwindow(2) = 80 then print chr$(27) + "x";
+  return
+```
+
+**Simons' BASIC** (`--convert=simons`):
+
+```
+10 N=0:REPEAT:N=N+1:UNTIL N=3
+20 PRINT DIV(7,2);MOD(7,3)
+30 IF N=3 THEN PRINT "A":ELSE:PRINT "B"
+```
+
+```
+' converted from Simons' BASIC (C64) by basic45 --convert=simons: check the warnings
+' the first line: Simons' BASIC's 40-column screen
+' after the END: subroutines the conversion added (the waits before PLAY, 40/80 columns, closing a screen)
+  gosub l32
+  n = 0 : do : n = n + 1 : loop until n = 3
+  print int(int(7) / int(2)); mod(int(7), int(3))
+  if n = 3 then print "a" : else print "b"
+  end
+l32: if rwindow(2) = 80 then print chr$(27) + "x";
+  return
+```
+
+**BASIC 8** (`--convert=basic8`):
+
+```
+10 @WALRUS,1:@MODE,0:@SCREEN,0:@COLOR,0,15,0:@CLEAR,0
+20 @DOT,10,10,0
+30 @LINE,20,20,0,600,20,0,1
+```
+
+```
+' BASIC 8's graphics: a 640 x 200 screen, its palette the VDC's 16 colours (ya: the pen, yb: the background)
+' converted from BASIC 8 (C128) by basic45 --convert=basic8 (PAL timing): check the warnings
+' the first line: BASIC 7.0's 40-column screen
+' after the END: subroutines the conversion added (the waits before PLAY, 40/80 columns, closing a screen)
+  gosub l41
+  ya = 15 : yb = 0 : gosub l32 : gosub l32 : yb = 0 : ya = 15 : pen 0, ya : border 0 : scnclr yb
+  dot 10, 10
+  line 20, 20, 600, 20
+  end
+l32: if rgraphic(0, 0) = 1 then screen close 0
+  screen 640, 200, 4 : palette 0, 0, 0, 0, 0 : palette 0, 1, 5, 5, 5
+  ...                                               (the other 14 colours)
+  palette 0, 15, 15, 15, 15 : pen 0, ya : return
+  end
+l41: if rwindow(2) = 80 then print chr$(27) + "x";
+  return
+```
+
+A `.prg` that does not load where the dialect's programs do is converted all the same, with a warning:
+
+```
+$ basic45 --convert=basic7 odd.prg -o -
+odd.prg: warning: loads at $801, not BASIC 7.0's $1c01
+```
 
 ## Preprocessor
 
