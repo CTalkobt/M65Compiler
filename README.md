@@ -148,7 +148,7 @@ The Linux archives' disk45 has the catalog and `mount`, with SQLite and libfuse 
 system's FUSE: `/dev/fuse` and the `fusermount3` helper (the `fuse3` package), which `disk45 mount` asks for
 when it is used and names when they are missing; nothing else in the archive needs them. The archives are made by `src/release/package.sh` (the release workflow runs it for each tag), which
 also checks each one: unpacked in a directory of its own, its cc45 builds a program. tune45 contains
-libresidfp (GPL-2+) and the Linux disk45 libfuse 3 (LGPL-2.1); the licences are in the archive's `share/doc/m65compiler/`.
+libresidfp (GPL-2+), disk45 zlib (the zlib licence) and the Linux disk45 libfuse 3 (LGPL-2.1); the licences are in the archive's `share/doc/m65compiler/`.
 
 ## Building from Source
 
@@ -156,69 +156,86 @@ The tools are C++17. To build them you need:
 
 - a C++17 compiler: GCC 11 or newer, or clang (`make CXX=clang++`);
 - GNU make 3.81 or newer;
-- zlib's headers (disk45's compressed images);
 - optionally SQLite's headers, for `disk45 catalog`, and FUSE 3 with `pkg-config`, for `disk45 mount`. The
   build detects the two and leaves the command out when one is missing (every tool is still built); its
   first lines say which are in, and the package that adds the other:
 
 ```
 Configuration (g++; `make check-deps` for all of it):
+  zlib (.gz, .zip images): bundled (third_party/zlib, built with gcc)
   disk45 catalog (SQLite): yes
   disk45 mount   (FUSE 3): no - to add it: sudo apt-get install libfuse3-dev pkg-config
 ```
 
 Everything else is in the repository. `make check-deps` lists what the build and the tests need, what this
-machine has, and the command that installs what is missing on this distribution; without the compiler or
-zlib, `make` stops at once with that command. `make HAVE_SQLITE=` (or `HAVE_FUSE3=`) builds without a library
+machine has, and the command that installs what is missing on this distribution; without the compiler,
+`make` stops at once with that command. `make HAVE_SQLITE=` (or `HAVE_FUSE3=`) builds without a library
 that is there.
+
+zlib (disk45's `.gz` and `.zip` images) is bundled: [zlib](https://github.com/madler/zlib) itself, as the git
+submodule `third_party/zlib` ([third_party/zlib.PROVENANCE.md](third_party/zlib.PROVENANCE.md)), compiled into
+the build with the C compiler that goes with the C++ one (`make CC=...` for another). The build's first lines
+say which zlib is used:
+
+- `third_party/zlib` has zlib's source (`git clone --recurse-submodules`, or `git submodule update --init`
+  in a clone made without): the bundled one.
+- It is empty (a plain `git clone`; GitHub's "Source code" archives of a release, which never contain a
+  submodule): the system's zlib when its headers are installed, and the build says how to get the bundled
+  one. When the system has none either, `make` in a git clone fetches the submodule itself (it says so
+  first; this is the only case in which the build uses the network), and anywhere else stops with both
+  remedies: the git command and the distribution's zlib package.
+- `make SYSTEM_ZLIB=1` links the system's zlib (`-lz`) even when the bundled one is there, for a
+  distribution's package (it needs zlib's headers: the packages under Dependencies).
 
 `make test` also uses `bash`, `python3`, `xxd`, `hexdump`, `diff`/`cmp` and `zip`/`unzip`: the second line of
 each distribution below. The build itself needs none of them (nor git).
 
 ### Dependencies
 
-For the smallest build, the compiler with make and zlib are enough: the packages of a "to build" line before
-SQLite's (on Debian `build-essential zlib1g-dev`).
+For the smallest build, the compiler with make is enough: the first package or two of a "to build" line, before
+SQLite's (on Debian `build-essential`). No line has zlib: the bundled one is used. For `make SYSTEM_ZLIB=1`,
+or a tree without the submodule, the system's is `zlib1g-dev` (Debian / Ubuntu), `zlib-ng-compat-devel`
+(Fedora), `zlib-devel` (RHEL, openSUSE), `zlib` (Arch), `zlib-dev` (Alpine); macOS has one in its SDK.
 
 **Debian / Ubuntu** (also Mint, Pop!_OS, Raspberry Pi OS):
 ```bash
-sudo apt-get install build-essential zlib1g-dev libsqlite3-dev libfuse3-dev pkg-config      # to build
+sudo apt-get install build-essential libsqlite3-dev libfuse3-dev pkg-config      # to build
 sudo apt-get install git python3 xxd bsdextrautils zip unzip      # to run the tests
 ```
 (Ubuntu 22.04 and Debian 12 have `xxd` in `xxd`; on older releases it is in `vim-common`.)
 
 **Fedora**:
 ```bash
-sudo dnf install gcc-c++ make zlib-ng-compat-devel sqlite-devel fuse3-devel pkgconf-pkg-config      # to build
+sudo dnf install gcc-c++ make sqlite-devel fuse3-devel pkgconf-pkg-config      # to build
 sudo dnf install git python3 xxd util-linux diffutils zip unzip      # to run the tests
 ```
 
 **RHEL / Rocky / AlmaLinux 9** (`fuse3-devel` is in CRB):
 ```bash
 sudo dnf install dnf-plugins-core && sudo dnf config-manager --set-enabled crb      # for fuse3-devel
-sudo dnf install gcc-c++ make zlib-devel sqlite-devel fuse3-devel pkgconf-pkg-config      # to build
+sudo dnf install gcc-c++ make sqlite-devel fuse3-devel pkgconf-pkg-config      # to build
 sudo dnf install git python3 vim-common util-linux diffutils zip unzip      # to run the tests
 ```
 
 **Arch Linux / Manjaro**:
 ```bash
-sudo pacman -S --needed base-devel zlib sqlite fuse3 pkgconf      # to build
+sudo pacman -S --needed base-devel sqlite fuse3 pkgconf      # to build
 sudo pacman -S --needed git python tinyxxd util-linux diffutils zip unzip      # to run the tests
 ```
 
 **openSUSE Tumbleweed / Leap**:
 ```bash
-sudo zypper install gcc-c++ make zlib-devel sqlite3-devel fuse3-devel pkgconf      # to build
+sudo zypper install gcc-c++ make sqlite3-devel fuse3-devel pkgconf      # to build
 sudo zypper install git python3 xxd util-linux diffutils findutils gawk zip unzip      # to run the tests
 ```
 
 **Alpine Linux**:
 ```bash
-sudo apk add build-base zlib-dev sqlite-dev fuse3-dev pkgconf      # to build
+sudo apk add build-base sqlite-dev fuse3-dev pkgconf      # to build
 sudo apk add git python3 bash xxd hexdump zip unzip      # to run the tests
 ```
 
-**macOS** (Apple clang from the Xcode command line tools; zlib and SQLite are in the macOS SDK; there is no
+**macOS** (Apple clang from the Xcode command line tools; SQLite is in the macOS SDK; there is no
 FUSE 3, so disk45 is built without `mount`):
 ```bash
 xcode-select --install      # the compiler, if it is not there yet
@@ -243,7 +260,7 @@ Optional, at run time:
 ### Build
 
 ```bash
-git clone https://github.com/CTalkobt/M65Compiler.git
+git clone --recurse-submodules https://github.com/CTalkobt/M65Compiler.git
 cd M65Compiler
 make check-deps       # optional: what is needed, what is there, what to install
 make -j"$(nproc)"     # the tools, in bin/, and the standard libraries, in lib/build/
@@ -252,10 +269,31 @@ make test             # optional: unit tests and examples (about 6 minutes)
 
 `make CXX=clang++` builds with clang. `make install` (below) builds everything first.
 
+### The bundled zlib: what to run when
+
+zlib is a git submodule (`third_party/zlib`): git keeps it as a link to zlib's own repository at one pinned
+commit, and fetches its files only when asked. What to run:
+
+| Situation | Command |
+|---|---|
+| A new clone | `git clone --recurse-submodules https://github.com/CTalkobt/M65Compiler.git` |
+| A clone made without `--recurse-submodules` (`third_party/zlib` is empty) | `git submodule update --init` |
+| An existing clone, the first `git pull` after zlib became a submodule | `git submodule update --init` (once) |
+| After a `git pull` that moves the pin to a newer zlib (`git status` shows `third_party/zlib` as modified) | `git submodule update` |
+| To have every later `git pull` do that by itself | `git config submodule.recurse true` (once per clone) |
+| To see which zlib a build will use, and whether the submodule is at the pinned commit | `make check-deps` |
+| A "Source code" archive downloaded from a release page (no `.git`, never contains submodules) | install the system's zlib (the package names are under Dependencies), or unpack [zlib's source](https://github.com/madler/zlib/releases) of the pinned version into `third_party/zlib` |
+| To build against the system's zlib on purpose (a distribution's package) | `make SYSTEM_ZLIB=1` |
+
+Forgetting is not fatal: with `third_party/zlib` empty the build uses the system's zlib when it is installed
+(and names the command above), fetches the submodule itself when it is not (in a git clone; it says so
+first), and otherwise stops with both remedies. Moving the pin to a newer zlib (maintainers):
+[third_party/zlib.PROVENANCE.md](third_party/zlib.PROVENANCE.md).
+
 These distributions build the tree from a clean checkout with the "to build" packages above (`make
 test-distros`, which needs Docker, repeats the check). The CI builds Debian 13, Fedora (GCC and clang), Arch
-and Alpine on each push, Alpine again with the compiler, make and zlib alone (`alpine-min`: no SQLite, no
-FUSE 3), and macOS (Apple clang: the tools, the library, an install, a program compiled with it):
+and Alpine on each push, Alpine again with the compiler and make alone (`alpine-min`: no SQLite, no
+FUSE 3, no zlib package), Debian 13 again with `SYSTEM_ZLIB=1` (`debian13-syszlib`), and macOS (Apple clang: the tools, the library, an install, a program compiled with it):
 
 | Distribution | Compiler |
 |---|---|

@@ -12,6 +12,34 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
   The name without its suffix goes on naming the file (the write, a read,
   an append, `rm`); the listing still shows `NEW.TXT.prg`.
 
+### Bundled zlib: the build needs only a compiler and make (#620)
+
+- zlib (disk45's `.gz` and `.zip` images) is in the tree as a git submodule,
+  `third_party/zlib` (https://github.com/madler/zlib at the release tag
+  `v1.4`; `third_party/zlib.PROVENANCE.md`). What disk45 uses of it (inflate,
+  deflate, crc32) is compiled with the C compiler (`CC`, by default the one
+  that goes with `CXX`) into `lib45/lib45-zlib.a`; disk45 is no longer linked
+  with `-lz`. No distribution's "to build" packages have zlib any more.
+- Get it with `git clone --recurse-submodules`, or `git submodule update
+  --init` in an existing clone (also after a pull that moves it).
+- When `third_party/zlib` is empty (a plain clone, a GitHub source archive)
+  the build uses the system's zlib; with none, `make` in a git checkout
+  fetches the submodule itself, saying so (not under `-n`), and elsewhere
+  stops with both remedies: the git command and the distribution's package.
+- `make SYSTEM_ZLIB=1` links the system's zlib even when the bundled one is
+  there (for distributions' packages).
+- The build's configuration summary and `make check-deps` say which zlib is
+  used; `src/deps/deps_table.sh`'s zlib packages are for `SYSTEM_ZLIB=1` only.
+- `src/test/test_distro_builds.sh` and `src/release/package.sh` take the
+  submodule's files too (`git ls-files --recurse-submodules`) and stop when
+  it is not checked out; the distribution builds install no zlib, check that
+  disk45 is not linked with a libz and that it writes and reads a `.gz` and a
+  `.zip` image; `debian13-syszlib` builds with `SYSTEM_ZLIB=1`. The CI's
+  checkouts take submodules; `alpine-min` is now a compiler and make alone.
+- The release archives have zlib's licence
+  (`share/doc/m65compiler/zlib-LICENSE`); the static Linux build no longer
+  installs Alpine's zlib. The Docker images are built without a zlib package.
+
 ### Prebuilt release archives (#621)
 
 - `src/release/package.sh` builds the suite and packs the installed tree as

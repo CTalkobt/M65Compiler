@@ -7,7 +7,8 @@
 #
 #   linux-static  in an Alpine container (needs Docker): statically linked
 #                 with musl, so the binaries run on any Linux of the
-#                 machine's architecture. disk45 has the catalog (SQLite)
+#                 machine's architecture. zlib is the bundled one
+#                 (third_party/zlib). disk45 has the catalog (SQLite)
 #                 and `mount` (libfuse 3), both linked in; mounting needs
 #                 the system's /dev/fuse and fusermount3, which disk45
 #                 asks for when `mount` is used.
@@ -18,7 +19,9 @@
 #                 include/Version.hpp; the release workflow passes the tag)
 #   JOBS          make -j (default 4)
 #
-# The files git tracks are built, as they are in the working tree. Each
+# The files git tracks are built, as they are in the working tree, with the
+# bundled zlib (the submodule third_party/zlib, which must be checked out:
+# a release has the zlib the tree pins, not the build machine's). Each
 # archive is checked before it is kept: unpacked in a directory of its own,
 # its cc45 builds a program from another directory.
 set -e
@@ -40,13 +43,19 @@ arch=$(uname -m)
 case "$arch" in amd64) arch=x86_64 ;; aarch64) arch=arm64 ;; esac
 case "$(uname -s)" in Darwin) os=macos ;; Linux) os=linux ;; *) os=$(uname -s | tr 'A-Z' 'a-z') ;; esac
 
+[ -f third_party/zlib/zlib.h ] && [ -f third_party/zlib/LICENSE ] ||
+    { echo "package.sh: third_party/zlib is empty: git submodule update --init third_party/zlib" >&2; exit 1; }
+
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
-git ls-files -z | tar --null -T - -cf "$work/src.tar"
+# (a submodule's files are in the list only with --recurse-submodules)
+git ls-files -z --recurse-submodules | tar --null -T - -cf "$work/src.tar"
 
 # what goes beside the installed tree: the licences (tune45 contains
-# libresidfp, GPL-2+; its source is this repository at the release's tag)
-# and a word on what the archive is
+# libresidfp, GPL-2+; its source is this repository at the release's tag;
+# disk45 contains zlib, whose LICENSE is in its submodule and whose
+# provenance is third_party/zlib.PROVENANCE.md) and a word on what the
+# archive is
 notes() {   # notes STAGE NAME WHAT
     mkdir -p "$1/share/doc/m65compiler"
     cp LICENSE "$1/share/doc/m65compiler/LICENSE"
@@ -55,7 +64,9 @@ notes() {   # notes STAGE NAME WHAT
         for f in COPYING LICENSE PROVENANCE.md; do
             [ -f "$t$f" ] && cp "$t$f" "$1/share/doc/m65compiler/$n-$f"
         done
+        [ -f "third_party/$n.PROVENANCE.md" ] && cp "third_party/$n.PROVENANCE.md" "$1/share/doc/m65compiler/$n-PROVENANCE.md"
     done
+    [ -f "$1/share/doc/m65compiler/zlib-LICENSE" ] || { echo "package.sh: zlib's LICENSE is not in the archive" >&2; exit 1; }
     cat > "$1/README.txt" <<EOF
 MEGA65 C Compiler Suite $version ($2, built from $hash)
 https://github.com/CTalkobt/M65Compiler
@@ -70,8 +81,8 @@ own location.
 
 Each tool prints its options with -?; the reference pages are in the
 repository's doc/bin/. Licences: share/doc/m65compiler/ (tune45 contains
-libresidfp, GPL-2+; the source of this build is the repository at tag
-v$version).
+libresidfp, GPL-2+; disk45 contains zlib; the source of this build is the
+repository at tag v$version, with its submodule third_party/zlib).
 EOF
 }
 
@@ -86,6 +97,11 @@ check() {   # check ARCHIVE NAME
     "$t/unpacked/$2/bin/disk45" create "$t/elsewhere/t.d81" -n TEST > /dev/null &&
         "$t/unpacked/$2/bin/disk45" add "$t/elsewhere/t.d81" "$t/elsewhere/hello.prg" hello > /dev/null ||
         { echo "package.sh: the unpacked disk45 did not make a disk image" >&2; exit 1; }
+    # (the zlib linked in: a compressed image written and read back)
+    "$t/unpacked/$2/bin/disk45" create "$t/elsewhere/z.d81.gz" -n TEST > /dev/null &&
+        "$t/unpacked/$2/bin/disk45" add "$t/elsewhere/z.d81.gz" "$t/elsewhere/hello.prg" ZHELLO > /dev/null &&
+        "$t/unpacked/$2/bin/disk45" list "$t/elsewhere/z.d81.gz" | grep -q ZHELLO && gzip -t "$t/elsewhere/z.d81.gz" ||
+        { echo "package.sh: the unpacked disk45 did not write and read a .gz disk image" >&2; exit 1; }
     if [ "$kind" = linux-static ]; then
         "$t/unpacked/$2/bin/disk45" 2>&1 | grep -q 'disk45 mount <image>' && "$t/unpacked/$2/bin/disk45" 2>&1 | grep -q 'disk45 catalog build' ||
             { echo "package.sh: the static disk45 lacks mount or catalog" >&2; exit 1; }
@@ -101,10 +117,11 @@ if [ "$kind" = linux-static ]; then
     # is linked into disk45, with what pkg-config --static says it needs)
     docker run --rm -v "$work:/work" alpine:3.20 sh -c "
         set -e
-        apk add --no-cache g++ make binutils zlib-dev zlib-static sqlite-dev sqlite-static fuse3-dev fuse3-static pkgconf > /tmp/apk.log 2>&1 || { tail -20 /tmp/apk.log; exit 1; }
+        apk add --no-cache g++ make binutils sqlite-dev sqlite-static fuse3-dev fuse3-static pkgconf > /tmp/apk.log 2>&1 || { tail -20 /tmp/apk.log; exit 1; }
         mkdir /build && cd /build && tar -xf /work/src.tar
         fuse=\$(pkg-config --static --libs fuse3)
         make -j$jobs GIT_HASH=$hash EXTRA_CXXFLAGS=-static FUSE3_LIBS=\"\$fuse\" all > /work/all.log 2>&1 || { grep -E ':[0-9]+:[0-9]+: (fatal )?error|ld: |undefined reference' /work/all.log | sort -u | head -40; tail -5 /work/all.log; echo 'make all failed'; exit 1; }
+        grep -q '^  zlib.*: bundled' /work/all.log || { echo 'the build did not use the bundled zlib'; exit 1; }
         make GIT_HASH=$hash lib > /work/lib.log 2>&1 || { tail -20 /work/lib.log; echo 'make lib failed'; exit 1; }
         make GIT_HASH=$hash EXTRA_CXXFLAGS=-static FUSE3_LIBS=\"\$fuse\" install PREFIX=/work/stage/$name > /work/install.log 2>&1 || { tail -20 /work/install.log; echo 'make install failed'; exit 1; }
         strip /work/stage/$name/bin/* 2> /dev/null || true
@@ -120,8 +137,9 @@ if [ "$kind" = linux-static ]; then
 architecture with no library to install. disk45 has its catalog and
 'mount'; mounting uses the system's FUSE (/dev/fuse and the fusermount3
 helper of the fuse3 package), and says so where they are missing. Linked
-in: musl (MIT), libstdc++ (GPL-3 with the runtime exception), zlib, SQLite
-(public domain), libfuse 3 (LGPL-2.1: relink from the source to change it)."
+in: musl (MIT), libstdc++ (GPL-3 with the runtime exception), zlib (the
+zlib licence), SQLite (public domain), libfuse 3 (LGPL-2.1: relink from the
+source to change it)."
 else
     name="m65compiler-$version-$os-$arch"
     make=${MAKE:-make}
@@ -130,16 +148,18 @@ else
     (
         cd "$work/build"
         $make -j"$jobs" GIT_HASH="$hash" all > "$work/all.log" 2>&1 || { grep -E ':[0-9]+:[0-9]+: (fatal )?error' "$work/all.log" | sort -u | head -40; tail -5 "$work/all.log"; echo 'make all failed'; exit 1; }
+        grep -q '^  zlib.*: bundled' "$work/all.log" || { echo 'the build did not use the bundled zlib'; exit 1; }
         $make GIT_HASH="$hash" lib > "$work/lib.log" 2>&1 || { tail -20 "$work/lib.log"; echo 'make lib failed'; exit 1; }
         $make GIT_HASH="$hash" install PREFIX="$work/stage/$name" > "$work/install.log" 2>&1 || { tail -20 "$work/install.log"; echo 'make install failed'; exit 1; }
     )
     if [ "$os" = macos ]; then
         what="Built with Apple clang; the binaries use only the system's own libraries
-(zlib and SQLite are part of macOS). disk45 has no 'mount' (no FUSE)."
+(SQLite is part of macOS; zlib is linked in). disk45 has no 'mount' (no
+FUSE)."
     else
         what="Built with this machine's compiler and linked with its shared libraries
-(zlib, SQLite, and FUSE 3 when it was found): they must be installed where
-the binaries run."
+(SQLite, and FUSE 3 when it was found): they must be installed where the
+binaries run. zlib is linked in."
     fi
     notes "$work/stage/$name" "$os $arch" "$what"
 fi

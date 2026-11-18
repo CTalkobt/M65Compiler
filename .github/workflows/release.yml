@@ -30,6 +30,8 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          submodules: true    # third_party/zlib, the bundled zlib (#620)
 
       - name: Build and check the static archive
         env:
@@ -48,6 +50,8 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          submodules: true    # third_party/zlib, the bundled zlib (#620)
 
       - name: Install GNU make
         run: brew install make

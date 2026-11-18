@@ -5,19 +5,31 @@
 #                              what is missing on this distribution. Exit 1
 #                              only when a required one is missing.
 #   check_deps.sh --probe      the Makefile's detection: the words of what is
-#                              there, of "cxx zlib sqlite fuse3"
+#                              there, of "cxx cc zlib zlib-bundled zlib-git
+#                              sqlite fuse3" (zlib: the system's headers;
+#                              zlib-bundled: third_party/zlib has its source;
+#                              zlib-git: a git checkout, whose submodule git
+#                              can fetch; cc: the C compiler, which only the
+#                              bundled zlib needs)
 #   check_deps.sh --hint G...  the install command for the groups G (base zlib
 #                              sqlite fuse test), for the Makefile's messages
 #   check_deps.sh --add G      the same as "to add it: ..." (the summary's line
 #                              for an optional feature left out)
-# Environment: CXX (default g++), EXTRA_CXXFLAGS, GNU_MAKE_VERSION (the
-# running make's, from the Makefile; else gmake or make is asked),
-# DEPS_FAMILY (a family of deps_table.sh instead of the detected one).
+# Environment: CXX (default g++), CC (default cc), EXTRA_CXXFLAGS,
+# SYSTEM_ZLIB (1: the system's zlib and not the bundled one, as make
+# SYSTEM_ZLIB=1), GNU_MAKE_VERSION (the running make's, from the Makefile;
+# else gmake or make is asked), DEPS_FAMILY (a family of deps_table.sh
+# instead of the detected one).
 # POSIX sh: runs on macOS (BSD userland) and Alpine (busybox).
 
 . "$(dirname "$0")/deps_table.sh"
 
 CXX=${CXX:-g++}
+CC=${CC:-cc}
+# the tree (this file is src/deps/check_deps.sh) and its bundled zlib (#620)
+ROOT=$(cd "$(dirname "$0")/../.." && pwd)
+ZLIB_DIR=third_party/zlib
+ZLIB_FETCH="git submodule update --init $ZLIB_DIR"
 # GNU make 3.81 is the oldest the Makefile is checked with (README.md)
 MIN_MAKE_MAJOR=3
 MIN_MAKE_MINOR=81
@@ -35,6 +47,24 @@ has_cxx17() {
     # shellcheck disable=SC2086
     printf '#include <filesystem>\n#include <optional>\n#include <string_view>\n' |
         $CXX $EXTRA_CXXFLAGS -std=c++17 -E -x c++ - >/dev/null 2>&1
+}
+
+# has_cc: the C compiler works
+has_cc() {
+    # shellcheck disable=SC2086
+    printf 'int x;\n' | $CC -E -x c - >/dev/null 2>&1
+}
+
+# has_bundled_zlib: the submodule third_party/zlib has zlib's source (it is an
+# empty directory after a clone without --recurse-submodules, and in a source
+# archive)
+has_bundled_zlib() { [ -f "$ROOT/$ZLIB_DIR/zlib.h" ] && [ -f "$ROOT/$ZLIB_DIR/inflate.c" ]; }
+
+# is_git_checkout: git can fetch the submodule here (not in an unpacked
+# source archive, nor in a container given the files alone)
+is_git_checkout() {
+    [ -e "$ROOT/.git" ] && [ -f "$ROOT/.gitmodules" ] && have git &&
+        (cd "$ROOT" && git rev-parse --git-dir) >/dev/null 2>&1
 }
 
 has_fuse3() { have pkg-config && pkg-config --exists fuse3 2>/dev/null; }
@@ -90,7 +120,10 @@ case $1 in
 --probe)
     out=
     has_cxx17 && out="$out cxx"
+    has_cc && out="$out cc"
     has_header zlib.h && out="$out zlib"
+    has_bundled_zlib && out="$out zlib-bundled"
+    is_git_checkout && out="$out zlib-git"
     has_header sqlite3.h && out="$out sqlite"
     has_fuse3 && out="$out fuse3"
     echo $out
@@ -150,10 +183,36 @@ else
     fi
 fi
 
-if has_header zlib.h; then
-    row ok "zlib" "disk45, asmCvt45 and basic45 (compressed images)"
+# zlib (disk45's .gz and .zip images), as the Makefile chooses it: the bundled
+# one (the submodule third_party/zlib) unless SYSTEM_ZLIB=1, else the
+# system's; with neither, make fetches the submodule in a git checkout
+if [ "$SYSTEM_ZLIB" = 1 ]; then
+    if has_header zlib.h; then
+        row ok "zlib" "the system's (SYSTEM_ZLIB=1)"
+    else
+        row MISSING "zlib" "SYSTEM_ZLIB=1, but the system's headers (zlib.h) were not found"
+        required_missing=1; missing_groups="$missing_groups zlib"
+    fi
+elif has_bundled_zlib; then
+    zv=$(sed -n 's/^#define ZLIB_VERSION "\(.*\)".*/\1/p' "$ROOT/$ZLIB_DIR/zlib.h")
+    note="bundled: $ZLIB_DIR ($zv)"
+    # (a "+": the submodule is not at the commit the tree pins, after a pull)
+    if is_git_checkout && (cd "$ROOT" && git submodule status "$ZLIB_DIR") 2>/dev/null | grep -q '^+'; then
+        note="$note, not the commit the tree pins: git submodule update $ZLIB_DIR"
+    fi
+    if has_cc; then
+        row ok "zlib" "$note"
+    else
+        row MISSING "zlib" "$note, but no C compiler '$CC' to build it (make CC=..., or make SYSTEM_ZLIB=1)"
+        required_missing=1; missing_groups="$missing_groups base"
+    fi
+elif has_header zlib.h; then
+    if is_git_checkout; then row ok "zlib" "the system's ($ZLIB_DIR is empty; the bundled one: $ZLIB_FETCH)"
+    else row ok "zlib" "the system's ($ZLIB_DIR is empty)"; fi
+elif is_git_checkout; then
+    row missing "zlib" "$ZLIB_DIR is empty and the system has none: make fetches it ($ZLIB_FETCH)"
 else
-    row MISSING "zlib" "its headers (zlib.h): disk45, asmCvt45 and basic45 need them"
+    row MISSING "zlib" "$ZLIB_DIR is empty (zlib's source, github.com/madler/zlib, goes there) and the system has none"
     required_missing=1; missing_groups="$missing_groups zlib"
 fi
 

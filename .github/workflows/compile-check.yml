@@ -13,18 +13,24 @@ jobs:
   # src/test/test_distro_builds.sh, one distribution per job. One of each
   # compiler / C library: debian13 (GCC; also builds the examples), fedora
   # (GCC), fedora-clang (clang), arch (the newest GCC), alpine (musl).
-  # Each with the build's packages of src/deps/deps_table.sh alone (#619);
-  # alpine-min with the required ones only (no SQLite, no FUSE 3, no
-  # pkg-config): every tool must still be built, disk45 without catalog.
+  # Each with the build's packages of src/deps/deps_table.sh alone (#619),
+  # and no zlib package: zlib is the bundled one (the submodule
+  # third_party/zlib, #620), disk45 must not be linked with a libz and must
+  # write and read a .gz and a .zip image. alpine-min with a compiler and
+  # make only (no SQLite, no FUSE 3, no pkg-config): every tool must still be
+  # built, disk45 without catalog. debian13-syszlib with the distribution's
+  # zlib and SYSTEM_ZLIB=1: disk45 must be linked with it.
   distros:
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        distro: [debian13, fedora, fedora-clang, arch, alpine, alpine-min]
+        distro: [debian13, fedora, fedora-clang, arch, alpine, alpine-min, debian13-syszlib]
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          submodules: true    # third_party/zlib, the bundled zlib (#620)
 
       - name: Build in ${{ matrix.distro }}
         env:
@@ -40,6 +46,8 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          submodules: true    # third_party/zlib, the bundled zlib (#620)
 
       - name: Install GNU make
         run: brew install make
@@ -49,6 +57,15 @@ jobs:
 
       - name: Build the tools
         run: gmake -j"$(sysctl -n hw.ncpu)" all
+
+      - name: disk45 has the bundled zlib (no libz linked), and uses it
+        run: |
+          if otool -L bin/disk45 | grep libz; then echo "disk45 is linked with the system's libz"; exit 1; fi
+          printf 'ab' > "$RUNNER_TEMP/p.prg"
+          for i in "$RUNNER_TEMP/t.d81.gz" "$RUNNER_TEMP/t.d81.zip"; do
+            bin/disk45 create "$i" -n T && bin/disk45 add "$i" "$RUNNER_TEMP/p.prg" P && bin/disk45 list "$i" | grep '"P"'
+          done
+          gzip -t "$RUNNER_TEMP/t.d81.gz" && unzip -tq "$RUNNER_TEMP/t.d81.zip"
 
       - name: Build the library
         run: gmake lib

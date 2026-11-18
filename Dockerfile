@@ -16,11 +16,16 @@
 FROM ubuntu:22.04 AS builder
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    g++ make zlib1g-dev libfuse3-dev libsqlite3-dev pkg-config && \
+    g++ make libfuse3-dev libsqlite3-dev pkg-config && \
     rm -rf /var/lib/apt/lists/*
 
 WORKDIR /build
 COPY . .
+
+# zlib is the bundled one, the submodule third_party/zlib (#620): the image
+# is built from a checkout that has it
+RUN test -f third_party/zlib/zlib.h || { \
+    echo "third_party/zlib is empty: run 'git submodule update --init third_party/zlib' in the checkout, then build the image again"; exit 1; }
 
 RUN make clean && make -j$(nproc) all && make -C lib -j$(nproc)
 
@@ -42,7 +47,7 @@ RUN git clone --filter=blob:none "$XEMU_REPO" /xemu && cd /xemu && git checkout 
 FROM ubuntu:22.04
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    libstdc++6 make zlib1g libfuse3-3 libsqlite3-0 fuse3 \
+    libstdc++6 make libfuse3-3 libsqlite3-0 fuse3 \
     libsdl2-2.0-0 python3 xxd file && \
     rm -rf /var/lib/apt/lists/* && \
     useradd -m -u 1000 m65
