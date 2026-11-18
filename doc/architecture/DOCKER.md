@@ -1,16 +1,34 @@
 # MEGA65 C Compiler Suite — Docker Setup
 
-The repository has two Dockerfiles:
+The repository has three Dockerfiles:
 
 | File | Base | Used by | Notes |
 |------|------|---------|-------|
-| `Dockerfile` (project root) | Ubuntu 22.04, two-stage | `docker build .` | Recommended. Tools on `PATH`, libraries and headers in the install layout. |
+| `Dockerfile` (project root) | Ubuntu 22.04, three-stage | `docker build .` | Recommended. Tools on `PATH`, libraries and headers in the install layout. |
 | `src/Docker/Dockerfile` | Alpine 3.20, two-stage | `make docker` | The toolchain only, installed in `/app`; the entrypoint is `cc45`. |
 | `src/Docker/Dockerfile.runtime` | Alpine 3.20, three-stage | `make docker-runtime` | The toolchain and the xemu emulator, to run programs (#99). |
 
 The root image and the runtime image include **xemu** (`xemu-xmega65`), built from CTalkobt/xemu's `cc45-dev` branch at a pinned commit: upstream xemu's `dev` with `XEMU_PREF_DIR`, the monitor's breakpoint list (`k`, which `dbg45` needs) and the hardware divider as the core computes it. **The MEGA65 ROM is not included**; mount yours, see [Running programs in xemu](#running-programs-in-xemu).
 
 Image sizes are not given here; check them with `docker images` after building.
+
+## Published Images
+
+From the next release on, each release's Alpine images are on the GitHub Container Registry, for `linux/amd64` and `linux/arm64`; nothing needs building:
+
+| Image | Contents |
+|---|---|
+| `ghcr.io/ctalkobt/m65compiler` (`:latest`, `:<version>`) | the toolchain (`src/Docker/Dockerfile`); the entrypoint is `cc45` |
+| `ghcr.io/ctalkobt/m65compiler:runtime` (`:<version>-runtime`) | the toolchain and xemu (`src/Docker/Dockerfile.runtime`); no ROM, see [Running Programs in xemu](#running-programs-in-xemu) |
+
+```bash
+docker run --rm -v "$PWD":/work --user $(id -u):$(id -g) ghcr.io/ctalkobt/m65compiler -O2 hello.c -o hello.prg
+docker run --rm -v "$PWD":/work --user $(id -u):$(id -g) --entrypoint disk45 ghcr.io/ctalkobt/m65compiler list game.d81
+```
+
+They are used as the images built locally are (below), under these names instead of `mega65-cc45` and `mega65-cc45:runtime`. The release workflow (`.github/workflows/release.yml`) builds each on a runner of its architecture, tries it (its cc45 builds a program) and pushes it for a tag `v*`. The images contain tune45 (libresidfp, GPL-2+) and, in the runtime image, xemu (GPL-2): their source is this repository at the release's tag and CTalkobt/xemu at the commit `Dockerfile.runtime` pins.
+
+`disk45 mount` in a container needs the host's FUSE device: `--device /dev/fuse --cap-add SYS_ADMIN` (and, where AppArmor confines containers, `--security-opt apparmor=unconfined`).
 
 ## Root Dockerfile (Ubuntu)
 
@@ -25,12 +43,12 @@ The builder stage runs `make clean && make all && make -C lib` (with FUSE3 and S
 
 | Path | Contents |
 |------|----------|
-| `/usr/local/bin/` | everything in `bin/`: `cc45`, `cp45`, `ca45`, `ln45`, `ar45`, `nm45`, `objdump45`, `disk45`, `asmCvt45`, `basic45` (plus the C++ test binaries) |
+| `/usr/local/bin/` | everything in `bin/`: `cc45`, `cp45`, `cl45`, `ca45`, `al45`, `ln45`, `ar45`, `nm45`, `objdump45`, `disk45`, `asmCvt45`, `basic45`, `pack45`, `font45`, `tune45`, `deploy45`, `dbg45` (plus the C++ test binaries) |
 | `/usr/local/lib/cc45/` | `lib/build/`: `c45.lib` (ZP convention), `c45_zp.lib` (copy), `c45_stack.lib` (stack convention) and the `.o45` members |
 | `/usr/local/include/cc45/` | `lib/include/` (including `sys/`) |
 | `/opt/cc45/` | the full source tree (working directory) |
 
-Environment: `CC45_INCLUDE=/usr/local/include/cc45` (header search path for `cc45`/`ca45`) and `CC45_LIB=/usr/local/lib/cc45` (library search path for `ln45`). A one-step `cc45 file.c -o file.prg` finds the right library itself (`bin/../lib/cc45/`). `VOLUME /catalog` is declared for the `disk45` catalog database. There is no entrypoint; the default command is `cc45 --version`, so name the tool explicitly:
+Environment: `CC45_INCLUDE=/usr/local/include/cc45` (header search path for `cc45`/`ca45`) and `CC45_LIB=/usr/local/lib/cc45` (library search path for `ln45`). A one-step `cc45 file.c -o file.prg` finds the right library itself (`bin/../lib/cc45/`). `VOLUME /catalog` is declared for the `disk45` catalog database. The entrypoint (`m65-entry.sh`) sets up xemu when a ROM is mounted and then runs the command given; the default command is `cc45 --version`, so name the tool explicitly:
 
 ```bash
 docker run --rm cc45 cc45 --version
@@ -65,14 +83,14 @@ The image's user is `m65` (uid 1000; xemu does not run as root), who owns the so
 
 ## Alpine Image (`make docker`)
 
-`make docker` runs `docker build -f src/Docker/Dockerfile -t mega65-cc45:latest .` and then `docker save` to `bin/mega65-cc45.tar`, which can be loaded elsewhere with `docker load -i mega65-cc45.tar`. The suite is installed with `make install PREFIX=/app` (tools in `/app/bin`, libraries in `/app/lib/cc45`, headers in `/app/include/cc45`: the installed layout the tools find by themselves), the entrypoint is `cc45`, and the working directory `/work`:
+`make docker` runs `docker build --build-arg GIT_HASH=<commit> -f src/Docker/Dockerfile -t mega65-cc45:latest .` (the commit the tools report with `--version`: `.git` is not in the build context) and then `docker save` to `bin/mega65-cc45.tar`, which can be loaded elsewhere with `docker load -i mega65-cc45.tar`. The suite is installed with `make install PREFIX=/app` (tools in `/app/bin`, libraries in `/app/lib/cc45`, headers in `/app/include/cc45`: the installed layout the tools find by themselves), the entrypoint is `cc45`, and the working directory `/work`:
 
 ```bash
 docker run --rm -v "$PWD":/work --user $(id -u):$(id -g) mega65-cc45 -O2 hello.c -o hello.prg
 docker run --rm -v "$PWD":/work --entrypoint disk45 mega65-cc45 list game.d81
 ```
 
-`src/Docker/docker-aliases.sh` defines shell aliases (`cc45`, `ca45`, `cp45`, `nm45`, `ln45`, `ar45`, `objdump45`, `disk45`, `basic45`, `asmCvt45`) that run this image with the current directory mounted at `/work`, as the calling user.
+`src/Docker/docker-aliases.sh` defines shell aliases (one per tool) that run this image (or another: `M65_IMAGE=ghcr.io/ctalkobt/m65compiler source src/Docker/docker-aliases.sh`) with the current directory mounted at `/work`, as the calling user.
 
 ## Runtime Image with xemu (`make docker-runtime`)
 

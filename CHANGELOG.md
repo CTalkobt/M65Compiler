@@ -4,6 +4,23 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### The Docker images on a registry (#625)
+
+- **The release workflow builds and pushes the Alpine images** to the GitHub Container Registry for a tag `v*`:
+  `ghcr.io/<owner>/m65compiler:<version>` and `:latest` (the toolchain, `src/Docker/Dockerfile`),
+  `:<version>-runtime` and `:runtime` (with xemu, `src/Docker/Dockerfile.runtime`), each for `linux/amd64` and
+  `linux/arm64`, built on a runner of its architecture and joined under one name. Each is tried first (its cc45
+  builds a program and puts it on a disk image). Run by hand the workflow builds and tries them, and pushes nothing.
+- **The tools in the images report their commit** (`cc45 --version`): `.git` is not in the build context, so the
+  Dockerfiles take it as `--build-arg GIT_HASH=...` (`make docker` and `make docker-runtime` pass it). It was
+  `(unknown)`.
+- `src/Docker/docker-aliases.sh`: an alias for each of the 17 tools; `M65_IMAGE` names another image (the published
+  one); the hint for building the image and the examples it prints corrected.
+- `doc/architecture/DOCKER.md`: the published images, `disk45 mount` in a container (`--device /dev/fuse
+  --cap-add SYS_ADMIN`), three Dockerfiles (not two), the root image's entrypoint and tools as they are. README:
+  the image in the Download section.
+- To do once by hand after the first push: make the package public.
+
 ### Every tool answers -?, --help, -V and --version the same way (#641)
 
 - **`include/Version.hpp`** now holds, beside the version, the flags every tool answers: `standardFlag(arg)` and

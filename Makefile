@@ -1077,7 +1077,7 @@ test-phase18: $(TEST_PHASE18_TARGET) lib
 
 docker:
 	@echo "Building Docker image..."
-	@docker build -f src/Docker/Dockerfile -t mega65-cc45:latest .
+	@docker build --build-arg GIT_HASH=$(GIT_HASH) -f src/Docker/Dockerfile -t mega65-cc45:latest .
 	@mkdir -p $(BIN_DIR)
 	@echo "Exporting Docker image to $(BIN_DIR)..."
 	@docker save mega65-cc45:latest -o $(BIN_DIR)/mega65-cc45.tar
@@ -1086,7 +1086,7 @@ docker:
 
 # the Alpine image with the xemu emulator (#99): the MEGA65 ROM is mounted at run time
 docker-runtime:
-	@docker build -f src/Docker/Dockerfile.runtime -t mega65-cc45:runtime .
+	@docker build --build-arg GIT_HASH=$(GIT_HASH) -f src/Docker/Dockerfile.runtime -t mega65-cc45:runtime .
 
 uninstall:
 	rm -f $(DESTDIR)$(BINDIR)/cc45 $(DESTDIR)$(BINDIR)/ca45 $(DESTDIR)$(BINDIR)/cp45 $(DESTDIR)$(BINDIR)/al45 $(DESTDIR)$(BINDIR)/cl45
