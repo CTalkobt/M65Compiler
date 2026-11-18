@@ -11,6 +11,10 @@ Language Server Protocol (LSP) server and VS Code extension for the MEGA65 C com
     on stdio (`--node-ipc`, `--socket=N` also)
   - Diagnostics: cc45 `-c` / ca45 `-c` on the text being edited (saved or not), debounced
     (`m65.diagnostics.debounceMs`); errors in an included file shown on line 1 with its name
+  - Linters (#199): cl45 on C and al45 on assembly run with the compiler, their findings shown with
+    the rule as the diagnostic's code (`mega65-io-not-volatile`, source `cl45` / `al45`), configured by the
+    project's `.cc45-lint.yml`; `m65.lint.enabled` (default on), `m65.cl45Path` / `m65.al45Path`
+    (default: beside cc45 / ca45)
   - Hover and completion: C keywords and cc45's extensions, the library's functions (the
     prototypes of `lib/include/*.h` that `c45.lib` defines), `#pragma`s; ca45's instructions (their
     modes, bytes and cycles at 40 MHz), simulated instructions and directives; the workspace's symbols

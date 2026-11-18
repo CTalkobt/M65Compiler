@@ -1,8 +1,8 @@
 # Linters: al45 (assembly) and cl45 (C)
 
 Status: the shared core, al45 (phases 1-3; `doc/bin/al45.md`) and cl45
-(phases 1-2 and `make lint-lib`; `doc/bin/cl45.md`) are implemented; al45's
-style rules (#611) and the LSP server running the linters are planned (#199, #278, #64). The assembly half was planned on 2026-10-31; the C half on
+(phases 1-2 and `make lint-lib`; `doc/bin/cl45.md`) are implemented, and the LSP server runs both (`tools/ide/lsp-server`, `m65.lint.enabled`); al45's
+style rules (#611) are planned (#199, #278, #64). The assembly half was planned on 2026-10-31; the C half on
 2026-11-12.
 
 Two tools on one core:
@@ -203,8 +203,10 @@ keeps one of a finding reported twice (a function can be lowered twice).
    fixtures in `src/test-resources/cl45/`.
 2. Done: the IR rules (`stack-frame-limit`, `recursion-frame`, `sac-interrupt`,
    `isr-rom-call`, `narrow-param`, `wide-arith`).
-3. Done: `make lint-lib` over the library's C and assembly. Not yet: the LSP
-   server (`tools/ide/lsp-server`) running both linters.
+3. Done: `make lint-lib` over the library's C and assembly; the LSP server
+   (`tools/ide/lsp-server`) runs both linters on the text being edited
+   (`--format=json`; `src/diagnostics/runTool.ts`, `runLint`): the rule is
+   the diagnostic's code, the source `cl45` / `al45`.
 
 ## Acceptance
 - The library lints clean at default severities; each suppression in it

@@ -417,6 +417,9 @@ editors: the server's `initializationOptions` or `workspace/configuration` secti
   "m65": {
     "cc45Path": "${workspaceFolder}/bin/cc45",
     "ca45Path": "${workspaceFolder}/bin/ca45",
+    "lint": {
+      "enabled": true
+    },
     "diagnostics": {
       "debounceMs": 500
     },
@@ -432,6 +435,18 @@ editors: the server's `initializationOptions` or `workspace/configuration` secti
 For diagnostics the server runs, on a copy of the text being edited:
 - **C files**: `cc45 -c <copy> -o <temp>.o45 -I <the file's directory>`
 - **Assembly files**: `ca45 -c <copy> -o <temp>.o45` (the copy beside the file, so `.include` finds its neighbours)
+
+With `lint.enabled` (the default) the linters run on the same text, beside the compiler:
+- **C files**: `cl45 --format=json <file>`
+- **Assembly files**: `al45 --format=json <file>`
+
+Their findings are diagnostics with the rule as the code (`mega65-io-not-volatile`) and the source
+`cl45` / `al45`; a warning the compiler gives that a rule takes over is shown once, as the rule, and a
+file with errors shows only the errors. Unsaved text is linted from a hidden copy beside the file, so
+the rules, levels and suppressions are those of the project's `.cc45-lint.yml`
+([doc/bin/cl45.md](../../doc/bin/cl45.md), [doc/bin/al45.md](../../doc/bin/al45.md)). The linters are
+found beside cc45 and ca45 (they are links to them); `cl45Path` / `al45Path` name others. Without them
+the server works as before.
 
 Options come from the tools' own configuration: `~/.config/m65/cc45.conf`, `ca45.conf` / `.ca45rc`
 ([doc/bin/CONFIGURATION.md](../../doc/bin/CONFIGURATION.md)).

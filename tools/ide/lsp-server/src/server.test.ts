@@ -17,7 +17,7 @@ import { TypeResolver } from './providers/cTypes';
 import { DocumentSymbolProvider } from './providers/documentSymbol';
 import { ReferencesProvider } from './providers/references';
 import { HoverProvider } from './providers/hover';
-import { asmLineFor } from './diagnostics/runTool';
+import { asmLineFor, parseLintJson, runLint } from './diagnostics/runTool';
 import { TextDocument } from 'vscode-languageserver-textdocument';
 
 const PKG = path.join(__dirname, '..');
@@ -255,6 +255,57 @@ describe('C to assembly', () => {
   });
 });
 
+// the linters (#199): cl45 / al45's JSON, run on the text being edited
+describe('linters', () => {
+  const cl45 = path.join(ROOT, 'bin', 'cl45');
+  const al45 = path.join(ROOT, 'bin', 'al45');
+  const skip = !fs.existsSync(cl45) || !fs.existsSync(al45) ? 'needs bin/cl45 and bin/al45' : false;
+
+  test('findings from JSON; anything else gives none', () => {
+    const f = parseLintJson('[\n {"file": "a.c", "line": 3, "column": 0, "severity": "info", "rule": "mega65-x", "message": "m"}\n]\n');
+    assert.deepEqual(f, [{ file: 'a.c', line: 3, column: 1, severity: 'note', message: 'm', rule: 'mega65-x' }]);
+    assert.deepEqual(parseLintJson('a.c:1:1: error: no'), []);
+    assert.deepEqual(parseLintJson('{}'), []);
+  });
+
+  test('cl45 on unsaved text, its .cc45-lint.yml, a file that does not compile', { skip, timeout: 30000 }, async () => {
+    const ws = fs.mkdtempSync(path.join(os.tmpdir(), 'm65lint-'));
+    try {
+      const file = path.join(ws, 'a.c');
+      fs.writeFileSync(file, 'void f(void) { }\n');
+      const text = 'void f(void) {\n    *(unsigned char *)0xD020 = 1;\n}\n';
+      let r = await runLint('c', cl45, file, text);
+      assert.equal(r.diagnostics.length, 1, JSON.stringify(r));
+      assert.equal(r.diagnostics[0].rule, 'mega65-io-not-volatile');
+      assert.equal(r.diagnostics[0].line, 2);
+      assert.equal(r.diagnostics[0].file, file);
+      assert.deepEqual(fs.readdirSync(ws), ['a.c']);   // (no copy left)
+      // the project's configuration is the document's, not the copy's
+      fs.writeFileSync(path.join(ws, '.cc45-lint.yml'), 'c_checks:\n  enabled: ["-mega65-io-not-volatile"]\n');
+      r = await runLint('c', cl45, file, text);
+      assert.deepEqual(r.diagnostics, []);
+      fs.rmSync(path.join(ws, '.cc45-lint.yml'));
+      assert.deepEqual((await runLint('c', cl45, file, 'void f(void) { int x = }\n')).diagnostics, []);
+      assert.deepEqual((await runLint('c', path.join(ws, 'no-cl45'), file, text)).diagnostics, []);
+    } finally {
+      fs.rmSync(ws, { recursive: true, force: true });
+    }
+  });
+
+  test('al45 on assembly', { skip, timeout: 30000 }, async () => {
+    const ws = fs.mkdtempSync(path.join(os.tmpdir(), 'm65lint-'));
+    try {
+      const file = path.join(ws, 'a.s45');
+      const text = 'start:\n    lda $10,y\n    rts\n';
+      fs.writeFileSync(file, text);
+      const r = await runLint('asm', al45, file, text);
+      assert.ok(r.diagnostics.length > 0 && r.diagnostics.every((d) => /^mega65-/.test(d.rule ?? '') && d.file === file), JSON.stringify(r));
+    } finally {
+      fs.rmSync(ws, { recursive: true, force: true });
+    }
+  });
+});
+
 // the server itself, over stdio (needs bin/cc45, bin/ca45 and npm run build)
 describe('language server', () => {
   const server = path.join(PKG, 'dist', 'server.js');
@@ -270,7 +321,7 @@ describe('language server', () => {
     let buf = Buffer.alloc(0);
     let id = 0;
     const pending = new Map<number, (r: unknown) => void>();
-    const diags = new Map<string, { range: { start: { line: number } }; message: string }[]>();
+    const diags = new Map<string, { range: { start: { line: number } }; message: string; code?: string; source?: string }[]>();
     srv.stdout.on('data', (d: Buffer) => {
       buf = Buffer.concat([buf, d]);
       for (;;) {
@@ -300,7 +351,8 @@ describe('language server', () => {
       const ad = diags.get(uri('a.c'))!;
       assert.equal(ad.length, 1, JSON.stringify(ad));
       assert.equal(ad[0].range.start.line, 2);
-      assert.deepEqual(diags.get(uri('b.s45')), []);
+      // (nothing from ca45; al45 has a word on the loop's lda #1)
+      assert.ok(diags.get(uri('b.s45'))!.every((d) => d.source === 'al45'), JSON.stringify(diags.get(uri('b.s45'))));
       assert.deepEqual(fs.readdirSync(ws).sort(), ['a.c', 'b.s45', 'h.h']);   // (no copies left)
 
       const hov = await req<{ contents: { value: string } }>('textDocument/hover', { textDocument: { uri: uri('b.s45') }, position: { line: 1, character: 5 } });
@@ -309,6 +361,18 @@ describe('language server', () => {
       assert.ok(comp.some((c) => c.label === 'helper'));
       const def = await req<{ uri: string; range: { start: { line: number } } }[]>('textDocument/definition', { textDocument: { uri: uri('a.c') }, position: { line: 2, character: 28 } });
       assert.ok(def.some((d) => d.uri === uri('a.c') && d.range.start.line === 1), JSON.stringify(def));
+
+      // a linter's finding with its rule, beside none from the compiler (#199)
+      if (fs.existsSync(path.join(ROOT, 'bin', 'cl45'))) {
+        send({ jsonrpc: '2.0', method: 'textDocument/didOpen', params: { textDocument: { uri: uri('l.c'), languageId: 'c', version: 1,
+          text: 'void poke(void) {\n    *(unsigned char *)0xD020 = 1;\n}\n' } } });
+        await until(() => (diags.get(uri('l.c'))?.length ?? 0) > 0);
+        const ld = diags.get(uri('l.c'))!;
+        assert.equal(ld.length, 1, JSON.stringify(ld));
+        assert.equal(ld[0].code, 'mega65-io-not-volatile');
+        assert.equal(ld[0].source, 'cl45');
+        assert.equal(ld[0].range.start.line, 1);
+      }
 
       // the outline, references, members of a library struct, the assembly
       const syms = await req<{ name: string }[]>('textDocument/documentSymbol', { textDocument: { uri: uri('a.c') } });

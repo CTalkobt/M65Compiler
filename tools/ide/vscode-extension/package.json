@@ -86,6 +86,21 @@
             "default": "${workspaceFolder}/bin/ca45",
             "description": "Path to the ca45 assembler binary"
           },
+          "m65.lint.enabled": {
+            "type": "boolean",
+            "default": true,
+            "description": "Run the linters with the compiler: cl45 on C, al45 on assembly (their mega65-* rules, configured by .cc45-lint.yml)"
+          },
+          "m65.cl45Path": {
+            "type": "string",
+            "default": "",
+            "description": "Path to cl45, the C linter (default: beside cc45)"
+          },
+          "m65.al45Path": {
+            "type": "string",
+            "default": "",
+            "description": "Path to al45, the assembly linter (default: beside ca45)"
+          },
           "m65.diagnostics.debounceMs": {
             "type": "number",
             "default": 500,

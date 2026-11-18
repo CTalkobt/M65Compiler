@@ -8,7 +8,7 @@ import {
 } from 'vscode-languageserver/node';
 import { TextDocument as TextDocumentType } from 'vscode-languageserver-textdocument';
 import { fileURLToPath } from 'url';
-import { runTool } from './diagnostics/runTool';
+import { runLint, runTool } from './diagnostics/runTool';
 
 interface DocumentState {
   generationId: number;
@@ -23,6 +23,10 @@ export class DocumentManager {
   private ca45Path: string;
   private debounceMs: number;
   private workspacePath: string;
+  /** the linters (#199): run beside the compiler when lint is on */
+  private cl45Path = '';
+  private al45Path = '';
+  private lint = false;
   /** called when a document's text changed (the workspace index) */
   onContent: ((doc: TextDocumentType) => void) | null = null;
   /** called when a document is closed (its file on disk indexed again) */
@@ -61,6 +65,19 @@ export class DocumentManager {
     this.cc45Path = cc45Path;
     this.ca45Path = ca45Path;
     this.debounceMs = debounceMs;
+    if (changed) {
+      for (const doc of this.documents.all()) {
+        this.runDiagnostics(doc).catch((err) => console.error(`Error running diagnostics: ${err}`));
+      }
+    }
+  }
+
+  /** The linters' paths and whether they run; open documents checked again on a change */
+  setLint(cl45Path: string, al45Path: string, enabled: boolean): void {
+    const changed = cl45Path !== this.cl45Path || al45Path !== this.al45Path || enabled !== this.lint;
+    this.cl45Path = cl45Path;
+    this.al45Path = al45Path;
+    this.lint = enabled;
     if (changed) {
       for (const doc of this.documents.all()) {
         this.runDiagnostics(doc).catch((err) => console.error(`Error running diagnostics: ${err}`));
@@ -154,8 +171,18 @@ export class DocumentManager {
     if (language !== 'c' && language !== 'asm') return [];
     // (a header alone is not compiled: what includes it reports its errors)
     if (language === 'c' && /\.h$/i.test(filePath)) return [];
-    const run = await runTool(language, language === 'c' ? this.cc45Path : this.ca45Path, filePath, document.getText());
-    const parsedDiags = run.diagnostics;
+    const text = document.getText();
+    const linter = language === 'c' ? this.cl45Path : this.al45Path;
+    const [run, lint] = await Promise.all([
+      runTool(language, language === 'c' ? this.cc45Path : this.ca45Path, filePath, text),
+      this.lint ? runLint(language, linter, filePath, text) : Promise.resolve({ diagnostics: [] }),
+    ]);
+    // the linter's rules take over some of the compiler's warnings (the
+    // same text at the same place): shown once, as the rule
+    const ruled = new Set(lint.diagnostics.map((d) => `${d.line}:${d.column}:${d.message}`));
+    const parsedDiags = run.diagnostics
+      .filter((d) => d.severity === 'error' || !ruled.has(`${d.line}:${d.column}:${d.message}`))
+      .concat(run.diagnostics.some((d) => d.severity === 'error') ? [] : lint.diagnostics);
 
     // Convert parsed diagnostics to LSP format
     return parsedDiags.map((diag) => ({
@@ -177,7 +204,8 @@ export class DocumentManager {
             ? DiagnosticSeverity.Warning
             : DiagnosticSeverity.Information,
       message: diag.message,
-      source: language === 'c' ? 'cc45' : 'ca45',
+      source: diag.rule ? (language === 'c' ? 'cl45' : 'al45') : (language === 'c' ? 'cc45' : 'ca45'),
+      ...(diag.rule ? { code: diag.rule } : {}),
     }));
   }
 

@@ -57,10 +57,11 @@ async function applySettings(): Promise<void> {
   }
   const r = resolveSettings(s, workspacePath);
   documentManager.setConfig(r.cc45Path, r.ca45Path, r.debounceMs);
+  documentManager.setLint(r.cl45Path, r.al45Path, r.lint);
   workspaceIndex.setExclude(r.exclude);
   cc45Path = r.cc45Path;
   workspaceIndex.setLibraryDirs(libraryDirs(r.cc45Path));
-  console.error(`[LSP Server] cc45=${r.cc45Path} ca45=${r.ca45Path} debounce=${r.debounceMs}ms`);
+  console.error(`[LSP Server] cc45=${r.cc45Path} ca45=${r.ca45Path} lint=${r.lint ? `${r.cl45Path} ${r.al45Path}` : 'off'} debounce=${r.debounceMs}ms`);
 }
 
 /** cc45's headers: CC45_INCLUDE, else beside the compiler (bin/../lib/include, an installed bin/../include/cc45) */
@@ -91,6 +92,7 @@ connection.onInitialize((params: InitializeParams): InitializeResult => {
   const r = resolveSettings(initialSettings, workspacePath);
   workspaceIndex.setExclude(r.exclude);
   documentManager = new DocumentManager(connection, r.cc45Path, r.ca45Path, r.debounceMs, workspacePath);
+  documentManager.setLint(r.cl45Path, r.al45Path, r.lint);
   documentManager.onContent = (doc) => workspaceIndex.indexDocument(doc);
   documentManager.onClose = (uri) => {
     if (uri.startsWith('file:')) workspaceIndex.indexFile(fileURLToPath(uri));
