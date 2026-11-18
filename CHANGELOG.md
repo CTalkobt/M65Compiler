@@ -4,6 +4,31 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### dbg45, disk45, asmCvt45: three ways to end badly (#632, #633, #634)
+
+- **dbg45: `break *$2124` ended dbg45** with an uncaught `stoul` exception. Every number a command takes
+  (`break *ADDR`, `break file:line`, `x $ADDR`, a `$` in an expression) is now read by one function,
+  `Dbg45::parseNumber`: `$hex`, `0x` or decimal; anything else is an error message.
+- **disk45: a number that is none** (`bpoke x.d81 1 0 0 '$43'`, `bread x.d81 a b`) ended it the same way.
+  Numbers are decimal, `0x` or `$` hex, and a bad one is `Error: 'zz' is not a number` with exit status 1, in a
+  shell or batch line too.
+- **disk45: an option a command does not have is an error** that names those it has; so is an option without its
+  value. Every command but `sd` passed over what it did not know (`create x.d81 --name TEST` made a disk with the
+  default name; `list img --bogus` took it for a pattern). `--` before a name that starts with `-`.
+- **disk45: `create f.tap` and `create f.cvt` are refused** (read-only formats; they wrote a 20-byte and a
+  508-byte file).
+- **disk45: `create` and `info` name the format**: `D80 (8050)`, `ARK (archive)`, `T64 (tape archive)`… where
+  everything that is not a D64, D71, D81 or D65 said `D64 (1541)` or `D81 (1581)`.
+- **disk45's usage text**: D90 / D60 / D1M / D2M / D4M / DNP are read/write, the CMD images' sizes, `remove`
+  takes no wildcard, `catalog update` / `prune`, `--partitions`, `.nbz`, `.gz` / `.zip`.
+- **asmCvt45 `--parallel` wrote its files and never ended**: nothing woke the thread pool's `waitAll()` when a
+  task finished (`include/ThreadPool.hpp`), and a task was counted as running only after the queue was unlocked.
+- Tests: `test_dbg45.sh` (13), `test_disk45.sh` (132), `test_asmCvt45.sh` (31).
+- Left of #633 (it stays open): `extract-all` and `copy` do not go into subdirectories, `list` in a subdirectory lacks the GEOS
+  note, `info` of a partitioned image shows the default partition, `add` prints the name as typed, a leading `-v`
+  is always the version, `catalog build` names no SD card image it scans.
+- `test_xemu.sh`'s SD card test passed `add ... -t seq`, an option `add` never had: removed.
+
 ### The Ubuntu Docker image runs the tests again; cl45's system headers (#630)
 
 - **`make test` and `make test-xemu` in the image of the root `Dockerfile`** stopped at once with "No C++17

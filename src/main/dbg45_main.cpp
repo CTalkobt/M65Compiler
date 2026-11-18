@@ -185,8 +185,9 @@ struct Cli {
             as >> a >> n;
             Dbg45Value v;
             long addr;
-            if (!a.empty() && a[0] == '$') addr = std::stol(a.substr(1), nullptr, 16);
-            else if (d.evaluate(a, frame, v, err)) addr = v.type[0] == '*' ? (long)(v.bytes[0] | (v.bytes[1] << 8)) : v.addr;
+            if (!a.empty() && a[0] == '$') {
+                if (!Dbg45::parseNumber(a, addr)) { printf("error: no address '%s'\n", a.c_str()); return true; }
+            } else if (d.evaluate(a, frame, v, err)) addr = v.type[0] == '*' ? (long)(v.bytes[0] | (v.bytes[1] << 8)) : v.addr;
             else { printf("error: %s\n", err.c_str()); return true; }
             std::vector<uint8_t> m;
             if (addr < 0 || !d.readMemory((uint32_t)addr, (size_t)std::max(1, n), m)) { printf("error: unreadable\n"); return true; }

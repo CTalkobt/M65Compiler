@@ -166,7 +166,6 @@ Known problems:
 - A reader knows the common directives of its assembler, not all of them: ca65 `.scope` (its labels become global), KickAssembler namespaces (passed on as written; their labels are not qualified), KickAssembler's script language (`.for`, `.function`, `.eval`), ACME's `!for`/`!do`/`!set` and `.fill` with an expression of the index are not translated; an unknown directive reaches ca45 under its own name, where ca45 reports it.
 - Conditional assembly is resolved from the constants defined above it; a condition on anything else (a label's address) is kept as written, with a warning. ca45 has no conditional assembly of its own.
 - Macros are expanded; their definitions are not written to any target.
-- `--parallel` (and `parallel_default`) writes the output files but asmCvt45 then does not exit (1.1.0.dev; seen with two inputs, with and without `--threads`): convert without it.
 - Merlin's `ASC` is taken as ASCII as written (the Apple II versions set bit 7 for some delimiters).
 - ACME's `!24` has no ca45 equivalent and is passed on unchanged.
 - The Merlin 64, Oscar and x65 output follows their documented syntax but has not been checked with their assemblers.

@@ -33,6 +33,10 @@ public:
     std::vector<uint8_t> readFile(const std::string& name) const override;
     bool fileExists(const std::string& name) const override;
 
+    // read-only (#633: `create f.tap` wrote a 20-byte file)
+    bool writable() const override { return false; }
+    bool canCreateBlank() const override { return false; }
+
     DiskFormat diskFormat() const override { return DiskFormat::D64; } // closest match
     std::string diskName() const override { return "TAPE IMAGE"; }
     std::string diskId() const override { return "TP"; }

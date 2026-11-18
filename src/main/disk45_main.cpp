@@ -9,8 +9,22 @@
 #include "TapImage.hpp"
 #include "GeosCvtImage.hpp"
 #include "CmdImage.hpp"
+#include "D80Image.hpp"
+#include "D90Image.hpp"
+#include "G64Image.hpp"
+#include "NibImage.hpp"
+#include "ZipcodeImage.hpp"
+#include "X64Image.hpp"
+#include "T64Image.hpp"
+#include "ArkImage.hpp"
+#include "ArcImage.hpp"
+#include "LnxImage.hpp"
+#include "P00Image.hpp"
 #include "GzipHelper.hpp"
 #include <iostream>
+#include <map>
+#include <stdexcept>
+#include <vector>
 #include <filesystem>
 #include <fstream>
 #include <iomanip>
@@ -45,7 +59,7 @@ extern int disk45_sd(int argc, char** argv);
 static void usage() {
     std::cerr << "disk45 — CBM Disk Image Utility v" << VERSION << "\n"
               << "Usage:\n"
-              << "  disk45 create <image> [-n name] [-i id] [-t tracks] [--geos]  Create disk image\n"
+              << "  disk45 create <image> [-n name] [-i id] [-t tracks] [--geos] [--partitions LIST]  Create disk image\n"
               << "  disk45 list <image>                       List directory\n"
               << "  disk45 info <image>                       Show disk info\n"
               << "  disk45 add <image> <file> [cbm_name] [-p]  Add file to image\n"
@@ -97,6 +111,8 @@ static void usage() {
               << "  disk45 catalog list [--db file]           List indexed images\n"
               << "  disk45 catalog duplicates [--db file]     Find duplicate files\n"
               << "  disk45 catalog stats [--db file]          Collection statistics\n"
+              << "  disk45 catalog update <dir>... [--db f]   The same as build\n"
+              << "  disk45 catalog prune [--db file]          Remove entries for deleted images\n"
 #else
               << "  disk45 catalog ...                        (not in this build: built without SQLite)\n"
 #endif
@@ -129,15 +145,18 @@ static void usage() {
               << "  .x64  X64 extended D64 (64-byte header + D64)\n"
               << "  .p00  P00/S00/U00/R00 PC64 single-file container\n"
               << "  1!xx  Zipcode 4-pack (read-only, decodes to D64)\n"
-              << "  .d90  D9090 CBM hard drive (7.5MB, read-only)\n"
-              << "  .d60  D9060 CBM hard drive (5MB, read-only)\n"
-              << "  .d1m  CMD FD-2000 DD (207KB, read-only)\n"
-              << "  .d2m  CMD FD-2000 HD (414KB, read-only)\n"
-              << "  .d4m  CMD FD-4000 ED (829KB, read-only)\n"
-              << "  .dnp  CMD Native Partition (up to 16MB, read-only)\n"
-              << "  .nib  NIB raw nibble dump (read-only, decodes to D64)\n"
+              << "  .d90  D9090 CBM hard drive (7.5MB)\n"
+              << "  .d60  D9060 CBM hard drive (5MB)\n"
+              << "  .d1m  CMD FD-2000 DD (810KB; partitions: image.d1m:N, create --partitions)\n"
+              << "  .d2m  CMD FD-2000 HD (1.58MB)\n"
+              << "  .d4m  CMD FD-4000 ED (3.16MB)\n"
+              << "  .dnp  CMD Native Partition (up to 16MB)\n"
+              << "  .nib  NIB raw nibble dump, .nbz compressed (read-only, decodes to D64)\n"
+              << "  .gz, .zip: any of them compressed (x.d81.gz, archive.zip:member.d64)\n"
               << "\n"
-              << "Wildcards: use * and ? in patterns for list, extract-all, copy, remove\n"
+              << "Wildcards: use * and ? in patterns for list, extract-all, copy\n"
+              << "An option a command does not have is an error; \"--\" before a name that starts with '-'.\n"
+              << "Numbers: decimal, 0x or $ hex.\n"
               << "\n"
               << "Flags:\n"
               << "  -p, --petscii   Convert SEQ content: ASCII→PETSCII (add) or\n"
@@ -167,6 +186,41 @@ static const char* formatStr(DiskFormat f) {
         case DiskFormat::D65: return "D65 (MEGA65)";
     }
     return "???";
+}
+
+// The image's format by what it is, not by diskFormat() (the directory
+// layout it shares: a D80, an archive or a tape said "D64 (1541)", #633)
+static std::string formatLabel(const DiskImage* img) {
+    if (auto* c = dynamic_cast<const CmdImage*>(img)) return c->formatName();
+    if (dynamic_cast<const D82Image*>(img)) return "D82 (8250)";
+    if (dynamic_cast<const D80Image*>(img)) return "D80 (8050)";
+    if (dynamic_cast<const D90Image*>(img)) return "D90 / D60 (D9090 / D9060)";
+    if (dynamic_cast<const ZipcodeImage*>(img)) return "Zipcode";
+    if (dynamic_cast<const NibImage*>(img)) return "NIB (1541 GCR)";
+    if (dynamic_cast<const X64Image*>(img)) return "X64";
+    if (dynamic_cast<const G64Image*>(img)) return "G64 (1541 GCR)";
+    if (dynamic_cast<const G71Image*>(img)) return "G71 (1571 GCR)";
+    if (dynamic_cast<const T64Image*>(img)) return "T64 (tape archive)";
+    if (dynamic_cast<const TapImage*>(img)) return "TAP (tape)";
+    if (dynamic_cast<const ArkImage*>(img)) return "ARK (archive)";
+    if (dynamic_cast<const ArcImage*>(img)) return "ARC (archive)";
+    if (dynamic_cast<const LnxImage*>(img)) return "LNX (Lynx archive)";
+    if (dynamic_cast<const P00Image*>(img)) return "P00 (PC64 file)";
+    if (dynamic_cast<const GeosCvtImage*>(img)) return "CVT (GEOS Convert)";
+    return formatStr(img->diskFormat());
+}
+
+// A number on the command line: decimal, 0x or $ hex (a leading 0: octal,
+// as before). Anything else is an error message (processCommand), where
+// std::stoi's exception ended disk45 (#633: bpoke ... '$43').
+static long argNum(const std::string& text) {
+    bool dollar = !text.empty() && text[0] == '$';
+    const char* p = text.c_str() + (dollar ? 1 : 0);
+    char* end = nullptr;
+    errno = 0;
+    long v = (*p == 0 || isspace((unsigned char)*p)) ? 0 : std::strtol(p, &end, dollar ? 16 : 0);
+    if (!end || *end || errno) throw std::invalid_argument("'" + text + "' is not a number");
+    return v;
 }
 
 // --- PETSCII ↔ ASCII content conversion for SEQ files ---
@@ -592,7 +646,7 @@ static int cmdCreate(int argc, char** argv) {
     for (int i = 1; i < argc; i++) {
         if (std::string(argv[i]) == "-n" && i + 1 < argc) diskName = argv[++i];
         else if (std::string(argv[i]) == "-i" && i + 1 < argc) diskId = argv[++i];
-        else if (std::string(argv[i]) == "-t" && i + 1 < argc) tracks = std::stoi(argv[++i]);
+        else if (std::string(argv[i]) == "-t" && i + 1 < argc) tracks = (int)argNum(argv[++i]);
         else if (std::string(argv[i]) == "--geos") geos = true;
         else if ((std::string(argv[i]) == "--partitions" || std::string(argv[i]) == "-P") && i + 1 < argc)
             partitions = argv[++i];
@@ -639,7 +693,7 @@ static int cmdCreate(int argc, char** argv) {
                 return 1;
             }
             if (f.size() >= 2) p.name = f[1];
-            if (f.size() == 3) p.blocks = (uint32_t)std::stoul(f[2]);
+            if (f.size() == 3) p.blocks = (uint32_t)argNum(f[2]);
             layout.push_back(p);
         }
         std::string err;
@@ -693,7 +747,7 @@ static int cmdCreate(int argc, char** argv) {
         std::cerr << "Error: failed to write " << imagePath << "\n";
         return 1;
     }
-    std::cout << "Created " << formatStr(img->diskFormat()) << (geos ? " (GEOS)" : "") << " image: "
+    std::cout << "Created " << formatLabel(img.get()) << (geos ? " (GEOS)" : "") << " image: "
               << imagePath << " (" << img->totalTracks() << " tracks, "
               << img->totalBytes() << " bytes)\n";
     return 0;
@@ -853,8 +907,7 @@ static int cmdInfo(int argc, char** argv) {
             std::cout << "Description:  " << desc << "\n";
         std::cout << "Files:        " << img->listFiles().size() << "\n";
     } else {
-        auto* cmdImg = dynamic_cast<CmdImage*>(img.get());
-        std::cout << "Format:       " << (cmdImg ? cmdImg->formatName() : formatStr(img->diskFormat())) << "\n"
+        std::cout << "Format:       " << formatLabel(img.get()) << "\n"
                   << "Disk name:    " << img->diskName() << "\n"
                   << "Disk ID:      " << img->diskId() << "\n"
                   << "Tracks:       " << img->totalTracks() << "\n"
@@ -1691,8 +1744,8 @@ static int cmdBread(int argc, char** argv) {
     }
     auto img = DiskImage::load(argv[0]);
     if (!img) { std::cerr << "Error: failed to load " << argv[0] << "\n"; return 1; }
-    int track = std::stoi(argv[1]);
-    int sector = std::stoi(argv[2]);
+    int track = (int)argNum(argv[1]);
+    int sector = (int)argNum(argv[2]);
 
     const uint8_t* data = img->sectorData(track, sector);
     if (!data) { std::cerr << "Error: invalid track/sector " << track << "/" << sector << "\n"; return 1; }
@@ -1715,8 +1768,8 @@ static int cmdBwrite(int argc, char** argv) {
     }
     auto img = DiskImage::load(argv[0]);
     if (!img) { std::cerr << "Error: failed to load " << argv[0] << "\n"; return 1; }
-    int track = std::stoi(argv[1]);
-    int sector = std::stoi(argv[2]);
+    int track = (int)argNum(argv[1]);
+    int sector = (int)argNum(argv[2]);
 
     uint8_t* data = img->sectorData(track, sector);
     if (!data) { std::cerr << "Error: invalid track/sector " << track << "/" << sector << "\n"; return 1; }
@@ -1737,10 +1790,10 @@ static int cmdBpeek(int argc, char** argv) {
     }
     auto img = DiskImage::load(argv[0]);
     if (!img) { std::cerr << "Error: failed to load " << argv[0] << "\n"; return 1; }
-    int track = std::stoi(argv[1]);
-    int sector = std::stoi(argv[2]);
-    int offset = std::stoi(argv[3]);
-    int count = (argc >= 5) ? std::stoi(argv[4]) : 1;
+    int track = (int)argNum(argv[1]);
+    int sector = (int)argNum(argv[2]);
+    int offset = (int)argNum(argv[3]);
+    int count = (argc >= 5) ? (int)argNum(argv[4]) : 1;
 
     const uint8_t* data = img->sectorData(track, sector);
     if (!data) { std::cerr << "Error: invalid track/sector\n"; return 1; }
@@ -1762,20 +1815,20 @@ static int cmdBpoke(int argc, char** argv) {
     }
     auto img = DiskImage::load(argv[0]);
     if (!img) { std::cerr << "Error: failed to load " << argv[0] << "\n"; return 1; }
-    int track = std::stoi(argv[1]);
-    int sector = std::stoi(argv[2]);
-    int offset = std::stoi(argv[3]);
+    int track = (int)argNum(argv[1]);
+    int sector = (int)argNum(argv[2]);
+    int offset = (int)argNum(argv[3]);
 
     uint8_t* data = img->sectorData(track, sector);
     if (!data) { std::cerr << "Error: invalid track/sector\n"; return 1; }
 
     for (int i = 4; i < argc; i++) {
         if (offset >= 256) { std::cerr << "Error: offset out of range\n"; return 1; }
-        data[offset++] = (uint8_t)std::stoul(argv[i], nullptr, 0);
+        data[offset++] = (uint8_t)argNum(argv[i]);
     }
 
     if (!img->saveImage(argv[0])) { std::cerr << "Error: failed to write image\n"; return 1; }
-    std::cout << "Poked " << (argc - 4) << " byte(s) at " << track << "/" << sector << "+" << std::stoi(argv[3]) << "\n";
+    std::cout << "Poked " << (argc - 4) << " byte(s) at " << track << "/" << sector << "+" << (int)argNum(argv[3]) << "\n";
     return 0;
 }
 
@@ -1786,9 +1839,9 @@ static int cmdBfill(int argc, char** argv) {
     }
     auto img = DiskImage::load(argv[0]);
     if (!img) { std::cerr << "Error: failed to load " << argv[0] << "\n"; return 1; }
-    int track = std::stoi(argv[1]);
-    int sector = std::stoi(argv[2]);
-    uint8_t val = (uint8_t)std::stoul(argv[3], nullptr, 0);
+    int track = (int)argNum(argv[1]);
+    int sector = (int)argNum(argv[2]);
+    uint8_t val = (uint8_t)argNum(argv[3]);
 
     uint8_t* data = img->sectorData(track, sector);
     if (!data) { std::cerr << "Error: invalid track/sector\n"; return 1; }
@@ -1961,8 +2014,8 @@ static int cmdRelCreate(int argc, char** argv) {
     }
     std::string imagePath = argv[0];
     std::string name = normalizeName(argv[1]);
-    int recordLen = std::stoi(argv[2]);
-    int numRecords = (argc >= 4) ? std::stoi(argv[3]) : 10;
+    int recordLen = (int)argNum(argv[2]);
+    int numRecords = (argc >= 4) ? (int)argNum(argv[3]) : 10;
 
     if (recordLen < 1 || recordLen > 254) {
         std::cerr << "Error: record length must be 1-254\n";
@@ -2102,7 +2155,7 @@ static int cmdRelRead(int argc, char** argv) {
     auto img = DiskImage::load(argv[0]);
     if (!img) { std::cerr << "Error: failed to load " << argv[0] << "\n"; return 1; }
     std::string name = normalizeName(argv[1]);
-    int recNum = std::stoi(argv[2]); // 1-based
+    int recNum = (int)argNum(argv[2]); // 1-based
     DirEntry e;
     if (!relFind(img.get(), name, e)) return 1;
     int recordLen = e.recordLen;
@@ -2142,7 +2195,7 @@ static int cmdRelWrite(int argc, char** argv) {
     if (!img) { std::cerr << "Error: failed to load " << argv[0] << "\n"; return 1; }
 
     std::string name = normalizeName(argv[1]);
-    int recNum = std::stoi(argv[2]);
+    int recNum = (int)argNum(argv[2]);
 
     // Collect data bytes from remaining args (hex or decimal)
     std::vector<uint8_t> bytes;
@@ -2154,7 +2207,7 @@ static int cmdRelWrite(int argc, char** argv) {
                 bytes.push_back((uint8_t)arg[j]);
         } else {
             // Treat as numeric value
-            bytes.push_back((uint8_t)std::stoul(arg, nullptr, 0));
+            bytes.push_back((uint8_t)argNum(arg));
         }
     }
 
@@ -2395,7 +2448,7 @@ static int cmdDirEnsure(int argc, char** argv) {
     auto img = DiskImage::load(argv[0]);
     if (!img) { std::cerr << "Error: failed to load " << argv[0] << "\n"; return 1; }
 
-    int minFree = std::stoi(argv[1]);
+    int minFree = (int)argNum(argv[1]);
     std::string pathStr = (argc >= 3) ? normalizeName(argv[2]) : "";
 
     TrackSector dirTS;
@@ -2748,9 +2801,87 @@ static int cmdBatch(const std::string& scriptFile) {
     return errors > 0 ? 1 : 0;
 }
 
+// The options each command takes ("=": with a value). A command not listed
+// here checks its own (sd, catalog, mount, edit). An argument that starts
+// with '-' and is none of them is an error: every command used to pass over
+// what it did not know (`create x.d81 --name TEST` made a disk with the
+// default name, #633). "--" ends the options, for a name that starts with '-'.
+static bool checkOptions(const std::string& cmd, int argc, char** argv) {
+    static const std::map<std::string, std::vector<std::string>> table = {
+        {"create", {"-n=", "-i=", "-t=", "--partitions=", "-P=", "--geos"}},
+        {"list", {"--petscii"}}, {"ls", {"--petscii"}}, {"dir", {"--petscii"}},
+        {"add", {"-s=", "-b=", "--track=", "-e", "-p", "--petscii"}},
+        {"write", {"-s=", "-b=", "--track=", "-e", "-p", "--petscii"}},
+        {"diff", {"--sectors", "-s"}}, {"compare", {"--sectors", "-s"}},
+        {"basic", {"--65", "--v2", "--v7", "-2", "-6", "-7"}},
+        {"repair", {"--dry", "-n"}},
+        {"label", {"-n=", "-i="}},
+        {"extract", {"-p", "--petscii"}}, {"read", {"-p", "--petscii"}},
+        {"extract-all", {"-p", "--petscii"}}, {"extractall", {"-p", "--petscii"}},
+        {"info", {}},
+        {"copy", {}}, {"cp", {}}, {"remove", {}}, {"delete", {}}, {"rm", {}}, {"rename", {}}, {"mv", {}},
+        {"lock", {}}, {"unlock", {}}, {"splat", {}}, {"unsplat", {}}, {"validate", {}}, {"check", {}},
+        {"bam", {}}, {"map", {}}, {"dump", {}}, {"hex", {}}, {"mkdir", {}}, {"rmdir", {}}, {"tree", {}},
+        {"convert", {}}, {"dir-shrink", {}}, {"dir-ensure", {}},
+        {"rel-create", {}}, {"rel-read", {}}, {"rel-write", {}}, {"rel-list", {}},
+        {"bread", {}}, {"bwrite", {}}, {"bpeek", {}}, {"bpoke", {}}, {"bfill", {}}, {"chain", {}},
+    };
+    auto t = table.find(cmd);
+    if (t == table.end()) return true;
+    for (int i = 0; i < argc; i++) {
+        std::string a = argv[i];
+        if (a == "--") {                      // the rest are names: drop the "--"
+            for (int k = i; k + 1 < argc; k++) argv[k] = argv[k + 1];
+            argv[argc - 1] = nullptr;
+            return true;
+        }
+        if (a.size() < 2 || a[0] != '-' || isdigit((unsigned char)a[1])) continue;     // (a name, a negative number)
+        bool known = false;
+        for (const auto& o : t->second) {
+            bool value = o.back() == '=';
+            if (a != (value ? o.substr(0, o.size() - 1) : o)) continue;
+            known = true;
+            if (value) {
+                if (i + 1 >= argc) { std::cerr << "Error: " << a << " needs a value (disk45 " << cmd << ")\n"; return false; }
+                i++;
+            }
+            break;
+        }
+        if (!known) {
+            std::cerr << "Error: disk45 " << cmd << " has no option " << a;
+            if (t->second.empty()) std::cerr << " (it takes none";
+            else {
+                std::cerr << " (its options:";
+                for (const auto& o : t->second) std::cerr << " " << (o.back() == '=' ? o.substr(0, o.size() - 1) + " <value>" : o);
+            }
+            std::cerr << "; \"--\" before a name that starts with '-')\n";
+            return false;
+        }
+    }
+    return true;
+}
+
+static int runCommand(int argc, char** argv);
+
+// One command (the command line's, a shell line's, a batch line's): its
+// options checked, a bad number an error message
 static int processCommand(int argc, char** argv) {
     if (argc < 2) { usage(); return 1; }
+    int subArgc = argc - 2;
+    if (!checkOptions(argv[1], subArgc, argv + 2)) return 1;
+    if (subArgc > 0 && argv[argc - 1] == nullptr) argc--;      // (a "--" was dropped)
+    try {
+        return runCommand(argc, argv);
+    } catch (const std::invalid_argument& e) {
+        std::cerr << "Error: " << e.what() << "\n";
+        return 1;
+    } catch (const std::out_of_range&) {
+        std::cerr << "Error: a number on the command line is out of range\n";
+        return 1;
+    }
+}
 
+static int runCommand(int argc, char** argv) {
     std::string cmd = argv[1];
     int subArgc = argc - 2;
     char** subArgv = argv + 2;

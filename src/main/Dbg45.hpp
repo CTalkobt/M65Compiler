@@ -47,6 +47,9 @@ public:
     struct Breakpoint { int id; std::string where; std::vector<uint16_t> addrs; };
     std::map<int, Breakpoint> breakpoints;
     int addBreakpoint(const std::string& where, std::string& err);   // its id, or 0
+    // A number as a command gives it: $hex, 0xhex or decimal, the whole
+    // text (false for anything else: never an exception, #632)
+    static bool parseNumber(const std::string& text, long& value);
     bool deleteBreakpoint(int id);
 
     // execution; each stops (true) or reports why not in err

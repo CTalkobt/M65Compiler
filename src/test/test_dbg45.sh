@@ -90,5 +90,16 @@ timeout 60 python3 src/test/dap_client.py ./bin/dbg45 $T/loop.prg $T/loop.c "$XE
 timeout 60 ./bin/dbg45 --xemu "$XEMU" --headless --fast --timeout 2 --batch -ex run -ex bt $T/loop.prg 2>&1 |
     grep -q "#0  main () at loop.c:3" && pass || fail "dbg45 --timeout"
 
+# numbers a command takes: $hex, 0x or decimal; a bad one is an error
+# message (#632: `break *$2124` ended dbg45 with an uncaught exception)
+bp() { timeout 20 ./bin/dbg45 --batch -ex "$1" $T/probe.prg 2>&1 | tail -1; }
+for a in '*$2124' '*0x2124' '*8484'; do
+    [ "$(bp "break $a")" = "Breakpoint 1 at \$2124: $a" ] && pass || fail "dbg45 break $a: $(bp "break $a")"
+done
+for a in 'break *$zz' 'break *' 'break *$12345' 'break probe.c:abc' 'break 99999999999999999999' 'x $zz'; do
+    out=$(bp "$a")
+    case "$out" in error:*) pass ;; *) fail "dbg45 '$a' is not an error message: $out" ;; esac
+done
+
 echo "dbg45 tests ($name): $passed passed, $failed failed"
 [ $failed -eq 0 ]

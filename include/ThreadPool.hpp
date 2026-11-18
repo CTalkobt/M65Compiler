@@ -17,6 +17,7 @@ private:
     std::queue<std::function<void()>> tasks;
     std::mutex queueMutex;
     std::condition_variable condition;
+    std::condition_variable idle;       // waitAll(): the queue empty and no task running
     std::atomic<bool> stop{false};
     std::atomic<int> activeThreads{0};
 
@@ -38,16 +39,24 @@ private:
 
                 task = std::move(tasks.front());
                 tasks.pop();
+                // (counted while the queue is still locked: between the pop
+                // and a later increment waitAll() saw nothing left to do)
+                activeThreads++;
             }
 
-            activeThreads++;
             try {
                 task();
             } catch (...) {
                 // Catch and suppress exceptions in worker threads
                 // They should be handled by the task itself
             }
-            activeThreads--;
+            {
+                // #634: nothing woke waitAll() when a task ended, so it
+                // waited for ever once the last one was done
+                std::unique_lock<std::mutex> lock(queueMutex);
+                activeThreads--;
+            }
+            idle.notify_all();
         }
     }
 
@@ -94,7 +103,7 @@ public:
     // Wait for all queued tasks to complete
     void waitAll() {
         std::unique_lock<std::mutex> lock(queueMutex);
-        condition.wait(lock, [this] { return tasks.empty() && activeThreads == 0; });
+        idle.wait(lock, [this] { return tasks.empty() && activeThreads == 0; });
     }
 
     // Get number of worker threads

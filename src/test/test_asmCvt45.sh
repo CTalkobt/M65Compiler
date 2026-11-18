@@ -339,5 +339,24 @@ else
     fail "test_asmCvt45.sh"; tail -5 "$T/old.log"
 fi
 
+# --parallel ends, with what a sequential run writes (#634: the pool's
+# waitAll() was never woken, so asmCvt45 wrote its files and did not exit)
+mkdir -p "$T/par" "$T/seq"
+for i in 1 2 3 4 5 6 7 8; do printf '    lda #%d\n    sta $d020\n    rts\n' $i > "$T/p$i.s45"; done
+ok=1
+for th in "" "--threads 1" "--threads 3"; do
+    rm -f "$T"/par/*
+    timeout 30 $CVT --parallel $th -t acme -o "$T/par/" "$T"/p?.s45 >/dev/null 2>&1 || ok=0
+    [ "$(ls "$T/par" | wc -l)" = 8 ] || ok=0
+done
+$CVT -t acme -o "$T/seq/" "$T"/p?.s45 >/dev/null 2>&1
+if [ $ok = 1 ] && diff -r "$T/par" "$T/seq" >/dev/null; then
+    pass "--parallel ends and writes what a sequential run does"
+else
+    fail "--parallel (hangs, fails or differs from a sequential run)"
+fi
+timeout 30 $CVT --parallel -t acme -o "$T/par/" "$T/p1.s45" "$T/nofile.s45" >/dev/null 2>&1
+[ $? = 1 ] && pass "--parallel: a missing input is exit status 1" || fail "--parallel with a missing input"
+
 echo "asmCvt45 tests: $passed passed, $failed failed"
 [ "$failed" -eq 0 ]
