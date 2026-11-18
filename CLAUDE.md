@@ -31,7 +31,8 @@ dependencies (SQLite and FUSE only for disk45):
   file as it is compiled (same `-I`/`-D`/`-f`/`-O`), no output; rules on the AST as parsed, in the IRBuilder where types
   are known (`IRBuilder::lintReport`), on the unoptimized IR and on the frames (`src/main/CLint.cpp`,
   `CompilationConfig::lint`); `// NOLINT(id)`, `#pragma cc45 lint(ignore, id)`; `make lint-lib` runs both linters over
-  the library (kept clean); `doc/bin/cl45.md`
+  the library (kept clean); the language server (`tools/ide/lsp-server`, `runLint`) runs cl45 and al45 on the text
+  being edited (`m65.lint.enabled`); `doc/bin/cl45.md`
 - **objdump45** — object/PRG/binary/`.ovd`/`.ov1` inspector and disassembler (45GS02, or 65CE02 / 6502 / 6510 with `--cpu`; a `$0801` PRG is 6510; ROM routines and I/O registers by name from `-S` symbol files, `lib/symbols/c64.sym` / `mega65.sym`; `--source`: ca45 source that assembles back to the same bytes; `--cycles[=MHZ]` (the 45GS02's at 40 MHz measured: `include/CpuCycles.hpp`), `--vice`; `--html` / `--tree` / `--json`: everything in the files as a page, a terminal tree to browse, or data (`objdump45_html.cpp`, `objdump45_tree.cpp`, #201); also BASIC listing with `-bas`)
 - **basic45** — BASIC 65 program generator (label-based source, PETSCII tokenizer, preprocessor,
   long variable names, block IF / proc, `--link` C functions, `--decompile`, `--disk`, `--emulator`;

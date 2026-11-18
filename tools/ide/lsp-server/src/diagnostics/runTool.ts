@@ -18,7 +18,7 @@ function problem(file: string, message: string): ParsedDiagnostic {
   return { file, line: 1, column: 1, severity: 'error', message };
 }
 
-function exec(tool: string, args: string[], cwd: string): Promise<{ code: number | null; out: string; err?: ExecFileException }> {
+function exec(tool: string, args: string[], cwd: string): Promise<{ code: number | null; out: string; stdout?: string; err?: ExecFileException }> {
   return new Promise((resolve) => {
     execFile(tool, args, { cwd, timeout: TIMEOUT_MS, maxBuffer: 4 * 1024 * 1024, encoding: 'utf-8' },
       (err, stdout, stderr) => {
@@ -27,7 +27,7 @@ function exec(tool: string, args: string[], cwd: string): Promise<{ code: number
           resolve({ code: null, out: `${stderr}${stdout}`, err: e });
           return;
         }
-        resolve({ code: e ? (typeof e.code === 'number' ? e.code : 1) : 0, out: `${stderr}\n${stdout}` });
+        resolve({ code: e ? (typeof e.code === 'number' ? e.code : 1) : 0, out: `${stderr}\n${stdout}`, stdout });
       });
   });
 }
@@ -98,6 +98,66 @@ export async function runTool(kind: ToolKind, toolPath: string, filePath: string
       try { fs.unlinkSync(sibling); } catch { /* gone */ }
     }
     try { fs.rmSync(tmp, { recursive: true, force: true }); } catch { /* left */ }
+  }
+}
+
+/** cl45 / al45's findings as they print them with --format=json */
+export function parseLintJson(out: string): ParsedDiagnostic[] {
+  let list: unknown;
+  try { list = JSON.parse(out); } catch { return []; }
+  if (!Array.isArray(list)) return [];
+  const found: ParsedDiagnostic[] = [];
+  for (const f of list as Record<string, unknown>[]) {
+    if (!f || typeof f.message !== 'string' || typeof f.rule !== 'string') continue;
+    const sev = f.severity === 'error' ? 'error' : f.severity === 'warning' ? 'warning' : 'note';
+    found.push({
+      file: typeof f.file === 'string' ? f.file : '',
+      line: typeof f.line === 'number' ? f.line : 1,
+      column: typeof f.column === 'number' && f.column > 0 ? f.column : 1,
+      severity: sev,
+      message: f.message,
+      rule: f.rule,
+    });
+  }
+  return found;
+}
+
+/**
+ * The linter's findings on a document's text (#199): cl45 or al45 with
+ * --format=json. The text when it is not what is on disk is linted from a
+ * hidden copy beside the document, so its .cc45-lint.yml (searched upward
+ * from the file), "..." includes and .include files are the document's.
+ *
+ * A file the compiler rejects has no findings (its errors are the
+ * compiler's); findings in other files (a header) are left to that file.
+ * A linter that is not there gives none: the server works without them.
+ */
+export async function runLint(kind: ToolKind, toolPath: string, filePath: string, text: string): Promise<ToolRun> {
+  if (!toolPath || !fs.existsSync(toolPath)) return { diagnostics: [] };
+  const dir = path.dirname(filePath);
+  if (!fs.existsSync(dir)) return { diagnostics: [] };
+  const base = path.basename(filePath);
+  let src = filePath;
+  let sibling: string | null = null;
+  try {
+    const onDisk = fs.existsSync(filePath) ? fs.readFileSync(filePath, 'utf-8') : null;
+    if (onDisk !== text) {
+      sibling = path.join(dir, `.${base}.m65lsp.lint${path.extname(base) || (kind === 'c' ? '.c' : '.s45')}`);
+      src = sibling;
+      fs.writeFileSync(src, text);
+    }
+    const r = await exec(toolPath, ['--format=json', src], dir);
+    if (r.err || r.stdout === undefined) return { diagnostics: [] };
+    const diagnostics: ParsedDiagnostic[] = [];
+    for (const d of parseLintJson(r.stdout)) {
+      const f = path.resolve(dir, d.file);
+      if (d.file === '' || f === path.resolve(src) || f === path.resolve(filePath)) diagnostics.push({ ...d, file: filePath });
+    }
+    return { diagnostics };
+  } finally {
+    if (sibling) {
+      try { fs.unlinkSync(sibling); } catch { /* gone */ }
+    }
   }
 }
 

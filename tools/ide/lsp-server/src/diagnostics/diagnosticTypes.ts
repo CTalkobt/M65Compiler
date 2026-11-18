@@ -4,6 +4,8 @@ export interface ParsedDiagnostic {
   column: number;
   severity: 'error' | 'warning' | 'note';
   message: string;
+  /** a linter's finding: its rule (mega65-...) */
+  rule?: string;
 }
 
 export interface DiagnosticRunResult {

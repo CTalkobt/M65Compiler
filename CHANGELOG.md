@@ -17,6 +17,14 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 - The library's four `NOLINT(mega65-signedness)` comments are gone.
 - Test `test_signed_default_literal_xemu.c`.
 
+### The language server runs the linters (#199)
+
+- `tools/ide/lsp-server` runs cl45 on C and al45 on assembly beside the
+  compiler, on the text being edited: findings are diagnostics with the rule
+  as the code and the source `cl45` / `al45`, under the project's
+  `.cc45-lint.yml`. Settings `m65.lint.enabled` (default on), `m65.cl45Path`,
+  `m65.al45Path` (default: beside cc45 / ca45).
+
 ### cl45: the C linter (#199)
 
 - `cl45` (a link to cc45, chosen by program name) lints a C file as cc45

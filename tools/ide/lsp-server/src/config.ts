@@ -5,6 +5,9 @@ import * as path from 'path';
 export interface M65Settings {
   cc45Path?: string;
   ca45Path?: string;
+  cl45Path?: string;
+  al45Path?: string;
+  lint?: { enabled?: boolean };
   diagnostics?: { debounceMs?: number };
   indexer?: { exclude?: string[] };
 }
@@ -12,6 +15,10 @@ export interface M65Settings {
 export interface ResolvedSettings {
   cc45Path: string;
   ca45Path: string;
+  /** the linters (#199): cl45 beside cc45, al45 beside ca45 unless set */
+  cl45Path: string;
+  al45Path: string;
+  lint: boolean;
   debounceMs: number;
   exclude: string[];
 }
@@ -51,11 +58,23 @@ export function resolveTool(setting: string | undefined, tool: string, workspace
   return onPath(tool) || local;
 }
 
+/** A linter's path: the setting, else beside its compiler (they are links to it), else as any tool */
+function resolveLinter(setting: string | undefined, tool: string, beside: string, workspace: string): string {
+  if (setting && setting.trim()) return resolveTool(setting, tool, workspace);
+  const p = path.join(path.dirname(beside), tool);
+  return fs.existsSync(p) ? p : resolveTool(undefined, tool, workspace);
+}
+
 export function resolveSettings(s: M65Settings | undefined | null, workspace: string): ResolvedSettings {
   const d = s?.diagnostics?.debounceMs;
+  const cc45Path = resolveTool(s?.cc45Path, 'cc45', workspace);
+  const ca45Path = resolveTool(s?.ca45Path, 'ca45', workspace);
   return {
-    cc45Path: resolveTool(s?.cc45Path, 'cc45', workspace),
-    ca45Path: resolveTool(s?.ca45Path, 'ca45', workspace),
+    cc45Path,
+    ca45Path,
+    cl45Path: resolveLinter(s?.cl45Path, 'cl45', cc45Path, workspace),
+    al45Path: resolveLinter(s?.al45Path, 'al45', ca45Path, workspace),
+    lint: s?.lint?.enabled !== false,
     debounceMs: typeof d === 'number' && d >= 0 ? d : 500,
     exclude: Array.isArray(s?.indexer?.exclude) ? s!.indexer!.exclude! : DEFAULT_EXCLUDE,
   };
