@@ -1,3 +1,13 @@
+/* FOR THE FUTURE: NOT IMPLEMENTED.
+ *
+ * No library defines what this header declares: a call of one of its
+ * functions would compile and then fail to link. Its contents are kept for
+ * later work and are left out unless CC45_FUTURE is defined (-DCC45_FUTURE),
+ * so including it by accident declares nothing.
+ * (doc/architecture/stdlib.md, "Headers Without a Library Implementation")
+ */
+#ifdef CC45_FUTURE
+
 /* sprite_audio_advanced.h — Advanced Audio System (Phases 46-50)
  *
  * Phases 46-50: 3D spatial audio, procedural synthesis, mixing, sequencing, processing
@@ -100,3 +110,5 @@ void sprite_audio_stream_stop(sprite_audio_stream_t stream);
 int sprite_audio_stream_is_running(sprite_audio_stream_t stream);
 
 #endif
+
+#endif /* CC45_FUTURE */

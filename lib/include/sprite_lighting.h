@@ -1,3 +1,13 @@
+/* FOR THE FUTURE: NOT IMPLEMENTED.
+ *
+ * No library defines what this header declares: a call of one of its
+ * functions would compile and then fail to link. Its contents are kept for
+ * later work and are left out unless CC45_FUTURE is defined (-DCC45_FUTURE),
+ * so including it by accident declares nothing.
+ * (doc/architecture/stdlib.md, "Headers Without a Library Implementation")
+ */
+#ifdef CC45_FUTURE
+
 /* sprite_lighting.h — Phase 53: Lighting System
  *
  * Dynamic lighting with multiple light sources and shadows.
@@ -58,3 +68,5 @@ int sprite_light_system_get_lights_at(sprite_light_system_t system,
                                        sprite_light_t *lights, int max_lights);
 
 #endif
+
+#endif /* CC45_FUTURE */

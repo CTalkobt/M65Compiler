@@ -1,3 +1,13 @@
+/* FOR THE FUTURE: NOT IMPLEMENTED.
+ *
+ * No library defines what this header declares: a call of one of its
+ * functions would compile and then fail to link. Its contents are kept for
+ * later work and are left out unless CC45_FUTURE is defined (-DCC45_FUTURE),
+ * so including it by accident declares nothing.
+ * (doc/architecture/stdlib.md, "Headers Without a Library Implementation")
+ */
+#ifdef CC45_FUTURE
+
 /* sprite_transform.h — Sprite 2D Transforms for MEGA65
  *
  * Provides scaling, rotation, and skew transforms for sprites.
@@ -352,3 +362,5 @@ void sprite_print_transform(sprite_t sprite);
 void sprite_print_matrix(const sprite_matrix_t *matrix);
 
 #endif
+
+#endif /* CC45_FUTURE */

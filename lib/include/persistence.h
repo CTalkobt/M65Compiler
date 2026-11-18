@@ -1,3 +1,13 @@
+/* FOR THE FUTURE: NOT IMPLEMENTED.
+ *
+ * No library defines what this header declares: a call of one of its
+ * functions would compile and then fail to link. Its contents are kept for
+ * later work and are left out unless CC45_FUTURE is defined (-DCC45_FUTURE),
+ * so including it by accident declares nothing.
+ * (doc/architecture/stdlib.md, "Headers Without a Library Implementation")
+ */
+#ifdef CC45_FUTURE
+
 /* sprite_save_load.h — Save/Load Systems (Phases 71-75)
  *
  * Phases 71-75: Persistence, checkpoints, progression, serialization, recovery
@@ -81,3 +91,5 @@ int sprite_recovery_verify_integrity(sprite_recovery_t recovery, const char *sav
 int sprite_recovery_get_last_error(sprite_recovery_t recovery);
 
 #endif
+
+#endif /* CC45_FUTURE */

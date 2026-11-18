@@ -1,3 +1,13 @@
+/* FOR THE FUTURE: NOT IMPLEMENTED.
+ *
+ * No library defines what this header declares: a call of one of its
+ * functions would compile and then fail to link. Its contents are kept for
+ * later work and are left out unless CC45_FUTURE is defined (-DCC45_FUTURE),
+ * so including it by accident declares nothing.
+ * (doc/architecture/stdlib.md, "Headers Without a Library Implementation")
+ */
+#ifdef CC45_FUTURE
+
 /* sprite_postprocessing.h — Phase 55: Post-Processing Effects
  *
  * Advanced post-processing: tone mapping, color grading, temporal effects.
@@ -67,3 +77,5 @@ void sprite_lut_set_color(sprite_lut_t lut, int index, int color);
 int sprite_lut_apply(sprite_lut_t lut, int *colors, int count);
 
 #endif
+
+#endif /* CC45_FUTURE */

@@ -1,3 +1,13 @@
+/* FOR THE FUTURE: NOT IMPLEMENTED.
+ *
+ * No library defines what this header declares: a call of one of its
+ * functions would compile and then fail to link. Its contents are kept for
+ * later work and are left out unless CC45_FUTURE is defined (-DCC45_FUTURE),
+ * so including it by accident declares nothing.
+ * (doc/architecture/stdlib.md, "Headers Without a Library Implementation")
+ */
+#ifdef CC45_FUTURE
+
 /* simd.h — Phase 78: SIMD Vector Operations
  *
  * Vector math library with SIMD-friendly data layouts and batch processing
@@ -109,3 +119,5 @@ vec3_t simd_vec3_min_batch(const vec3_t *vectors, int count);
 vec3_t simd_vec3_max_batch(const vec3_t *vectors, int count);
 
 #endif
+
+#endif /* CC45_FUTURE */

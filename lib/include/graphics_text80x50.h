@@ -1,3 +1,13 @@
+/* FOR THE FUTURE: NOT IMPLEMENTED.
+ *
+ * No library defines what this header declares: a call of one of its
+ * functions would compile and then fail to link. Its contents are kept for
+ * later work and are left out unless CC45_FUTURE is defined (-DCC45_FUTURE),
+ * so including it by accident declares nothing.
+ * (doc/architecture/stdlib.md, "Headers Without a Library Implementation")
+ */
+#ifdef CC45_FUTURE
+
 /* graphics_text80x50.h — TEXT_80x50 Graphics Mode (Phase 6)
  *
  * 80×50 extended text mode using MEGA65 hardware capabilities.
@@ -227,3 +237,5 @@ void text80x50_set_cursor(int x, int y);
 #define COLOR_LTGREEN           13
 #define COLOR_LTBLUE            14
 #define COLOR_GRAY3             15
+
+#endif /* CC45_FUTURE */

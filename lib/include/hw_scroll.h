@@ -1,3 +1,13 @@
+/* FOR THE FUTURE: NOT IMPLEMENTED.
+ *
+ * No library defines what this header declares: a call of one of its
+ * functions would compile and then fail to link. Its contents are kept for
+ * later work and are left out unless CC45_FUTURE is defined (-DCC45_FUTURE),
+ * so including it by accident declares nothing.
+ * (doc/architecture/stdlib.md, "Headers Without a Library Implementation")
+ */
+#ifdef CC45_FUTURE
+
 /* hw_scroll.h — Phase 82: Hardware Scrolling
  *
  * Hardware-accelerated X/Y scrolling with fine scroll control,
@@ -46,3 +56,5 @@ void hw_scroll_reset(void);
 int hw_scroll_is_active(void);
 
 #endif
+
+#endif /* CC45_FUTURE */

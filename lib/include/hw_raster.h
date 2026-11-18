@@ -1,3 +1,13 @@
+/* FOR THE FUTURE: NOT IMPLEMENTED.
+ *
+ * No library defines what this header declares: a call of one of its
+ * functions would compile and then fail to link. Its contents are kept for
+ * later work and are left out unless CC45_FUTURE is defined (-DCC45_FUTURE),
+ * so including it by accident declares nothing.
+ * (doc/architecture/stdlib.md, "Headers Without a Library Implementation")
+ */
+#ifdef CC45_FUTURE
+
 /* hw_raster.h — Phase 85: Raster Effects & Timing
  *
  * Raster interrupt handling, cycle-accurate timing, and effects
@@ -52,3 +62,5 @@ void hw_raster_disable(void);
 void hw_raster_enable(void);
 
 #endif
+
+#endif /* CC45_FUTURE */

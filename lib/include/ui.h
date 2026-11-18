@@ -1,3 +1,13 @@
+/* FOR THE FUTURE: NOT IMPLEMENTED.
+ *
+ * No library defines what this header declares: a call of one of its
+ * functions would compile and then fail to link. Its contents are kept for
+ * later work and are left out unless CC45_FUTURE is defined (-DCC45_FUTURE),
+ * so including it by accident declares nothing.
+ * (doc/architecture/stdlib.md, "Headers Without a Library Implementation")
+ */
+#ifdef CC45_FUTURE
+
 /* sprite_ui_framework.h — UI Framework (Phases 66-70)
  *
  * Phases 66-70: Windows, menus, input, layout, styling
@@ -87,3 +97,5 @@ void sprite_ui_theme_set_font(sprite_ui_theme_t theme, const char *font_name, in
 int sprite_ui_theme_apply(sprite_ui_theme_t theme, sprite_ui_widget_t widget);
 
 #endif
+
+#endif /* CC45_FUTURE */

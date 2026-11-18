@@ -1,3 +1,13 @@
+/* FOR THE FUTURE: NOT IMPLEMENTED.
+ *
+ * No library defines what this header declares: a call of one of its
+ * functions would compile and then fail to link. Its contents are kept for
+ * later work and are left out unless CC45_FUTURE is defined (-DCC45_FUTURE),
+ * so including it by accident declares nothing.
+ * (doc/architecture/stdlib.md, "Headers Without a Library Implementation")
+ */
+#ifdef CC45_FUTURE
+
 /* sprite_particle_system.h — Phase 51: Particle Systems
  *
  * Particle effects with emission, physics, and rendering.
@@ -63,3 +73,5 @@ int sprite_particle_system_enable_collision(sprite_particle_system_t system);
 int sprite_particle_system_disable_collision(sprite_particle_system_t system);
 
 #endif
+
+#endif /* CC45_FUTURE */

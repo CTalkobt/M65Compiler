@@ -1,3 +1,13 @@
+/* FOR THE FUTURE: NOT IMPLEMENTED.
+ *
+ * No library defines what this header declares: a call of one of its
+ * functions would compile and then fail to link. Its contents are kept for
+ * later work and are left out unless CC45_FUTURE is defined (-DCC45_FUTURE),
+ * so including it by accident declares nothing.
+ * (doc/architecture/stdlib.md, "Headers Without a Library Implementation")
+ */
+#ifdef CC45_FUTURE
+
 /* graphics_rrb.h — Raster Re-Write Buffer (Phase 105)
  *
  * Per-raster-line character repositioning using GOTOX instructions.
@@ -227,3 +237,5 @@ void rrb_optimize_for_quality(rrb_system_t *rrb);
 #define RRB_GOTOX_FLAG          0x10    /* Color byte bit 4: GOTOX flag */
 #define RRB_TRANSPARENCY_FLAG    0x80    /* Color byte bit 7: transparency */
 
+
+#endif /* CC45_FUTURE */

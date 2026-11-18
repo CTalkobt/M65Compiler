@@ -1,3 +1,13 @@
+/* FOR THE FUTURE: NOT IMPLEMENTED.
+ *
+ * No library defines what this header declares: a call of one of its
+ * functions would compile and then fail to link. Its contents are kept for
+ * later work and are left out unless CC45_FUTURE is defined (-DCC45_FUTURE),
+ * so including it by accident declares nothing.
+ * (doc/architecture/stdlib.md, "Headers Without a Library Implementation")
+ */
+#ifdef CC45_FUTURE
+
 /* sprite_groups.h — Sprite Groups & Hierarchies for MEGA65
  *
  * Provides sprite grouping with parent-child relationships and hierarchical transforms.
@@ -547,3 +557,5 @@ void sprite_print_group(sprite_group_t group);
 void sprite_print_hierarchy(sprite_t sprite, int indent);
 
 #endif
+
+#endif /* CC45_FUTURE */
