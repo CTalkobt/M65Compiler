@@ -3,12 +3,11 @@
 ; ca45 -ffunction-sections, so ln45 links only the routines a program
 ; reaches (an entry branching into another stays with it).
 ;
-; Uses JSRFAR ($FF6E) to call BASIC ROM float routines.
-; JSRFAR handles MAP banking automatically — no overlay conflicts.
-;
-; JSRFAR convention: Bank=$02, PCH=$03, PCL=$04
-; These ZP locations are scratch (used by DMA ops and startup code)
-; and are free at the point float routines are called.
+; The BASIC ROM's float routines are called through __float_romcall
+; (stdlib_asm/float_map.s45): it maps the ROM at $4000-$7FFF itself and puts
+; the map found back, a mapped overlay's too (#614). __jsrfar_basic, the
+; KERNAL's JSRFAR ($FF6E; Bank=$02, PCH=$03, PCL=$04, scratch at the point
+; float routines are called), is kept for the compiled BASIC runtime.
 ;
 ; FAC (Floating Point Accumulator) at $63-$68
 ; ARG (secondary accumulator) at $6A-$6F
@@ -18,7 +17,7 @@
 ; The program runs with its base page relocated (see crt0), but the ROM and
 ; the FAC/ARG/JSRFAR locations above are in page 0. Each public __float_*
 ; entry switches to page 0 (__bp_rom) and returns through __bp_prog. The
-; internal helpers (__jsrfar_basic, __float_load_*, __float_store_fac) must
+; internal helpers (__float_romcall, __jsrfar_basic, __float_load_*, __float_store_fac) must
 ; only be called with the base page already at 0.
 
 ; no calls through pointers here (ln45's call graph)
@@ -29,6 +28,7 @@ cc45.icallinfo = 1
 
 .extern __bp_rom
 .extern __bp_prog
+.extern __float_romcall
 
 ; KERNAL far-call entry
 JSRFAR      = $FF6E
@@ -79,6 +79,12 @@ ARG_SI = $6F
 ; ===========================================================================
 ; Helper: call BASIC ROM routine via JSRFAR
 ; Call with target address in AX (A=low, X=high)
+;
+; The float routines here call __float_romcall instead (stdlib_asm/
+; float_map.s45: the ROM mapped by the program itself, less than half the
+; cycles, #614). This one stays for the callers that pass registers in
+; JSRFAR's bytes or call ROM code outside $4000-$7FFF (basic_rt.s45,
+; basic_usr.s45).
 ; ===========================================================================
     .split "__jsrfar_basic"
 .global __jsrfar_basic
@@ -161,7 +167,7 @@ __float_store_fac:
     phx
     lda #<BJT_ROUND
     ldx #>BJT_ROUND
-    jsr __jsrfar_basic
+    jsr __float_romcall
     plx
     pla
     sta $02
@@ -331,7 +337,7 @@ __float_add:
     jsr __float_load_arg
     lda #<BJT_FADDT
     ldx #>BJT_FADDT
-    jsr __jsrfar_basic
+    jsr __float_romcall
     lda #<__float_a
     ldx #>__float_a
     jsr __float_store_fac
@@ -354,7 +360,7 @@ __float_sub:
     jsr __float_load_arg
     lda #<BJT_FSUBT
     ldx #>BJT_FSUBT
-    jsr __jsrfar_basic
+    jsr __float_romcall
     lda #<__float_a
     ldx #>__float_a
     jsr __float_store_fac
@@ -377,7 +383,7 @@ __float_mul:
     jsr __float_load_arg
     lda #<BJT_FMULTT
     ldx #>BJT_FMULTT
-    jsr __jsrfar_basic
+    jsr __float_romcall
     lda #<__float_a
     ldx #>__float_a
     jsr __float_store_fac
@@ -401,7 +407,7 @@ __float_div:
     jsr __float_load_arg
     lda #<BJT_FDIVT
     ldx #>BJT_FDIVT
-    jsr __jsrfar_basic
+    jsr __float_romcall
     lda #<__float_a
     ldx #>__float_a
     jsr __float_store_fac
@@ -439,7 +445,7 @@ __float_cmp:
     jsr __float_load_arg
     lda #<BJT_FSUBT
     ldx #>BJT_FSUBT
-    jsr __jsrfar_basic
+    jsr __float_romcall
     ; FAC = a - b. Check sign.
     lda FAC_EX
     beq @zero           ; exponent 0 = value is 0 (equal)
@@ -712,7 +718,7 @@ __float_sin:
     jsr __float_load_fac
     lda #<BJT_SIN
     ldx #>BJT_SIN
-    jsr __jsrfar_basic
+    jsr __float_romcall
     lda #<__float_a
     ldx #>__float_a
     jsr __float_store_fac
@@ -727,7 +733,7 @@ __float_cos:
     jsr __float_load_fac
     lda #<BJT_COS
     ldx #>BJT_COS
-    jsr __jsrfar_basic
+    jsr __float_romcall
     lda #<__float_a
     ldx #>__float_a
     jsr __float_store_fac
@@ -742,7 +748,7 @@ __float_tan:
     jsr __float_load_fac
     lda #<BJT_TAN
     ldx #>BJT_TAN
-    jsr __jsrfar_basic
+    jsr __float_romcall
     lda #<__float_a
     ldx #>__float_a
     jsr __float_store_fac
@@ -757,7 +763,7 @@ __float_atn:
     jsr __float_load_fac
     lda #<BJT_ATN
     ldx #>BJT_ATN
-    jsr __jsrfar_basic
+    jsr __float_romcall
     lda #<__float_a
     ldx #>__float_a
     jsr __float_store_fac
@@ -772,7 +778,7 @@ __float_log:
     jsr __float_load_fac
     lda #<BJT_LOG
     ldx #>BJT_LOG
-    jsr __jsrfar_basic
+    jsr __float_romcall
     lda #<__float_a
     ldx #>__float_a
     jsr __float_store_fac
@@ -787,7 +793,7 @@ __float_exp:
     jsr __float_load_fac
     lda #<BJT_EXP
     ldx #>BJT_EXP
-    jsr __jsrfar_basic
+    jsr __float_romcall
     lda #<__float_a
     ldx #>__float_a
     jsr __float_store_fac
@@ -802,7 +808,7 @@ __float_sqr:
     jsr __float_load_fac
     lda #<BJT_SQR
     ldx #>BJT_SQR
-    jsr __jsrfar_basic
+    jsr __float_romcall
     lda #<__float_a
     ldx #>__float_a
     jsr __float_store_fac
@@ -817,7 +823,7 @@ __float_abs:
     jsr __float_load_fac
     lda #<BJT_ABS
     ldx #>BJT_ABS
-    jsr __jsrfar_basic
+    jsr __float_romcall
     lda #<__float_a
     ldx #>__float_a
     jsr __float_store_fac
@@ -840,7 +846,7 @@ __float_fout:
     jsr __float_load_fac
     lda #<BJT_FOUT
     ldx #>BJT_FOUT
-    jsr __jsrfar_basic
+    jsr __float_romcall
     ldx #0
 @copy:
     lda $0100,x

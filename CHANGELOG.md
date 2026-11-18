@@ -4,6 +4,18 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### Float ROM calls by the library's own map switch (#614)
+
+- The float runtime calls the BASIC 65 ROM through `__float_romcall`
+  (`stdlib_asm/float_map.s45`): it maps the ROM at `$4000`-`$7FFF` itself and
+  puts the map found back, instead of the KERNAL's `JSRFAR`. About 110 cycles
+  a call against 260: ROM `+ - * /` about 15% faster, `sinf`, `sqrtf`, `expf`
+  and the others about 5%; 50 bytes. Always on; a mapped overlay's or `__far`
+  function's window is restored. Compiled BASIC's floats use it too.
+- `-ffast-float=N`: 1 the RAM routines for `+ - * /` and comparisons (as
+  `-ffast-float` did), 0 off. `-ffast-float` alone is `=1`, deprecated.
+- Test `test_float_map_xemu.c` (float calls inside `__far` functions).
+
 ### cc45: literals are signed ints with -fsigned-default (#612)
 
 - With `-fsigned-default` / `#pragma cc45 signed_default` an unsuffixed

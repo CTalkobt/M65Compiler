@@ -556,8 +556,9 @@ int main(int argc, char** argv) {
                 std::cout << "  -fzp-plan=FILE     The blocks' variables as ln45 --zp-plan-out chose them program-wide" << std::endl;
                 std::cout << "  -fmul-call     Multiplies as calls of the library's __mul16/__mul32 (smaller," << std::endl;
                 std::cout << "                 slower; -Os = -O2 -fmul-call)" << std::endl;
-                std::cout << "  -ffast-float   Float + - * / and comparisons by RAM routines, not the ROM's" << std::endl;
-                std::cout << "                 (faster; -Ospeed = -O3 -ffast-float)" << std::endl;
+                std::cout << "  -ffast-float=N 1: float + - * / and comparisons by RAM routines, not the ROM's" << std::endl;
+                std::cout << "                 (faster, about 1 KB; -Ospeed = -O3 -ffast-float=1); 0: off." << std::endl;
+                std::cout << "                 -ffast-float alone is =1 (deprecated spelling)" << std::endl;
                 std::cout << "  -finline-functions  Inline small functions" << std::endl;
                 std::cout << "  -fmax-inline-ir-size=N  Max IR instructions for an inlined function (default 11)" << std::endl;
                 std::cout << "  -fmax-unroll-bytes=N    Max estimated code bytes of an unrolled loop (default 128)" << std::endl;
@@ -642,9 +643,15 @@ int main(int argc, char** argv) {
         } else if (arg == "-fmul-call") {
             // multiplies as calls of __mul16 / __mul32 (smaller, slower)
             setenv("CC45_MUL_CALL", "1", 1);
-        } else if (arg == "-ffast-float") {
-            // + - * / and comparisons of floats by the RAM routines (float_fast.s45)
-            config.fastFloat = 1;
+        } else if (arg == "-ffast-float" || arg.rfind("-ffast-float=", 0) == 0) {
+            // =1 (and the deprecated bare form): + - * / and comparisons of
+            // floats by the RAM routines (float_fast.s45); =0: off (#614)
+            std::string lv = arg.size() > 13 ? arg.substr(13) : "1";
+            if (lv != "0" && lv != "1") {
+                std::cerr << "Error: -ffast-float=" << lv << ": the level is 0 or 1" << std::endl;
+                return 1;
+            }
+            config.fastFloat = lv[0] - '0';
         } else if (arg == "-fno-fast-float") {
             config.fastFloat = 0;
         } else if (arg == "-fno-mul-call") {
