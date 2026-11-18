@@ -10,6 +10,12 @@ name: Release
 #   m65compiler-<version>-linux-arm64.tar.gz    static (musl), any Linux
 #   m65compiler-<version>-macos-arm64.tar.gz    Apple clang, system libraries
 #   SHA256SUMS
+#
+# and the Docker images (#625), for linux/amd64 and linux/arm64, are pushed to
+# the GitHub Container Registry (by hand they are only built and tried):
+#
+#   ghcr.io/<owner>/m65compiler:<version>, :latest            the toolchain (src/Docker/Dockerfile)
+#   ghcr.io/<owner>/m65compiler:<version>-runtime, :runtime   with xemu (src/Docker/Dockerfile.runtime)
 
 on:
   push:
@@ -69,6 +75,92 @@ jobs:
           name: archive-macos
           path: ${{ runner.temp }}/release/*.tar.gz
           if-no-files-found: error
+
+  # The Docker images (#625): each built on a runner of its architecture and
+  # tried (its cc45 builds a program); for a tag, pushed under a tag of that
+  # architecture, which docker-publish joins
+  docker:
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-latest, ubuntu-24.04-arm]
+        image: [toolchain, runtime]
+    runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          submodules: true    # third_party/zlib, the bundled zlib (#620)
+
+      - name: Names
+        id: n
+        env:
+          OWNER: ${{ github.repository_owner }}
+          TAG: ${{ github.ref_type == 'tag' && github.ref_name || 'dev' }}
+          IMAGE: ${{ matrix.image }}
+        run: |
+          case "$(uname -m)" in x86_64) arch=amd64 ;; aarch64) arch=arm64 ;; *) echo "unknown architecture"; exit 1 ;; esac
+          [ "$IMAGE" = runtime ] && file=src/Docker/Dockerfile.runtime suffix=-runtime || file=src/Docker/Dockerfile suffix=
+          {
+            echo "file=$file"
+            echo "ref=ghcr.io/$(echo "$OWNER" | tr A-Z a-z)/m65compiler:${TAG#v}$suffix-$arch"
+            echo "hash=$(git rev-parse --short HEAD)"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Build the image
+        run: docker build --build-arg GIT_HASH=${{ steps.n.outputs.hash }} -f ${{ steps.n.outputs.file }} -t ${{ steps.n.outputs.ref }} .
+
+      - name: Try the image
+        env:
+          REF: ${{ steps.n.outputs.ref }}
+          HASH: ${{ steps.n.outputs.hash }}
+        run: |
+          mkdir "$RUNNER_TEMP/try" && cd "$RUNNER_TEMP/try" && chmod 777 .
+          printf '#include <stdio.h>\nint main(void) { printf("hello\\n"); return 0; }\n' > hello.c
+          run="docker run --rm -v $PWD:/work --entrypoint sh $REF -c"
+          $run 'cc45 --version' | tee version.txt
+          grep -q "($HASH)" version.txt
+          $run 'cc45 -O2 hello.c -o hello.prg && disk45 create t.d81 && disk45 add t.d81 hello.prg && disk45 list t.d81'
+          test -s hello.prg
+          if [ "${{ matrix.image }}" = runtime ]; then
+              # (no ROM here: the emulator's libraries are all there, and m65run says what is missing)
+              $run '! ldd /usr/local/libexec/xmega65 | grep "not found"'
+              $run 'm65run hello.prg' 2>&1 | tee run.txt || true
+              grep -q "no MEGA65 ROM" run.txt
+          fi
+
+      - name: Push the image
+        if: github.ref_type == 'tag'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          echo "$GH_TOKEN" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+          docker push ${{ steps.n.outputs.ref }}
+
+  # Only for a tag: each image's two architectures under one name
+  docker-publish:
+    if: github.ref_type == 'tag'
+    needs: [docker]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Join the architectures
+        env:
+          GH_TOKEN: ${{ github.token }}
+          OWNER: ${{ github.repository_owner }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          echo "$GH_TOKEN" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+          repo=ghcr.io/$(echo "$OWNER" | tr A-Z a-z)/m65compiler
+          v=${TAG#v}
+          docker buildx imagetools create -t "$repo:$v" -t "$repo:latest" "$repo:$v-amd64" "$repo:$v-arm64"
+          docker buildx imagetools create -t "$repo:$v-runtime" -t "$repo:runtime" "$repo:$v-runtime-amd64" "$repo:$v-runtime-arm64"
+          docker buildx imagetools inspect "$repo:$v"
 
   # Only for a tag: the archives and their checksums on the tag's release
   publish:

@@ -22,13 +22,20 @@ COPY . .
 RUN test -f third_party/zlib/zlib.h || { \
     echo "third_party/zlib is empty: run 'git submodule update --init third_party/zlib' in the checkout, then build the image again"; exit 1; }
 
-RUN make clean && make -j"$(nproc)" all && make -C lib -j"$(nproc)" && \
-    make install PREFIX=/app
+# The commit the tools report (cc45 --version): .git is not in the build
+# context, so it is passed in (--build-arg GIT_HASH=$(git rev-parse --short HEAD))
+ARG GIT_HASH=unknown
+RUN make clean && make -j"$(nproc)" GIT_HASH="$GIT_HASH" all && make -C lib -j"$(nproc)" && \
+    make install PREFIX=/app GIT_HASH="$GIT_HASH"
 
 # --- Runtime ---
 FROM alpine:3.20
 
 RUN apk add --no-cache libstdc++ libgcc fuse3 sqlite-libs
+
+LABEL org.opencontainers.image.source="https://github.com/CTalkobt/M65Compiler" \
+      org.opencontainers.image.description="MEGA65 C Compiler Suite (cc45, ca45, ln45, disk45...)" \
+      org.opencontainers.image.licenses="GPL-3.0-or-later"
 
 COPY --from=builder /app /app
 ENV PATH="/app/bin:$PATH"

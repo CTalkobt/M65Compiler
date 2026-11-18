@@ -148,6 +148,13 @@ tar -xzf m65compiler-<version>-linux-x86_64.tar.gz
 m65compiler-<version>-linux-x86_64/bin/cc45 -O2 hello.c -o hello.prg
 ```
 
+Or use the Docker image, which needs nothing but Docker (`linux/amd64` and `linux/arm64`; `:runtime` adds the
+xemu emulator, see [doc/architecture/DOCKER.md](doc/architecture/DOCKER.md)):
+
+```bash
+docker run --rm -v "$PWD":/work --user $(id -u):$(id -g) ghcr.io/ctalkobt/m65compiler -O2 hello.c -o hello.prg
+```
+
 The Linux archives' disk45 has the catalog and `mount`, with SQLite and libfuse 3 linked in. Mounting uses the
 system's FUSE: `/dev/fuse` and the `fusermount3` helper (the `fuse3` package), which `disk45 mount` asks for
 when it is used and names when they are missing; nothing else in the archive needs them. The archives are made by `src/release/package.sh` (the release workflow runs it for each tag), which
