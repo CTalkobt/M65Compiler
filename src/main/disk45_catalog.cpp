@@ -407,7 +407,11 @@ int disk45_catalog(int argc, char** argv) {
         for (int di = 0; di < argc; di++) {
             std::string dir = argv[di];
             if (!fs::is_directory(dir)) {
-                if (fs::is_regular_file(dir)) indexPath(db, dir, indexed, unchanged, errors);
+                if (fs::is_regular_file(dir)) {
+                    // (a zip or an SD card image holds images, as a directory does: say so, #633)
+                    if (isContainer(dir)) std::cout << "Scanning " << dir << " ...\n";
+                    indexPath(db, dir, indexed, unchanged, errors);
+                }
                 continue;
             }
             std::cout << "Scanning " << dir << " ...\n";
