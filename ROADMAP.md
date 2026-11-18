@@ -90,7 +90,7 @@ What has landed since v1.1.0 (the entries, with their issues, are CHANGELOG.md's
 |-------|------|----------|--------|
 | #625 | The Docker images on a registry (`docker pull`) | release | in progress (for v1.5.0) |
 | #622 | Release housekeeping for v1.5.0 | release | open |
-| #611 | al45: style rules (`mega65-style-*`) and the `af45` formatter | linter | open |
+| #611 | al45: style rules (`mega65-style-*`) and the `af45` formatter | linter | open (for v1.5.0) |
 | #577 | basic45: mixed programs (some procedures compiled, the rest interpreted) | basic45 | open |
 | #248 | Pluggable allocation with interprocedural liveness analysis | codegen | open |
 | #143 | The C64IDE AI integration on Linux | IDE | open |
