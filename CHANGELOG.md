@@ -4,6 +4,22 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### The Ubuntu Docker image runs the tests again; cl45's system headers (#630)
+
+- **`make test` and `make test-xemu` in the image of the root `Dockerfile`** stopped at once with "No C++17
+  compiler": the image had `make` but no compiler, and the dependency check of #619 runs before any target. The
+  image's final stage now installs `g++` and what the test scripts use (`git`, `hexdump`, `zip`, `unzip`:
+  `src/deps/deps_table.sh`'s list).
+- **cl45 took the last include directory for the system headers**, which is the last `-I` directory when there
+  is one: findings in a project header there were dropped, and the library's own headers were reported. It now
+  keeps the library's header directory itself.
+- **A `CC45_INCLUDE` directory that holds a copy of the library's headers** (it has `stdio.h` and `mega65.h`; the
+  image's `/usr/local/include/cc45`) counts as system headers too. The linter tests failed in the image without it.
+- Tests: two checks in `src/test/test_cl45.sh` (20).
+- With the xemu the images build (CTalkobt/xemu at the pinned commit, with the hardware divider's corrections),
+  `test_basic_compile12` and `test_basic_compile14` do not match their recorded values (CIRCLE / ELLIPSE): expected
+  for now, their values are to be recorded again.
+
 ### Library: the headers nothing implements are marked and switched off (#642)
 
 - **44 headers of `lib/include`** (the graphics framework, the 16 `sprite_*.h`, `hw_*.h`, `uart.h`, `lightpen.h`,

@@ -453,6 +453,7 @@ int main(int argc, char** argv) {
         lintCtx.engine = &lintEngine;
     }
     std::vector<std::string> includePaths;
+    std::string systemInclude;      // the library's headers (cl45: not the project's code)
     std::map<std::string, std::string> symbols;
     bool outputFileSet = false;
 
@@ -480,6 +481,7 @@ int main(int argc, char** argv) {
             if (access((dir + "/stdio.h").c_str(), R_OK) == 0) { sysInc = dir; break; }
         }
         includePaths.push_back(sysInc);
+        systemInclude = sysInc;
         config.toolDir = baseDir;
     }
 
@@ -803,8 +805,20 @@ int main(int argc, char** argv) {
             lintEngine.listRules(std::cout);
             return 0;
         }
-        // (the system headers: the last include path, as set up above)
-        lintCtx.systemDirs.push_back(includePaths.empty() ? std::string() : includePaths.back());
+        // (the system headers; not includePaths.back(), which is the last -I
+        // directory when there is one: a project header there was dropped
+        // and the system headers reported)
+        lintCtx.systemDirs.push_back(systemInclude);
+        // (and a CC45_INCLUDE directory that holds the library's headers: a
+        // copy of them, as in the Docker image, is not the project's code; #630)
+        if (const char* envInc = std::getenv("CC45_INCLUDE")) {
+            std::stringstream dirs(envInc);
+            std::string d;
+            while (std::getline(dirs, d, ':'))
+                if (!d.empty() && access((d + "/stdio.h").c_str(), R_OK) == 0 &&
+                    access((d + "/mega65.h").c_str(), R_OK) == 0)
+                    lintCtx.systemDirs.push_back(d);
+        }
         for (auto& d : lintCtx.systemDirs) if (!d.empty() && d.back() != '/') d += '/';
         config.lint = &lintCtx;
         config.objectOnly = true;      // (as a file is compiled for a program: relocatable)

@@ -51,6 +51,33 @@ else
     fail "cl45 headers: $(head -3 $D/hdr.txt)"
 fi
 
+# the same with the project's header in a -I directory (the last include
+# path is not the system headers')
+rm -rf $C/inc
+mkdir -p $C/inc
+cp $C/mine.h $C/inc/theirs.h
+printf '#include <theirs.h>\n#include <mega65.h>\nvoid f(void) { poke_border(1); vic4->border = 2; }\n' > $C/c.c
+$CL -O2 -I$C/inc $C/c.c > $D/hdr3.txt 2>&1
+if [ "$(grep -c mega65- $D/hdr3.txt)" = 1 ] && grep -q "inc/theirs.h:1:[0-9]*: warning: .*\[mega65-io-not-volatile\]" $D/hdr3.txt; then
+    pass "cl45: a project header in a -I directory is reported; system headers are not"
+else
+    fail "cl45 -I headers: $(head -3 $D/hdr3.txt)"
+fi
+
+# ... nor one in a copy of the system headers that CC45_INCLUDE names (the
+# Docker image's /usr/local/include/cc45, #630); another CC45_INCLUDE
+# directory is the project's
+rm -rf $C/sys
+cp -r lib/include $C/sys
+cp $C/mine.h $C/inc/theirs.h
+printf '#include <theirs.h>\n#include <mega65.h>\nvoid f(void) { poke_border(1); vic4->border = 2; }\n' > $C/b.c
+CC45_INCLUDE=$C/sys:$C/inc $CL -O2 $C/b.c > $D/hdr2.txt 2>&1
+if [ "$(grep -c mega65- $D/hdr2.txt)" = 1 ] && grep -q "inc/theirs.h:1:[0-9]*: warning: .*\[mega65-io-not-volatile\]" $D/hdr2.txt; then
+    pass "cl45: CC45_INCLUDE: a copy of the system headers is not reported, another directory is"
+else
+    fail "cl45 CC45_INCLUDE headers: $(head -3 $D/hdr2.txt)"
+fi
+
 # configuration: a project .cc45-lint.yml (found from the source's directory):
 # c_checks.enabled, a rule's option, a severity; then the command line
 C=$D/cfg
