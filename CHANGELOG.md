@@ -4,6 +4,14 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### disk45 mount: files created with no type suffix (#626)
+
+- A file created through a mount under a name without a CBM type suffix
+  (`echo text > m/new.txt`) got an empty entry and no data: the entry is
+  listed as `NEW.TXT.prg`, so the path that created it no longer named it.
+  The name without its suffix goes on naming the file (the write, a read,
+  an append, `rm`); the listing still shows `NEW.TXT.prg`.
+
 ### Prebuilt release archives (#621)
 
 - `src/release/package.sh` builds the suite and packs the installed tree as

@@ -142,6 +142,19 @@ static bool findIn(const std::vector<Node>& all, const std::string& p, Node& nod
         std::transform(q.begin(), q.end(), q.begin(), ::tolower);
         if (q == lp) { node = n; return true; }
     }
+    // the name without its type suffix, as a new file is created under
+    // (echo x > m/new.txt makes "NEW.TXT", listed as NEW.TXT.prg): the path
+    // that created a file goes on naming it, for the open and the writes
+    // that follow (#626). CBM names are unique in a directory, whatever
+    // the type, so this names one file
+    for (auto& n : all) {
+        if (isDir(n) || n.geos) continue;
+        std::string q = cbmToPath(n.info, false);
+        std::string ext = typeExt(n.info.type);
+        q = q.substr(0, q.size() - ext.size());
+        std::transform(q.begin(), q.end(), q.begin(), ::tolower);
+        if (q == lp) { node = n; return true; }
+    }
     return false;
 }
 

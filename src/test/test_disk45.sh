@@ -800,7 +800,7 @@ echo "=== FUSE mount ==="
 
 # GEOS files appear as <name>.cvt; a .cvt copied in becomes a GEOS file when
 # closed; changes reach the image (a relative image path too)
-if $DISK45 2>&1 | grep -q ' mount ' && command -v fusermount3 >/dev/null 2>&1 && [ -w /dev/fuse ]; then
+if $DISK45 2>&1 | grep -q ' mount <image>' && command -v fusermount3 >/dev/null 2>&1 && [ -w /dev/fuse ]; then
     FM="$TMPDIR/fmnt"
     mkdir -p "$FM"
     $DISK45 create "$TMPDIR/fuse.d64" --geos >/dev/null 2>&1
@@ -815,6 +815,13 @@ if $DISK45 2>&1 | grep -q ' mount ' && command -v fusermount3 >/dev/null 2>&1 &&
         cp "$TMPDIR/seq.cvt" "$FM/My Data.cvt"
         mv "$FM/GeoTest App.cvt" "$FM/Renamed App.cvt"
         echo hello > "$FM/note.seq"
+        # a name with no type suffix (#626): created as a PRG, and the path
+        # that created it goes on naming it (the write, a read, an append)
+        nt_ok=1
+        echo "no suffix" > "$FM/plain.txt" 2>/dev/null || nt_ok=0
+        echo "more" >> "$FM/plain.txt" 2>/dev/null || nt_ok=0
+        [ "$(cat "$FM/plain.txt" 2>/dev/null | tr '\n' '|')" = "no suffix|more|" ] || nt_ok=0
+        [ -f "$FM/PLAIN.TXT.prg" ] || nt_ok=0
         (cd / && fusermount3 -u "$FM")
         for i in $(seq 1 50); do mountpoint -q "$FM" || break; sleep 0.1; done
         $DISK45 list "$TMPDIR/fuse.d64" | grep -q '"My Data".*GEOS Application Data' &&
@@ -823,6 +830,10 @@ if $DISK45 2>&1 | grep -q ' mount ' && command -v fusermount3 >/dev/null 2>&1 &&
             $DISK45 validate "$TMPDIR/fuse.d64" 2>&1 | grep -q 'Status: OK' &&
             pass "mount: a .cvt written becomes a GEOS file; rename, new file saved" ||
             fail "mount: writes ($(cat "$TMPDIR/mount.log"))"
+        $DISK45 extract "$TMPDIR/fuse.d64" "PLAIN.TXT" "$TMPDIR/plain.out" >/dev/null 2>&1
+        [ $nt_ok = 1 ] && [ "$(tr '\n' '|' < "$TMPDIR/plain.out" 2>/dev/null)" = "no suffix|more|" ] &&
+            pass "mount: a file created with no type suffix is written (#626)" ||
+            fail "mount: a file created with no type suffix"
     else
         echo "  SKIP: mount (FUSE mount failed: $(cat "$TMPDIR/mount.log"))"
     fi
