@@ -9,7 +9,8 @@
 #   DEP_INSTALL  the command that installs packages (as a user would type it)
 #   DEP_PRE      a command to run before it, or empty (RHEL: fuse3-devel is in CRB)
 #   DEP_BASE     the C++17 compiler and GNU make            (required)
-#   DEP_ZLIB     zlib's headers                             (required)
+#   DEP_ZLIB     zlib's headers: only for SYSTEM_ZLIB=1, or when the
+#                bundled zlib (the submodule third_party/zlib) is not there
 #   DEP_SQLITE   SQLite's headers: disk45 catalog           (optional)
 #   DEP_FUSE     FUSE 3 and pkg-config: disk45 mount        (optional)
 #   DEP_TEST     what `make test` uses beyond the build
@@ -71,7 +72,7 @@ deps_family() {
         DEP_TEST="git python3 bash xxd hexdump zip unzip" ;;
     macos)
         # Apple clang is the Xcode command line tools' (xcode-select --install);
-        # zlib and SQLite are in the macOS SDK; macOS's own make is 3.81 (enough
+        # SQLite (and a zlib, for SYSTEM_ZLIB=1) are in the macOS SDK; macOS's own make is 3.81 (enough
         # for the Makefile; the CI builds with Homebrew's gmake). No FUSE 3
         # there: disk45 is built without mount.
         DEP_NAME="macOS"

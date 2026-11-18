@@ -14,7 +14,8 @@ against the source on 2026-10-11) win — and the source wins over both.
 ## Project Overview
 
 A toolchain for the MEGA65 (45GS02 CPU), written in C++17 with no external
-dependencies (zlib for disk45's compressed images; SQLite and FUSE, both optional, only for disk45):
+dependencies (zlib for disk45's compressed images is bundled, the git submodule `third_party/zlib`; SQLite and
+FUSE, both optional, only for disk45):
 
 - **cc45** — C compiler (one input file per run; `-S`, `-c`, or a one-step build to a `.prg`)
 - **cp45** — the C preprocessor (a link to cc45, selected by program name)
@@ -234,8 +235,15 @@ doc/examples/        the examples with screenshots (examples/capture_screens.py)
 
 ## Build System
 
-- `make` / `make all` — build all tools (bin/). Needs a C++17 compiler, GNU make and zlib's headers (a clear
-  error at the start without them); SQLite (`disk45 catalog`) and FUSE 3 (`disk45 mount`) are detected and the
+- `make` / `make all` — build all tools (bin/). Needs a C++17 compiler and GNU make (a clear
+  error at the start without them). zlib is bundled (#620): the submodule `third_party/zlib` (pinned to a
+  release tag, `third_party/zlib.PROVENANCE.md`), nine of its C files built with `$(CC)` into
+  `lib45/lib45-zlib.a`, which only disk45 links. An empty `third_party/zlib` (a clone without
+  `--recurse-submodules`, a source archive): the system's zlib if there is one, else `make` fetches the
+  submodule in a git checkout (`git submodule update --init third_party/zlib`), else an error naming both.
+  `make SYSTEM_ZLIB=1` links the system's (`-lz`). What lists the tree with `git ls-files` needs
+  `--recurse-submodules` (`test_distro_builds.sh`, `src/release/package.sh`), CI checkouts `submodules: true`.
+  SQLite (`disk45 catalog`) and FUSE 3 (`disk45 mount`) are detected and the
   command left out without them (`HAVE_SQLITE`, `HAVE_FUSE3`; `make HAVE_SQLITE=` forces one off), as the
   summary at the start of a build says (#619)
 - `make check-deps` — what the build and the tests need, what is there, and the install command for this

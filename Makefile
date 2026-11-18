@@ -2,6 +2,16 @@
 .DEFAULT_GOAL := all
 
 CXX ?= g++
+# The C compiler, for the bundled zlib alone (third_party/zlib; everything else
+# is C++). Not set by the user (make CC=..., or CC in the environment), it is
+# the C compiler of $(CXX): gcc for g++, clang for clang++, cc for c++.
+ifeq ($(origin CC),default)
+  CC := $(subst c++,cc,$(subst g++,gcc,$(subst clang++,clang,$(CXX))))
+  ifeq ($(CC),$(CXX))
+    CC := cc
+  endif
+endif
+EXTRA_CFLAGS ?=
 GIT_HASH := $(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
 EXTRA_CXXFLAGS ?=
 NM ?= nm
@@ -13,16 +23,31 @@ HAVE_LIBCA45 ?= $(shell [ "$$(uname -s)" != Darwin ] && $(OBJCOPY) --version 2>/
 CXXFLAGS = -std=c++17 -Wall -Wextra -Iinclude -MMD -MP -DGIT_HASH='"$(GIT_HASH)"' $(EXTRA_CXXFLAGS)
 
 # ----------------------------------------------------------------------------
-# What the machine has (#619). Required: the C++17 compiler and zlib's
-# headers. Optional, the feature left out without it: SQLite (disk45 catalog)
-# and FUSE 3 (disk45 mount). Detected by src/deps/check_deps.sh --probe (the
-# headers through the compiler, FUSE 3 through pkg-config), once: a sub-make
-# is given the result. `make HAVE_SQLITE=` / `make HAVE_FUSE3=` build without
-# one that is there; `make check-deps` reports everything, with the command
-# that installs what is missing on this distribution.
+# What the machine has (#619). Required: the C++17 compiler. Optional, the
+# feature left out without it: SQLite (disk45 catalog) and FUSE 3 (disk45
+# mount). Detected by src/deps/check_deps.sh --probe (the headers through the
+# compiler, FUSE 3 through pkg-config), once: a sub-make is given the result.
+# `make HAVE_SQLITE=` / `make HAVE_FUSE3=` build without one that is there;
+# `make check-deps` reports everything, with the command that installs what
+# is missing on this distribution.
+#
+# zlib (disk45's .gz and .zip images) is bundled (#620): the git submodule
+# third_party/zlib, compiled into the build, so that no system zlib is needed.
+#   - third_party/zlib has zlib's source: that one (unless SYSTEM_ZLIB=1);
+#   - it is empty (a clone without --recurse-submodules, or a source archive,
+#     which has no submodule) and the system has zlib: the system's;
+#   - neither, in a git checkout: the submodule is fetched (said first; not
+#     under -n), the one case in which make uses the network;
+#   - none of these: an error that names both remedies.
+# `make SYSTEM_ZLIB=1` links the system's zlib (-lz) whatever is bundled.
 # ----------------------------------------------------------------------------
 DEPS_SH = src/deps/check_deps.sh
-deps_sh = CXX='$(CXX)' EXTRA_CXXFLAGS='$(EXTRA_CXXFLAGS)' sh $(DEPS_SH)
+deps_sh = CXX='$(CXX)' CC='$(CC)' EXTRA_CXXFLAGS='$(EXTRA_CXXFLAGS)' SYSTEM_ZLIB='$(SYSTEM_ZLIB)' sh $(DEPS_SH)
+ZLIB_DIR = third_party/zlib
+ZLIB_FETCH_CMD = git submodule update --init $(ZLIB_DIR)
+ifneq ($(SYSTEM_ZLIB),1)
+  override SYSTEM_ZLIB :=
+endif
 
 # Goals that compile nothing: no detection, no summary, no error for them
 NOBUILD_GOALS := clean lib45-clean coverage-clean coverage-report uninstall uninstall_local man \
@@ -33,8 +58,21 @@ ifeq ($(BUILDING),1)
   ifeq ($(origin M65_DEPS),undefined)
     M65_DEPS := $(shell $(deps_sh) --probe)
     M65_DEPS_FIRST := 1
+    # no zlib at all, in a git checkout: the submodule is fetched
+    ifeq ($(SYSTEM_ZLIB)$(filter zlib zlib-bundled,$(M65_DEPS))$(findstring n,$(firstword -$(MAKEFLAGS))),)
+      ifneq ($(filter zlib-git,$(M65_DEPS)),)
+        $(info $(ZLIB_DIR) is empty and the system has no zlib: fetching the bundled one ($(ZLIB_FETCH_CMD)))
+        ZLIB_FETCH_TRIED := $(shell $(ZLIB_FETCH_CMD) >&2; echo yes)
+        M65_DEPS := $(shell $(deps_sh) --probe)
+      endif
+    endif
   endif
   export M65_DEPS
+  ifeq ($(SYSTEM_ZLIB),)
+    ZLIB_MODE := $(if $(filter zlib-bundled,$(M65_DEPS)),bundled,$(if $(filter zlib,$(M65_DEPS)),system))
+  else
+    ZLIB_MODE := $(if $(filter zlib,$(M65_DEPS)),system)
+  endif
   ifeq ($(origin HAVE_SQLITE),undefined)
     HAVE_SQLITE := $(if $(filter sqlite,$(M65_DEPS)),1)
   endif
@@ -58,6 +96,13 @@ ifeq ($(HAVE_FUSE3),1)
   FUSE3_CFLAGS := $(shell pkg-config --cflags fuse3) -DHAVE_FUSE3
   FUSE3_LIBS := $(shell pkg-config --libs fuse3)
 endif
+ifeq ($(ZLIB_MODE),bundled)
+  ZLIB_CFLAGS := -I$(ZLIB_DIR)
+  ZLIB_LIBS = $(LIB_DIR)/lib45-zlib.a
+  ZLIB_DEP = $(LIB_DIR)/lib45-zlib.a
+else
+  ZLIB_LIBS := -lz
+endif
 
 # The top-level make of a build, once: a clear error for a missing required
 # dependency, then (for the goals that build the tools; not under -s) what is
@@ -66,12 +111,21 @@ ifeq ($(M65_DEPS_FIRST),1)
   ifeq ($(filter cxx,$(M65_DEPS)),)
     $(error No C++17 compiler: '$(CXX)' is missing or too old (GCC 11 or newer, or clang; another one: make CXX=clang++). Install: $(shell $(deps_sh) --hint base))
   endif
-  ifeq ($(filter zlib,$(M65_DEPS)),)
-    $(error zlib's headers (zlib.h) were not found: disk45, asmCvt45 and basic45 need them. Install: $(shell $(deps_sh) --hint zlib))
+  ifeq ($(ZLIB_MODE),)
+    ifeq ($(SYSTEM_ZLIB),1)
+      $(error SYSTEM_ZLIB=1, but the system's zlib headers (zlib.h) were not found. Install: $(shell $(deps_sh) --hint zlib) (or build without SYSTEM_ZLIB=1, with the bundled zlib))
+    endif
+    $(error No zlib for disk45: $(ZLIB_DIR) (the bundled zlib, a git submodule) is empty$(if $(ZLIB_FETCH_TRIED), and could not be fetched), and the system has no zlib headers. Either $(if $(filter zlib-git,$(M65_DEPS)),fetch it: $(ZLIB_FETCH_CMD),unpack zlib's source (https://github.com/madler/zlib) there (in a git clone: $(ZLIB_FETCH_CMD))) - or install the system's: $(shell $(deps_sh) --hint zlib))
+  endif
+  ifeq ($(ZLIB_MODE),bundled)
+    ifeq ($(filter cc,$(M65_DEPS)),)
+      $(error No C compiler for the bundled zlib ($(ZLIB_DIR)): '$(CC)' does not work. Another one: make CC=clang; or the system's zlib: make SYSTEM_ZLIB=1)
+    endif
   endif
   ifneq ($(if $(MAKECMDGOALS),$(filter all lib stdlib install install_local parallel-build lib45-libraries bin/%,$(MAKECMDGOALS)),1),)
     ifeq ($(findstring s,$(firstword -$(MAKEFLAGS))),)
       $(info Configuration ($(CXX); `make check-deps` for all of it):)
+      $(info $(empty)  zlib (.gz, .zip images): $(if $(filter bundled,$(ZLIB_MODE)),bundled ($(ZLIB_DIR), built with $(CC)),system$(if $(SYSTEM_ZLIB), (SYSTEM_ZLIB=1), - $(ZLIB_DIR) is empty$(if $(filter zlib-git,$(M65_DEPS)),; the bundled one: $(ZLIB_FETCH_CMD)))))
       $(info $(empty)  disk45 catalog (SQLite): $(if $(HAVE_SQLITE),yes,no - $(if $(filter sqlite,$(M65_DEPS)),HAVE_SQLITE is off,$(shell $(deps_sh) --add sqlite))))
       $(info $(empty)  disk45 mount   (FUSE 3): $(if $(HAVE_FUSE3),yes,no - $(if $(filter fuse3,$(M65_DEPS)),HAVE_FUSE3 is off,$(shell $(deps_sh) --add fuse))))
     endif
@@ -291,6 +345,24 @@ $(LIB_DIR)/lib45-tools.a: $(LIB45_TOOLS_OBJS) $(OBJ_DIR)/disk45.config
 	@rm -f $@
 	$(AR) rcs $@ $(filter %.o,$^)
 
+# lib45-zlib: the bundled zlib (third_party/zlib, a git submodule; #620), what
+# disk45 uses of it (inflate, deflate, crc32; not its gz* file functions),
+# built as it is: no ./configure, nothing written in its directory, its own
+# warnings off. Only without SYSTEM_ZLIB=1 and when the submodule is there.
+ZLIB_SRCS = adler32.c compress.c crc32.c deflate.c inffast.c inflate.c inftrees.c trees.c zutil.c
+ZLIB_OBJS = $(patsubst %.c,$(OBJ_DIR)/zlib/%.o,$(ZLIB_SRCS))
+$(OBJ_DIR)/zlib/%.o: $(ZLIB_DIR)/%.c
+	@mkdir -p $(dir $@)
+	$(CC) -O2 -w $(EXTRA_CFLAGS) -I$(ZLIB_DIR) -MMD -MP -c $< -o $@
+$(LIB_DIR)/lib45-zlib.a: $(ZLIB_OBJS) | $(LIB_DIR)
+	@rm -f $@
+	$(AR) rcs $@ $^
+# the sources that include <zlib.h>: the bundled header with the bundled
+# library, compiled again when the zlib used changes (disk45.config)
+ZLIB_USERS = $(OBJ_DIR)/GzipHelper.o $(OBJ_DIR)/ZipArchive.o $(OBJ_DIR)/disk45_main.o
+$(ZLIB_USERS): CXXFLAGS += $(ZLIB_CFLAGS)
+$(OBJ_DIR)/GzipHelper.o $(OBJ_DIR)/ZipArchive.o: $(OBJ_DIR)/disk45.config
+
 # ============================================================================
 # BINARY BUILD RULES
 # ============================================================================
@@ -426,14 +498,15 @@ ifeq ($(HAVE_SQLITE),1)
   DISK45_CATALOG_OBJ = $(OBJ_DIR)/disk45_catalog.o
 endif
 $(DISK_TARGET): $(OBJ_DIR)/disk45_main.o $(DISK45_CATALOG_OBJ) | $(LIB_DIR)
-$(DISK_TARGET): $(LIB_DIR)/lib45-tools.a $(LIB_DIR)/lib45-basic.a $(LIB_DIR)/lib45-common.a
+$(DISK_TARGET): $(LIB_DIR)/lib45-tools.a $(LIB_DIR)/lib45-basic.a $(LIB_DIR)/lib45-common.a $(ZLIB_DEP)
 	@mkdir -p $(BIN_DIR)
-	$(CXX) $(CXXFLAGS) -o $@ $(OBJ_DIR)/disk45_main.o $(DISK45_CATALOG_OBJ) $(LIB_DIR)/lib45-tools.a $(LIB_DIR)/lib45-basic.a $(LIB_DIR)/lib45-common.a -lz $(SQLITE_LIBS) $(FUSE3_LIBS)
+	$(CXX) $(CXXFLAGS) -o $@ $(OBJ_DIR)/disk45_main.o $(DISK45_CATALOG_OBJ) $(LIB_DIR)/lib45-tools.a $(LIB_DIR)/lib45-basic.a $(LIB_DIR)/lib45-common.a $(ZLIB_LIBS) $(SQLITE_LIBS) $(FUSE3_LIBS)
 
 # What disk45 is built with, in a file that changes only when that does:
-# disk45_main.o (its #ifdef HAVE_SQLITE / HAVE_FUSE3) and the archive are
-# made again when a library appears or is turned off
-DISK45_CONFIG = sqlite=$(HAVE_SQLITE) fuse3=$(HAVE_FUSE3)
+# disk45_main.o (its #ifdef HAVE_SQLITE / HAVE_FUSE3), the sources that
+# include <zlib.h> and the archive are made again when a library appears or
+# is turned off, or the zlib used changes
+DISK45_CONFIG = sqlite=$(HAVE_SQLITE) fuse3=$(HAVE_FUSE3) zlib=$(ZLIB_MODE)
 $(OBJ_DIR)/disk45.config: FORCE | $(OBJ_DIR)
 	@[ -f $@ ] && [ "`cat $@`" = '$(DISK45_CONFIG)' ] || echo '$(DISK45_CONFIG)' > $@
 FORCE:
@@ -591,6 +664,7 @@ $(LIB_DIR):
 	@mkdir -p $(LIB_DIR)
 
 -include $(OBJ_DIR)/*.d
+-include $(OBJ_DIR)/zlib/*.d
 
 # ============================================================================
 # CONVENIENCE TARGETS
@@ -640,7 +714,7 @@ show-lib-deps:
 	@echo "nm45      : lib45-common"
 	@echo "ar45      : lib45-common"
 	@echo "objdump45 : lib45-codegen lib45-common"
-	@echo "disk45    : lib45-tools lib45-common"
+	@echo "disk45    : lib45-tools lib45-common, lib45-zlib (third_party/zlib) or -lz with SYSTEM_ZLIB=1"
 	@echo "asmCvt45   : lib45-tools lib45-codegen lib45-opt lib45-common"
 	@echo "basic45   : lib45-basic lib45-tools lib45-common"
 

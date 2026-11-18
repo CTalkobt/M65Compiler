@@ -12,10 +12,15 @@
 # --- Build ---
 FROM alpine:3.20 AS builder
 
-RUN apk add --no-cache g++ make zlib-dev fuse3-dev sqlite-dev pkgconf
+RUN apk add --no-cache g++ make fuse3-dev sqlite-dev pkgconf
 
 WORKDIR /build
 COPY . .
+
+# zlib is the bundled one, the submodule third_party/zlib (#620): the image
+# is built from a checkout that has it
+RUN test -f third_party/zlib/zlib.h || { \
+    echo "third_party/zlib is empty: run 'git submodule update --init third_party/zlib' in the checkout, then build the image again"; exit 1; }
 
 RUN make clean && make -j"$(nproc)" all && make -C lib -j"$(nproc)" && \
     make install PREFIX=/app
@@ -23,7 +28,7 @@ RUN make clean && make -j"$(nproc)" all && make -C lib -j"$(nproc)" && \
 # --- Runtime ---
 FROM alpine:3.20
 
-RUN apk add --no-cache libstdc++ libgcc zlib fuse3 sqlite-libs
+RUN apk add --no-cache libstdc++ libgcc fuse3 sqlite-libs
 
 COPY --from=builder /app /app
 ENV PATH="/app/bin:$PATH"

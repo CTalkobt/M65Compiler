@@ -21,7 +21,7 @@ docker build -t cc45 .
 docker build -t cc45:vX.Y.Z .      # with a version tag
 ```
 
-The builder stage runs `make clean && make all && make -C lib` (with FUSE3, SQLite and zlib, so `disk45 mount` and the catalog are available; a build without FUSE3 or SQLite leaves that command out). The runtime image contains:
+The builder stage runs `make clean && make all && make -C lib` (with FUSE3 and SQLite, so `disk45 mount` and the catalog are available; a build without FUSE3 or SQLite leaves that command out). zlib is the bundled one, the git submodule `third_party/zlib`: the images are built from a checkout that has it (`git clone --recurse-submodules`, or `git submodule update --init`), and each Dockerfile stops with that command when the directory is empty. The runtime image contains:
 
 | Path | Contents |
 |------|----------|
