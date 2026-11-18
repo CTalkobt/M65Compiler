@@ -14,7 +14,7 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
   as the library has it, the release steps (`doc/ref/RELEASE-STEPS.md`).
 - **README.md**: al45 and cl45 in the tool list, `.ov1` / `.ovd` for the overlay files, the ZP convention as the
   default, `make test-xemu` and the test counts.
-- **ROADMAP.md**: the status, a section for v1.2.0 from this file, the open issues as the queue, and the language
+- **ROADMAP.md**: the status, a section for v1.5.0 from this file, the open issues as the queue, and the language
   extension candidates (`__striped`, `__assume`, generated tables, results in flags, a BCD type; coroutines on
   static frames, cycle budgets and cycle-exact blocks, compile-time functions, variables in instruction operands,
   atomic blocks, encoding-typed characters).

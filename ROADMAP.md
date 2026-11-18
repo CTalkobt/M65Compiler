@@ -1,6 +1,6 @@
 # M65 Compiler Suite Roadmap: v1.0 → v2.0
 
-**Current Status:** v1.1.0 released; v1.2.0 in preparation (everything below it is on `main`)
+**Current Status:** v1.1.0 released; v1.5.0 in preparation (everything below it is on `main`)
 **Last Updated:** 2026-11-18
 **Maintainer:** Craig Taylor (CTalkobt)
 
@@ -9,7 +9,7 @@
 
 ---
 
-## v1.2.0 Release (in preparation)
+## v1.5.0 Release (in preparation)
 
 What has landed since v1.1.0 (the entries, with their issues, are CHANGELOG.md's `[Unreleased]` section).
 
@@ -68,7 +68,7 @@ What has landed since v1.1.0 (the entries, with their issues, are CHANGELOG.md's
 - [x] Benchmarks against the other 6502 C compilers (`make bench`, #129)
 - [x] Tests: 1092 xemu runtime tests, GCC torture 551 in each convention, the validation tests in one program (#96), every runtime test on xemu
 
-**Before the release** (#622): the Docker images on a registry (#625), the version, the changelog heading, the final validation, the tag and its notes.
+**Before the release** (#622; it waits for the defects the documentation check found, #632-#643): the Docker images on a registry (#625), the version, the changelog heading, the final validation, the tag and its notes.
 
 ---
 
@@ -88,8 +88,8 @@ What has landed since v1.1.0 (the entries, with their issues, are CHANGELOG.md's
 
 | Issue | Task | Category | Status |
 |-------|------|----------|--------|
-| #625 | The Docker images on a registry (`docker pull`) | release | in progress (for v1.2.0) |
-| #622 | Release housekeeping for v1.2.0 | release | open |
+| #625 | The Docker images on a registry (`docker pull`) | release | in progress (for v1.5.0) |
+| #622 | Release housekeeping for v1.5.0 | release | open |
 | #611 | al45: style rules (`mega65-style-*`) and the `af45` formatter | linter | open |
 | #577 | basic45: mixed programs (some procedures compiled, the rest interpreted) | basic45 | open |
 | #248 | Pluggable allocation with interprocedural liveness analysis | codegen | open |
@@ -249,7 +249,7 @@ Less conventional ones, which fit what cc45 already has (static frames, ln45's c
 - ~~Floating-point support~~ — **done** (CBM 40-bit via BASIC 65 ROM; 27 math functions)
 - Lambda expressions
 - Link-Time Code Generation (LTO) — the Phase 100 LTCO code exists but is not connected (`doc/architecture/cross-module-optimization.md`)
-- Static analysis & sanitizers — static analysis **done** as the linters cl45 and al45 (v1.2.0); sanitizers open
+- Static analysis & sanitizers — static analysis **done** as the linters cl45 and al45 (v1.5.0); sanitizers open
 
 ### Optimizer — Remaining Items
 
