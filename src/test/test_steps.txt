@@ -35,6 +35,7 @@ Running asmCvt45 tests...|bash src/test/test_asmCvt45.sh
 Running shadow execution tests (cc45 vs host gcc)...|bash src/test/test_shadow_ir.sh
 Running clobber tracking tests...|bash src/test/test_clobber.sh
 Running library call convention tests...|bash src/test/test_libcall_conv.sh
+Running ln45 tail call graph tests...|bash src/test/test_ln45_tailcalls.sh
 Running objdump45 tests...|bash src/test/test_objdump45.sh
 Running al45 (assembly linter) tests...|bash src/test/test_al45.sh
 Running cl45 (C linter) tests...|bash src/test/test_cl45.sh

@@ -507,6 +507,12 @@ private:
 
     // Call graph: function name -> set of callee names
     std::map<std::string, std::set<std::string>> callGraph_;
+    // the edges of callGraph_ made only by tail calls (a JMP, no JSR): the
+    // callee runs when the caller has finished (#615)
+    std::set<std::pair<std::string, std::string>> tailOnlyEdges_;
+    // those of them in hand-written (not cc45's) objects: continuations,
+    // never bridged between calling conventions
+    std::set<std::pair<std::string, std::string>> asmTailEdges_;
 
     // Transitive clobber sets: function name -> merged clobbers through call chain
     std::map<std::string, O45FuncAttr> transitiveClobbers_;
