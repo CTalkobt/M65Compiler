@@ -11,9 +11,11 @@
 #include "Logger.hpp"
 #include "Dbg45.hpp"
 #include <algorithm>
+#include <cerrno>
 #include <chrono>
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <fstream>
 #include <sstream>
@@ -40,21 +42,44 @@ bool Dbg45::open(const std::string& prg, std::string& err) {
     return true;
 }
 
+bool Dbg45::parseNumber(const std::string& text, long& value) {
+    if (text.empty()) return false;
+    bool hex = text[0] == '$';
+    const char* s = text.c_str() + (hex ? 1 : 0);
+    if (!isxdigit((unsigned char)*s)) return false;      // (strtol would take a sign or blanks)
+    char* end = nullptr;
+    errno = 0;
+    long v = std::strtol(s, &end, hex ? 16 : 0);
+    if (errno || *end) return false;
+    value = v;
+    return true;
+}
+
 int Dbg45::addBreakpoint(const std::string& where, std::string& err) {
     std::vector<uint16_t> addrs;
     std::string desc = where;
     if (!where.empty() && where[0] == '*') {
-        addrs.push_back((uint16_t)std::stoul(where.substr(1), nullptr, where.size() > 2 && (where[1] == '$') ? 16 : 0));
-        if (where[1] == '$') addrs.back() = (uint16_t)std::stoul(where.substr(2), nullptr, 16);
+        // *ADDR: $2124, 0x2124 or decimal (#632: "$2124" went to stoul as it was, an abort)
+        long a;
+        if (!parseNumber(where.substr(1), a) || a < 0 || a > 0xFFFF) {
+            err = "no address '" + where.substr(1) + "' (*$2124, *0x2124 or *8484, up to $FFFF)";
+            return 0;
+        }
+        addrs.push_back((uint16_t)a);
     } else if (where.find(':') != std::string::npos ||
                std::all_of(where.begin(), where.end(), [](char c) { return isdigit((unsigned char)c); })) {
         std::string file;
         int line;
         size_t c = where.rfind(':');
-        if (c != std::string::npos) { file = where.substr(0, c); line = std::stoi(where.substr(c + 1)); }
+        long ln = 0;
+        if (!parseNumber(c != std::string::npos ? where.substr(c + 1) : where, ln) || ln <= 0 || ln > 0x7FFFFFFF) {
+            err = "no line number in '" + where + "' (file.c:line)";
+            return 0;
+        }
+        line = (int)ln;
+        if (c != std::string::npos) file = where.substr(0, c);
         else {
             // a line of the file the program stopped in (else main's)
-            line = std::stoi(where);
             const DbgLine* l = started_ && !exited_ ? dbg.lineAt(regs.pc) : nullptr;
             if (!l) if (const DbgFunction* m = dbg.functionNamed("main")) l = dbg.lineAt(m->start);
             if (!l) { err = "no current source file: give file:line"; return 0; }
@@ -608,8 +633,13 @@ struct ExprParser {
         if (eat("(")) { if (!unary(v)) return false; if (!eat(")")) { err = "')' expected"; return false; } return true; }
         if (p < s.size() && (isdigit((unsigned char)s[p]) || s[p] == '$')) {
             long n;
-            if (s[p] == '$') { p++; size_t b = p; while (p < s.size() && isxdigit((unsigned char)s[p])) p++; n = std::stol(s.substr(b, p - b), nullptr, 16); }
-            else { size_t e; n = std::stol(s.substr(p), &e, 0); p += e; }
+            if (s[p] == '$') {
+                p++; size_t b = p; while (p < s.size() && isxdigit((unsigned char)s[p])) p++;
+                if (!Dbg45::parseNumber("$" + s.substr(b, p - b), n)) { err = "hex digits expected after $"; return false; }
+            } else {
+                size_t b = p; while (p < s.size() && isalnum((unsigned char)s[p])) p++;
+                if (!Dbg45::parseNumber(s.substr(b, p - b), n)) { err = "not a number: " + s.substr(b, p - b); return false; }
+            }
             v.type = n > 0xFFFF || n < -32768 ? "s32" : "s16";
             int sz = v.type == "s32" ? 4 : 2;
             v.bytes.clear();

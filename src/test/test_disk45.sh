@@ -959,6 +959,39 @@ for fmt in "d81|40|$((39 * 40 * 256))|3" "d64|18|91392|1"; do
 done
 
 # ============================================================================
+# #633: numbers, options, read-only formats, format names
+N=$TMPDIR/n633.d81
+$DISK45 create "$N" >/dev/null
+$DISK45 bpoke "$N" 1 0 0 '$43' 0x44 69 >/dev/null 2>&1 && [ "$($DISK45 bpeek "$N" 1 0 0 3 | tr -d ' \n')" = "434445" ] &&
+    pass "bpoke takes \$hex, 0x hex and decimal" || fail "bpoke \$43 0x44 69"
+out=$($DISK45 bpoke "$N" 1 0 0 zz 2>&1); rc=$?
+[ $rc = 1 ] && echo "$out" | grep -q "'zz' is not a number" && pass "a bad number is an error message" || fail "bpoke zz: rc=$rc $out"
+out=$($DISK45 bread "$N" a b 2>&1); rc=$?
+[ $rc = 1 ] && echo "$out" | grep -q "is not a number" && pass "bread with a bad track" || fail "bread a b: rc=$rc $out"
+rm -f "$TMPDIR/o1.d81"
+out=$($DISK45 create "$TMPDIR/o1.d81" --name TEST 2>&1); rc=$?
+[ $rc = 1 ] && [ ! -e "$TMPDIR/o1.d81" ] && echo "$out" | grep -q "has no option --name" &&
+    pass "an unknown option is an error (create --name)" || fail "create --name: rc=$rc $out"
+out=$($DISK45 create "$TMPDIR/o1.d81" -n 2>&1); rc=$?
+[ $rc = 1 ] && echo "$out" | grep -q "needs a value" && pass "an option without its value is an error" || fail "create -n: rc=$rc $out"
+out=$($DISK45 list "$N" --bogus 2>&1); rc=$?
+[ $rc = 1 ] && echo "$out" | grep -q "has no option --bogus" && pass "list --bogus is an error" || fail "list --bogus: rc=$rc $out"
+$DISK45 list "$N" --petscii >/dev/null 2>&1 && $DISK45 list "$N" -- "-x*" >/dev/null 2>&1 &&
+    pass "list --petscii, and a pattern after --" || fail "list --petscii / --"
+printf 'bpoke %s 1 0 0 zz\nlist %s\n' "$N" "$N" > "$TMPDIR/b633.txt"
+$DISK45 batch "$TMPDIR/b633.txt" 2>&1 | grep -q "blocks free" && pass "batch goes on after a line's bad number" || fail "batch after a bad number"
+for ext in tap cvt; do
+    out=$($DISK45 create "$TMPDIR/ro.$ext" 2>&1); rc=$?
+    [ $rc = 1 ] && [ ! -e "$TMPDIR/ro.$ext" ] && echo "$out" | grep -q "cannot create" &&
+        pass "create .$ext is refused" || fail "create .$ext: rc=$rc $out"
+done
+for p in "d80:D80 (8050)" "d82:D82 (8250)" "ark:ARK" "t64:T64" "d64:D64 (1541)"; do
+    ext=${p%%:*}; want=${p#*:}
+    $DISK45 create "$TMPDIR/fmt.$ext" 2>&1 | grep -q "^Created $want" && $DISK45 info "$TMPDIR/fmt.$ext" 2>&1 | grep -q "Format: *$want" &&
+        pass "create / info name the format: .$ext" || fail "format name of .$ext: $($DISK45 create "$TMPDIR/fmt.$ext" 2>&1 | head -1)"
+done
+
+# ============================================================================
 echo ""
 echo "disk45 tests: $passed passed, $failed failed"
 [ "$failed" -eq 0 ] || exit 1

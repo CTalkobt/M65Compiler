@@ -1764,7 +1764,7 @@ if [ -f "$XEMU_ROM" ]; then
     if ./bin/disk45 sd create "$SDC" 64M --onboarded >/dev/null 2>&1 &&
        ./bin/disk45 sd add "$SDC" "$XEMU_ROM" MEGA65.ROM >/dev/null 2>&1 &&
        ./bin/disk45 create build/test/test_disk45_sd.d81 -n SDTEST >/dev/null 2>&1 &&
-       ./bin/disk45 add build/test/test_disk45_sd.d81 build/test/test_disk45_sd.seq HELLO -t seq >/dev/null 2>&1 &&
+       ./bin/disk45 add build/test/test_disk45_sd.d81 build/test/test_disk45_sd.seq HELLO >/dev/null 2>&1 &&
        ./bin/disk45 sd add "$SDC" build/test/test_disk45_sd.d81 MEGA65.D81 >/dev/null 2>&1 &&
        ./bin/basic45 --strict src/test-resources/test_disk45_sd_xemu.bas -o build/test/test_disk45_sd_xemu.prg >/dev/null 2>&1; then
         XEMU_SYNC=1 run_xemu_test "test_disk45_sd" "build/test/test_disk45_sd_xemu.prg" "C0C0" 3 "01 01 AA" \

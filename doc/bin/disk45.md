@@ -21,6 +21,11 @@ Running `disk45` with no arguments or an unknown command prints the usage summar
 
 ## Commands
 
+Each command accepts only its own options: one it does not have is an error that names those it has
+(`Error: disk45 create has no option --name (its options: -n <value> -i <value> ...)`), as is an option given
+without its value. A name or pattern that starts with `-` goes after `--` (`disk45 list game.d81 -- "-x*"`).
+Numbers are decimal, `0x` or `$` hex. (`sd`, `catalog`, `mount` and `edit` check their own arguments.)
+
 ### File Operations
 
 #### create
@@ -303,7 +308,7 @@ Visual sector allocation map per track (`.` = free, `#` = allocated) with free/t
 
 ### Block-Level Operations
 
-These work on sector-based images. Track, sector and offset are decimal; byte values (`bpoke`, `bfill`) accept decimal, `0x` hex or leading-`0` octal (not `$`).
+These work on sector-based images. Track, sector and offset are decimal; every number (also `bpoke`'s and `bfill`'s byte values) can be given as `0x` or `$` hex too (a leading `0` is octal); anything else is an error ("'zz' is not a number").
 
 #### dump / hex
 
@@ -747,7 +752,7 @@ R/W means `create`, `add`, `remove` etc. work and the image is written back in i
 
 **Writing a G64/G71** (any change, `create`, `convert` to `.g64`/`.g71`): a track whose sectors are unchanged since loading keeps its original GCR (copy protection, extra syncs, odd gaps, its speed zone or speed block); a changed or new track is encoded as a standard 1541 track: sectors 0..n-1, 5-byte syncs, the header with the format ID found on the disk (or the BAM's disk ID), a 9-byte header gap, the data block, gaps spread evenly to MNIB's track lengths (7692/7142/6666/6250 bytes for speed zones 3-0), every track slot 7928 bytes padded with $FF. A G64 disk45 writes from a D64 is byte for byte what `src/test/mkgcr.py`, an independent encoder, writes; `test_disk45.sh` also checks that a byte in an untouched track survives adding a file.
 
-NIB, NBZ and Zipcode are read-only: `create` refuses them and changes are refused (convert to `.d64` or `.g64`).
+NIB, NBZ, Zipcode, TAP and CVT are read-only: `create` refuses them ("disk45 cannot create .tap images") and changes are refused (convert a NIB or Zipcode image to `.d64` or `.g64`).
 
 ### Tape Formats
 
