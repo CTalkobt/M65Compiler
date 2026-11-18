@@ -125,6 +125,31 @@ after `.basicUpstart`); any other name is a flat binary.
 Every tool prints its options with `-?` (`./bin/cc45 -?`; disk45 when run
 without arguments); the reference pages are in [doc/bin/](doc/bin/).
 
+## Download
+
+Each release from the next one on has prebuilt archives on its
+[release page](https://github.com/CTalkobt/M65Compiler/releases) (with a `SHA256SUMS` file):
+
+| Archive | For |
+|---|---|
+| `m65compiler-<version>-linux-x86_64.tar.gz` | any Linux on x86-64: statically linked, no library to install |
+| `m65compiler-<version>-linux-arm64.tar.gz` | any Linux on 64-bit ARM (a Raspberry Pi 4 or 5 with a 64-bit system): statically linked |
+| `m65compiler-<version>-macos-arm64.tar.gz` | macOS on Apple silicon (not signed: clear the quarantine with `xattr -dr com.apple.quarantine <directory>` after unpacking a browser download) |
+
+Unpack one anywhere and run the tools from its `bin/` (or put that on the `PATH`): they find the headers and
+libraries relative to their own location.
+
+```bash
+tar -xzf m65compiler-<version>-linux-x86_64.tar.gz
+m65compiler-<version>-linux-x86_64/bin/cc45 -O2 hello.c -o hello.prg
+```
+
+The Linux archives' disk45 has the catalog and `mount`, with SQLite and libfuse 3 linked in. Mounting uses the
+system's FUSE: `/dev/fuse` and the `fusermount3` helper (the `fuse3` package), which `disk45 mount` asks for
+when it is used and names when they are missing; nothing else in the archive needs them. The archives are made by `src/release/package.sh` (the release workflow runs it for each tag), which
+also checks each one: unpacked in a directory of its own, its cc45 builds a program. tune45 contains
+libresidfp (GPL-2+) and the Linux disk45 libfuse 3 (LGPL-2.1); the licences are in the archive's `share/doc/m65compiler/`.
+
 ## Building from Source
 
 The tools are C++17. To build them you need:

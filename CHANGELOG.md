@@ -4,6 +4,24 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### Prebuilt release archives (#621)
+
+- `src/release/package.sh` builds the suite and packs the installed tree as
+  `m65compiler-<version>-<os>-<arch>.tar.gz`: `linux-static` in an Alpine
+  container (statically linked with musl: any Linux of the architecture;
+  disk45 with the catalog and `mount`, SQLite and libfuse 3 linked in), `native` with the machine's own
+  compiler (macOS). Each archive is checked: unpacked elsewhere, its cc45
+  builds a program and its disk45 a disk image.
+- `.github/workflows/release.yml`: for a tag `v*`, the Linux x86_64 and
+  arm64 and the macOS arm64 archives with `SHA256SUMS` are attached to the
+  tag's release (created as a draft when there is none); run by hand it only
+  builds them.
+- `disk45 mount` asks for what mounting needs before anything else (Linux:
+  `/dev/fuse`, and for anyone but root the `fusermount3` helper) and names
+  what is missing; a disk45 built without FUSE 3 says so for `mount` (as for
+  `catalog` without SQLite) instead of "unknown command".
+- README: a Download section.
+
 ### Float ROM calls by the library's own map switch (#614)
 
 - The float runtime calls the BASIC 65 ROM through `__float_romcall`

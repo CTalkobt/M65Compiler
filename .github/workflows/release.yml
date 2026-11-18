@@ -1,0 +1,95 @@
+name: Release
+
+# Prebuilt binaries for a release (#621): for a tag v*, the archives
+# src/release/package.sh makes are attached to that tag's GitHub release
+# (created as a draft when there is none yet, for the notes to be written
+# and published by hand). Run by hand (workflow_dispatch) it only builds:
+# the archives are kept as the run's artifacts, nothing is released.
+#
+#   m65compiler-<version>-linux-x86_64.tar.gz   static (musl), any Linux
+#   m65compiler-<version>-linux-arm64.tar.gz    static (musl), any Linux
+#   m65compiler-<version>-macos-arm64.tar.gz    Apple clang, system libraries
+#   SHA256SUMS
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  linux:
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-latest, ubuntu-24.04-arm]
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Build and check the static archive
+        env:
+          VERSION: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
+        run: bash src/release/package.sh linux-static "$RUNNER_TEMP/release"
+
+      - name: Keep the archive
+        uses: actions/upload-artifact@v4
+        with:
+          name: archive-${{ matrix.runner }}
+          path: ${{ runner.temp }}/release/*.tar.gz
+          if-no-files-found: error
+
+  macos:
+    runs-on: macos-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install GNU make
+        run: brew install make
+
+      - name: Build and check the archive
+        env:
+          VERSION: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
+          MAKE: gmake
+          JOBS: 3
+        run: bash src/release/package.sh native "$RUNNER_TEMP/release"
+
+      - name: Keep the archive
+        uses: actions/upload-artifact@v4
+        with:
+          name: archive-macos
+          path: ${{ runner.temp }}/release/*.tar.gz
+          if-no-files-found: error
+
+  # Only for a tag: the archives and their checksums on the tag's release
+  publish:
+    if: github.ref_type == 'tag'
+    needs: [linux, macos]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Fetch the archives
+        uses: actions/download-artifact@v4
+        with:
+          pattern: archive-*
+          merge-multiple: true
+          path: release
+
+      - name: Checksums
+        run: cd release && sha256sum *.tar.gz > SHA256SUMS && cat SHA256SUMS
+
+      - name: Attach to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          gh release view "$TAG" > /dev/null 2>&1 ||
+              gh release create "$TAG" --draft --title "$TAG" --notes "Release notes to follow (CHANGELOG.md)."
+          gh release upload "$TAG" release/*.tar.gz release/SHA256SUMS --clobber

@@ -12,6 +12,8 @@
 #include <cstring>
 #include <cstdio>
 #include <cerrno>
+#include <cstdlib>
+#include <unistd.h>
 #include <string>
 #include <vector>
 #include <map>
@@ -526,11 +528,45 @@ static void init_cbm_ops() {
 // Entry point (called from disk45 mount command)
 // ============================================================================
 
+// nullptr when FUSE can be used here, else what is missing
+static const char* fuseMissing() {
+#ifdef __linux__
+    if (access("/dev/fuse", F_OK) != 0)
+        return "there is no /dev/fuse (the kernel's fuse module is not loaded, or this is a\n"
+               "       container without it)";
+    if (geteuid() != 0) {
+        bool found = false;
+        std::string path = getenv("PATH") ? getenv("PATH") : "";
+        for (size_t at = 0; at <= path.size() && !found; ) {
+            size_t e = path.find(':', at);
+            if (e == std::string::npos) e = path.size();
+            std::string dir = path.substr(at, e - at);
+            if (!dir.empty() && access((dir + "/fusermount3").c_str(), X_OK) == 0) found = true;
+            at = e + 1;
+        }
+        if (!found)
+            return "the fusermount3 helper is not on the PATH: install the fuse3 package\n"
+                   "       (the other disk45 commands need nothing)";
+    }
+#endif
+    return nullptr;
+}
+
 int disk45_fuse_main(const std::string& imagePath, const std::string& mountpoint,
                       bool readonly, int argc, char** argv) {
     // FUSE runs the filesystem from / : the image path must not be relative
     g_imagePath = std::filesystem::absolute(imagePath).string();
     g_readonly = readonly;
+
+    // What mounting needs of the machine, asked before anything else (#621:
+    // a statically linked disk45 has libfuse in it, and runs where FUSE is
+    // not installed): the kernel's /dev/fuse, and for anyone but root the
+    // fusermount3 helper of the distribution's fuse3 package
+    const char* missing = fuseMissing();
+    if (missing) {
+        fprintf(stderr, "Error: disk45 mount cannot run here: %s\n", missing);
+        return 1;
+    }
 
     g_img = DiskImage::load(imagePath);
     if (!g_img) {
