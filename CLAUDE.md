@@ -434,8 +434,8 @@ power-of-two blocks aligned to their size, `far_malloc_long` over 64 KB) and
 glyphs made from the font, cached in bank 4/5). `tgi.h` is cc65's TGI (320x200, 256 colours, one or two
 pages of VIC-IV full-colour characters in bank 4/5; 640x200, 16 colours, nibble-colour characters;
 `stdlib/tgi*.c`, `stdlib_asm/tgi_*.s45`). `sprites.h` is the VIC-IV's 8 hardware sprites
-(`stdlib_asm/sprites.s45`). Many other headers (graphics, `sprite_*.h`, hw_*, uart) declare
-functions that no library implements.
+(`stdlib_asm/sprites.s45`). 44 other headers (graphics, `sprite_*.h`, hw_*, uart...) declare
+functions that no library implements: kept for the future, their contents inside `#ifdef CC45_FUTURE` (#642).
 
 ## Known Bugs (found in the 2026-10-11 doc audit; not yet fixed unless noted)
 

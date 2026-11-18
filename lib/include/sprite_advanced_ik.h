@@ -1,3 +1,13 @@
+/* FOR THE FUTURE: NOT IMPLEMENTED.
+ *
+ * No library defines what this header declares: a call of one of its
+ * functions would compile and then fail to link. Its contents are kept for
+ * later work and are left out unless CC45_FUTURE is defined (-DCC45_FUTURE),
+ * so including it by accident declares nothing.
+ * (doc/architecture/stdlib.md, "Headers Without a Library Implementation")
+ */
+#ifdef CC45_FUTURE
+
 /* sprite_advanced_ik.h — Phase 44: Advanced IK Solvers
  *
  * Multi-bone IK with FABRIK, pole vectors, and constraints.
@@ -65,3 +75,5 @@ int sprite_ik_solve_two_bone(sprite_skeleton_t skeleton,
 int sprite_ik_solve_fabrik(sprite_ik_chain_t chain, int max_iterations);
 
 #endif
+
+#endif /* CC45_FUTURE */

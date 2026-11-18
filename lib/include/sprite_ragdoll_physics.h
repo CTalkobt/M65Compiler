@@ -1,3 +1,13 @@
+/* FOR THE FUTURE: NOT IMPLEMENTED.
+ *
+ * No library defines what this header declares: a call of one of its
+ * functions would compile and then fail to link. Its contents are kept for
+ * later work and are left out unless CC45_FUTURE is defined (-DCC45_FUTURE),
+ * so including it by accident declares nothing.
+ * (doc/architecture/stdlib.md, "Headers Without a Library Implementation")
+ */
+#ifdef CC45_FUTURE
+
 /* sprite_ragdoll_physics.h — Ragdoll Physics for Skeletal Systems
  *
  * Provides soft-body physics simulation for skeletal animations.
@@ -79,3 +89,5 @@ int sprite_ragdoll_disable_self_collision(sprite_ragdoll_t ragdoll);
 void sprite_ragdoll_print_state(sprite_ragdoll_t ragdoll);
 
 #endif
+
+#endif /* CC45_FUTURE */

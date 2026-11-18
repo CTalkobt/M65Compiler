@@ -1,3 +1,13 @@
+/* FOR THE FUTURE: NOT IMPLEMENTED.
+ *
+ * No library defines what this header declares: a call of one of its
+ * functions would compile and then fail to link. Its contents are kept for
+ * later work and are left out unless CC45_FUTURE is defined (-DCC45_FUTURE),
+ * so including it by accident declares nothing.
+ * (doc/architecture/stdlib.md, "Headers Without a Library Implementation")
+ */
+#ifdef CC45_FUTURE
+
 /* graphics_sprites_advanced.h — Advanced Sprite Features (Phase 8)
  *
  * Animation sequences, movement patterns, sprite groups, and callbacks.
@@ -283,3 +293,5 @@ void sprite_move_towards(sprite_t *sprite, int target_x, int target_y, int speed
 
 #define SPRITE_GROUP_MAX_SPRITES    256     /* Maximum sprites per group */
 #define SPRITE_MAX_SCALE            400     /* Maximum scale percentage */
+
+#endif /* CC45_FUTURE */

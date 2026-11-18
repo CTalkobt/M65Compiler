@@ -1,3 +1,13 @@
+/* FOR THE FUTURE: NOT IMPLEMENTED.
+ *
+ * No library defines what this header declares: a call of one of its
+ * functions would compile and then fail to link. Its contents are kept for
+ * later work and are left out unless CC45_FUTURE is defined (-DCC45_FUTURE),
+ * so including it by accident declares nothing.
+ * (doc/architecture/stdlib.md, "Headers Without a Library Implementation")
+ */
+#ifdef CC45_FUTURE
+
 /* sprite_blend_spaces.h — 2D Animation Blend Spaces for MEGA65
  *
  * Provides parameter-based animation blending for procedural animation control.
@@ -438,3 +448,5 @@ void sprite_blend_space_print_state(sprite_blend_space_t space);
 void sprite_blend_space_print_points(sprite_blend_space_t space);
 
 #endif
+
+#endif /* CC45_FUTURE */

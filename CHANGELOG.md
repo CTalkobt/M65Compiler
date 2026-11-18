@@ -4,6 +4,19 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### Library: the headers nothing implements are marked and switched off (#642)
+
+- **44 headers of `lib/include`** (the graphics framework, the 16 `sprite_*.h`, `hw_*.h`, `uart.h`, `lightpen.h`,
+  `paddle_mouse.h`, `audio.h`, `simd.h`, the application framework ones) declare functions, about 950, that no
+  library defines: a program calling one compiled and then failed to link. Each now begins with a comment
+  ("FOR THE FUTURE: NOT IMPLEMENTED") and has its whole contents inside `#ifdef CC45_FUTURE`. Included by
+  accident it declares nothing, and a call of one of its functions is a compile error at the call.
+  `-DCC45_FUTURE` brings the declarations back, for work on an implementation.
+- `graphics.h` is among them: its `sprite_init`, `sprite_done`, `sprite_show` and `sprite_hide` linked to
+  `sprites.h`'s hardware-sprite functions of other parameters, so a program built and misbehaved.
+- The libraries are unchanged (`c45_stack.lib` the same bytes, `c45.lib` the same 260 members).
+- `doc/architecture/stdlib.md` section 14: the headers by family, and what to use instead.
+
 ### Documentation checked against the tools; the roadmap up to date (#622)
 
 - **README.md and every page of `doc/bin` and `doc/architecture`** checked against the source and the built tools:

@@ -1,3 +1,13 @@
+/* FOR THE FUTURE: NOT IMPLEMENTED.
+ *
+ * No library defines what this header declares: a call of one of its
+ * functions would compile and then fail to link. Its contents are kept for
+ * later work and are left out unless CC45_FUTURE is defined (-DCC45_FUTURE),
+ * so including it by accident declares nothing.
+ * (doc/architecture/stdlib.md, "Headers Without a Library Implementation")
+ */
+#ifdef CC45_FUTURE
+
 /* mem_pool.h — Phase 76: Memory Pooling & Object Allocation
  *
  * Fixed-size object pools, alignment-aware allocators, and fragmentation
@@ -106,3 +116,5 @@ mem_pool_stats_t mem_pool_manager_stats(mem_pool_manager_t mgr, int type_id);
 void mem_pool_manager_destroy(mem_pool_manager_t mgr);
 
 #endif
+
+#endif /* CC45_FUTURE */

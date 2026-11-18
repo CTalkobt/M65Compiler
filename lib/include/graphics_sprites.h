@@ -1,3 +1,13 @@
+/* FOR THE FUTURE: NOT IMPLEMENTED.
+ *
+ * No library defines what this header declares: a call of one of its
+ * functions would compile and then fail to link. Its contents are kept for
+ * later work and are left out unless CC45_FUTURE is defined (-DCC45_FUTURE),
+ * so including it by accident declares nothing.
+ * (doc/architecture/stdlib.md, "Headers Without a Library Implementation")
+ */
+#ifdef CC45_FUTURE
+
 /* graphics_sprites.h — Soft Sprite System (Phase 7)
  *
  * Object-oriented sprite engine using RRB SPARSE layers for rendering.
@@ -193,3 +203,5 @@ sprite_animation_t sprite_animation_create(sprite_frame_t *frames, int count, in
 #define SPRITE_HIDDEN           0
 #define SPRITE_ACTIVE           1
 #define SPRITE_INACTIVE         0
+
+#endif /* CC45_FUTURE */

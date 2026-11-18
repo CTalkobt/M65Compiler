@@ -1,3 +1,13 @@
+/* FOR THE FUTURE: NOT IMPLEMENTED.
+ *
+ * No library defines what this header declares: a call of one of its
+ * functions would compile and then fail to link. Its contents are kept for
+ * later work and are left out unless CC45_FUTURE is defined (-DCC45_FUTURE),
+ * so including it by accident declares nothing.
+ * (doc/architecture/stdlib.md, "Headers Without a Library Implementation")
+ */
+#ifdef CC45_FUTURE
+
 /* graphics_hal.h — VIC-IV Hardware Abstraction Layer
  *
  * Provides low-level VIC-IV register access, memory banking,
@@ -321,3 +331,5 @@ void graphics_write_reg(unsigned char reg, unsigned char value);
  */
 unsigned char graphics_read_reg(unsigned char reg);
 
+
+#endif /* CC45_FUTURE */

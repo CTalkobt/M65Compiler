@@ -1,3 +1,13 @@
+/* FOR THE FUTURE: NOT IMPLEMENTED.
+ *
+ * No library defines what this header declares: a call of one of its
+ * functions would compile and then fail to link. Its contents are kept for
+ * later work and are left out unless CC45_FUTURE is defined (-DCC45_FUTURE),
+ * so including it by accident declares nothing.
+ * (doc/architecture/stdlib.md, "Headers Without a Library Implementation")
+ */
+#ifdef CC45_FUTURE
+
 /* sprite_camera.h — Phase 54: Camera System
  *
  * Camera control with follow, pan, zoom, and shake effects.
@@ -66,3 +76,5 @@ void sprite_camera_screen_to_world(sprite_camera_t camera, float screen_x, float
                                     float *world_x, float *world_y);
 
 #endif
+
+#endif /* CC45_FUTURE */

@@ -1,3 +1,13 @@
+/* FOR THE FUTURE: NOT IMPLEMENTED.
+ *
+ * No library defines what this header declares: a call of one of its
+ * functions would compile and then fail to link. Its contents are kept for
+ * later work and are left out unless CC45_FUTURE is defined (-DCC45_FUTURE),
+ * so including it by accident declares nothing.
+ * (doc/architecture/stdlib.md, "Headers Without a Library Implementation")
+ */
+#ifdef CC45_FUTURE
+
 /* sprite_animation_trees.h — Hierarchical Animation System for MEGA65
  *
  * Provides time-based animation playback across sprite hierarchies.
@@ -513,3 +523,5 @@ void sprite_anim_tree_print_state(sprite_anim_tree_t tree);
 void sprite_anim_tree_print_hierarchy(sprite_anim_tree_t tree);
 
 #endif
+
+#endif /* CC45_FUTURE */

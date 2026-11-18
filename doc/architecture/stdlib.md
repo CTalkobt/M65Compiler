@@ -618,7 +618,20 @@ A program that leaves the area writable has it protected again when it ends: crt
 
 ## 14. Headers Without a Library Implementation
 
-These headers declare functions whose sources (`lib/src/*.c`, `lib/stdlib/uart.s`) are not built into any archive, so calls to them fail to link: `uart.h` (`serial.h` is the library's serial port), `audio.h`, `cache_opt.h`, `event_system.h`, `graphics.h`, `graphics_hal.h`, `graphics_particles.h`, `graphics_rrb.h`, `graphics_sprites.h`, `graphics_sprites_advanced.h`, `graphics_text80x50.h`, `hw_audio_mixer.h`, `hw_io.h`, `hw_peripherals.h`, `hw_raster.h`, `hw_scroll.h`, `lightpen.h`, `mega65_version.h`, `mem_pool.h`, `paddle_mouse.h`, `persistence.h`, `procedural_content.h`, `resource_manager.h`, `scripting.h`, `simd.h`, `sprite_*.h` (16 headers; not `sprites.h`, the library's hardware sprites), `test_harness.h`, `ui.h`, `world.h`: 43 headers, about 950 functions. `graphics.h` also declares `sprite_init(sprite_t *, width, height)`, `sprite_done`, `sprite_show` and `sprite_hide` for its software sprites: these four names do link, to `sprites.h`'s hardware-sprite functions of other parameters, so a `graphics.h` program calling them builds and misbehaves. `stdio.h`'s `fileno` is declared as a function too, but only the macro exists.
+44 of the headers in `lib/include` are kept for future work: they declare functions (about 950 in all) that no library defines, their sources (`lib/src/*.c`, `lib/stdlib/uart.s`) not being built into any archive. Each begins with a comment saying so, and its whole contents are inside `#ifdef CC45_FUTURE`: included by accident, such a header declares nothing, and a call of one of its functions is a compile error ("implicit declaration of function") instead of a failed link. `-DCC45_FUTURE` brings the declarations back, for work on an implementation.
+
+They are, by family:
+
+| Family | Headers |
+|---|---|
+| Graphics framework | `graphics.h`, `graphics_hal.h`, `graphics_particles.h`, `graphics_rrb.h`, `graphics_sprites.h`, `graphics_sprites_advanced.h`, `graphics_text80x50.h` (use `tgi.h`, `conio.h`, `seam.h`) |
+| Software sprites | the 16 `sprite_*.h` headers (not `sprites.h`, the library's hardware sprites) |
+| Hardware access | `hw_audio_mixer.h`, `hw_io.h`, `hw_peripherals.h`, `hw_raster.h`, `hw_scroll.h`, `uart.h` (use `mega65.h`; `serial.h` is the library's serial port) |
+| Input | `lightpen.h`, `paddle_mouse.h` (use `input.h`, `joystick.h`) |
+| Audio and vectors | `audio.h` (use `audio_tune.h`, `audio_sid.h`, `audio_digi.h`), `simd.h` |
+| Application framework | `cache_opt.h`, `event_system.h`, `mega65_version.h`, `mem_pool.h`, `persistence.h`, `procedural_content.h`, `resource_manager.h`, `scripting.h`, `test_harness.h`, `ui.h`, `world.h` |
+
+In headers that are otherwise implemented, a few declarations have no definition either: `stdio.h`'s `fileno` is declared as a function, but only the macro exists.
 
 `sincos.h` and `sincos16.h` contain only `static` code and tables and work without the library: `isin(angle)` / `icos(angle)` (macros: a 256-entry table, the angle 0-255 a full turn, the value a `signed char` in 1.7 fixed point, -127 … 127), `fixmul(a, b)` (a 1.7 value times an integer), `isin_q` / `icos_q`; `sincos16.h` the same in 1.15 (`isin16`, `icos16`, `fixmul16`).
 

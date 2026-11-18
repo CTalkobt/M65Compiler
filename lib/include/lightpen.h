@@ -1,3 +1,13 @@
+/* FOR THE FUTURE: NOT IMPLEMENTED.
+ *
+ * No library defines what this header declares: a call of one of its
+ * functions would compile and then fail to link. Its contents are kept for
+ * later work and are left out unless CC45_FUTURE is defined (-DCC45_FUTURE),
+ * so including it by accident declares nothing.
+ * (doc/architecture/stdlib.md, "Headers Without a Library Implementation")
+ */
+#ifdef CC45_FUTURE
+
 /* lightpen.h — Light Pen Input for MEGA65
  *
  * Provides light pen sensor support for MEGA65, including position detection,
@@ -399,3 +409,5 @@ void lightpen_print_status(void);
 void lightpen_print_event(const lightpen_event_t *event);
 
 #endif
+
+#endif /* CC45_FUTURE */

@@ -1,3 +1,13 @@
+/* FOR THE FUTURE: NOT IMPLEMENTED.
+ *
+ * No library defines what this header declares: a call of one of its
+ * functions would compile and then fail to link. Its contents are kept for
+ * later work and are left out unless CC45_FUTURE is defined (-DCC45_FUTURE),
+ * so including it by accident declares nothing.
+ * (doc/architecture/stdlib.md, "Headers Without a Library Implementation")
+ */
+#ifdef CC45_FUTURE
+
 /* cache_opt.h — Phase 77: Cache Optimization
  *
  * Cache-line aware data layout, prefetching hints, and access pattern
@@ -97,3 +107,5 @@ int cache_line_mark_dirty(void *addr);
 int cache_line_is_dirty(void *addr);
 
 #endif
+
+#endif /* CC45_FUTURE */

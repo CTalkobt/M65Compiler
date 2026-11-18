@@ -1,3 +1,13 @@
+/* FOR THE FUTURE: NOT IMPLEMENTED.
+ *
+ * No library defines what this header declares: a call of one of its
+ * functions would compile and then fail to link. Its contents are kept for
+ * later work and are left out unless CC45_FUTURE is defined (-DCC45_FUTURE),
+ * so including it by accident declares nothing.
+ * (doc/architecture/stdlib.md, "Headers Without a Library Implementation")
+ */
+#ifdef CC45_FUTURE
+
 /* mega65_version.h — MEGA65 FPGA version detection and feature discovery
  *
  * Identifies MEGA65 revision and available hardware features based on
@@ -91,3 +101,5 @@ void mega65_features_to_string(char* buffer, unsigned int buffer_size);
 void mega65_version_print(void);
 
 #endif
+
+#endif /* CC45_FUTURE */

@@ -1,3 +1,13 @@
+/* FOR THE FUTURE: NOT IMPLEMENTED.
+ *
+ * No library defines what this header declares: a call of one of its
+ * functions would compile and then fail to link. Its contents are kept for
+ * later work and are left out unless CC45_FUTURE is defined (-DCC45_FUTURE),
+ * so including it by accident declares nothing.
+ * (doc/architecture/stdlib.md, "Headers Without a Library Implementation")
+ */
+#ifdef CC45_FUTURE
+
 /*
  * MEGA65 Serial UART Interface
  *
@@ -35,3 +45,5 @@ unsigned char uart_rx_ready(void);
 unsigned char uart_tx_ready(void);
 
 #endif
+
+#endif /* CC45_FUTURE */

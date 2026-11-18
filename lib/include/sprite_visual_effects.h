@@ -1,3 +1,13 @@
+/* FOR THE FUTURE: NOT IMPLEMENTED.
+ *
+ * No library defines what this header declares: a call of one of its
+ * functions would compile and then fail to link. Its contents are kept for
+ * later work and are left out unless CC45_FUTURE is defined (-DCC45_FUTURE),
+ * so including it by accident declares nothing.
+ * (doc/architecture/stdlib.md, "Headers Without a Library Implementation")
+ */
+#ifdef CC45_FUTURE
+
 /* sprite_visual_effects.h — Phase 52: Visual Effects & Shaders
  *
  * Screen effects, sprite shaders, and visual filters.
@@ -67,3 +77,5 @@ int sprite_effect_stack_pop(sprite_effect_stack_t stack);
 int sprite_effect_stack_apply(sprite_effect_stack_t stack, void *framebuffer, int width, int height);
 
 #endif
+
+#endif /* CC45_FUTURE */

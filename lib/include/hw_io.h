@@ -1,3 +1,13 @@
+/* FOR THE FUTURE: NOT IMPLEMENTED.
+ *
+ * No library defines what this header declares: a call of one of its
+ * functions would compile and then fail to link. Its contents are kept for
+ * later work and are left out unless CC45_FUTURE is defined (-DCC45_FUTURE),
+ * so including it by accident declares nothing.
+ * (doc/architecture/stdlib.md, "Headers Without a Library Implementation")
+ */
+#ifdef CC45_FUTURE
+
 /* hw_io.h — Phase 88: Extended I/O & Peripherals
  *
  * Hardware I/O control for SD card, Ethernet, Floppy drive,
@@ -86,3 +96,5 @@ int hw_hyper_set_filename(const char *filename);
 int hw_hyper_load_file(unsigned int address);
 
 #endif
+
+#endif /* CC45_FUTURE */
