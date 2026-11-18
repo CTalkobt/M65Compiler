@@ -408,6 +408,24 @@ plays from the interrupt for 150 frames and reports.
 
 ![tunes](images/tunes.png)
 
+### drums
+
+[Source](https://github.com/CTalkobt/M65Compiler/tree/main/examples/c/drums) —
+A SID band and a sampled drum kit, both from one `music.txt` played by the
+library's tune player (`<audio_tune.h>`): a bass through the filter, a lead
+with a wave table, arpeggio chords, and two digi voices (`d1:`, `d2:`) on the
+audio DMA: kick and snare, and the hi-hats at 16 kHz, cut out of one CC0 kit
+(`samples/SOURCE.txt`) with `sample ... from= len=` lines. `tune45 convert`
+makes `music.c` and `music.h` as part of the build, the samples (8-bit, in
+`tune_sample_bank`) too; the program gives them to the player
+(`tune_samples`) and the audio DMA's channels 2 and 3 (`tune_digi_channels`),
+updates the music in its main loop, and shows each voice's note and each drum
+channel's sample. Keys: SPACE stop/play, + - tempo, RUN/STOP quit. `make play`
+plays the music on the PC (`tune45 play`); `make check` builds
+`drumscheck.prg`, a test that plays 240 frames and reports. (No screenshot
+yet: `examples/capture_screens.py` does not take one, and the program is not
+on the examples disks.)
+
 ### forth
 
 [Source](https://github.com/CTalkobt/M65Compiler/tree/main/examples/c/forth) —
@@ -513,15 +531,15 @@ Fills screen RAM with each character code 0-255 in turn with `memset`.
 ### hello_world
 
 [Source](https://github.com/CTalkobt/M65Compiler/tree/main/examples/c/hello_world) —
-The smallest program: `puts("hello world")`, built in one step with cc45.
+The smallest program: `puts("hello world")`. Its Makefile compiles with `cc45 -c` and links with `ln45 -basic`; `cc45 -O2 hello.c -o hello.prg` does the same in one step.
 
 ![hello_world](images/hello_world.png)
 
 ### hello_linked
 
 [Source](https://github.com/CTalkobt/M65Compiler/tree/main/examples/c/hello_linked) —
-The same with separate compile and link steps (`cc45 -c`, `ln45`) and a few
-library calls (`itoa`, `strlen`).
+The same build (`cc45 -c`, then `ln45`) with a few library calls (`itoa`,
+`printf`, `strlen`).
 
 ![hello_linked](images/hello_linked.png)
 

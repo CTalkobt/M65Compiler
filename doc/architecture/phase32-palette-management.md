@@ -1,8 +1,54 @@
-> **Historical design document** — kept for reference; not maintained. Status as of 2026-10-11: Partially implemented: the palette API exists in lib/include/palette.h and lib/src/palette.c (compiles and links with cc45/ln45) but is not built into c45.lib, and the "15 tests" are host-side mocks not run by any test target. See the reference docs in doc/bin/ and doc/architecture/ for current behaviour.
+> **Historical design document** — kept for reference; not maintained. Status as of 2026-11-18: **the API designed below was not kept.** `<palette.h>` is in the library (`lib/stdlib/palette.c`, built into `c45.lib` and `c45_stack.lib`) with seven functions over the VIC-IV's 256 palette entries, listed under [What the library implements](#what-the-library-implements). Everything from [Overview](#overview) on is the original design: its bank selection, presets, colour transformations, fades, interpolation and debugging functions do not exist (the earlier `lib/src/palette.c`, which wrote the wrong registers, is gone), its memory model is not the hardware's, and its examples do not compile. The "15 tests" (`src/test-resources/test_phase32_palette.cpp`) are host-side mocks of that design, run by no test target. The reference is [stdlib.md](stdlib.md#13-mega65-hardware-mega65h-and-dma-dmah).
 
 # Phase 32: Palette Management API
 
-**Status**: Complete and tested  
+## What the library implements
+
+`<palette.h>` (`lib/stdlib/palette.c`; test `src/test-resources/test_seam_xemu.c`). The palette is 256 entries, red at `$D100` + n, green at `$D200` + n, blue at `$D300` + n, each component 8 bits with its nibbles swapped in the register; the functions take and return plain 0-255 values and work on the palette bank mapped at `$D100` (`$D070` bits 6-7). Entries 0-15 are the text colours (`PAL_BLACK` … `PAL_LIGHT_GRAY`).
+
+| Function | Description |
+|----------|-------------|
+| `void palette_set_color(int index, uint8_t r, uint8_t g, uint8_t b)` | Sets entry `index` (0-255); another index does nothing |
+| `void palette_set_color_rgb(int index, rgb_color_t color)` | The same from an `rgb_color_t` (`r`, `g`, `b`) |
+| `int palette_get_color(int index, rgb_color_t *out)` | Entry `index` into `*out`; 0, or -1 for an index outside 0-255 |
+| `void palette_set_range(int first, int count, const uint8_t *rgb)` | `count` entries from `first`: `rgb` holds r, g, b for each (3 × `count` bytes) |
+| `void palette_save(int first, int count, uint8_t *buf)` | `count` entries from `first` into `buf` (3 × `count` bytes, the registers as they are: all the reds, the greens, the blues) |
+| `void palette_restore(int first, int count, const uint8_t *buf)` | Puts back what `palette_save` stored |
+| `void palette_rotate(int start, int end, int direction)` | Entries `start`..`end` moved by one: `direction` > 0 each colour to the next entry (`end`'s to `start`), < 0 the other way; nothing for `start` >= `end` or an index outside 0-255 |
+
+```c
+#include <palette.h>
+
+static unsigned char saved[3 * 16];
+static const unsigned char greys[3 * 4] = { 0, 0, 0,  85, 85, 85,  170, 170, 170,  255, 255, 255 };
+
+int main(void) {
+    rgb_color_t c;
+    unsigned char i;
+
+    palette_save(0, 16, saved);              /* the text colours as they are */
+
+    palette_set_color(PAL_RED, 255, 0, 0);   /* entry 2: a brighter red */
+    palette_set_range(32, 4, greys);         /* entries 32-35: a grey ramp */
+
+    if (palette_get_color(PAL_RED, &c) == 0 && c.r == 255) {
+        c.g = 128;
+        palette_set_color_rgb(PAL_ORANGE, c);
+    }
+
+    for (i = 0; i < 4; i++)
+        palette_rotate(32, 35, 1);           /* colour cycling: 4 steps, back where it was */
+
+    palette_restore(0, 16, saved);
+    return 0;
+}
+```
+
+Of the design below only `palette_set_color`, `palette_set_color_rgb`, `palette_get_color` and `palette_rotate` kept their names (with an index of 0-255, not 0-15, and `palette_get_color` returning 0 / -1, not 1 / 0). Not implemented: `palette_select_bank`, `palette_get_bank`, `palette_load_standard`, `palette_load_grayscale`, `palette_load_custom`, `palette_load_by_name`, `palette_invert_color`, `palette_desaturate`, `palette_brighten`, `palette_darken`, `palette_fade_in`, `palette_fade_out`, `palette_interpolate`, `palette_print_current`, `palette_dump_bank`, the types `palette_t` and `palette_bank_t`; nor the functions of other headers its examples call (`mega65_has_feature`, `getch_with_timeout`, `wait_vsync`).
+
+# Original design (not implemented as written)
+
+**Status** (as written then): Complete and tested  
 **Priority**: HIGH (Essential color control feature)  
 **Effort**: ~8 hours  
 **Test Coverage**: 15 tests  

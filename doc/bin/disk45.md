@@ -17,7 +17,7 @@ The format is chosen from the file extension; an unrecognised extension is treat
 
 `disk45 sd` works on MEGA65 SD card images (FAT32 with the MEGA65 system partition, see [MEGA65 SD Card Images](#mega65-sd-card-images)).
 
-Running `disk45` with no arguments or an unknown command prints the usage summary (exit status 1). `disk45 --version` (or `-v` alone) prints the version; `-v` … `-vvvv` elsewhere turn on the log (see Options).
+Running `disk45` with no arguments or an unknown command prints the usage summary (exit status 1). `disk45 --version` (or `-v` as the first argument, whatever follows it) prints the version; `-v` … `-vvvv` elsewhere turn on the log (see the [Command Summary](#command-summary)).
 
 ## Commands
 
@@ -79,6 +79,8 @@ Unclosed (splat) files show `*` before the type (`*PRG`); locked files show `<` 
 12	"LEVEL1"	*PRG
 3109 blocks free.
 ```
+
+`--petscii` shows the listing as the C64 does: the disk name padded to 16 in quotes, `BLOCKS FREE.`, and each name's PETSCII bytes in the power-on upper case / graphics set as Unicode (letters, `£ ↑ ←`, the box and block graphics from the Symbols for Legacy Computing block of Unicode 13, `π`); control codes show as `·`. It needs a terminal font with those characters.
 
 **Examples:**
 ```bash
@@ -214,7 +216,7 @@ disk45 splat <image> <cbm_name>
 disk45 unsplat <image> <cbm_name>
 ```
 
-Clear or set the closed flag (bit 7 of the file type). Splat files show `*PRG` in listings. Sector-based images only.
+Clear or set the closed flag (bit 7 of the file type). Splat files show `*PRG` in listings. Sector-based images only, files in the root directory. An unclosed file is not read: `extract` reports it as not found and `extract-all` skips it with a warning (`unsplat` it first).
 
 #### label
 
@@ -258,8 +260,6 @@ Would mark used: 1 sector (17/0)
 Would free: 1 sector (1/0)
 ```
 
-`--petscii` shows the listing as the C64 does: the disk name padded to 16 in quotes, `BLOCKS FREE.`, and each name's PETSCII bytes in the power-on upper case / graphics set as Unicode (letters, `£ ↑ ←`, the box and block graphics from the Symbols for Legacy Computing block of Unicode 13, `π`); control codes show as `·`. It needs a terminal font with those characters.
-
 #### basic
 
 ```
@@ -267,7 +267,7 @@ disk45 basic <image> <name> [--v2|--v7|--65]
 disk45 basic <file.prg> [--v2|--v7|--65]
 ```
 
-List a tokenized BASIC program as LIST shows it (`10 PRINT "HELLO WORLD"`), from an image (`DIR/NAME` in a subdirectory) or a `.prg` on the host. The dialect comes from the load address — `$0801` BASIC V2 (C64), `$1C01` BASIC V7 (C128, with its `$CE xx` / `$FE xx` tokens), `$2001` BASIC 65 (the tokens basic45 writes) — or from `--v2`, `--v7`, `--65`. Keywords and letters are upper case, shifted letters lower case; in strings and REM text control codes are `{name}` escapes (`{clear}`, `{red}`, `{f1}` ...) and other bytes `{$xx}`. basic45 `--decompile` turns a BASIC 65 program into basic45 source instead.
+List a tokenized BASIC program as LIST shows it (`10 PRINT "HELLO WORLD"`), from an image (`DIR/NAME` in a subdirectory) or a `.prg` on the host. The dialect comes from the load address — `$0801` BASIC V2 (C64), `$1C01` BASIC V7 (C128, with its `$CE xx` / `$FE xx` tokens), `$2001` BASIC 65 (the tokens basic45 writes) — or from `--v2`, `--v7`, `--65` (short: `-2`, `-7`, `-6`). Keywords and letters are upper case, shifted letters lower case; in strings and REM text control codes are `{name}` escapes (`{clear}`, `{red}`, `{f1}` ...) and other bytes `{$xx}`. basic45 `--decompile` turns a BASIC 65 program into basic45 source instead.
 
 #### shell
 
@@ -275,7 +275,7 @@ List a tokenized BASIC program as LIST shows it (`10 PRINT "HELLO WORLD"`), from
 disk45 shell
 ```
 
-Run disk45 commands one per line without starting disk45 for each (the prompt shows the attached image; without a terminal, as in `... | disk45 shell`, there is no prompt). `attach <image>` makes an image the one of the following commands: `list`, `add file.prg NAME`, `extract NAME out.prg`, `mkdir`, `tree`, `basic NAME`, ... leave it out (naming another image still works); `detach` drops it. `!<command>` runs a host shell command, `history` lists the commands entered, `help` shows these, `quit` (or end of input) leaves. Words are split at spaces, `"..."` keeps them together. Line editing is the terminal's own (no external line-editing library, so no tab completion). The exit status is the last command's.
+Run disk45 commands one per line without starting disk45 for each (the prompt shows the attached image; without a terminal, as in `... | disk45 shell`, there is no prompt). `attach <image>` makes an image the one of the following commands: `list`, `add file.prg NAME`, `extract NAME out.prg`, `mkdir`, `tree`, `basic NAME`, ... leave it out (naming another image still works); `detach` drops it. `!<command>` runs a host shell command, `history` lists the commands entered, `help` (or `?`) shows these, `quit` (`exit`, `q`, or end of input) leaves; a line starting with `#` is a comment. Words are split at spaces, `"..."` keeps them together. Line editing is the terminal's own (no external line-editing library, so no tab completion). The exit status is the last command's.
 
 #### edit
 
@@ -472,7 +472,7 @@ Make sure a directory has at least N free entry slots, adding sectors (8 slots e
 disk45 mount <image> <mountpoint> [-ro|--readonly] [fuse options...]
 ```
 
-Mount an image as a Linux directory using FUSE3. Only available when disk45 was built with libfuse3 (the Makefile detects it with `pkg-config fuse3`, and says at the start of a build whether it is in; the command then appears in the usage text; a disk45 built without it says so when `mount` is used). Before mounting, disk45 asks for what the machine must have and names what is missing: `/dev/fuse` (the kernel's fuse module) and, for anyone but root, the `fusermount3` helper of the distribution's `fuse3` package. The prebuilt Linux archives' disk45 has libfuse 3 linked in, so those two are all it needs. disk45 stays in the foreground until unmounted; extra arguments are passed to FUSE.
+Mount an image as a Linux directory using FUSE3. Only available when disk45 was built with libfuse3 (the Makefile detects it with `pkg-config fuse3`, and says at the start of a build whether it is in; the command then appears in the usage text; a disk45 built without it lists `mount` there as not in the build, and `disk45 mount` prints `disk45 mount is not available: this disk45 was built without FUSE 3` and returns 1). Before mounting, disk45 asks for what the machine must have and names what is missing (`Error: disk45 mount cannot run here: …`, exit status 1): `/dev/fuse` (the kernel's fuse module; absent in most containers) and, for anyone but root, the `fusermount3` helper of the distribution's `fuse3` package on the `PATH`. The prebuilt Linux archives' disk45 has libfuse 3 linked in, so those two are all it needs. disk45 stays in the foreground until unmounted; extra arguments are passed to FUSE.
 
 - Files appear with type extensions (`GAME.prg`, `README.seq`). CBM subdirectories appear as directories at any depth (`SUB/INNER/NOTE.seq`): files in them are created, written, renamed and deleted as in the root, `mkdir`/`rmdir` create and remove (empty) subdirectories, and `mv` moves a file between directories (a directory is renamed but not moved: `EXDEV`).
 - Read/write: create, write, truncate, rename and delete files; the image is saved after every change. A new file's type comes from its extension (`.prg`, `.seq`, `.usr`, `.rel`; others become PRG); names are limited to 16 characters.
@@ -488,7 +488,7 @@ disk45 mount game.d81 /tmp/cbm &
 ls /tmp/cbm/                    # GAME.prg  README.seq
 cp newfile.prg /tmp/cbm/        # add file to image
 rm /tmp/cbm/OLD.prg             # remove file
-fusermount -u /tmp/cbm          # unmount
+fusermount3 -u /tmp/cbm         # unmount (disk45 then exits)
 ```
 
 ### MEGA65 SD Card Images
@@ -506,6 +506,8 @@ disk45 sd mv <card.img> <from> <to>
 disk45 sd check <card.img>
 disk45 sd config <card.img> [config options]
 ```
+
+`sd create` refuses to overwrite an existing file without `-f` (`--force`). `sd extract` without a host file name writes the card file's own name into the current directory. The subcommands have aliases: `ls`/`dir` (list), `put` (add), `get` (extract), `remove`/`delete` (rm), `rename` (mv), `validate` (check); `on`/`off` values may also be `1`/`0` or `yes`/`no`. Unlike the other disk45 commands, `sd` rejects an option it does not know (`Error: unknown option --x`). `disk45 sd --help` prints the list.
 
 An SD card image is what xemu uses (`~/.local/share/xemu-lgb/mega65/mega65.img`, or `-sdimg`) and what `dd` reads from or writes to a real MEGA65 card: an MBR partition table, a FAT32 data partition (type `$0B`/`$0C`) and the MEGA65 system partition (type `$41`). The image is read and written sector by sector, so multi-gigabyte cards are fine. `sd create` makes a sparse file.
 
@@ -533,7 +535,7 @@ Cards below 512 MB have fewer than 65525 clusters (FDISK formats them like that 
 |--------|------|---------|
 | `--pal` / `--ntsc` | `$02` bit 7 | video standard |
 | `--hdmi-audio on\|off` | `$0D` bit 1 | HDMI with digital audio, or pure DVI |
-| `--audio-amp on\|off`, `--swap-stereo`, `--mono`, `--dac pdm\|pwm` | `$03` bits 0, 5, 6, 7 | audio |
+| `--audio-amp on\|off`, `--swap-stereo on\|off`, `--mono on\|off`, `--dac pdm\|pwm` | `$03` bits 0, 5, 6, 7 | audio |
 | `--floppy sd\|drive` | `$04` bit 0 | F011 uses SD card disk images or the 3.5" drive |
 | `--amiga-mouse on\|off` | `$05` bit 0 | Amiga mice as 1351 |
 | `--mac XX:XX:XX:XX:XX:XX\|random` | `$06`-`$0B` | Ethernet MAC |
@@ -756,9 +758,10 @@ NIB, NBZ and Zipcode are read-only: `create` refuses them and changes are refuse
 
 **TAP decoding.** A tape holds each block twice: a pilot tone of short pulses, a countdown (`$89`…`$81`, then `$09`…`$01` for the second copy), the bytes (each a long+medium marker, 8 bits least significant first, each bit a short and a medium pulse, and an odd parity bit), and a checksum (the EOR of the bytes). disk45 reads it as the KERNAL does:
 
-- **Timing:** the pulses' boundaries (short, medium, long) are calibrated from each pilot tone, so NTSC machines and tapes running fast or slow read too. The ratios between the pulses come from the platform in the TAP header: 1 : 1.4 : 1.8 for the C64 and VIC-20, 1 : 2 : 4 for the C16 / Plus 4 (whose TAPs, version 2, store half-waves). `--tap-timing=c64|vic20|c16` (anywhere on the command line) uses another machine's ratios.
+- **Timing:** the pulses' boundaries (short, medium, long) are calibrated from each pilot tone, so NTSC machines and tapes running fast or slow read too. The ratios between the pulses come from the platform in the TAP header: 1 : 1.4 : 1.8 for the C64 and VIC-20, 1 : 2 : 4 for the C16 / Plus 4 (whose TAPs, version 2, store half-waves). `--tap-timing=c64|vic20|c16` (anywhere on the command line; `plus4` is `c16`) uses another machine's ratios.
 - **Checks:** each byte's parity, each block's checksum, the countdown. A block bad in its first copy is read from its second (the file is *repaired*); bad in both, the file is *damaged*: `list` shows it as not closed (`*PRG`), `info` says why, and `extract` refuses it rather than write wrong data.
 - **Files:** a program (header types 1 and 3) is its header and one data block, extracted as a PRG with its load address; a SEQ file (type 4) is its header and its type-2 blocks of 191 bytes, the last one's `$00` padding dropped. An end-of-tape block (type 5) is skipped.
+- **Names:** a tape file is found by its name exactly as `list` shows it (`extract x.tap hello h.prg`): unlike the disk formats, the lookup does not fold case.
 
 `src/test/make_tap.py` writes TAPs in this format (C64, VIC-20, C16; a speed factor, jitter, a damaged copy of a block) for `test_disk45.sh`.
 
@@ -869,7 +872,7 @@ auto prg = disk->readFile("GAME");
 | `bpeek` / `bpoke` | — | Read/write byte(s) in a sector |
 | `bfill` | — | Fill sector |
 | `chain` | — | Show file sector chain |
-| `rel-create` / `rel-read` / `rel-write` / `rel-list` | — | REL files (D64/D71) |
+| `rel-create` / `rel-read` / `rel-write` / `rel-list` | — | REL files (sector-based images) |
 | `mkdir` / `rmdir` | — | Create/remove subdirectory |
 | `repair` | — | Rebuild the BAM from the file chains (`--dry`) |
 | `diff` | `compare` | Compare two images' files or sectors |
@@ -880,11 +883,13 @@ auto prg = disk->readFile("GAME");
 | `dir-shrink` | — | Reclaim empty directory sectors |
 | `dir-ensure` | — | Ensure min free directory slots |
 | `mount` | — | FUSE mount (when built with libfuse3) |
-| `catalog` | — | Collection index: `build`/`update`, `search`, `list`, `duplicates`, `stats`, `prune` |
+| `sd` | — | MEGA65 SD card images: `create`, `info`, `list`, `add`, `extract`, `rm`, `mkdir`, `mv`, `check`, `config` |
+| `catalog` | — | Collection index (when built with SQLite): `build`/`update`, `search`, `list`, `duplicates`, `stats`, `prune` |
 | `batch` | `--batch` | Run commands from a file |
 | `-a2p` | `--ascii-to-petscii` | ASCII→PETSCII filter |
 | `-p2a` | `--petscii-to-ascii` | PETSCII→ASCII filter |
-| `--version` | `-v` | Print version (`-v` alone as the first argument) |
+| `--version` | `-v` | Print version (`-v` as the first argument: `disk45 -v list x.d81` prints the version too; put it after the command for the log) |
+| `--tap-timing=c64\|vic20\|c16` | | Anywhere among the arguments: the pulse ratios TAP images are decoded with (default: the TAP header's platform) |
 | `-v` … `-vvvv`, `-v0` | | Anywhere else among the arguments: log on stderr as `[disk45:LEVEL] …` (the toolchain's format, `include/Logger.hpp`); cumulative, at most `-vvvv`; `-v0` off: the images opened and written with their name and free sectors (`-v`), the partition, zip or SD card member opened (`-vv`) |
 
 ## See Also

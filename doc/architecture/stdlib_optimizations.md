@@ -6,7 +6,7 @@ No cycle counts are given: none have been measured on hardware or xemu for the c
 
 ## Assembly Routines (`lib/stdlib_asm/`, ZP convention)
 
-### malloc / free / calloc / realloc — `malloc.s45` (718 lines)
+### malloc / free / calloc / realloc — `malloc.s45`
 
 - Sorted singly-linked free list, first fit, block splitting, coalescing with both neighbours on `free`.
 - Header: 2-byte size with bit 0 = allocated; free blocks also hold a 2-byte next pointer.
@@ -16,11 +16,11 @@ No cycle counts are given: none have been measured on hardware or xemu for the c
 
 ### memcpy / memset / memmove / memcmp
 
-Byte loops over `(zp),y` with a 16-bit count; the pointer high bytes are incremented every 256 bytes. `memmove` copies backwards when `dest > src`. No unrolling and no DMA: for large blocks, `dma_copy`/`dma_fill` (`dma.h`, inline F018B jobs) are much faster.
+`memcpy`, `memmove` and `memset` are one DMA job each (#325): they set the command and jump to `__dma_mem` (`dma_mem.s45`), which runs an F018B copy or fill in bank 0 as the CPU sees it and returns the destination. `memmove` copies downwards, from the last byte, when the destination is above the source. A length of 0 returns at once (a DMA length of 0 would be 64 KB). `memcmp` is a byte loop over `(zp),y` with a 16-bit count.
 
 ### strlen, strcpy, strcmp, strcat, strchr, …
 
-Byte loops with an 8-bit `Y` index. `strlen` (and `puts`) stop when `Y` wraps, so they only handle strings shorter than 256 bytes — `strlen` of a 256-byte string returns 0.
+Byte loops over `(zp),y`; when `Y` wraps the pointer's high byte is incremented, so strings of any length up to 65535 bytes work (`strlen` counts the pages in X; `puts` / `putstr` and `strcpy` step to the next page the same way).
 
 ### rand / srand — `rand.s45`
 
@@ -61,6 +61,8 @@ The digits gathered as a whole number (up to 10 significant digits, the rest onl
 ### Float math — `float_rom_fns.c`, `floatmath.c`, `src/float_rom.s45`
 
 - `sinf`, `cosf`, `tanf`, `atanf`, `logf`, `expf`, `sqrtf`, `fabsf` copy the argument into `__float_a` and call the BASIC 65 ROM routine through `float_rom.s45` (which switches to base page 0 around the ROM call); there are no tables or series in the library.
+- Every ROM routine is entered through `__float_romcall` (`stdlib_asm/float_map.s45`, #614): the library's own map switch (`$4000-$7FFF` to the ROM, the map at `$011C` put back afterwards), about 110 cycles a call against 260 through the KERNAL's JSRFAR.
+- With `cc45 -ffast-float=1` (or `-Ospeed`) the compiler's `+ - * /` and comparisons call the RAM routines of `stdlib_asm/float_fast.s45` (`__ffast_add` …) instead of the ROM's; the math functions above still use the ROM.
 - `powf` = `expf(y * logf(|x|))`; `log10f`/`log2f` scale `logf`; `ldexpf` multiplies by 2 in a loop (|n| iterations); `frexpf` halves/doubles in a loop; `truncf` goes through `long` for |x| < 2^31.
 - Speed is bounded by the ROM routines.
 
@@ -73,7 +75,5 @@ One formatter for all `printf`/`sprintf`/`snprintf`/`fprintf` variants, writing 
 | Item | Notes |
 |------|-------|
 | Benchmarks | Fix `bench_stdlib_critical.c` timing and add a target that runs it on xemu |
-| `strlen`/`puts` length | Use a 16-bit index (current limit: < 256 bytes) |
-| `memcpy`/`memset` | Unroll, or use DMA above a size threshold |
 | `malloc` | Size-class free lists for small blocks; in-place `realloc` growth |
 | `qsort` | Word/long fast paths in `swap`; iterate on the larger partition |

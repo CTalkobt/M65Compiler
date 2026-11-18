@@ -91,8 +91,8 @@ option_data   (option_length - 2 bytes)   ; at most 253 bytes
 | `$14`  | `OPT_SECTIONS`     | with `.function_sections` / `-ffunction-sections` | ln45 (drops unreachable sections), nm45 `-S`, objdump45 `-h` | Section table for per-function linking (1.10) |
 | `$15`  | `OPT_SECTREF`      | with `.function_sections` (relocations; not exports yet) | reader (checked), nm45 `-S` | Section of a relocation target or an export (1.10) |
 | `$16`  | `OPT_WEAKUSE`      | when the code uses a weak absolute symbol it defines | ln45 | Weak absolute symbols used at their value (1.11) |
-| `$17`  | `OPT_DEBUG_TYPES`  | with `.dbg_type` (cc45: always) | objdump45 `-g` | Struct / union layouts (1.12) |
-| `$18`  | `OPT_DEBUG_VARS`   | with `.dbg_var` or line info (cc45: always) | objdump45 `-g` | Variables: kind, scope, C name, type, location (1.12) |
+| `$17`  | `OPT_DEBUG_TYPES`  | with `.dbg_type` (cc45: always) | ln45 `-g`, objdump45 `-g` | Struct / union layouts (1.12) |
+| `$18`  | `OPT_DEBUG_VARS`   | with `.dbg_var` or line info (cc45: always) | ln45 `-g`, objdump45 `-g` | Variables: kind, scope, C name, type, location (1.12) |
 | `$50`  | `OPT_IPO_HINTS`    | no | ln45 | Cross-module optimisation hints (1.9) |
 
 Unknown options are skipped. `OPT_IPO_HINTS`, when a writer has hints, is written before the other options.
@@ -424,7 +424,7 @@ The writer API can also put a content-flag record (`$FB`, flags byte; `O45_CONTE
 
 ## 6. C++ Constants
 
-`include/O45Types.hpp` defines the format: file markers (`O45_MARKER1/2`, `O45_MAGIC`, `O45_VERSION`, `O45_HEADER_SIZE` = 41), mode bits (`O45_MODE_*`, `O45_MODE_DEFAULT` = `SIZE32 | CPUEXT`), CPU IDs (`O45_CPU_*`), `O45Segment`, `O45_EXPORT_WEAK`, `O45RelocType` (including `R_IMM8`/`R_IMM16`), `O45_RTYPE_MASK`/`O45_RSEG_MASK`, `O45_RELOC_END`/`ESCAPE`/`SKIP`, option types (`OPT_*`, `OPT_OS_MEGA65`), `O45_FUNCATTR_MARKER`/`O45_FUNCATTR_SIZE` (19), `O45_CONTENTFLAG_MARKER`, `O45FuncAttr` with the `FUNC_FLAG_*` bits, `o45RelocPatchSize()`, and the IPO hint structures. `include/O45Writer.hpp` has `O45Writer`, `O45Reloc` and `O45RelocEncoder`; `include/O45Reader.hpp` has `O45File` and `O45Reader`; `include/O45Linker.hpp` has `O45RelocDecoder`.
+`include/O45Types.hpp` defines the format: file markers (`O45_MARKER1/2`, `O45_MAGIC`, `O45_VERSION`, `O45_HEADER_SIZE` = 41), mode bits (`O45_MODE_*`, `O45_MODE_DEFAULT` = `SIZE32 | CPUEXT`), CPU IDs (`O45_CPU_*`), `O45Segment`, `O45_EXPORT_WEAK`, `O45RelocType` (including `R_IMM8`/`R_IMM16`), `O45_RTYPE_MASK`/`O45_RSEG_MASK`, `O45_RELOC_END`/`ESCAPE`/`SKIP`, option types (`OPT_*`, `OPT_OS_MEGA65`), `O45_FUNCATTR2_MARKER` (`$F9`, the record written), `O45_FUNCATTR_MARKER`/`O45_FUNCATTR_SIZE` (`$FA`, 19: the older record), `O45_CONTENTFLAG_MARKER`, `ZpMask` (a set of base-page addresses), `O45FuncAttr` with the `FUNC_FLAG_*` bits, `O45Section`/`O45SectRef`, `o45RelocPatchSize()`, and the IPO hint structures. `include/O45Writer.hpp` has `O45Writer`, `O45Reloc` and `O45RelocEncoder`; `include/O45Reader.hpp` has `O45File` and `O45Reader`; `include/O45Linker.hpp` has `O45RelocDecoder`.
 
 ---
 
@@ -451,8 +451,16 @@ cc45 objects also contain:
 |--------|------|---------|
 | `_f__sac` | TEXT | Body of SAC function `f` after its parameter copy |
 | `_f__param_x` | BSS | Static parameter slot `x` of SAC function `f` |
+| `_f__ar`, `cc45.sacsize._f` | BSS, absolute | SAC function `f`'s static storage block and its size (ln45's [SAC overlay](../bin/ln45.md#sac-overlay)) |
+| `cc45.zarsize.<f>`, import `<f>__zar` | absolute | Size of `f`'s base-page block; its operands are relocated against `<f>__zar`, which ln45 defines ([base-page blocks](../bin/ln45.md#base-page-blocks)) |
+| `cc45.zc.<storage symbol>` | absolute | A candidate for the program-wide base-page plan (`ln45 --zp-plan-out`) |
+| `cc45.zpvar.<sym>`, `cc45.zpinit.<sym>` | absolute, DATA | A `__zp` variable's size (ln45 defines `<sym>`) and its initial value ([`__zp` variables](../bin/ln45.md#__zp-variables)) |
+| `cc45.sectsize.NAME`, `cc45.section.NAME`, `cc45.sectvar.NAME.<sym>`, `cc45.sectinit.<sym>` | weak absolute, weak absolute, absolute, DATA | A `__section`: this object's bytes of it, its address when declared, a variable's offset in the object's part, a variable's initial value ([`__section` variables](../bin/ln45.md#__section-variables)) |
+| `cc45.overlay.<name>` | absolute | The object's code is in code overlay `<name>` ([Code Overlays](../bin/ln45.md#code-overlays)) |
+| `cc45.zpcall.<callee>` | weak absolute | A stack-mode object calls `<callee>` with the ZP convention (`__fastcall__`) |
+| `cc45.noescape.<sym>`, `cc45.nesc.<caller>.<callee>` | — | `__noescape` data kept with an overlay's code, and where its address is passed to a function (ln45's checks) |
 | `cc45.mode_zp` / `cc45.mode_stack` | weak absolute (1) | Calling convention of the object (used by ln45) |
-| `cc45.zeroPageStart` | weak absolute | First ZP address of the code generator (`$08`); base of the ZP masks |
+| `cc45.zeroPageStart` | weak absolute | First ZP address of the code generator (`$08`). It was the base of the older `$FA` record's masks; the `$F9` record holds addresses (4.3) |
 | `cc45.align.text` / `.data` / `.bss` | weak absolute | Largest alignment in that segment (only when > 1): cc45's `_Alignas` / `aligned(N)`, ca45's `.align` |
 | `cc45.icallinfo` | weak absolute | The object marks its functions' calls through pointers (below); an object without it: each label calls through any pointer |
 | `cc45.icall.<f>` | absolute | `f` calls through a pointer of unknown type, or has inline asm |
@@ -476,5 +484,5 @@ cc45 objects also contain:
 | Symbol index / counts | 2 bytes | 4 bytes |
 | Weak exports | — | bit 7 of the export segment byte |
 | Function attributes | — | `$F9` record after an export (`$FA`: the older one, still read) |
-| Extra options | — | `$10`, `$11`, `$12`, `$50` |
+| Extra options | — | `$10`–`$18`, `$50` (1.5) |
 | Fixed header size | 26 bytes (16-bit mode) | 41 bytes |

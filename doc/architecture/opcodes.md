@@ -28,7 +28,8 @@ The instructions `ca45` assembles for the 45GS02, with the encodings from its op
 - **Base page.** `bp` modes address the 256-byte page selected by the B register (`TAB`), not necessarily page 0.
 - **Size selection.** For `addr`, `addr,X` and `addr,Y`, ca45 uses the base-page form when the operand value is below `$100`, the instruction has that form, and the operand is not a relocatable (`.bss`, `.extern`) symbol; otherwise it uses the absolute form. `jmp`/`jsr` are always absolute, and their parenthesised operands are always `(abs)`/`(abs,X)`.
 - **No base-page form.** When a value below `$100` has to be assembled absolute (`ldz $12`, `ldz $12,x`, `lda $12,y`, `sta $12,y`, `phw $12`, …) ca45 warns `'ldz $12' has no base-page mode: assembled as absolute $0012, which ignores the base page register`.
-- **No plain `(bp)`.** The 45GS02 has no unindexed `(bp)` mode; `lda ($12)` is rejected — write `lda ($12),z` with Z = 0.
+- **No plain `(bp)`.** The 45GS02 has no unindexed `(bp)` mode; `lda ($12)` is rejected — write `lda ($12),z` with Z = 0. (On a Quad instruction `(bp)` and `[bp]` are taken as `(bp),z` and `[bp],z`.)
+- **Forcing a mode.** A suffix on the mnemonic chooses the mode whatever the operand's value: `lda.abs $12` → `AD 12 00`, `lda.zp label`; also `.imm .ind .xind .indy .indz .accum`/`.a`. An address written with leading zeros (`$0012`, 3 or more hex digits) is absolute too.
 - **Branches.** `BCC BCS BEQ BNE BMI BPL BVC BVS BRA` are assembled in the 8-bit form when the target is within −128…127 of the next instruction and in the 16-bit form otherwise (re-evaluated until addresses settle). `BSR` only has the 16-bit form. The offset of a 16-bit branch is relative to the instruction address + 2.
 - **Instruction size** = 1 opcode byte + operand bytes, + 1 for `[bp],Z` (`EOM`), + 2 for Quad instructions (`$42 $42`).
 - **Mode errors.** An unsupported mode is reported with the list of valid ones, e.g. `'asl' does not support addressing mode '#imm'; supported modes: A, zp, zp,X, abs, abs,X`.
@@ -102,7 +103,7 @@ The instructions `ca45` assembles for the 45GS02, with the encodings from its op
 | `TSB` | bp `$04`, abs `$0C` |
 | `TSX` `TSY` `TXA` `TXS` `TYA` `TYS` `TZA` | imp `$BA` `$0B` `$8A` `$9A` `$98` `$2B` `$6B` |
 
-`NOP` is rejected by ca45 (`nop disallowed`) because `$EA` is the `EOM` prefix; write `eom` for that byte, or `clv` (`$B8`) as a one-byte no-op.
+`NOP` is rejected by ca45 (`nop disallowed`) because `$EA` is the `EOM` prefix; write `eom` for that byte, or `clv` (`$B8`) as a one-byte no-op. With `--cpu 6502` (or `.cpu 6502`) `nop` is `$EA`, and only the 6502's instructions and modes of this table are accepted ([ca45.md](../bin/ca45.md#assembling-for-the-6502)).
 
 ### Quad (32-bit Q) instructions
 
@@ -110,13 +111,24 @@ The Q register is A (bits 0–7), X, Y, Z (bits 24–31). ca45 assembles a Quad 
 
 | Mnemonic | Base | Example |
 |----------|------|---------|
-| `LDQ`, `STQ` | `LDA`, `STA` (modes bp, abs, (bp),Z, [bp],Z) | `ldq $20` → `42 42 A5 20`; `ldq [$20],z` → `42 42 EA B2 20` |
-| `ADCQ` `SBCQ` `ANDQ` `ORAQ` `EORQ` `CMPQ` | `ADC` … `CMP` | `adcq $1234` → `42 42 6D 34 12` |
-| `ASLQ` `LSRQ` `ROLQ` `RORQ` | `ASL` … `ROR` | `aslq` → `42 42 0A` |
-| `INCQ`, `DECQ` | `INC A`, `DEC A` | `incq` → `42 42 1A` |
+| `LDQ`, `STQ` | `LDA`, `STA` | `ldq $20` → `42 42 A5 20`; `ldq [$20],z` → `42 42 EA B2 20` |
+| `ADCQ` `SBCQ` `ANDQ` `ORAQ` (also `ORQ`) `EORQ` `CMPQ` | `ADC` … `CMP` | `adcq $1234` → `42 42 6D 34 12` |
+| `ASLQ` `LSRQ` `ROLQ` `RORQ` | `ASL` … `ROR` | `aslq` → `42 42 0A`; `aslq $20,x` → `42 42 16 20` |
+| `ASRQ` | `ASR` | `asrq` → `42 42 43`; `asrq $20` → `42 42 44 20` |
+| `INCQ` (also `INQ`), `DECQ` (also `DEQ`) | `INC`, `DEC` | `inq` → `42 42 1A`; `inq $30` → `42 42 E6 30` |
+| `BITQ` | `BIT` | `bitq $20` → `42 42 24 20` |
 | `NEGQ` | `NEG` | `42 42 42` |
 
-ca45 accepts every mode of the base instruction after the prefix; use the forms the 45GS02 defines for Q (base page, absolute, `(bp),Z`/`[bp],Z` indirect, and the accumulator form of the shifts). `INQ`, `DEQ`, `ASRQ`, `BITQ` and `CPQ` are not recognised.
+Only the modes the 45GS02 defines for Q are accepted; any other is an error with the list of valid ones (`adcq #5`, `ldq $36,x`, `cmpq ($10),y`):
+
+| Instructions | Modes |
+|---|---|
+| `LDQ` `STQ` `ADCQ` `SBCQ` `ANDQ` `ORAQ` `EORQ` `CMPQ` | bp, abs, `(bp)` = `(bp),z`, `[bp]` = `[bp],z` |
+| `ASLQ` `LSRQ` `ROLQ` `RORQ` `INQ` `DEQ` | nothing or `A` (Q itself), bp, abs, bp,X, abs,X |
+| `ASRQ` | nothing or `A`, bp, bp,X |
+| `BITQ` | bp, abs |
+
+`CPQ` is not recognised (write `cmpq`).
 
 ---
 
@@ -157,4 +169,4 @@ Expanded by ca45 into native code; operand forms, register usage and current lim
 | Registers | `swap`, `push`, `pop`, `zero`, `sxt.8`, `chkzero.8/16`, `chknonzero.8/16`, `select`, `ptrderef` |
 | Expressions | `expr target, expression` |
 | Procedures | `proc`, `endproc`, `call` |
-| Not functional at present | `fill`/`fill.sp`, `move`/`move.sp` (DMA), `ldw.f stw.f inc.f dec.f`, `branch.16` |
+| DMA and far memory | `fill`/`fill.sp`, `move`/`move.sp` (one F018B DMA job each), `ldw.f stw.f inc.f dec.f` (28-bit addresses through `[bp],z`), `branch.16` (always the 16-bit branch) |

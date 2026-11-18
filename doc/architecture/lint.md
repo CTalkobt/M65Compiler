@@ -47,7 +47,8 @@ cc45):
   optional message); a `pattern:` key for user-written rules is a later
   extension and is rejected with a message for now.
 - **Precedence**: inline suppression > command line (`--checks=LIST`,
-  `--disable=ID[,ID]`, `--profile=`) > `./.cc45-lint.yml` (searched upward
+  `--disable=ID[,ID]`, `--severity=ID=LEVEL`, `--profile=`; `--config=FILE`
+  reads that file instead of the two below) > `./.cc45-lint.yml` (searched upward
   from the source file) > `~/.config/m65/cc45-lint.yml` > built-in defaults.
 - **Suppression**: `; NOLINT`, `; NOLINT(id[,id])`, `; NOLINTNEXTLINE(id)` in
   assembly; `// NOLINT(...)`, `/* NOLINT(...) */` and
@@ -102,12 +103,12 @@ ca45's parsing options accepted (`-D`, `-I`, `.cpu`); the Makefile's
 | `mega65-unreachable` | all | warning | code after `jmp`/`bra`/`rts`/`rti`/`rtn` with no label |
 | `mega65-unused-label` | all | info | a local label never referenced |
 | `mega65-no-bp-mode` | all | warning | `ldz $xx`, `lda/sta $xx,y`, `jmp ($xx)`, `phw $00xx` (no base-page form: ca45's warning as a rule) |
-| `mega65-page1-stack` | cc45 | warning | `$0100,x` stack reads under the 16-bit stack |
+| `mega65-page1-stack` | all | warning | `$0100,x` stack reads under the 16-bit stack (reported in the cc45 profile, or in a file that does `cle`) |
 | `mega65-dma-trigger-order` | all | warning | `$D700`/`$D705` written before the list address bytes in the same straight-line code |
 | `mega65-io-personality` | standalone | info | VIC-III/IV registers written with no `$47 $53 → $D02F` knock in the file |
 | `mega65-rom-call-bp` | cc45 | warning | `jsr` to `$E000`+ / KERNAL vectors not bracketed by `__bp_rom`/`__bp_prog` or `__rom_call` |
 | `mega65-unnamed-proc-attrs` | all | warning | function attributes in an unnamed `proc` |
-| `mega65-style-*` | all | off | columns, comment spacing, naming (regexes in the config): later |
+| `mega65-style-*` | all | off | columns, comment spacing, naming (regexes in the config): later (#611; not registered: `--list-rules` does not show them) |
 
 ### Phase 3: flow analysis: done
 `src/main/AsmLintFlow.cpp`. As built: one control-flow graph over the file
@@ -174,19 +175,21 @@ keeps one of a finding reported twice (a function can be lowered twice).
 
 ### Rules
 
+The "Needs" column is where the rule is checked, as built (above).
+
 | Rule | Default | Needs | What |
 |---|---|---|---|
-| `mega65-dma-trigger-order` | warning | AST | a store to `$D700`/`$D705` before the list address bytes (`$D701`/`$D702`/`$D704`) in the same block |
+| `mega65-dma-trigger-order` | warning | IR | a store to `$D700`/`$D705` before the list address bytes (`$D701`/`$D702`/`$D704`) in the same block |
 | `mega65-io-not-volatile` | warning | AST | an access to `$D000`-`$DFFF` (a constant address cast to a pointer, or a `mega65.h` register) through a non-`volatile` pointer |
-| `mega65-io-personality` | info (standalone) | AST | VIC-III/IV registers written with no knock (crt0 does it for linked programs) |
+| `mega65-io-personality` | info (standalone) | IR | VIC-III/IV registers written with no knock (crt0 does it for linked programs) |
 | `mega65-isr-rom-call` | warning | IR call graph | an `__interrupt` handler, or a function only it reaches, calling the ROM / KERNAL (`<cbm.h>` wrappers, `__jsr` to `$E000`+) |
-| `mega65-stack-frame-limit` | warning | IR | a stack frame larger than `mega65-stack-frame-limit` (default 256) |
-| `mega65-recursion-frame` | info | IR | a function on a call cycle (it gets a stack frame instead of static allocation) |
+| `mega65-stack-frame-limit` | warning | frames | a stack frame larger than `mega65-stack-frame-limit` (default 256) |
+| `mega65-recursion-frame` | info | IR call graph | a function on a call cycle (it gets a stack frame instead of static allocation) |
 | `mega65-sac-interrupt` | warning | IR call graph | a static-allocation function reachable from an `__interrupt` handler in the same file (ln45 rejects it at link time) |
-| `mega65-narrow-param` | info | IR | an `int` parameter that every call passes 0-255 (cc45's note today) |
-| `mega65-wide-arith` | info | IR known bits | `long` arithmetic whose operands and result fit 16 bits |
-| `mega65-signedness` | warning | AST types | a plain (unsigned) `int`/`char` compared with a negative constant or assigned one (`char c = -1` is 255), a division or `>>` whose result differs from standard C's |
-| `mega65-implicit-narrowing` | info | AST types | a wider value assigned to a narrower integer without a cast |
+| `mega65-narrow-param` | info | IRBuilder | an `int` parameter that every call passes 0-255 (cc45's note, through `lintOr`) |
+| `mega65-wide-arith` | info | IR pattern | `long` arithmetic whose operands and result fit 16 bits |
+| `mega65-signedness` | warning | IRBuilder, constant folder | a plain (unsigned) `int`/`char` compared with a negative constant or assigned one (`char c = -1` is 255), a division or `>>` whose result differs from standard C's |
+| `mega65-implicit-narrowing` | info | IRBuilder | a wider value assigned to a narrower integer without a cast |
 
 ### Not planned
 - Calling-convention mismatches: ln45 checks every cross-object `JSR` and
@@ -197,16 +200,18 @@ keeps one of a finding reported twice (a function can be lowered twice).
 - C-to-assembly mapping: `objdump45 --source` / `--html`, `-S` with `.loc`.
 
 ### Phases
-1. Done: the `cl45` symlink and lint mode on the shared core; the AST rules
-   (`dma-trigger-order`, `io-not-volatile`, `signedness`,
-   `implicit-narrowing`); `doc/bin/cl45.md`; `src/test/test_cl45.sh` with
+1. Done: the `cl45` symlink and lint mode on the shared core; the rules
+   `dma-trigger-order`, `io-not-volatile`, `signedness` and
+   `implicit-narrowing`; `doc/bin/cl45.md`; `src/test/test_cl45.sh` with
    fixtures in `src/test-resources/cl45/`.
 2. Done: the IR rules (`stack-frame-limit`, `recursion-frame`, `sac-interrupt`,
    `isr-rom-call`, `narrow-param`, `wide-arith`).
 3. Done: `make lint-lib` over the library's C and assembly; the LSP server
    (`tools/ide/lsp-server`) runs both linters on the text being edited
-   (`--format=json`; `src/diagnostics/runTool.ts`, `runLint`): the rule is
-   the diagnostic's code, the source `cl45` / `al45`.
+   (`<tool> --format=json <file>`, no other option; `src/diagnostics/runTool.ts`,
+   `runLint`): the rule is the diagnostic's code, the source `cl45` / `al45`.
+   Settings `m65.lint.enabled` (on by default), `m65.cl45Path`, `m65.al45Path`
+   (else the linters beside cc45 and ca45).
 
 ## Acceptance
 - The library lints clean at default severities; each suppression in it

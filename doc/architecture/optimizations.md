@@ -13,10 +13,12 @@ with `./bin/cc45` (see [Checking it yourself](#checking-it-yourself)).
   1. **cc45 front end / IR builder**: AST constant folding, function inlining,
      removal of unused `static` functions, devirtualization, SAC.
   2. **cc45 IR passes** (`src/main/IROptimizer.cpp`, run by `CodegenStage::optimizeIR`):
-     parameter narrowing, strength reduction, algebraic simplification, type
-     narrowing, branch folding, CSE, loop-invariant code motion, copy
-     propagation, address fusion, post-increment sinking.
-     All on from `-O1`.
+     purity inference, parameter narrowing, strength reduction, algebraic
+     simplification, type narrowing, branch folding, CSE, loop-invariant code
+     motion, loop strength reduction, copy propagation, address fusion,
+     post-increment sinking, block reordering, then loop rotation in code
+     generation. All on from `-O1`; loop unrolling (and the AST's loop
+     interchange) from `-O4`.
   3. **cc45 code generator** (`IRCodeGen`): instruction selection with built-in
      fusions/suppressions. Always on.
   4. **ca45 peephole optimizer** (`AssemblerOptimizer`): runs on the generated
@@ -46,14 +48,16 @@ with `./bin/cc45` (see [Checking it yourself](#checking-it-yourself)).
 | Static Allocation Convention (SAC) | Locals/params of non-recursive functions in static BSS records instead of a stack frame | `-fstaticalloc` (default) / `-fno-staticalloc`; see `calling-conventions.md` |
 | ZP calling convention | Parameters in ZP `$10-$2F` | `-fzpcall` (default) / `-fno-zpcall` |
 | Code generation (`IRCodeGen`) | Add/sub straight into the destination when the operands and the result are in memory (ZP, static-allocation storage) or constants (`lda a; clc; adc b; sta d; …`, or `clc; ldq a; adcq b; stq d` for 32 bits), static-allocation variables used directly as operands (not copied to scratch first), loads through a pointer without stack shuffling (high byte first; `ldz #0; ldq (p),z` for a 32-bit load at offset 0), 32-bit stores of a value in memory through a pointer byte by byte, `p->f += v` / `p->f++` / `*p -= v` (a load, an add/sub of a constant or a variable in memory, and a store to the same address) done in place (`ldy #o; clc; lda (p),y; adc #c; sta (p),y; iny; …`, `inc a` for a byte), a load of a value right after it was stored is dropped (the registers still hold it; `ora #0`/`inx`+`dex` restores the flags before a branch that needs them; `CC45_NO_STORECACHE=1` turns it off), single-bit `AND` + branch → `BBS`/`BBR`, fused compare-and-branch, CONST suppression (also a constant used only as values stored through pointers or to globals: loaded as an immediate by the store), constant-address direct stores and loads (`*(volatile char *)0xD012` is `lda $D012`; four hex digits keep an address below `$100` absolute, not the program's base page), a value put together from bytes of others (`a | b << 8 | (long)c << 16`, with `ZEXT`/`SHL`/`SHR` by multiples of 8, byte masks and truncations in between) built byte by byte from where each byte lives (`ldx b; lda a`; the sources are kept live up to the `OR`; not when two sources' bytes overlap), a pointer `+ c` or copy used only as load/store addresses folded into them (`ldy #c; lda (p),y`), a byte cut from a variable (`*p = c` with `int c`, `g = (char)l`) stored from the variable's low byte, a byte variable or parameter (or a temporary in ZP with only `NOP`s up to the use) zero-extended for one 16-bit `ADD`/`SUB`/`AND`/`XOR` or comparison read where it lives, with 0 for its high byte (`lda x; clc; adc c; bcc *+3; inx`, `cpx #0; bne +; cmp c`, no 16-bit temporary), a value loaded from a global of the program (a byte, 16 or 32 bits; not on the base page, not a parameter's storage) whose one use follows with only register code between (an add/sub, a compare, a store of it, or for a byte a widening) read by that use where it is (`lda g` there, no temporary), `x = x ± 1` on a 16-bit or pointer variable in ZP as `inw`/`dew`, a 16-bit add/sub whose result goes to ZP or static storage computed into it (`clc; adc m; sta d; txa; adc m+1; sta d+1`, not ca45's `add.16` with `pha`/`pla`), an element of a global array read or written as `name+off,y` with no address built (`ldy i; lda name,y`; also `x[i]--`, `x[i] += c` and several accesses at one address): a byte element at a byte index of any array (the index in the base page; a byte widened only for the index is read as the byte), or elements of 1, 2 or 4 bytes of an array of at most 256 bytes (Y = index * size), a 16-bit element or pointer written from a constant or a value in the base page too (`lda v; sta name,y; lda v+1; sta name+1,y`), in the block of the element's address and in others when no write of the index reaches a use without computing the address again (`if (++pos[i] >= 80) pos[i] = -3; sum += pos[i];` has no pointer; #568), a byte through a pointer in the base page at a byte index likewise as `(p),y` (`ldy i; lda (p),y`: the pointer and the index unchanged up to the access; fused into the load or store, or not), an element address with a runtime index otherwise built straight into its destination (`clc; adc #<base; sta d; txa; adc #>base; sta d+1`), large stack frames pushed in a loop and dropped by setting SP, division and remainder as calls of the library's `__divs16` … `__modu32` (`lib/stdlib_asm/divmod.s45`: divisor in `__zp_scratch2`, dividend in A/X(/Y/Z); inline only without a library, `-S`), a signed multiply as the unsigned one (the low bits of a product do not depend on the signs), a signed `x < 0` / `x >= 0` as a test of the sign bit (`lda hi; eor #$80; asl a`, not `cmp.s16`), other signed 16-bit `<` / `>=` by subtraction (`cmp lo; txa; sbc hi; bvs *+4; eor #$80; asl a`: C = not less, 10 bytes instead of 13–19; `<=` / `>` against a constant as `<` / `>=` with the next one), multiplications outside loops as calls of `__mul16` / `__mul32` (an element address's index times its size too; inside loops inline; `-fmul-call` / `-Os` every one, `-fno-mul-call` none; a constant factor an immediate, not a register; a byte constant factor `ldy #c; jsr __mul16y`, 5 bytes), 5-byte floats read and written in place (a float constant's only definition as 5 bytes of data its uses read; a load of a global used once by the next float operation or store read there; a float result stored once right after it written there (also when used again further on in the block with no store or call between: read from there, a FOR's `NEXT`); a float result (also an int converted, `ITOF`) used once by the next float operation left in `__float_a` (its first operand, `FNEG`'s, or the value of a store through a pointer: stored from there) or copied straight into `__float_b` (its second), a runtime routine's result in `__float_a` stored or used as a first operand from there, a float read through a pointer and used once by the next float operation or store read straight into `__float_a` / `__float_b` / the variable, a float read or written through a pointer as one loop (`ldy #4; lda (p),y; sta d,y; dey; bpl`, 10 bytes; not five `ldy`/`lda`/`sta`, 25), and a 5-byte copy into a place that holds the value already left out, also into a block only the one before reaches, #485 (`CC45_NO_F32EQ=1` keeps them): `planF32Aliases`, `emitF32CopyAbs`; a float comparison whose value (not a branch) is the next comparison with a constant, A = 0/1 from one call, `jsr __float_eq` … `__float_ge` (`__ffast_*`), when the file has two or more of that kind: `findFcmpBools`), per-function `.reg_clobbers`/`.flag_clobbers`/`leaf` metadata, and stores to vreg pool registers (`$30`–`$7F`) that nothing in the function reads are left out (a temporary stored although every use took it from A/X, or stored again further on before a read, a call between; a copy loop's `$30,x` reaches the bytes its `.bpindex` names; not in functions with inline asm, that index a pool register otherwise or take its address (`lda $30,x`, `#$30`: a float copied byte by byte), or in files with nested functions; `CC45_NO_POOL_PRUNE=1` keeps them) | Always on, not tied to `-O` |
-| Assembler peephole (`ca45`) | Branch inversion, JMP→BRA, redundant loads, tail calls, … (table below) | ca45 `-O`/`-P` options; from cc45, five of them through `-f[no-]<name>` |
+| Assembler peephole (`ca45`) | Branch inversion, JMP→BRA, redundant loads, tail calls, … (table below) | ca45 `-O`/`-P` options; from cc45, six of them through `-f[no-]<name>` |
 
 From `-O4`, counted `for` loops are unrolled and suitable nests interchanged;
-LICM hoists invariant computations out of loops from `-O1`. The "loop optimization" and
-"cross-module optimization" steps in `OptimizeStage` and `CodegenStage`
-(`performLoopOptimizations`, `performCrossModuleOptimization`,
-`applyIPOSpecialization`, `applyInlining`, `eliminateDeadCode`) only count
-functions and print messages with `-vv`; they change nothing.
+LICM hoists invariant computations out of loops from `-O1`. The "loop optimization",
+"inlining" and "dead code" steps in `OptimizeStage` and `CodegenStage`
+(`performLoopOptimizations`, `applyInlining`, `eliminateDeadCode`) only count
+functions and print messages with `-vv`; they change nothing. The
+"cross-module optimization" steps (`performCrossModuleOptimization`,
+`applyIPOSpecialization`) are no longer called: their code is in
+`lib45-phases.a` ([cross-module-optimization.md](cross-module-optimization.md)).
 
 ## IR passes
 
@@ -398,7 +402,8 @@ times, up to 16 bytes (`-fzp-locals-max=N`; `c45.lib` is built with 8: there
 but 16 makes deep stdio chains overflow the area; in programs 16 is 537 bytes
 smaller over the examples than 8 without overflowing). ca45
 relocates those operands against `<f>__zar` and ln45 places the blocks in
-`$80`–`$E9` so that functions active together never share bytes
+`$80`–`$F1` (from the end of the register pool the program uses, below the
+`__zp` variables) so that functions active together never share bytes
 (`computeZarOverlay`, the SAC overlay's call graph plus edges from functions
 that call through pointers to address-taken functions; callers placed before
 callees). The register pool ends at
@@ -531,7 +536,7 @@ Each catalog optimization has a level from which it is on
 | `-O2`, `-O3` (default `-O2`) | 2, 3 | IR passes and automatic inlining of small functions. Identical output |
 | `-O4` … `-O9` | 4–9 | Adds loop interchange and loop unrolling. Identical output for all of them (the catalog entries for higher levels are not implemented) |
 | `-Os`, `-Osize` | 2 | `-O2` with `-fmul-call` (multiplications as library calls) and `-fno-rotate-loops` (unless `-frotate-loops`) |
-| `-Ospeed` | 3 | `-O3` and `-ffast-float=1` (float `+ - * /` and comparisons by the RAM routines of `float_fast.s45`, about twice as fast as the ROM's; `-fno-fast-float` keeps the ROM's) |
+| `-Ospeed` | 3 | `-O3` and `-ffast-float=1` (float `+ - * /` and comparisons by the RAM routines of `float_fast.s45`, `__ffast_add` …, about twice as fast as the ROM's and about 1 KB; `-ffast-float=0` / `-fno-fast-float` keeps the ROM's, `__float_add` …, which the library calls through its own map switch `__float_romcall`, #614) |
 | `-O` (no digit), any other `-O<text>` | 0 | **Same as `-O0`** (not `-O2`) |
 
 Only the first digit counts (`-O10` is `-O1`). The level is **not** passed on to
@@ -567,12 +572,12 @@ wins (and with both, cc45 warns and ignores `always_inline`). A recursive
 `static` function are inlined, the function body is removed.
 
 Inlining can make the program larger or smaller. One-step PRG sizes (bytes;
-toolchain of 2026-10-11, `HOME` without a cc45.conf):
+toolchain of 2026-11-18, `HOME` without a cc45.conf):
 
 | File | `-O0` | `-O1` (IR passes) | `-O2` (IR passes + inlining) |
 |---|---|---|---|
-| `src/test-resources/test_phase91_validation.c` | 526 | 508 | 448 |
-| `src/test-resources/test_phase91_tuning.c` | 1249 | 1231 | 1464 |
+| `src/test-resources/test_phase91_validation.c` | 488 | 454 | 453 |
+| `src/test-resources/test_phase91_tuning.c` | 760 | 753 | 687 |
 
 Use `-O1`, `-fno-inline-small-functions` or `-fmax-inline-ir-size=0` when
 inlining costs space (`-O2 -fmax-inline-ir-size=0` produced output identical
@@ -591,7 +596,11 @@ functions; only `always_inline` bypasses it.
 | `-Roptir` | off | Report the IR passes' changes on stderr |
 | `-finline-functions` | off | Automatic inlining even at `-O0`/`-O1` (same as `-finline-small-functions`) |
 | `-fmax-inline-ir-size=N`, `#pragma cc45 max_inline_ir_size(N)` | 11 | Largest inline candidate in IR instructions |
-| `-fmax-unroll-bytes=N`, `#pragma cc45 max_unroll_bytes(N)` | 128 | Largest estimated unrolled code for vector-extension operations |
+| `-fmax-unroll-bytes=N`, `#pragma cc45 max_unroll_bytes(N)` | 128 | Largest estimated unrolled code for vector-extension operations and for loop unrolling |
+| `-ffast-float=0\|1` (`-ffast-float` alone is `=1`; `-fno-fast-float` is `=0`) | 0 (`-Ospeed`: 1) | 1: float `+ - * /` and comparisons by RAM routines (`__ffast_*`), not the ROM's (`__float_*`); any other level is an error |
+| `-fmul-call` / `-fno-mul-call` | outside loops | Multiplications as calls of `__mul16` / `__mul32`: every one (`-fmul-call`, `-Os`) or none |
+| `-fno-zp-locals`, `-fzp-locals-max=N` | on, 16 | The functions' base-page blocks (`$80`–`$F1`) off, or their size in bytes (0 = none) |
+| `-fzp-plan=FILE` | — | The blocks' variables as `ln45 --zp-plan-out=FILE` chose them program-wide (#304) |
 | `__attribute__((always_inline))`, `__forceinline` | — | Inline regardless of size limits |
 | `__attribute__((noinline))` | — | Never inline |
 | `-fstaticalloc` / `-fno-staticalloc` | on | SAC on/off |
@@ -637,11 +646,12 @@ order after `-O`). `-Roptimizer` prints every change
 At `-O2` and above ca45 also runs the field-striped array passes
 (`fieldStripedOpt`, `fieldDeadCode`, `variableSizeOpt`); they have no `-P` names.
 
-There is no working way to change the ca45 level from cc45: `CA45_OPTIMIZE`
-(and any option in `~/.config/m65/ca45.conf` or `.ca45rc`) breaks ca45's `-o`
-handling, so `CA45_OPTIMIZE=0 cc45 -c x.c -o x.o45` fails with
-`Failed to open input file: x.o45`. To assemble with other ca45 options, run
-the steps yourself:
+cc45 has no option for the ca45 level, but the ca45 it runs reads ca45's own
+configuration: `CA45_OPTIMIZE=0 cc45 -c x.c -o x.o45` assembles without the
+peephole passes, and so does `-O0` in `.ca45rc` (or
+`~/.config/m65/ca45.conf`). (This used to fail with `Failed to open input
+file: x.o45`; it works with the toolchain of 2026-11-18.) To assemble with
+other ca45 options, or to see both forms, run the steps yourself:
 
 ```bash
 cc45 -S -O2 prog.c -o prog.s
@@ -658,11 +668,13 @@ implemented:
 
 | Name | Implemented as | On from |
 |---|---|---|
-| `param-narrowing`, `strength-reduction`, `algebraic-simplify`, `type-narrowing`, `branch-folding`, `cse`, `loop-invariant-code-motion`, `loop-strength-reduction`, `copy-propagation`, `addr-elem-fusion`, `post-increment-sink`, `rotate-loops`, `reorder-blocks` | IR pass ([IR passes](#ir-passes)); also per function by pragma | `-O1` |
+| `ipa-pure-const`, `param-narrowing`, `strength-reduction`, `algebraic-simplify`, `type-narrowing`, `branch-folding`, `cse`, `loop-invariant-code-motion`, `loop-strength-reduction`, `copy-propagation`, `addr-elem-fusion`, `post-increment-sink`, `rotate-loops`, `reorder-blocks` | IR pass ([IR passes](#ir-passes)); also per function by pragma | `-O1` |
 | `inline-small-functions` | IRBuilder inlining (`-fno-` also overrides `-finline-functions`) | `-O2` |
 | `devirtualization` | IRBuilder | `-O0` |
+| `builtin` | IRBuilder: the string builtins (`strlen`, `strcmp`, `strncmp`, `strcpy`, `stridx` of literals; the table above); `-fno-builtin` turns them off | `-O0` |
+| `loop-idioms` | IRBuilder (`IRBuilderLoopIdiom.cpp`, #323): copy and fill loops of arrays as calls of `memmove` / `memset`; see [cc45.md](../bin/cc45.md). With `--future`, cc45 also prints *"optimization 'loop-idioms' is not implemented yet"*, although the switch works | off at every level: only with `-floop-idioms` |
 | `sac-slot-sharing` | Code generation: SAC locals never live together share storage ([IR passes](#ir-passes)); file-wide only | `-O1` |
-| `zp-args` | Code generation (#359): a SAC function's entry from another file copies its parameters into its storage through `__zp_args` / `__sac_args` and a list (3 bytes a parameter) instead of `lda` / `sta` (about 300 cycles a call faster); also per function by pragma (`optimize(no-zp-args)`) | `-O1`, off from `-O3` / `-Ospeed` |
+| `zp-args` | Code generation (#359): a SAC function's entry from another file copies its parameters into its storage through `__zp_args` / `__sac_args` and a list (3 bytes a parameter) instead of `lda` / `sta` (which is about 300 cycles a call faster); also per function by pragma (`optimize(no-zp-args)`) | `-O1`, off from `-O3` / `-Ospeed` |
 | `float-copy-call` | Code generation (#485): a file with at least 14 copies of a float between places outside the base page (`__float_a`, `__float_b`, variables, constants) makes them `jsr __f32cpy` with the two addresses after it (`lib/stdlib_asm/f32cpy.s45`, 54 bytes, linked once; 7 bytes a copy, not an 11-byte loop; about 140 cycles a copy more; when they save more than their 90 bytes, a copy into `__float_a` / `__float_b` or out of `__float_a` is `jsr __f32lda` / `__f32ldb` / `__f32sta` with the one other address, 5 bytes, and one into `__float_a` right before one into `__float_b` is `jsr __f32ldab` with both sources, 7 bytes for the two; `CC45_NO_F32LD=1` keeps `__f32cpy`); a float read through a pointer into `__float_a` / written from it is `jsr __f32ldp` / `__f32stp` with the pointer in A/X (3 bytes, not the 14 of `sta`/`stx` and the loop), each when two or more of its kind in the file have the pointer just computed (six stores in all also do), then for every one of that kind (`CC45_NO_F32PTR=1` keeps the loops) | `-O1`, off from `-O3` / `-Ospeed` |
 | `tail-call-optimization`, `branch-inversion`, `jump-optimization`, `redundant-load-elimination`, `dead-store-elimination`, `seq-extract` | ca45 pass: cc45 passes `-P<x>` / `-PNo<x>` (`TailCall`, `BranchInvert`, `JmpBra`, `RedundantLoad`, `DeadStore`, `SeqExtract`) to ca45; file-wide only | ca45's default (always) |
 | `constant-folding`, `dead-code-elimination`, `frame-pointer-optimization` | Part of code generation, always on: `-fno-` warns *"cannot be disabled"* | always |
@@ -727,6 +739,4 @@ CC45_DUMP_IR=1 cc45 -S t.c -o /dev/null                               # IR after
 ```
 
 A personal `~/.config/m65/cc45.conf` changes the default level; run with
-`HOME=/some/empty/dir` to compare against the built-in defaults. For files with
-at most three functions cc45 currently prints a `[DCE] Functions: ...` debug
-line to stderr; it does not affect the output.
+`HOME=/some/empty/dir` to compare against the built-in defaults.

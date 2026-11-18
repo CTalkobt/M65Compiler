@@ -24,20 +24,23 @@ deploy45 -h | --help
 | `-s`, `--speed BPS` | The serial speed (`$M65_SPEED`; else the tool's default, 2000000) |
 | `--c64`, `--m65` | The mode the program starts in. Default: C64 mode for a program loading at `$0801`, MEGA65 mode otherwise (cc45's programs load at `$2001`) |
 | `--no-run` | Load without running |
-| `--no-reset` | No reset before loading (`m65ether`, `m65serial`) |
-| `--name NAME.D81` | `m65mount`: the name on the SD card. Default: the file's name in 8.3 upper case (`my_game.d81` → `MY_GAME.D81`) |
+| `--no-reset` | No reset before loading (`m65ether`: no `-4` / `-5`, so the mode is not chosen either; `m65serial`: no `-F`) |
+| `--name NAME.D81` | `m65mount`: the name on the SD card. Default: the file's name in 8.3 upper case (`my_game.d81` → `MY_GAME.D81`): its letters, digits and `_`, the first 8 (`ab-long.name.d81` → `ABLONGNA.D81`) |
 | `--on-card NAME.D81` | `m65mount`: mount an image that is on the SD card already (nothing uploaded) |
 | `--virtual` | `m65mount`: `m65 -d` — the MEGA65's drive reads and writes the image on this computer through the serial monitor, while `deploy45` runs (Ctrl-C ends it) |
-| `--ether` | `m65mount`: over Ethernet (`mega65_ftp -e`) when no `-i` is given: the MEGA65 is discovered |
+| `--ether` | `m65mount`: over Ethernet (`mega65_ftp -e`) when no `-i` is given: the MEGA65 is discovered. `-i` chooses Ethernet too, and so does `$M65_HOST` when no serial port is named (no `-l`, no `$M65_DEVICE`); otherwise the serial port |
 | `--password PW` | `u64`: the network password (`$U64_PASSWORD`), sent as `X-Password` |
 | `--drive a\|b` | `u64`: the drive a disk image is mounted on (default `a`) |
 | `--song N` | `u64`: the song of a SID to play |
 | `--info` | `u64`: print the device's information (`GET v1/info`) |
 | `--reset` | `u64`: reset the machine (`PUT v1/machine:reset`), with no file |
 | `--tool PATH` | The mega65-tools program to run. Default: `$ETHERLOAD`, `$M65` or `$MEGA65_FTP`, else the one on the `PATH`, else `~/mega65-tools/bin/` or `~/mega65-tools/` |
-| `--timeout SEC` | Give up after SEC seconds (exit status 124); 0: never. Default 60 for loading (`etherload` waits forever for a MEGA65 that is off), 30 for `u64`, none for `m65mount` (an upload over serial runs at about 5 KB/s) |
-| `-n`, `--dry-run` | Print the command (or the HTTP request) instead of running it |
+| `--timeout SEC` | Give up after SEC seconds (exit status 124); 0: never (the mega65-tools commands; for `u64` it is the wait for each step of the request, an error with status 1, and 0 fails at once). Default 60 for loading (`etherload` waits forever for a MEGA65 that is off), 30 for `u64`, none for `m65mount` (an upload over serial runs at about 5 KB/s) |
+| `-n`, `--dry-run` | Print the command (or the HTTP request: method, URL, the body's size) instead of running it |
 | `-v` … `-vvvv` | Log on stderr as `[deploy45:LEVEL] …` |
+| `-V`, `--version`; `-h`, `--help` | Version; help (as the command, or `-h` after it) |
+
+The command comes first, then options and one file in any order. An unknown command or option, or a second file, is an error (exit status 1); with no arguments the help is printed (exit status 1).
 
 ## MEGA65 over Ethernet: `m65ether`
 
@@ -47,7 +50,7 @@ deploy45 m65ether -i 192.168.1.65 tool.prg
 deploy45 m65ether --c64 --no-run c64game.prg
 ```
 
-Runs `etherload [-i HOST] -5|-4 [-r] prog.prg` (`-4`: C64 mode, `-5`: MEGA65 mode). The MEGA65 must be waiting
+Runs `etherload [-i HOST] [-5|-4] [-r] prog.prg` (`-4`: C64 mode, `-5`: MEGA65 mode; neither with `--no-reset`). The MEGA65 must be waiting
 for it: its Ethernet loader is started from the MEGA65 (see the MEGA65 Book's chapter on data transfer and the
 mega65-tools documentation).
 
@@ -72,11 +75,11 @@ deploy45 m65mount -l /dev/ttyUSB1 --on-card MEGA65.D81
 deploy45 m65mount -l /dev/ttyUSB1 --virtual work.d81 # no copy: the drive is the local file
 ```
 
-Runs `mega65_ftp {-l DEV [-s BPS] | -e [-i HOST]} -c "put image NAME.D81" -c "mount NAME.D81" -c exit`: the image
+Runs `mega65_ftp {[-l DEV] [-s BPS] | -e [-i HOST]} -c "put image.d81 NAME.D81" -c "mount NAME.D81" -c exit` (`--on-card`: no `put`): the image
 is written to the SD card's root and mounted as drive 8. The MEGA65 mounts only `.d81` (and `.d65`) images, and only
 unfragmented ones. mega65_ftp should be used at the `READY.` prompt (it takes over the machine while it works), and
-its `put` needs a file name without spaces. `--virtual` runs `m65 -l DEV -d image.d81` instead: nothing is copied;
-the MEGA65's drive reads and writes the local file through `m65` for as long as it runs.
+its `put` needs a file name without spaces. `--virtual` runs `m65 [-l DEV] [-s BPS] -d image.d81` instead: nothing is copied;
+the MEGA65's drive reads and writes the local file (which must be writable) through `m65` for as long as it runs. It is serial only: an error with `-i` or `--ether`.
 
 ## Ultimate 64: `u64`
 
@@ -92,14 +95,15 @@ deploy45 u64 -i u64.local --reset
 
 The Ultimate 64's REST API over HTTP: `POST v1/runners:run_prg` (or `load_prg` with `--no-run`), `v1/runners:run_crt`,
 `v1/runners:sidplay`, `v1/drives/<a|b>:mount?type=<d64|d71|d81|g64|g71>&mode=readwrite` with the file as the body;
-`GET v1/info`; `PUT v1/machine:reset`. A device with a network password refuses a request without it (HTTP 403:
+`GET v1/info` (the answer printed); `PUT v1/machine:reset`; a SID's `--song N` is `?songnr=N`. The kind of file is its extension (`.prg`, `.crt`, `.sid`, a disk image's). The host may be written `http://name[:port]/` (port 80 by default). A device with a network password refuses a request without it (HTTP 403:
 "wrong network password").
 
 ## Exit Status
 
 0 when the transfer succeeded; the mega65-tools program's own status when it failed; 124 when it did not finish
-within `--timeout`; 127 when it could not be started (not installed: name it with `--tool`); 1 for `deploy45`'s own
-errors (an unreadable file, an HTTP error, no host).
+within `--timeout`; 127 when it could not be started (not installed: name it with `--tool`); 128 + the signal's number
+when a signal ended it; 1 for `deploy45`'s own errors (an unreadable file, an HTTP error or no answer, no host, a bad
+command line).
 
 ## See Also
 

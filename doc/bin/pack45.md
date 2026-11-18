@@ -10,7 +10,7 @@ pack45 -x <packed> <output>
 pack45 --suggest-rate [--keep PCT] [--max-rate HZ] <sound> ...
 pack45 --sound [--rate HZ] [--unsigned] [--normalise] [options] <sound> <output>
 pack45 -V | --version
-pack45 -? | --help
+pack45 -? | -h | --help
 ```
 
 | Option | Description |
@@ -23,9 +23,9 @@ pack45 -? | --help
 | `-x` | Unpack `<packed>` (with its load address, or `--raw`) to `<output>`: a check on the host |
 | `--suggest-rate` | For each sound: the lowest sample rate that keeps it (below) |
 | `--sound` | Convert `<sound>` to 8-bit samples for the audio DMA, at `--rate` or the rate `--suggest-rate` names. With `-d` they are packed like any file; without, the samples alone are written (`--load ADDR` puts that load address in front) |
-| `--rate HZ` | With `--sound`: the samples' rate |
+| `--rate HZ` | With `--sound`: the samples' rate, 1000-192000 |
 | `--unsigned` | With `--sound`: unsigned samples (offset by 128) instead of signed |
-| `--normalise` | With `--sound`: the loudest sample to full scale |
+| `--normalise` (or `--normalize`) | With `--sound`: the loudest sample to full scale |
 | `--keep PCT` | With `--suggest-rate`: the share of the energy to keep, per cent (default 99.9) |
 | `--max-rate HZ` | With `--suggest-rate`: the highest rate it will be played at. Only the energy that rate can hold counts, and nothing above it is suggested |
 | `-v` … `-vvvv` | Log on stderr as `[pack45:LEVEL] …` |
@@ -36,7 +36,7 @@ It prints the sizes, where the stream unpacks to and the in-place load address:
 pack45: tiles.bin: 30000 -> 9812 bytes (32%), unpacks to $40000; in place: load it at $4502C (offset 20524)
 ```
 
-Every stream is unpacked again by a model of the decoder (in place too) before it is written; a mismatch is an internal error (exit status 2).
+Every stream is unpacked again by a model of the decoder (in place too) before it is written; a mismatch is an internal error (exit status 2). Other errors (an unknown option, a file that cannot be read, no destination: `-d` or a `.prg` input) give exit status 1. `--load` writes the low 16 bits of its address (a load address is two bytes); pack45 warns when a `--load` address above `$FFFF` lies in the area it unpacks to but not far enough in to unpack in place.
 
 ## Sounds: --suggest-rate, --sound
 

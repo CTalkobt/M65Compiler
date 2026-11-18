@@ -1,4 +1,5 @@
 #!/bin/bash
+# OBSOLETE: kept for reference only. mmemu is not used; runtime tests run on xemu-xmega65 (make test-xemu, src/test/test_xemu.sh).
 
 # mmemu test runner for MEGA65 C compiler validation
 # Runs compiled .prg files in the emulator and verifies output

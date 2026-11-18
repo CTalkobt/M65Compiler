@@ -22,9 +22,9 @@ dbg45 --dap                                     # for an editor
 | `--xemu-arg <arg>` | One of xemu's options (again for more: `--xemu-arg -8 --xemu-arg disk.d81`) |
 | `--headless` | xemu without a window |
 | `--fast` | xemu as fast as it can (`-sleepless`) |
-| `--timeout <s>` | A run or continue that reaches no breakpoint in s seconds pauses the program there |
+| `--timeout <s>` | A run or continue that reaches no breakpoint in s seconds (a fraction is allowed: `0.5`) pauses the program there (`[no stop within the timeout: paused]`). Default: no limit |
 | `-ex <command>` | A command to run first (again for more) |
-| `-x <file>` | The commands of a file (`#` lines are comments) |
+| `-x <file>` | The commands of a file, one a line (empty lines and lines starting with `#` are skipped) |
 | `--batch` | Quit after the `-ex` / `-x` commands (each is echoed after the prompt) |
 | `--dap` | The Debug Adapter Protocol on stdin/stdout |
 | `-v` … `-vvvv`, `-v0` | Log on stderr as `[dbg45:LEVEL] …` (the toolchain's format, `include/Logger.hpp`); cumulative, at most `-vvvv`; `-v0` off: the program and its debug file, xemu's command line and the monitor connection (`-v`), each monitor command (`-vv`) and its reply (`-vvv`); with `--dap` too (the protocol stays on stdout) |
@@ -32,7 +32,7 @@ dbg45 --dap                                     # for an editor
 
 ## Commands
 
-As gdb names them; RETURN at the prompt repeats the last command.
+As gdb names them; RETURN at the prompt repeats the last command (at a terminal; commands can also be piped in on standard input, without the prompt). Breakpoints can be set before `run`; the commands that read the program (`bt`, `info locals`, `print`, …) answer `error: the program is not running` until it runs.
 
 | Command | Meaning |
 |---------|---------|
@@ -43,18 +43,20 @@ As gdb names them; RETURN at the prompt repeats the last command.
 | `step` (`s`) [N] | The next source line, into calls (a call into code without lines, a library's assembly, runs through) |
 | `finish` | Until the function returns (stops in the caller) |
 | `stepi` (`si`) [N] | One instruction |
-| `break` (`b`) LOC | A breakpoint: `function`, `file.c:line`, `line` (of the file it stopped in), `*$ADDR`. A line without code moves to the next one with code; a line whose code is in several places (a `for` loop's parts) breaks at each |
+| `break` (`b`) LOC | A breakpoint: `function`, `file.c:line`, `line` (of the file it stopped in), `*ADDR` (`*0x2124`, or decimal `*8484`; not `*$2124` — that form ends dbg45 with an uncaught `stoul` exception, a known bug). A line without code moves to the next one with code; a line whose code is in several places (a `for` loop's parts) breaks at each |
 | `delete` (`d`) [N] | Delete a breakpoint (all without N) |
-| `info breakpoints` | The breakpoints and their addresses |
+| `info breakpoints` | The breakpoints and their addresses (`info` is also `i`, its word any abbreviation: `i b`) |
 | `info locals`, `info args` | The frame's local variables, its parameters |
-| `info registers` | A X Y Z B SP P, PC |
-| `backtrace` (`bt`) | The call stack |
-| `frame` (`f`) N, `up`, `down` | Select a frame (variables are read in it) |
+| `info registers` | A X Y Z B SP P (and its flags `NVEBDIZC`), PC |
+| `info frame` | The selected frame |
+| `backtrace` (`bt`, `where`) | The call stack |
+| `frame` (`f`) [N], `up` [N], `down` [N] | Select a frame (variables are read in it); `frame` alone shows the selected one |
 | `print` (`p`) EXPR | A value: a variable, `*e`, `&e`, `e.member`, `e->member`, `e[i]`, numbers (`$hex`) |
-| `x` ADDR [N] | N bytes of memory (ADDR: `$hex` or an expression: a pointer's target) |
-| `list` (`l`) | The source around the line |
+| `x` ADDR [N] | N bytes of memory (16 without N; ADDR: `$hex` or an expression: a pointer's target, another variable's own address) |
+| `list` (`l`) | The source around the selected frame's line (4 lines before it, 5 after; `=>` marks it) |
 | `kill` | End xemu |
 | `quit` (`q`) | Quit |
+| `help` (`h`) | The usage text and this list |
 
 The program's end is reported with its exit status (`[program exited with status 11]`: `main`'s return value or `exit()`'s, at crt0's `__exit`).
 
@@ -84,7 +86,7 @@ In VS Code, the extension in `tools/ide/vscode-extension` contributes the `cc45`
 
 ## Exit Codes
 
-0, or 1 on an error before it starts (no program, no debug file); a session's errors are printed (`error: ...`) and it goes on.
+0, or 1 on an error before it starts (no program, no debug file, an unknown option, an unreadable `-x` file); a session's errors are printed (`error: ...`) and it goes on.
 
 ## Tests
 

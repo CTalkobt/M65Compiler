@@ -23,10 +23,18 @@ See [calling-conventions.md](calling-conventions.md). In short:
 
   No per-convention library sources are maintained.
 - **Cross-module mismatches are bridged.** ln45 handles both directions with
-  `__thunk_s2z_*` / `__thunk_z2s_*`. `-Wthunk` warns about each one, and
-  `--no-thunks` makes them errors.
+  `__thunk_s2z_*` / `__thunk_z2s_*` and warns about each one (`-Wthunk` is
+  accepted and changes nothing); `--no-thunks` makes them errors.
 - **Most locals are static.** Most functions use SAC (static activation
   records in BSS), so they have no stack frame to read parameters from.
+- **Part of the idea exists in another form.** ln45 already places
+  per-function base-page blocks (`.zar`, `$80-$F1`: the most used variables
+  of SAC functions that make calls, parameters among them in the ZP
+  convention) so that functions active together never share bytes, and a
+  two-pass build chooses them program-wide (`ln45 --zp-plan-out=FILE`, then
+  `cc45 -fzp-plan=FILE`, #304). A ZP-convention leaf function keeps its
+  parameters in `$10-$2F` with no copy. Arguments are still passed through
+  the shared block `$10-$2F`.
 
 ## Idea
 
@@ -35,7 +43,8 @@ shares. The proposal is to let ln45, which sees the whole program, assign
 parameter locations instead:
 
 1. **Call graph and scores.** ln45 already builds the call graph (it is used
-   for thunks and SAC checks). Score each function by call sites,
+   for thunks, SAC checks and the SAC and base-page overlays). Score each
+   function by call sites,
    parameter bytes and loop depth.
 2. **Exclusions.** Exclude recursive, variadic and address-taken functions.
    Indirect calls cannot be rewritten.
@@ -55,7 +64,7 @@ Open questions:
   path, which today is used only in `-fno-zpcall` mode, may be a simpler way
   to get it.
 - **Where would the pool come from?** It would compete with the allocator
-  pool `$30-$E9`.
+  pool `$30-$7F` and the functions' base-page blocks `$80-$F1`.
 
 No size or speed figures are given, because nothing has been implemented or
 measured.

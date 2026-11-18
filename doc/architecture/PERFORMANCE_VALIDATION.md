@@ -41,9 +41,10 @@ Observations:
 - The `-O` level made no difference for `fib.c`, and `-O2`/`-O3` made `bench_optimizer.c` 37 bytes *larger* than `-O0`/`-O1`/default. Do not assume a higher `-O` gives smaller code; measure.
 - Compile time is not a concern at this scale: compiling and linking a ~20-line test program that uses `printf`, `sprintf`, `malloc`, `strtol`, `sqrtf`, `setjmp` and `time` (16.9 KB PRG) took 0.26 s wall time.
 
-Execution speed was not measured. To do so, run the PRG on `xemu-xmega65` and time a loop with the CIA timers or the jiffy clock (`clock()`), comparing builds of the same program.
+Execution speed was not measured for these programs. `make bench` measures it for the 6502 C compiler benchmarks (CIA timers, in xemu; see [benchmarks.md](benchmarks.md)); for another program, run the PRG on `xemu-xmega65` and time a loop with the CIA timers or the jiffy clock (`clock()`), comparing builds of the same program.
 
 ## Related Targets
 
-- `make bench-optimizer` (`src/test/bench_optimizer.sh`) compiles `bench_optimizer.c` at the default level and at `-O0` to standalone assembly (`-o x.s`) and assembles it with `ca45`. It checks results with the mmemu emulator, which is no longer used for testing; the size comparison part needs only `bin/cc45` and `bin/ca45`.
+- `make bench` (`src/bench/run_bench.py`) builds and times the c-bench-64 benchmarks in xemu and prints sizes and times beside other compilers' published results: [benchmarks.md](benchmarks.md).
+- `make bench-optimizer` (`src/test/bench_optimizer.sh`) compiles `bench_optimizer.c` at `-O2` and at `-O0` to standalone assembly (`-o x.s`) and assembles it with `ca45`. It checks results with the mmemu emulator, which is no longer used for testing; the size comparison part needs only `bin/cc45` and `bin/ca45`.
 - `src/test-resources/bench_stdlib_critical.c` contains library micro-benchmarks but is not wired into any target.

@@ -6,6 +6,8 @@ A modern development toolchain for the MEGA65 (45GS02) home computer. It consist
 
 - **cc45** — C compiler (C source to assembly or `.o45` relocatable objects)
 - **ca45** — 45GS02 assembler (assembly to binary or `.o45` relocatable objects)
+- **al45** — Assembly linter: ca45's front end over a source file, `mega65-*` rules, no output (a link to ca45)
+- **cl45** — C linter: cc45's front end and code generator over a file as it is compiled, no output (a link to cc45)
 - **ln45** — Linker (links `.o45` objects and `.lib` archives into flat binaries or PRG executables)
 - **ar45** — Archiver (creates `.lib` static library archives from `.o45` objects)
 - **pack45** — Packer: data packed for the library's `unpack()` (DMA, to any 28-bit address, in place); `ln45 --pack-overlays` uses it too
@@ -13,10 +15,10 @@ A modern development toolchain for the MEGA65 (45GS02) home computer. It consist
 - **tune45** — Music for the tune player: text (or MIDI) to data, play on the PC / in xemu / on a MEGA65, compose
 - **deploy45** — A program or disk image to real hardware: a MEGA65 over Ethernet or the JTAG adapter's serial port (mega65-tools' etherload, m65, mega65_ftp), an Ultimate 64 over its HTTP API
 - **dbg45** — Source-level debugger: a cc45 program in xemu by its C source (breakpoints, stepping, the stack, variables); VS Code through `--dap`
-- **nm45** — Symbol lister for `.o45` / `.o65` object files (and ln45's `.ovl` overlay files)
-- **objdump45** — Object file inspector and 45GS02 disassembler (objects, PRGs, binaries, `.ovl` files)
-- **cp45** — C preprocessor (standalone)
-- **disk45** — CBM disk, tape and archive image utility (D64/D71/D81/D65 and 20 more formats)
+- **nm45** — Symbol, attribute and relocation lister for `.o45` objects and `.lib` archives (and ln45's `.ovd` / `.ov1` overlay files)
+- **objdump45** — Object file inspector and 45GS02 disassembler (objects, PRGs, binaries, `.ovd` / `.ov1` overlay files)
+- **cp45** — C preprocessor (a link to cc45, which preprocesses only under this name)
+- **disk45** — CBM disk, tape and archive image utility (D64/D71/D81/D65 and 21 more formats)
 - **basic45** — BASIC 65 program generator (label-based source to a tokenized `.prg`)
 - **asmCvt45** — Assembly source converter between assembler dialects
 
@@ -25,9 +27,10 @@ A modern development toolchain for the MEGA65 (45GS02) home computer. It consist
 The goal of this suite is to provide a C-based development environment that leverages the advanced features of the MEGA65, such as its 32-bit registers (Q-mode), 28-bit flat memory addressing, and stack-relative addressing. Unlike traditional 6502 compilers, this toolchain is designed from the ground up to support modern calling conventions and procedural abstractions directly at the assembly level.
 
 ## Architecture
-The compilation process follows a multi-pass pipeline:
-1.  **cc45 (Source to Assembly)**: Translates C source code into high-level 45GS02 assembly. It performs lexical analysis, builds an Abstract Syntax Tree (AST), and generates assembly code using an optimized procedure system.
-2.  **ca45 (Assembly to Binary)**: Processes the assembly output, resolves symbols, manages stack offsets for procedures, and emits the final machine code binary.
+The compilation process follows a multi-pass pipeline (`cc45 file.c -o file.prg` runs all of it):
+1.  **cc45 (Source to Assembly)**: Translates C source code into high-level 45GS02 assembly. It preprocesses, performs lexical analysis, builds an Abstract Syntax Tree (AST), lowers it to an intermediate representation that the optimizer works on, and generates assembly code using an optimized procedure system.
+2.  **ca45 (Assembly to Object)**: Processes the assembly output, resolves symbols, manages stack offsets for procedures, and emits a relocatable `.o45` object (or, for assembly written by hand, a binary directly).
+3.  **ln45 (Objects to Program)**: Links the objects with the members it needs of the standard library (`c45.lib`, whose `crt0` is the startup code) into a `.prg`.
 
 ## Design Philosophy
 - **Procedural Abstraction**: Function calls are treated as first-class citizens with named parameters and automated stack cleanup.
@@ -35,7 +38,7 @@ The compilation process follows a multi-pass pipeline:
 - **Optimizations**: Includes advanced compiler optimizations such as:
     - **Strength Reduction**: Converts expensive operations (e.g., multiplication by a power of 2) into faster equivalents (e.g., bit shifts).
     - **Constant Propagation**: Substitutes variables with known constant values into expressions at compile time. The optimizer is **branch-aware**, performing constant state merging across `if`/`else` paths to ensure safe invalidation on reassignments.
-    - **ZP-Safe Standard Library**: All standard library functions are designed to be disjoint from the compiler's temporary register pool ($02-$0A). Functions utilize the 45GS02 hardware stack and the Z-scratch restoration pattern (`plz/stz`) to preserve both zero page integrity and 32-bit return values (`AXYZ`).
+    - **ZP-Safe Standard Library**: A program runs in a base page of its own (crt0 moves the base page register, so the ROM's page 0 is untouched), and the standard library's temporaries (`$F6`-`$FC`) are disjoint from the compiler's register pool (`$30`-`$7F`) and the parameter block (`$10`-`$2F`); see [calling conventions](doc/architecture/calling-conventions.md).
 
     - **Dead Variable Elimination**: Removes stack allocation and initialization for local variables that are initialized with constants and not subsequently used in the function.
 - **Volatile Keyword Support**: The `volatile` keyword is fully supported, preventing unintended compiler optimizations on variables that may be changed by external factors (e.g., hardware, interrupts).
@@ -43,10 +46,10 @@ The compilation process follows a multi-pass pipeline:
 - **Compatibility**: Supports KickAssembler-style syntax (comments, `* =`, `.cpu`) for easier porting of existing MEGA65 codebases.
 - **Inline Assembly**: Standard C `asm()` and `__asm__()` support for direct hardware control from C source.
 - **Compound Literals**: C99 compound literals for anonymous temporary values: `(struct Point){1, 2}`, `(int){42}`, `(int[]){1,2,3}`.
-- **Bitfields**: C-standard bitfield support in structs and unions with automatic packing into 8-bit or 16-bit storage units. Optimized codegen uses 45GS02 TRB/TSB instructions for atomic read-modify-write on ZP and absolute targets.
+- **Bitfields**: C-standard bitfield support in structs and unions with automatic packing into 8-bit or 16-bit storage units. Single-bit `__bit` variables are set and cleared with the 45GS02's TSB/TRB (SMB/RMB in the base page).
 - **32-bit Long Type**: Native `long` and `unsigned long` support using the 45GS02 Q register (AXYZ). All arithmetic, comparison, shift, and bitwise operations leverage native Q instructions.
-- **Explicit Casts & Narrowing Warnings**: C-style cast expressions `(type)expr` with compile-time warnings for implicit narrowing conversions.
-- **ZP Calling Convention**: Optional zero-page parameter passing (`-fzpcall`) for faster function calls. Parameters are placed in a fixed ZP region instead of the stack, eliminating TSX overhead. Includes caller-save semantics, address-of spill, and per-function metadata (`.zp_uses`, `.zp_clobbers`, `.reg_clobbers`) in `.o45` objects for interprocedural optimization.
+- **Explicit Casts**: C-style cast expressions `(type)expr`; constant casts are folded. (cc45 does not warn about implicit narrowing.)
+- **ZP Calling Convention**: Zero-page parameter passing (`-fzpcall`, the default; `-fno-zpcall` selects the stack convention) for faster function calls. Parameters are placed in a fixed ZP region (`$10`-`$2F`) instead of the stack, eliminating TSX overhead. Includes caller-save semantics, address-of spill, and per-function metadata (`.zp_uses`, `.zp_clobbers`, `.reg_clobbers`) in `.o45` objects for interprocedural optimization.
 - **Extensibility**: The toolchain uses a visitor-based architecture in C++, making it easy to add new optimizations, language features, or hardware targets.
 
 ## General Usage
@@ -83,10 +86,10 @@ __far int checksum(const char *p, int n) { ... }   /* kept in far memory (bank 5
 ```bash
 ./bin/cc45 -O2 -c main.c -o main.o45
 ./bin/cc45 -O2 -c tools.c -o tools.o45       # __far functions, or #pragma cc45 overlay(name)
-./bin/ln45 -basic -M app.map -o app.prg main.o45 tools.o45 lib/build/c45.lib   # also writes app.ovl
-./bin/disk45 create app.d81 && ./bin/disk45 add app.d81 app.prg APP && ./bin/disk45 add app.d81 app.ovl APP.OVL
+./bin/ln45 -basic -M app.map -o app.prg main.o45 tools.o45 lib/build/c45.lib   # also writes app.ov1 (and app.ovd, which describes it)
+./bin/disk45 create app.d81 && ./bin/disk45 add app.d81 app.prg APP && ./bin/disk45 add app.d81 app.ov1 APP.OV1
 ```
-The program loads `APP.OVL` into far memory at start; a call into far code
+The program loads `APP.OV1` into far memory at start; a call into far code
 goes through a resident stub that maps the code into a window
 (`--overlay-map`; `__far` code always) or copies it into a region. See
 [cc45: Code Overlays](doc/bin/cc45.md#code-overlays) and
@@ -103,7 +106,7 @@ goes through a resident stub that maps the code into a window
 
 ### Assembly alone
 ```bash
-./bin/ca45 hello.s45 -o hello.prg       # .basicUpstart in the source writes the SYS line
+./bin/ca45 hello.s45 -o hello.prg       # `.basicUpstart start` in the source writes the SYS line
 ```
 A name ending in `.prg` gets a load address (from the first `.org`, or `$2001`
 after `.basicUpstart`); any other name is a flat binary.
@@ -122,8 +125,9 @@ after `.basicUpstart`); any other name is a flat binary.
 ./bin/disk45 list work.d81
 ```
 
-Every tool prints its options with `-?` (`./bin/cc45 -?`; disk45 when run
-without arguments); the reference pages are in [doc/bin/](doc/bin/).
+Most tools print their options with `-?` (`./bin/cc45 -?`); dbg45, font45 and
+tune45 with `-h` or `--help`, asmCvt45 with `--help`, disk45 when run without
+arguments. The reference pages are in [doc/bin/](doc/bin/).
 
 ## Download
 
@@ -354,19 +358,21 @@ The suite includes a set of automated tests to verify the compiler and assembler
 ```bash
 make test
 ```
-This runs the compiler, assembler and linker unit tests, the validation units and the examples (no emulator). Outputs are stored in the `build/test/` directory.
+This runs the documentation check, the compiler, assembler and linker unit tests, the validation units (the steps of `src/test/test_steps.txt`, in parallel) and then the examples; it takes about 6 minutes. The steps that run programs (`test_stdlib_new.sh`, `test_examples.sh`) use the xemu emulator when `xemu-xmega65` is on the `PATH` and are skipped without it. Outputs are stored in the `build/test/` directory.
 
 The runtime tests run on the [xemu](https://github.com/lgblgblgb/xemu) MEGA65 emulator (`xemu-xmega65` on your `PATH`):
 
 ```bash
-bash src/test/test_xemu.sh          # runtime tests, both calling conventions
-bash src/test/run_gte_all.sh        # GCC torture tests
-bash src/test/test_cc_interop.sh    # calling-convention interop
+make test-xemu                      # bash src/test/test_xemu.sh: 1092 runtime tests, both calling conventions
+bash src/test/run_gte_all.sh        # GCC torture tests (551 with each calling convention)
+bash src/test/test_cc_interop.sh    # calling-convention interop (13 checks)
 ```
 
 For detailed information on each tool, refer to:
 - [doc/bin/cc45.md](doc/bin/cc45.md) — Compiler Usage and Features
 - [doc/bin/ca45.md](doc/bin/ca45.md) — Assembler Syntax and Reference
+- [doc/bin/al45.md](doc/bin/al45.md) — Assembly Linter: Rules, Configuration, Output Formats
+- [doc/bin/cl45.md](doc/bin/cl45.md) — C Linter: Rules, Suppressing, Configuration
 - [doc/bin/nm45.md](doc/bin/nm45.md) — Symbol Lister for `.o45` Object Files
 - [doc/bin/objdump45.md](doc/bin/objdump45.md) — Object File Inspector and Disassembler
 - [doc/bin/cp45.md](doc/bin/cp45.md) — Preprocessor Features and Usage

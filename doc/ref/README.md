@@ -12,11 +12,11 @@ Frame-pointer, frame-layout, bitfield and calling-convention code-size work prop
 ## Release Management
 **File:** [`RELEASE-STEPS.md`](RELEASE-STEPS.md)
 
-Checklist for preparing and publishing a release: version bump, clean build, `make test`, documentation, install smoke test, examples, Docker image, tag and GitHub release.
+Checklist for preparing and publishing a release: version bump, clean build, the test suites, documentation, install smoke test, examples, Docker images, the tag, and the GitHub release with the prebuilt archives the Release workflow attaches (`src/release/package.sh`, `.github/workflows/release.yml`).
 
 ## Legacy Script
 
-**File:** `run_mmemu_test.sh` — an old runner for the mmemu emulator. It is not used by any Makefile target or test script; runtime tests run on `xemu-xmega65` (`src/test/test_xemu.sh` and the other xemu scripts in `make test`).
+**File:** `run_mmemu_test.sh` — obsolete: an old runner for the mmemu emulator, which never ran a program (it only checks that the `.prg` file exists and looks like an executable). It is not used by any Makefile target or test script; runtime tests run on `xemu-xmega65` only (`make test-xemu`, that is `src/test/test_xemu.sh`).
 
 ## Historical Work
 

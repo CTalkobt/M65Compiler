@@ -16,6 +16,7 @@ tune45 import tune.sid --song 2 -o tune.txt  # a C64 tune: its player run, the S
 tune45 import song.mod --report              # a MOD's samples weighed for the SID; --extract <dir>
 tune45 import song.mod --audition [n]        # each sample: the original, the SID, both; then sid or sample?
 tune45 sample growl.pak --rate 8000          # sampled sound as the audio DMA plays it
+tune45 trace music.txt --tune march          # the model's registers a frame (for tests)
 tune45 -V | --version
 tune45 -h | --help
 ```
@@ -233,6 +234,20 @@ Plays sampled sound as the MEGA65's audio DMA plays it: 8-bit samples at their r
 | `--wav <file>` | A 48 kHz WAV file instead of the speakers |
 
 So a sound can be heard as it will be, its rate and 8 bits and all, before it goes on a disk: `tune45 sample --max-rate 12000 dragon.wav` plays it at the rate pack45 would choose. See [pack45](pack45.md#sounds---suggest-rate---sound).
+
+## trace
+
+`tune45 trace music.txt` runs the PC's model of the player (`TunePlayer`, as `play` does) on one tune and prints its registers after each frame, a line a frame in hex: the four SIDs' 128 bytes, then the audio DMA's `$50` from `$D710`. `test_xemu.sh` compares these lines with the library's player in xemu.
+
+| Option | Meaning |
+|--------|---------|
+| `--tune <name>` | The tune (default the file's first) |
+| `--frames <n>` | Frames to print (default 100) |
+| `--seek <ticks>` | `tune_seek` to that tick first |
+| `--ntsc`, `--mono` | As `play`'s: an NTSC machine; no mirror on SIDs 3-4 |
+| `--samples-at <addr>` | Where the samples are (`tune_samples`) |
+| `--digi-first <n>` | The digi voices' first audio DMA channel (`tune_digi_channels`) |
+| `--coded`, `--coded-all` | The tune's data coded, as `convert`'s |
 
 ## Exit Codes
 

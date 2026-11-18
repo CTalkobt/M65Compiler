@@ -52,25 +52,36 @@ SAC is not used, and the function gets a stack frame instead, for:
 
 - direct recursion (warning; silence it with `#pragma cc45 recurse`);
 - recursion through other functions in the same file;
-- `__interrupt`, `__naked` and variadic functions;
-- a runtime `alloca`.
+- `__interrupt` and `__naked` functions;
+- a runtime `alloca`;
+- the function after `#pragma cc45 recurse`.
+
+Variadic functions use SAC too (stack convention; their `...` arguments stay
+on the stack, `va_start` reads `<fn>__va`).
 
 Each SAC function has two entries:
 
 - `<fn>` copies the parameters into `<fn>__param_<name>`.
 - `<fn>__sac` skips that copy. Stack-mode SAC callers in the same file use it.
 
-ln45 reports an error for a SAC function on a call cycle, or one reachable
-from an `__interrupt` handler.
+ln45 reports an error for a SAC function on a call cycle (tail calls, `JMP`
+to a function's entry, count as edges; a cycle of tail calls alone is a
+loop and links), or one reachable from an `__interrupt` handler.
 
 ## Zero page (program base page `__zp_page`)
 
 ```
 $06-$07 static chain    $08-$0F scratch (__zp_scratch..4)
-$10-$2F ZP parameters   $30-$7F temporaries    $80-$F1 functions' blocks (ln45; from the pool's end)    $F2-$F5 32-bit temp    $FD-$FE frame pointer
+$10-$2F ZP parameters   $30-$7F temporaries    $80-$F1 functions' blocks (ln45; from the pool's end)
+$F2-$F5 32-bit temp     $F6-$FC library temps  $FD-$FE frame pointer
 ```
 
-- ROM calls are wrapped as `jsr __bp_rom` … `jsr __bp_prog`.
+- ROM calls are wrapped as `jsr __bp_rom` … `jsr __bp_prog`; the float
+  ROM routines are reached through the library's map switch
+  `__float_romcall` (none with `-ffast-float=1` for `+ - * /` and
+  comparisons).
+- The functions' blocks can be chosen program-wide: `ln45 --zp-plan-out=FILE`,
+  then `cc45 -fzp-plan=FILE`.
 - An `__interrupt` handler runs on `__zp_page_isr`.
 
 ## Stack
@@ -83,5 +94,8 @@ stack with `-fno-stack16` or `#pragma cc45 no_stack16`.
 
 - A cross-module mismatch, in either direction, gets a bridge thunk:
   `__thunk_s2z_<fn>` or `__thunk_z2s_<fn>`.
-- `-Wthunk` warns about each thunk; `--no-thunks` makes a mismatch an error.
+- ln45 warns about each thunk (`-Wthunk` is accepted and changes nothing);
+  `--no-thunks` makes a mismatch an error.
+- A tail call (`JMP`) is bridged only in objects cc45 made; a `JMP` between
+  routines of a hand-written object never is.
 - Calls through function pointers are not bridged.

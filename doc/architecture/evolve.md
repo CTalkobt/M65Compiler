@@ -6,6 +6,8 @@
 **Status when written**: "v1.0.10" in `CLAUDE.md`; the tools' version string (`include/Version.hpp`) is `1.0.4`  
 **Documentation (2026-10-11)**: ~38,000 lines of Markdown under `doc/`, of which ~7,300 in the 11 tool manuals in `doc/bin/`
 
+The tools added after the period covered (`pack45`, `font45`, `tune45`, `deploy45`, `dbg45`, the linters `al45` and `cl45`) and later changes to the test and release process are not described here; see [../README.md](../README.md) for the current tool list.
+
 This is a narrative of how the project was developed with LLM assistance. The prompt patterns and lessons are the author's account and are not verifiable from the source tree; the facts about the toolchain itself (tools, features, sizes) were checked against the code on 2026-10-11 and corrected where needed.
 
 ---

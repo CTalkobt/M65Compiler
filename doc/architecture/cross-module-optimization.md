@@ -26,9 +26,15 @@ cc45 or ln45 produces.**
 
 Optimizations that really cross function boundaries are done **inside one
 translation unit** by cc45 (inlining, removal of unused `static` functions,
-devirtualization — see `optimizations.md`). At link time ln45 does
-calling-convention bridge thunks and SAC safety checks (see
-`calling-conventions.md`), not optimization.
+devirtualization, purity inference, parameter narrowing — see
+`optimizations.md`). At link time ln45 does calling-convention bridge thunks
+and SAC safety checks (see `calling-conventions.md`), and it does use its
+whole-program call graph (calls and tail calls, #615) for three things that
+change the output: the SAC storage overlay, the placement of the functions'
+base-page blocks, and the program-wide base-page plan it writes for a second
+compile (`ln45 --zp-plan-out=FILE`, `cc45 -fzp-plan=FILE`, #304; see
+[ln45](../bin/ln45.md#the-program-wide-base-page-plan)). None of these is
+part of the phase code described here.
 
 ## Component status
 
@@ -99,7 +105,7 @@ ln45: No dispatcher assembly to emit
 
 | Claim | Actual |
 |---|---|
-| "19% code reduction on `test_phase91_validation.c`", "11.8% on `test_phase91_tuning.c`" | One-step PRG sizes with the current toolchain: validation 526 bytes at `-O0`/`-O1`, 571 at `-O2`; tuning 1249 at `-O0`/`-O1`, 1610 at `-O2`. The difference comes from ordinary inlining, which makes these programs larger |
+| "19% code reduction on `test_phase91_validation.c`", "11.8% on `test_phase91_tuning.c`" | One-step PRG sizes with the toolchain of 2026-11-18: validation 488 bytes at `-O0`, 454 at `-O1`, 453 at `-O2`; tuning 760 at `-O0`, 753 at `-O1`, 687 at `-O2`. The differences come from the ordinary IR passes and inlining within the file (`optimizations.md`), not from any of the code described here |
 | Three-tier inlining heuristics (single caller < 20 bytes, leaf < 10, tiny with ≤ 3 call sites) | Exists only in the unlinked `IPOAnalyzer`. cc45 inlining uses statement count (≤ 20) and IR instruction count (≤ `max_inline_ir_size`, default 11), see `optimizations.md` |
 | Specialized variants such as `_compute_spec_5_3` and dispatcher stubs | Never generated |
 | Cross-module dead-code elimination | Not done. cc45 removes unused `static` functions within one file; ln45 pulls library members on demand but does not drop unused functions from linked objects (it warns `unused global symbol`) |

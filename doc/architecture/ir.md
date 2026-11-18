@@ -20,15 +20,24 @@ driven by `src/main/CompilationPipeline.cpp`. IRCodeGen writes ca45 source text
 assembler, not to this path.
 
 **IR-level optimization.** `CodegenStage::optimizeIR()` runs the passes of
-`src/main/IROptimizer.cpp` after IR generation (`-O1` and up): `optimizeParamNarrowing`, `optimizeStrengthReduction`,
+`src/main/IROptimizer.cpp` after IR generation (`-O1` and up), in this order:
+`inferPurity` (which functions are `const` / pure), `optimizeLoopUnroll`
+(from `-O4`), `optimizeParamNarrowing`, `optimizeStrengthReduction`,
 `optimizeAlgebraic`, `optimizeTypeNarrowing`, `optimizeBranchFold`, `optimizeCSE`,
-`optimizeLICM`, `optimizeCopyChains`, `optimizeAddrElemFusion` and (after the
-leaf-function pointer allocation) `optimizePostIncrementSink`, each switchable
-with `-f[no-]<name>` and per function with `#pragma cc45 optimize(...)`
-(`ir::passEnabled`, `Function::optOverrides`); see
+`optimizeShareDivMod`, `optimizeLICM`, `optimizeLoopStrengthReduction`,
+`optimizeCopyChains`, then `optimizeTypeNarrowing`, `optimizeCopyChains`,
+`optimizeAddrElemFusion`, `optimizeStrengthReduction` and `optimizeAlgebraic`
+again; `removeDeadTemps`; the leaf-function pointer allocation
+(`leafPointerParamsToZp`); `optimizePostIncrementSink`; the late folds
+(`foldElemIndexOffset`, `foldGlobalOffsetAccess`, `foldFarOffset`,
+`foldNegOffset`, `orderCommutativeOperands`) and last `optimizeBlockReorder`.
+Loop rotation follows in `CodegenStage::generateAssembly`. The catalog's
+passes are switchable with `-f[no-]<name>` and per function with
+`#pragma cc45 optimize(...)` (`ir::passEnabled`, `Function::optOverrides`); see
 [optimizations.md](optimizations.md#ir-passes). `-Roptir` traces them.
-`applyIPOSpecialization()` and `applyInlining()` only count candidates. Other
-transformations happen inside `IRBuilder` itself:
+`CodegenStage::applyInlining()` and `eliminateDeadCode()` only count
+candidates or log (`applyIPOSpecialization()` is no longer called; it is in
+`lib45-phases.a`). Other transformations happen inside `IRBuilder` itself:
 
 - function inlining (`-O2`+ or `-finline-functions`, limited by
   `-fmax-inline-ir-size`), producing `copy` + `br @inline_endN` sequences;
@@ -49,19 +58,22 @@ no `.ir` file is written. The working dump is an environment variable:
 CC45_DUMP_IR=1 ./bin/cc45 -S file.c -o file.s     # IR printed to stderr
 ```
 
-The dump (`ir::Printer`, `src/main/IRPrinter.cpp`) is the IR after IRBuilder,
-i.e. exactly what IRCodeGen receives. It is a debugging aid only — there is no
-IR parser.
+The dump (`ir::Printer`, `src/main/IRPrinter.cpp`) is printed at the start
+of `CodegenStage::generateAssembly`: the IR after IRBuilder and the IR passes
+of the `-O` level, i.e. exactly what IRCodeGen receives (with `-O0`, the IR
+as IRBuilder made it). Instructions a pass removed show as `nop` lines
+(`nop void _`, `nop ptr _`). It is a debugging aid only — there is no IR
+parser.
 
 ## Types
 
 | IR type (`ir::Type`) | Printed | C types (`IRBuilder::mapType`) | Size |
 |----------|---------|-------------------------------|------|
 | `VOID` | `void` | `void` | 0 |
-| `I8`   | `i8`   | `char`, `unsigned char`; also the result of comparisons | 1 |
-| `I16`  | `i16`  | `int`, `short`, enums and everything not listed elsewhere | 2 |
-| `I32`  | `i32`  | `long`, 4-byte structs/unions, `__int(17..32)` | 4 |
-| `PTR`  | `ptr`  | any pointer | 2 |
+| `I8`   | `i8`   | `char`, `unsigned char`, `_Bool`, near pointers (`T __near *`); also the result of comparisons | 1 |
+| `I16`  | `i16`  | `int`, `short`, enums, 16-bit `__fixed` and everything not listed elsewhere | 2 |
+| `I32`  | `i32`  | `long`, far pointers (`T __far *`), 32-bit `__fixed`, 4-byte structs/unions, `__int(17..32)` | 4 |
+| `PTR`  | `ptr`  | any (ordinary, 16-bit) pointer | 2 |
 | `F32`  | `?` (printer gap) | `float`, `double` (CBM 40-bit) | 5 |
 | `I_N`  | `?` (printer gap) | `__int(N)` wider than 4 bytes; size in `vregSizes` / `Operand::byteWidth` | N |
 
@@ -88,7 +100,7 @@ Printed names are those of `ir::opName()`.
 | Moves | `copy` |
 | Control flow | `br`, `br_cond`, `br_indirect` (computed goto), `switch`, `ret` (`RET` and `RET_VOID`, the latter printed `ret void`) |
 | Calls | `call`, `call_void`, `call_indirect` |
-| Float (CBM ROM) | `FADD`, `FSUB`, `FMUL`, `FDIV`, `FCMP`, `FNEG`, `FTOI`, `ITOF`, `FCONST` — all printed as `unknown` (missing from `opName`) |
+| Float (CBM 40-bit) | `FADD`, `FSUB`, `FMUL`, `FDIV`, `FCMP`, `FNEG`, `FTOI`, `ITOF`, `FCONST` — all printed as `unknown` (missing from `opName`). IRCodeGen lowers the arithmetic and comparisons to runtime calls: `__float_add` … (the BASIC 65 ROM's routines, `lib/src/float_rom.s45`, reached through `__float_romcall`, #614), or `__ffast_add` … (RAM routines, `stdlib_asm/float_fast.s45`) with `-ffast-float=1` / `-Ospeed` (`Module::fastFloat`) |
 | Special | `asm` (inline asm), `va_start`, `trampoline`, `vec_bin` (GCC vector ops), `cpu_reg_read`/`cpu_reg_write`, `cpu_flag_read`/`cpu_flag_write` (`__cpu`/`__flags`), `get_fp`, `phi`, `nop` |
 
 Defined but never produced by IRBuilder: `switch` (switch statements are lowered
@@ -99,8 +111,12 @@ to `cmp_eq` + `br_cond` chains), `phi`, `lsl`, `lsr`. IRCodeGen has a `PHI` case
 
 An `ir::Inst` has `op`, `dest`, `src1`, `src2`, `resultType`, an `args` vector
 (call arguments, `addr_elem` element size, bitfield offset/width, ...), plus
-`callConv`, `isRegparm`, `isTailCall`, `switchCases`, `phiIncoming`, `asmText`
-and a `SourceLoc`.
+`callConv`, `isRegparm`, `isTailCall`, `callSig` (an indirect call's
+parameter slots, for ln45's call graph), `elemOffset` (bytes added to a
+global base: `a[i + c]`, or a far access's Z offset), `switchCases`,
+`phiIncoming`, `asmText`, a `SourceLoc` and, for an inlined instruction,
+`callLoc` (the call it was inlined at). A `Block` has a label, its
+instructions and a `cold` flag (`__unlikely`).
 
 Operand kinds (`ir::OperandKind`) and their printed form:
 
@@ -177,10 +193,13 @@ fn _main() -> i16 [fastcall] {
 }
 ```
 
-This is the verbatim output of `CC45_DUMP_IR=1 ./bin/cc45 -S t.c` (default
-options). stderr also carries the compiler's normal notes, and — for modules with
-three or fewer functions — a debug line `[DCE] Functions: ... | used: ...` from
-`IRBuilder::generate`.
+This is the verbatim output of `CC45_DUMP_IR=1 ./bin/cc45 -O0 -S t.c`.
+stderr also carries the compiler's normal notes (here the parameter-narrowing
+note for `add`). At the default `-O2` the same file dumps one function:
+`add` is inlined into `main` (its `add` followed by `@inline_end4:`) and
+removed, the constants are immediates (`%3 = cmp_ltu i8 %0, 8`), the
+`addr_elem` is fused into the store, and the removed instructions are `nop`
+lines.
 
 Format rules, from `IRPrinter.cpp`:
 
@@ -208,24 +227,33 @@ Format rules, from `IRPrinter.cpp`:
 |-------|----------|---------------------|
 | `conv` (`CallConv::STACK` / `ZP`) | `IRBuilder::usesZpConv`: ZP when `-fzpcall` (default) or `__fastcall__`, not variadic, params fit the 32-byte ZP block | parameter passing; printed `[fastcall]` |
 | `CallConv::STATIC` | — | declared but never assigned |
-| `isVariadic` | `...` | forces stack params, no SAC |
+| `isVariadic` | `...` | forces stack params; with SAC the entry thunk keeps the address of the `...` arguments in `<f>__va` |
 | `isStatic`, `isWeak` | `static`, `#pragma cc45 weak` | symbol export |
 | `isInterrupt`, `isNaked`, `isRegparm` | `__interrupt`, `__naked`, `__regparm` | prologue/epilogue, no SAC for interrupt/naked |
 | `isRecurse` | `#pragma cc45 recurse` | opts the function out of SAC |
+| `isFar`, `bank`, `section` | `__far`, `__bank(n)`, `__section("NAME")` | the text sub-segment the code is emitted in (`far`, `far.n`, `sect.NAME`) |
+| `noOptimize`, `optOverrides`, `argLists` | `#pragma cc45 optimize(off)` / `optimize(...)`, `-fzp-args` | no IR pass and `.noopt_start`/`.noopt_end`; per-function pass switches; the SAC entry copies parameters through `__zp_args` / `__sac_args` lists |
+| `restrictVregs`, `memoryVregs`, `registerVregs` | `restrict` parameters; volatile / address-taken variables; `register` | what the passes may assume, and where IRCodeGen places the vreg |
 | `isNested`, `staticLinkVreg` | GCC nested functions | static chain |
 | `align`, `retAddrSlot`, `addressTakenLabels` | `aligned(N)`, `__builtin_return_address`, `&&label` | — |
 
 SAC is not an IR calling convention: IRCodeGen decides it per function
-(`staticAllocMode` on, not `isRecurse`/`isInterrupt`/`isNaked`/`isVariadic`,
+(`staticAllocMode` on, not `isRecurse`/`isInterrupt`/`isNaked`,
 no runtime `alloca`, not on a call cycle in the module, no direct self-call).
+Variadic functions use SAC too (see
+[calling-conventions.md](calling-conventions.md#35-variadic-functions)).
 
-`ir::Module` also carries `globals` (with constant-initializer images),
-`strings`, `externs`, `saveZP`, `setBP` and `stackTop`.
+`ir::Module` also carries `globals` (with constant-initializer images,
+address space, alignment, `section`, `bank`), `strings`, `externs` (with
+`zpExterns`, `externSizes`), `pureFunctions`, `volatileGlobals`, `fileAsm`
+(file-scope `asm`), debug information (`debugGlobals`, `debugTypes`) and the
+file's settings: `saveZP`, `setBP`, `stackTop`, `stackSize`, `bssFill`,
+`fastFloat`, `overlay`, `maxUnrollBytes`.
 
 ## IRBuilder coverage
 
-`IRBuilder` (`include/IRBuilder.hpp`, `src/main/IRBuilder.cpp`) overrides all
-46 `ASTVisitor::visit` methods: IntegerLiteral, FloatLiteral, StringLiteral,
+`IRBuilder` (`include/IRBuilder.hpp`, `src/main/IRBuilder.cpp`; far and near
+pointers in `IRBuilderFar.cpp`) overrides all 47 `ASTVisitor::visit` methods: IntegerLiteral, FloatLiteral, StringLiteral,
 VariableReference, Assignment, BinaryOperation, UnaryOperation,
 ConditionalExpression, GenericSelection, InitializerList, ArrayAccess,
 FunctionCall, MemberAccess, CastExpression, CompoundLiteral, AlignofExpression,
@@ -235,7 +263,8 @@ ExpressionStatement, IfStatement, WhileStatement, DoWhileStatement, ForStatement
 RepeatStatement, SwitchStatement, CaseStatement, DefaultStatement, AsmStatement,
 StaticAssert, EnumDefinition, StructDefinition, CompoundStatement,
 StatementExpression, FunctionDeclaration, BuiltinVaStart, BuiltinVaArg,
-CpuRegisterAccess, CpuFlagAccess, LabelAddressExpression, TranslationUnit.
+CpuRegisterAccess, CpuFlagAccess, BitSelect, LabelAddressExpression,
+TranslationUnit.
 
 ## Design notes
 
@@ -250,8 +279,8 @@ IRCodeGen can lower it) but IRBuilder never emits it.
 
 Each IR instruction becomes a short sequence of ca45 instructions and simulated
 ops. The IR leaves to IRCodeGen: vreg placement (registers, ZP slots, frame or
-SAC storage), frame setup, calling-convention mechanics (ZP parameter block vs.
-stack pushes, SAC thunks), and float calls into the ROM.
+SAC storage, base-page blocks), frame setup, calling-convention mechanics (ZP
+parameter block vs. stack pushes, SAC thunks), and the float runtime calls.
 
 ## Known gaps
 

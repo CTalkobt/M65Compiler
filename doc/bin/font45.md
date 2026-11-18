@@ -1,6 +1,6 @@
 # font45 — Fonts for the MEGA65
 
-`font45` converts a font (bitmap, TrueType or an image of glyphs) into one of two forms (#466):
+`font45` converts a font (bitmap, TrueType or an image of glyphs) into one of three forms (#466):
 
 - an **8x8 charset** for the VIC-IV's text mode, 256 or 512 characters, in ASCII, screen-code or PETSCII order;
 - a **`<font.h>` font**: 1, 2 or 4 bits a pixel, fixed or proportional, any height up to 255 rows. The library
@@ -11,7 +11,7 @@
 
 `--segments 7|14|16` makes a segment display's font instead of reading one.
 
-Both are written as C (an array and its header), ca45 assembly or a binary file.
+All are written as C (an array and its header), ca45 assembly or a binary file.
 
 ## Usage
 
@@ -69,7 +69,7 @@ I: 1 1 1 1 1
 | `--bold` | Bold: each pixel also drawn one to the right (one wider) |
 | `--italic` | Italic: rows slant right, one pixel for each four rows above the baseline |
 | `--outline` | Outline: the pixels around the glyph, the glyph itself cleared (two wider) |
-| `--load-at ADDR` | Binary output: a two-byte load address in front (for `cbm_load` or [`load_far`](../architecture/stdlib.md#loading-files-anywhere-loadh)) |
+| `--load-at ADDR` | Binary output: a two-byte load address (0–`$FFFF`) in front (for `cbm_load` or [`load_far`](../architecture/stdlib.md#loading-files-anywhere-loadh)) |
 | `--format F` | The input's format: `bdf`, `psf`, `charset`, `text`, `truetype`, `image`, `rom`, `font45` |
 | `--size N` | TrueType: the line's height in pixels, 4–255 (default 16) |
 | `--grid WxH`, `--first N`, `--order rows\|columns` | An image: the cells, the first cell's code, the cells' order |
@@ -82,7 +82,7 @@ I: 1 1 1 1 1
 | `--gradient N` | A glyph set: N ramps down the glyph, ramp r's entries B + r·L … (a vertical gradient) |
 | `--shadow C`, `--edge C` | A glyph set: a drop shadow (one pixel below and right) / an outline in palette entry C |
 | `--segments 7\|14\|16` | No input: a segment display's font, `--size` pixels high (7–255): the digits, the letters the display can show (lower case as upper case) and some signs. Unlit segments are drawn dim, at a third of the coverage (`--bpp 2`'s level 1, the lit ones 3), unless `--no-ghost` |
-| `--pack ADDR` | The output is a pack45 stream that unpacks to ADDR, for `font_load` |
+| `--pack ADDR` | The output is a pack45 stream that unpacks to ADDR (a 28-bit address), for `font_load`: the stream alone (`pack45 -x --raw` unpacks it on the host), or with `--load-at` a two-byte load address in front |
 | `--scale N`, `--text "..."` | `preview`: pixels a font pixel (1–16, default 4), the sample line (default "The quick brown fox") |
 | `--from ORDER` | A charset input's order: `screencode` (the default), `petscii` or `ascii` (as font45 `--charset ascii` writes) |
 | `-v` … `-vvvv` | Log on stderr as `[font45:LEVEL] …` |
@@ -104,7 +104,7 @@ shows the sample text in PETSCII's letters.
 | `petscii` | PETSCII code *i*: 65–90 `a`–`z`, 193–218 `A`–`Z` (the shifted set) |
 
 With `--count 512` the second 256 characters repeat the first. Glyphs taller than 8 rows lose their lower rows
-(a warning); glyphs narrower than 8 are placed at the left.
+(a warning); glyphs narrower than 8 are placed at the left (`--center`: centred).
 
 ## The font format (format 1)
 
