@@ -64,8 +64,8 @@ static void usage() {
               << "  disk45 info <image>                       Show disk info\n"
               << "  disk45 add <image> <file> [cbm_name] [-p]  Add file to image\n"
               << "  disk45 extract <image> <cbm_name> <file> [-p]  Extract file\n"
-              << "  disk45 extract-all <image> [dir] [pattern]  Extract all files\n"
-              << "  disk45 copy <src> <pattern> <dst>         Copy files between images\n"
+              << "  disk45 extract-all <image> [dir] [pattern]  Extract all files (subdirectories as directories)\n"
+              << "  disk45 copy <src> <pattern> <dst> [-r]    Copy files between images (-r: subdirectories too)\n"
               << "  disk45 remove <image> <cbm_name>          Delete file from image\n"
               << "  disk45 rename <image> <old> <new>         Rename file in image\n"
               << "  disk45 lock <image> <cbm_name>            Lock file (prevent delete)\n"
@@ -862,7 +862,7 @@ static int cmdList(int argc, char** argv) {
         std::cout << fileTypeStr(f.type);
         if (f.locked) std::cout << "<";
         DirEntry e;
-        if (pathParts.size() <= 1 && geosEntry(img.get(), f.name, e))
+        if (geosEntry(img.get(), f.name, e))
             std::cout << "\tGEOS " << DiskImage::geosTypeName(e.unused[0]) << (e.recordLen ? ", VLIR" : "");
         std::cout << "\n";
     }
@@ -907,13 +907,24 @@ static int cmdInfo(int argc, char** argv) {
             std::cout << "Description:  " << desc << "\n";
         std::cout << "Files:        " << img->listFiles().size() << "\n";
     } else {
-        std::cout << "Format:       " << formatLabel(img.get()) << "\n"
-                  << "Disk name:    " << img->diskName() << "\n"
+        auto* parted = dynamic_cast<CmdImage*>(img.get());
+        if (parted && parted->partitions().empty()) parted = nullptr;
+        std::cout << "Format:       " << formatLabel(img.get()) << "\n";
+        if (parted) {
+            // (a D1M/D2M/D4M: the lines below are of one partition, #633)
+            std::cout << "Whole image:  " << img->rawBytes().size() << " bytes, " << img->rawBytes().size() / 256
+                      << " sectors, " << parted->partitions().size() << " partition"
+                      << (parted->partitions().size() == 1 ? "" : "s") << "\n";
+            for (const auto& p : parted->partitions())
+                if (parted->hasNative() && p.start == parted->nativeStart() && p.type == 1)
+                    std::cout << "Partition:    " << p.number << " \"" << p.name << "\" (the lines below are its)\n";
+        }
+        std::cout << "Disk name:    " << img->diskName() << "\n"
                   << "Disk ID:      " << img->diskId() << "\n"
                   << "Tracks:       " << img->totalTracks() << "\n"
                   << "Total sectors:" << img->totalSectors() << "\n"
                   << "Free sectors: " << img->freeSectors() << "\n"
-                  << "Image size:   " << img->totalBytes() << " bytes\n"
+                  << (parted ? "Size:         " : "Image size:   ") << img->totalBytes() << " bytes\n"
                   << "Files:        " << img->listFiles().size() << "\n";
         if (trackImage(img.get()) && !img->geosSignature().empty())
             std::cout << "GEOS:         " << img->geosSignature() << "\n";
@@ -1016,8 +1027,9 @@ static int cmdAdd(int argc, char** argv) {
         std::cerr << "Error: failed to write " << imagePath << "\n";
         return 1;
     }
-    std::cout << "Added \"" << cbmName << "\" (" << data.size() << " bytes, "
-              << fileTypeStr(ftype) << ")\n";
+    // (the name as the directory has it: "main" is stored, and listed, as MAIN)
+    std::cout << "Added \"" << DiskImage::petsciiToAscii(DiskImage::asciiToPetscii(cbmName)) << "\" ("
+              << data.size() << " bytes, " << fileTypeStr(ftype) << ")\n";
     return 0;
 }
 
@@ -1612,9 +1624,79 @@ static int cmdDump(int argc, char** argv) {
 // Copy between images
 // ============================================================================
 
+static bool isDirType(CbmFileType t) { return t == CbmFileType::CBM || t == CbmFileType::DIR; }
+
+// Copy the files (of the source's working directory) into the target's.
+// A subdirectory: with -r made in the target (if it is not there) and its
+// files copied into it, else passed over with a note (#633: it was copied
+// as an entry without contents)
+static void copyFiles(DiskImage* src, DiskImage* dst, const std::vector<FileInfo>& files, bool recurse,
+                      const std::string& prefix, int depth, int& copied, int& dirs, int& skippedDirs) {
+    for (auto& f : files) {
+        if (isDirType(f.type)) {
+            if (!recurse) {
+                std::cerr << "  " << prefix << f.name << "/ is a directory: not copied (copy -r copies it)\n";
+                skippedDirs++;
+                continue;
+            }
+            if (depth >= 16) { std::cerr << "Warning: \"" << prefix << f.name << "\": directories nested too deep, skipping\n"; continue; }
+            DirEntry se = src->findEntry(f.name);
+            if (!se.isValid() || src->directoryChain(se).isNull()) {
+                std::cerr << "Warning: \"" << prefix << f.name << "\": not a readable directory, skipping\n";
+                continue;
+            }
+            DirEntry de = dst->findEntry(f.name);
+            if (!de.isValid()) {
+                if (!dst->makeDirectory(f.name)) {
+                    std::cerr << "Error: cannot make the directory \"" << prefix << f.name
+                              << "\" in the target (full, or a format without subdirectories)\n";
+                    continue;
+                }
+                de = dst->findEntry(f.name);
+                dirs++;
+                std::cout << "  " << prefix << f.name << "/\n";
+            }
+            if (!de.isValid() || !DiskImage::isDirectory(de)) {
+                std::cerr << "Error: \"" << prefix << f.name << "\" in the target is a file, not a directory\n";
+                continue;
+            }
+            TrackSector sHere = src->inSubdirectory() ? src->directoryStart() : TrackSector{0, 0}, sHdr = src->directoryHeader();
+            TrackSector dHere = dst->inSubdirectory() ? dst->directoryStart() : TrackSector{0, 0}, dHdr = dst->directoryHeader();
+            src->enterDirectory(se);
+            dst->enterDirectory(de);
+            copyFiles(src, dst, src->listFiles(), true, prefix + f.name + "/", depth + 1, copied, dirs, skippedDirs);
+            src->setDirectory(sHere, sHdr);
+            dst->setDirectory(dHere, dHdr);
+            continue;
+        }
+        if (dst->fileExists(f.name)) {
+            std::cerr << "Warning: \"" << prefix << f.name << "\" already exists in destination, skipping\n";
+            continue;
+        }
+        std::string err;
+        size_t bytes = 0;
+        if (!copyImageFile(src, dst, f, err, bytes)) {
+            std::cerr << "Error: failed to copy \"" << prefix << f.name << "\": " << err << "\n";
+            continue;
+        }
+        std::cout << "  " << prefix << f.name << " (" << bytes << " bytes, " << fileTypeStr(f.type) << ")\n";
+        copied++;
+    }
+}
+
 static int cmdCopy(int argc, char** argv) {
+    bool recurse = false;
+    {
+        int out = 0;
+        for (int i = 0; i < argc; i++) {
+            std::string a = argv[i];
+            if (a == "-r" || a == "--recursive") { recurse = true; continue; }
+            argv[out++] = argv[i];
+        }
+        argc = out;
+    }
     if (argc < 3) {
-        std::cerr << "Usage: disk45 copy <src_image> <pattern> <dst_image>\n";
+        std::cerr << "Usage: disk45 copy <src_image> <pattern> <dst_image> [-r]\n";
         return 1;
     }
     std::string srcPath = argv[0];
@@ -1632,29 +1714,18 @@ static int cmdCopy(int argc, char** argv) {
         return 1;
     }
 
-    int copied = 0;
-    for (auto& f : files) {
-        if (dst->fileExists(f.name)) {
-            std::cerr << "Warning: \"" << f.name << "\" already exists in destination, skipping\n";
-            continue;
-        }
-        std::string err;
-        size_t bytes = 0;
-        if (!copyImageFile(src.get(), dst.get(), f, err, bytes)) {
-            std::cerr << "Error: failed to copy \"" << f.name << "\": " << err << "\n";
-            continue;
-        }
-        std::cout << "  " << f.name << " (" << bytes << " bytes, " << fileTypeStr(f.type) << ")\n";
-        copied++;
-    }
+    int copied = 0, dirs = 0, skippedDirs = 0;
+    copyFiles(src.get(), dst.get(), files, recurse, "", 0, copied, dirs, skippedDirs);
 
-    if (copied > 0) {
+    if (copied > 0 || dirs > 0) {
         if (!dst->saveImage(dstPath)) {
             std::cerr << "Error: failed to write " << dstPath << "\n";
             return 1;
         }
     }
-    std::cout << "Copied " << copied << " file(s) from " << srcPath << " to " << dstPath << "\n";
+    std::cout << "Copied " << copied << " file(s)";
+    if (dirs) std::cout << " and " << dirs << " director" << (dirs == 1 ? "y" : "ies");
+    std::cout << " from " << srcPath << " to " << dstPath << "\n";
     return 0;
 }
 
@@ -1662,31 +1733,31 @@ static int cmdCopy(int argc, char** argv) {
 // Extract all files
 // ============================================================================
 
-static int cmdExtractAll(int argc, char** argv) {
-    bool petscii = extractPetsciiFlag(argc, argv);
-    if (argc < 1) {
-        std::cerr << "Usage: disk45 extract-all <image> [output_dir] [pattern]\n";
-        return 1;
+// The files of the image's working directory that match the pattern, into
+// outDir; a subdirectory becomes a directory of that name with its files
+// (always: #633, it came out as a 254-byte NAME.del)
+static void extractDir(DiskImage* img, const std::string& outDir, const std::string& pattern, bool petscii,
+                       const std::string& prefix, int depth, int& extracted) {
+    std::error_code ec;
+    std::filesystem::create_directories(outDir, ec);
+    auto all = img->listFiles();
+    std::vector<FileInfo> files;
+    for (auto& f : all) {
+        if (!isDirType(f.type)) { files.push_back(f); continue; }
+        DirEntry e = img->findEntry(f.name);
+        if (depth >= 16 || !e.isValid() || img->directoryChain(e).isNull()) {
+            std::cerr << "Warning: \"" << prefix << f.name << "\": not a readable directory, skipping\n";
+            continue;
+        }
+        TrackSector here = img->inSubdirectory() ? img->directoryStart() : TrackSector{0, 0}, hdr = img->directoryHeader();
+        img->enterDirectory(e);
+        extractDir(img, outDir + "/" + sanitizeFilename(f.name), pattern, petscii, prefix + f.name + "/", depth + 1, extracted);
+        img->setDirectory(here, hdr);
     }
-    std::string imagePath = argv[0];
-    std::string outDir = (argc >= 2) ? argv[1] : ".";
-    std::string pattern = (argc >= 3) ? argv[2] : "*";
-
-    auto img = DiskImage::load(imagePath);
-    if (!img) { std::cerr << "Error: failed to load " << imagePath << "\n"; return 1; }
-
-    // Create output directory if needed
-    std::string mkdirCmd = "mkdir -p '" + outDir + "'";
-    if (system(mkdirCmd.c_str()) != 0) {
-        std::cerr << "Error: cannot create directory " << outDir << "\n";
-        return 1;
-    }
-
-    auto files = filterFiles(img->listFiles(), pattern);
-    int extracted = 0;
+    files = filterFiles(files, pattern);
     for (auto& f : files) {
         DirEntry ge;
-        bool geos = geosEntry(img.get(), f.name, ge);
+        bool geos = geosEntry(img, f.name, ge);
         std::vector<uint8_t> data;
         if (geos) {
             std::string err;
@@ -1725,9 +1796,33 @@ static int cmdExtractAll(int argc, char** argv) {
             continue;
         }
         out.write(reinterpret_cast<const char*>(data.data()), data.size());
-        std::cout << "  " << f.name << " → " << fullPath << " (" << data.size() << " bytes)\n";
+        std::cout << "  " << prefix << f.name << " → " << fullPath << " (" << data.size() << " bytes)\n";
         extracted++;
     }
+}
+
+static int cmdExtractAll(int argc, char** argv) {
+    bool petscii = extractPetsciiFlag(argc, argv);
+    if (argc < 1) {
+        std::cerr << "Usage: disk45 extract-all <image> [output_dir] [pattern]\n";
+        return 1;
+    }
+    std::string imagePath = argv[0];
+    std::string outDir = (argc >= 2) ? argv[1] : ".";
+    std::string pattern = (argc >= 3) ? argv[2] : "*";
+
+    auto img = DiskImage::load(imagePath);
+    if (!img) { std::cerr << "Error: failed to load " << imagePath << "\n"; return 1; }
+
+    // Create output directory if needed
+    std::string mkdirCmd = "mkdir -p '" + outDir + "'";
+    if (system(mkdirCmd.c_str()) != 0) {
+        std::cerr << "Error: cannot create directory " << outDir << "\n";
+        return 1;
+    }
+
+    int extracted = 0;
+    extractDir(img.get(), outDir, pattern, petscii, "", 0, extracted);
 
     std::cout << "Extracted " << extracted << " file(s) from " << imagePath << "\n";
     return 0;
@@ -2819,7 +2914,7 @@ static bool checkOptions(const std::string& cmd, int argc, char** argv) {
         {"extract", {"-p", "--petscii"}}, {"read", {"-p", "--petscii"}},
         {"extract-all", {"-p", "--petscii"}}, {"extractall", {"-p", "--petscii"}},
         {"info", {}},
-        {"copy", {}}, {"cp", {}}, {"remove", {}}, {"delete", {}}, {"rm", {}}, {"rename", {}}, {"mv", {}},
+        {"copy", {"-r", "--recursive"}}, {"cp", {"-r", "--recursive"}}, {"remove", {}}, {"delete", {}}, {"rm", {}}, {"rename", {}}, {"mv", {}},
         {"lock", {}}, {"unlock", {}}, {"splat", {}}, {"unsplat", {}}, {"validate", {}}, {"check", {}},
         {"bam", {}}, {"map", {}}, {"dump", {}}, {"hex", {}}, {"mkdir", {}}, {"rmdir", {}}, {"tree", {}},
         {"convert", {}}, {"dir-shrink", {}}, {"dir-ensure", {}},
@@ -2994,9 +3089,11 @@ static int runCommand(int argc, char** argv) {
 
 int main(int argc, char** argv) {
     if (argc < 2) { usage(); return 1; }
-    // -v ... -vvvv anywhere: the log (a lone -v first stays --version)
+    // -v ... -vvvv anywhere: the log. -v as the only argument stays
+    // --version (#633: `disk45 -v list x.d81` printed the version too)
     Logger::setTool("disk45");
-    if (std::string(argv[1]) != "-v") argc = Logger::takeFlags(argc, argv);
+    if (!(argc == 2 && std::string(argv[1]) == "-v")) argc = Logger::takeFlags(argc, argv);
+    if (argc < 2) { usage(); return 1; }
     // --tap-timing=c64|vic20|c16 anywhere: decode TAP images with that
     // machine's pulse ratios instead of the header's platform
     for (int i = 1; i < argc; i++) {

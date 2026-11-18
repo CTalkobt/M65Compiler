@@ -4,6 +4,20 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### disk45: subdirectories in extract-all and copy -r; the rest of #633
+
+- **`extract-all` goes into subdirectories**: one becomes a directory of its name with its files, and so on down
+  (it came out as a 254-byte `NAME.del`); the pattern applies in every directory.
+- **`copy -r`** (`--recursive`) makes a matching subdirectory in the destination and copies everything in it.
+  Without it a subdirectory is passed over with a note (it was copied as an entry without contents).
+- **`list` in a subdirectory** shows the GEOS note of its files, as in the root.
+- **`info` of a D1M / D2M / D4M** begins with the whole image (bytes, sectors, the number of partitions) and names
+  the partition the other lines are of.
+- **`add`** prints the name as the directory has it (`Added "MAIN"`, not as typed).
+- **`-v` with a command** is the log level (`disk45 -v list x.d81` printed the version); alone it stays the version.
+- **`catalog build`** prints its `Scanning ...` line for a zip or an SD card image given as an argument.
+- Tests: `test_disk45.sh` (142).
+
 ### dbg45, disk45, asmCvt45: three ways to end badly (#632, #633, #634)
 
 - **dbg45: `break *$2124` ended dbg45** with an uncaught `stoul` exception. Every number a command takes

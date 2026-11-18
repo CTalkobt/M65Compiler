@@ -992,6 +992,69 @@ for p in "d80:D80 (8050)" "d82:D82 (8250)" "ark:ARK" "t64:T64" "d64:D64 (1541)";
 done
 
 # ============================================================================
+# #633, the rest: subdirectories in extract-all and copy -r, the GEOS note in
+# a subdirectory, info of a partitioned image, add's message, -v with a command
+R=$TMPDIR/r633
+mkdir -p "$R"
+printf 'AAAA' > "$R/a.prg"; printf 'bbbb' > "$R/b.seq"
+$DISK45 create "$R/s.d81" -n SRC >/dev/null
+out=$($DISK45 add "$R/s.d81" "$R/a.prg" main)
+echo "$out" | grep -q 'Added "MAIN"' && pass "add prints the name as stored" || fail "add message: $out"
+$DISK45 mkdir "$R/s.d81" sub >/dev/null && $DISK45 add "$R/s.d81" "$R/b.seq" sub/inner >/dev/null &&
+    $DISK45 mkdir "$R/s.d81" sub/deep >/dev/null && $DISK45 add "$R/s.d81" "$R/a.prg" sub/deep/leaf >/dev/null
+$DISK45 extract-all "$R/s.d81" "$R/out" >/dev/null 2>&1
+if cmp -s "$R/out/MAIN.prg" "$R/a.prg" && cmp -s "$R/out/SUB/INNER.seq" "$R/b.seq" &&
+   cmp -s "$R/out/SUB/DEEP/LEAF.prg" "$R/a.prg" && [ "$(find "$R/out" -type f | wc -l)" = 3 ]; then
+    pass "extract-all writes subdirectories as directories"
+else
+    fail "extract-all with subdirectories: $(find "$R/out" | sort | tr '\n' ' ')"
+fi
+$DISK45 extract-all "$R/s.d81" "$R/out2" "L*" >/dev/null 2>&1
+[ "$(find "$R/out2" -type f)" = "$R/out2/SUB/DEEP/LEAF.prg" ] && pass "extract-all: the pattern applies in every directory" ||
+    fail "extract-all L*: $(find "$R/out2" -type f | tr '\n' ' ')"
+$DISK45 create "$R/d.d81" -n SRC >/dev/null
+out=$($DISK45 copy "$R/s.d81" "*" "$R/d.d81" 2>&1)
+if echo "$out" | grep -q "SUB/ is a directory: not copied (copy -r copies it)" && echo "$out" | grep -q "Copied 1 file(s)" &&
+   ! $DISK45 list "$R/d.d81" | grep -q '"SUB"'; then
+    pass "copy without -r passes over a subdirectory and says so"
+else
+    fail "copy without -r: $out"
+fi
+out=$($DISK45 copy "$R/s.d81" "*" "$R/d.d81" -r 2>&1)
+if echo "$out" | grep -q "Copied 2 file(s) and 2 directories" && $DISK45 diff "$R/s.d81" "$R/d.d81" >/dev/null 2>&1 &&
+   $DISK45 validate "$R/d.d81" | grep -q "Status: OK"; then
+    pass "copy -r copies subdirectories (the images then compare equal)"
+else
+    fail "copy -r: $out; $($DISK45 diff "$R/s.d81" "$R/d.d81" 2>&1 | tail -2)"
+fi
+if [ -f "$TMPDIR/vlir.cvt" ]; then
+    $DISK45 create "$R/g.d81" >/dev/null && $DISK45 mkdir "$R/g.d81" apps >/dev/null &&
+        $DISK45 add "$R/g.d81" "$TMPDIR/vlir.cvt" apps/ >/dev/null 2>&1
+    $DISK45 list "$R/g.d81" apps/ | grep -q 'GEOS Application, VLIR' && pass "list shows the GEOS note in a subdirectory" ||
+        fail "list in a subdirectory: $($DISK45 list "$R/g.d81" apps/ | sed -n 2p)"
+    $DISK45 extract-all "$R/g.d81" "$R/gout" >/dev/null 2>&1
+    cmp -s "$R/gout/APPS/GeoTest App.cvt" "$TMPDIR/vlir.cvt" && pass "extract-all: a GEOS file of a subdirectory as its CVT" ||
+        fail "extract-all of a GEOS file in a subdirectory"
+fi
+$DISK45 create "$R/p.d2m" --partitions "native:800,1581" >/dev/null 2>&1
+out=$($DISK45 info "$R/p.d2m")
+if echo "$out" | grep -q "^Whole image:  1658880 bytes, 6480 sectors, 2 partitions" && echo "$out" | grep -q '^Partition:    1 ' &&
+   ! $DISK45 info "$R/s.d81" | grep -q "Whole image"; then
+    pass "info of a partitioned image: the whole image, then the partition"
+else
+    fail "info of a D2M: $(echo "$out" | head -3 | tr '\n' '|')"
+fi
+$DISK45 -v list "$R/s.d81" 2>/dev/null | grep -q '"MAIN"' && $DISK45 -v | grep -q '^disk45 v' &&
+    pass "-v with a command is the log level; alone, the version" || fail "-v list / -v"
+if $DISK45 catalog list --db "$R/none.db" 2>&1 | grep -q "built without SQLite"; then
+    :
+else
+    $DISK45 sd create "$R/card.img" 64M --onboarded >/dev/null 2>&1 && $DISK45 sd add "$R/card.img" "$R/s.d81" S.D81 >/dev/null 2>&1
+    $DISK45 catalog build "$R/card.img" --db "$R/c.db" 2>&1 | grep -q "^Scanning .*card.img" &&
+        pass "catalog build names an SD card image it scans" || fail "catalog build of an SD card image prints no Scanning line"
+fi
+
+# ============================================================================
 echo ""
 echo "disk45 tests: $passed passed, $failed failed"
 [ "$failed" -eq 0 ] || exit 1

@@ -17,7 +17,7 @@ The format is chosen from the file extension; an unrecognised extension is treat
 
 `disk45 sd` works on MEGA65 SD card images (FAT32 with the MEGA65 system partition, see [MEGA65 SD Card Images](#mega65-sd-card-images)).
 
-Running `disk45` with no arguments or an unknown command prints the usage summary (exit status 1). `disk45 --version` (or `-v` as the first argument, whatever follows it) prints the version; `-v` … `-vvvv` elsewhere turn on the log (see the [Command Summary](#command-summary)).
+Running `disk45` with no arguments or an unknown command prints the usage summary (exit status 1). `disk45 --version` (or `-v` as the only argument) prints the version; `-v` … `-vvvv` with a command turn on the log (see the [Command Summary](#command-summary)).
 
 ## Commands
 
@@ -146,7 +146,7 @@ disk45 extract game.d81 README readme.txt -p
 disk45 extract-all <image> [output_dir] [pattern] [-p|--petscii]
 ```
 
-Extract all files (or those matching `pattern`, default `*`) into `output_dir` (default `.`, created if missing). Host names get a type extension (`.prg`, `.seq`, `.usr`, `.rel`, `.del`); characters not allowed in host names become `_`. An existing host file is not overwritten: a numeric suffix is added (`GAME_1.prg`). `-p` converts PETSCII→ASCII for SEQ files only.
+Extract all files (or those matching `pattern`, default `*`) into `output_dir` (default `.`, created if missing). Host names get a type extension (`.prg`, `.seq`, `.usr`, `.rel`, `.del`); characters not allowed in host names become `_`. An existing host file is not overwritten: a numeric suffix is added (`GAME_1.prg`). `-p` converts PETSCII→ASCII for SEQ files only. A subdirectory becomes a directory of its name in `output_dir`, with its files (and so on down); the pattern is applied to the files of every directory.
 
 ```bash
 disk45 extract-all backup.d81                    # into the current directory
@@ -158,10 +158,10 @@ disk45 extract-all backup.d81 ./text/ "*" -p
 #### copy / cp
 
 ```
-disk45 copy <src_image> <pattern> <dst_image>
+disk45 copy <src_image> <pattern> <dst_image> [-r|--recursive]
 ```
 
-Copy files matching `pattern` between images of any formats, keeping the file type. The destination must already exist (create it first). Files whose name already exists in the destination are skipped with a warning.
+Copy files matching `pattern` between images of any formats, keeping the file type. The destination must already exist (create it first). Files whose name already exists in the destination are skipped with a warning. A subdirectory that matches is passed over with a note, or with `-r` made in the destination (if it is not there) and copied with everything in it; the destination must be a format with subdirectories.
 
 ```bash
 disk45 create new.d81
@@ -240,6 +240,8 @@ disk45 info <image>
 ```
 
 Show metadata. TAP images show version, platform, the timing they are decoded with, data size, file count and each file's state (`verified`, `repaired` with why, `DAMAGED` with why; see [Tape Formats](#tape-formats)); GEOS CVT files show GEOS name, type, structure (VLIR/sequential, record count), class, author and description; disk images formatted for GEOS also show the `GEOS format` signature; other images show format, name, ID, tracks, total/free sectors, image size and file count.
+
+For a D1M / D2M / D4M the first lines are the whole image (`Whole image:  1658880 bytes, 6480 sectors, 2 partitions`) and the partition the lines that follow describe (`Partition:    1 "GAMES"`, the default native one); the partition table comes last.
 
 #### validate / check
 
@@ -893,7 +895,7 @@ auto prg = disk->readFile("GAME");
 | `batch` | `--batch` | Run commands from a file |
 | `-a2p` | `--ascii-to-petscii` | ASCII→PETSCII filter |
 | `-p2a` | `--petscii-to-ascii` | PETSCII→ASCII filter |
-| `--version` | `-v` | Print version (`-v` as the first argument: `disk45 -v list x.d81` prints the version too; put it after the command for the log) |
+| `--version` | `-v` | Print version (`-v` as the only argument; with a command it is the log level) |
 | `--tap-timing=c64\|vic20\|c16` | | Anywhere among the arguments: the pulse ratios TAP images are decoded with (default: the TAP header's platform) |
 | `-v` … `-vvvv`, `-v0` | | Anywhere else among the arguments: log on stderr as `[disk45:LEVEL] …` (the toolchain's format, `include/Logger.hpp`); cumulative, at most `-vvvv`; `-v0` off: the images opened and written with their name and free sectors (`-v`), the partition, zip or SD card member opened (`-vv`) |
 
