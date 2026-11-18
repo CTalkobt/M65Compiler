@@ -2844,6 +2844,24 @@ for farmode in "zp|$STDLIB|" "stack|$STDLIB_STACK|-fno-zpcall" \
         failed=$((failed + 1))
     fi
 done
+# The float runtime maps the BASIC ROM at $4000-$7FFF itself for each ROM call
+# and puts the map found back (#614): float calls inside __far functions,
+# which run in a mapped overlay in that window; both conventions, and with
+# the RAM arithmetic (-ffast-float=1)
+for fmmode in "zp|" "stack|-fno-zpcall" "fast|-ffast-float=1"; do
+    IFS='|' read -r fmname fmflags <<< "$fmmode"
+    echo "Testing test_float_map_xemu.c ($fmname)..."
+    fmd=build/test/float_map_$fmname
+    rm -rf $fmd; mkdir -p $fmd
+    if $CC $fmflags src/test-resources/test_float_map_xemu.c -o $fmd/fm.prg >/dev/null 2>&1 &&
+       ./bin/disk45 create $fmd/fm.d81 -n FM >/dev/null 2>&1 &&
+       ./bin/disk45 add $fmd/fm.d81 $fmd/fm.ov1 FM.OV1 >/dev/null 2>&1; then
+        run_xemu_test "test_float_map_$fmname" "$fmd/fm.prg" "C0C0" 6 "01 01 01 01 01 AA" -8 "$PWD/$fmd/fm.d81"
+    else
+        echo "FAIL: test_float_map_xemu.c $fmname (build failed)"
+        failed=$((failed + 1))
+    fi
+done
 # The automatic overlays follow the calls: far code of a.c (5 KB) calls
 # d.c's (2.5 KB); with b.c (2 KB) and c.c (5 KB) linked between them,
 # first fit in command-line order would put a with b and c with d. Packed

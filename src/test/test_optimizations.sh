@@ -306,6 +306,10 @@ ffs() { ./bin/cc45 "$@" -S $T/ff.c -o $T/ff.s 2>/dev/null && grep -c 'jsr __ffas
 [ "$(ffs -Ospeed)" = 5 ] && pass || fail "-Ospeed does not use the RAM float routines"
 [ "$(ffs -Ospeed -fno-fast-float)" = 0 ] && pass || fail "-Ospeed -fno-fast-float still uses them"
 [ "$(ffs -O3)" = 0 ] && pass || fail "-O3 uses the RAM float routines"
+# the levels (#614): =1 as the bare form, =0 off, no other
+[ "$(ffs -O2 -ffast-float=1)" = 5 ] && pass || fail "-ffast-float=1: not all five operations by __ffast_*"
+[ "$(ffs -Ospeed -ffast-float=0)" = 0 ] && pass || fail "-ffast-float=0 still uses the RAM float routines"
+./bin/cc45 -O2 -ffast-float=2 -S $T/ff.c -o $T/ff.s 2>&1 | grep -q "the level is 0 or 1" && pass || fail "-ffast-float=2 is not refused"
 
 # #485: a float result the next operation uses stays in __float_a; many
 # copies between places outside the base page are calls of __f32cpy

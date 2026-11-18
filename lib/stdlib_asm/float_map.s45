@@ -1,0 +1,73 @@
+; float_map.s45 — the BASIC 65 ROM's float routines called by a map switch of
+; our own, not through the KERNAL's JSRFAR (#614): about 110 cycles a call
+; against 260. float_rom.s45's routines all call __float_romcall; there is no
+; switch back to JSRFAR.
+;
+; The float routines the library calls (the jump table at $7F00 and what it
+; reaches: ROM V920413 checked) lie in $4000-$7FFF but for BASIC's error exit
+; ($2FEC-$2FFF), which the library never lets them reach (float_rom.s45:
+; overflow and division by zero are handled before the call). So only the
+; two 8 KB blocks of $4000-$7FFF are mapped to the ROM ($34000), and this
+; code is in the "init" segment, which ln45 places first in the program
+; (below $4000), outside what it maps.
+;
+; - The upper half of the map (the KERNAL at $E000) stays as it is.
+; - $011C-$011F (the map the KERNAL takes as current, restored when its
+;   interrupt handler returns) is kept in step, as mapped overlays do
+;   (ovl.s45); the map found there is put back after the call, so a mapped
+;   overlay's window ($4000-$7FFF too) is the overlay's again.
+; - What is read or written while the ROM is mapped (the saved map, the
+;   routine's registers) is kept here beside the code, below $4000.
+; - Called with the base page at 0 (between __bp_rom and __bp_prog), as
+;   float_rom.s45's own: absolute addressing only.
+; - While the ROM routine runs, the program's memory at $4000-$7FFF is not
+;   visible: the CPU stack must not be there, and an interrupt handler of
+;   the program placed there must not run then (JSRFAR hid $2000-$7FFF, so
+;   both held before too).
+; - A ROM error (overflow, division by zero, illegal quantity) would leave
+;   through $2FEC, which is the program's memory here, not BASIC's handler:
+;   every caller keeps the ROM from it (float_rom.s45 scales and saturates,
+;   math.c and basic_rt.s45 check the arguments).
+; - Not reentrant (as the ROM's FAC is not).
+
+    .cpu 45gs02
+
+; no calls through pointers here (ln45's call graph)
+.weak cc45.icallinfo
+cc45.icallinfo = 1
+
+CURRENT_MAP = $011C
+
+.segment "init"
+
+.global __float_romcall
+
+; Call the BASIC ROM routine at A (low) / X (high), Z = 0 as BASIC 65 has it.
+; Returns its A, X, Y, Z and flags.
+__float_romcall:
+    sta @call+1
+    stx @call+2
+    ldq CURRENT_MAP
+    stq __fm_map
+    lda #$00            ; the lower half: blocks 2 and 3 ($4000-$7FFF)
+    ldx #$C3            ; at offset $30000
+    stq CURRENT_MAP
+    map
+    ldz #0
+    eom
+@call:
+    jsr $FFFF
+    php
+    stq __fm_regs
+    ldq __fm_map
+    stq CURRENT_MAP
+    map
+    eom
+    ldq __fm_regs
+    plp
+    rts
+
+; (here, not in the BSS: they are read and written with the ROM mapped, and
+; the BSS can be in $4000-$7FFF)
+__fm_map:  .byte 0, 0, 0, 0     ; the map at the call
+__fm_regs: .byte 0, 0, 0, 0     ; the routine's A, X, Y, Z
