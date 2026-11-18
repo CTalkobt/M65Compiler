@@ -1047,10 +1047,9 @@ int main(int argc, char** argv) {
     selfArgv0 = argv[0];
     Logger::setTool("tune45");
     argc = Logger::takeFlags(argc, argv);   // -v ... -vvvv anywhere
+    if (answerStandardFlags(argc, argv, "tune45", [] { usage(std::cout); })) return 0;
     if (argc < 2) { usage(std::cerr); return 1; }
     std::string cmd = argv[1];
-    if (cmd == "-h" || cmd == "--help") { usage(std::cout); return 0; }
-    if (cmd == "-V" || cmd == "--version") { std::cout << "tune45 " << SUITE_VERSION << "\n"; return 0; }
     std::string out, mode = "c", header, input;
     long loadAt = -1;              // --bin: a load address first (--load-at)
     PlayOptions po;

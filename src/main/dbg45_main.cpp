@@ -225,8 +225,8 @@ int main(int argc, char** argv) {
     bool batch = false, dap = false;
     for (int i = 1; i < argc; i++) {
         std::string a = argv[i];
-        if (a == "-h" || a == "--help") { usage(std::cout); return 0; }
-        if (a == "-V" || a == "--version") { std::cout << suiteVersionString("dbg45") << std::endl; return 0; }
+        if (standardFlag(a) == StdFlag::Help) { usage(std::cout); return 0; }
+        if (standardFlag(a) == StdFlag::Version) { std::cout << suiteVersionString("dbg45") << std::endl; return 0; }
         if (a == "--xemu" && i + 1 < argc) d.opt.xemu = argv[++i];
         else if (a == "--xemu-arg" && i + 1 < argc) d.opt.xemuArgs.push_back(argv[++i]);
         else if (a == "--headless") d.opt.headless = true;

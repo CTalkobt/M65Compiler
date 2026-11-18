@@ -137,8 +137,8 @@ int main(int argc, char** argv) {
             }
             i++;
         };
-        if (a == "-?" || a == "-h" || a == "--help") { usage(); return 0; }
-        else if (a == "-V" || a == "--version") { std::cout << suiteVersionString("pack45") << std::endl; return 0; }
+        if (standardFlag(a) == StdFlag::Help) { usage(); return 0; }
+        else if (standardFlag(a) == StdFlag::Version) { std::cout << suiteVersionString("pack45") << std::endl; return 0; }
         else if (a == "-d" || a == "--dest") { value(dest); haveDest = true; }
         else if (a == "--load") { value(load); haveLoad = true; }
         else if (a == "--raw") raw = true;

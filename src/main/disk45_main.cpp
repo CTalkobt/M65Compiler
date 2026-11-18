@@ -3094,6 +3094,8 @@ int main(int argc, char** argv) {
     Logger::setTool("disk45");
     if (!(argc == 2 && std::string(argv[1]) == "-v")) argc = Logger::takeFlags(argc, argv);
     if (argc < 2) { usage(); return 1; }
+    // -?, -h, --help, -V, --version anywhere (#641; `sd` has a usage of its own)
+    if (std::string(argv[1]) != "sd" && answerStandardFlags(argc, argv, "disk45", [] { usage(); })) return 0;
     // --tap-timing=c64|vic20|c16 anywhere: decode TAP images with that
     // machine's pulse ratios instead of the header's platform
     for (int i = 1; i < argc; i++) {

@@ -511,10 +511,9 @@ void usage() {
 int main(int argc, char** argv) {
     Logger::setTool(TOOL);
     argc = Logger::takeFlags(argc, argv);
+    if (answerStandardFlags(argc, argv, TOOL, [] { usage(); })) return 0;
     if (argc < 2) { usage(); return 1; }
     std::string cmd = argv[1];
-    if (cmd == "-h" || cmd == "--help" || cmd == "-?") { usage(); return 0; }
-    if (cmd == "-V" || cmd == "--version") { std::cout << suiteVersionString(TOOL) << std::endl; return 0; }
 
     Options o;
     for (int i = 2; i < argc; i++) {

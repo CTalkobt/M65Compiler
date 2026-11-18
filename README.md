@@ -125,9 +125,9 @@ after `.basicUpstart`); any other name is a flat binary.
 ./bin/disk45 list work.d81
 ```
 
-Most tools print their options with `-?` (`./bin/cc45 -?`); dbg45, font45 and
-tune45 with `-h` or `--help`, asmCvt45 with `--help`, disk45 when run without
-arguments. The reference pages are in [doc/bin/](doc/bin/).
+Every tool prints its options with `-?` or `--help` (`./bin/cc45 -?`; also `-h`, but in
+nm45 and objdump45, where `-h` shows headers) and its version with `-V` or `--version`,
+wherever the flag is among the arguments. The reference pages are in [doc/bin/](doc/bin/).
 
 ## Download
 

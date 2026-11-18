@@ -388,9 +388,9 @@ static Options parseArgs(int argc, char* argv[]) {
             }
         } else if (arg == "--list-tokens") {
             opts.listTokens = true;
-        } else if (arg == "--version") {
+        } else if (standardFlag(arg) == StdFlag::Version) {
             opts.showVersion = true;
-        } else if (arg == "-h" || arg == "--help") {
+        } else if (standardFlag(arg) == StdFlag::Help) {
             opts.showHelp = true;
         } else if (arg[0] != '-') {
             opts.inputFile = arg;

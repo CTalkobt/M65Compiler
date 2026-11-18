@@ -4,6 +4,21 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### Every tool answers -?, --help, -V and --version the same way (#641)
+
+- **`include/Version.hpp`** now holds, beside the version, the flags every tool answers: `standardFlag(arg)` and
+  `answerStandardFlags(argc, argv, tool, usage)`. `-?` and `--help` print the usage, `-V` and `--version` print
+  `<tool> v<version> (<commit>)`, exit status 0, wherever the flag is among the arguments (before a `--`). `-h` is
+  help too, but in nm45 and objdump45, whose `-h` shows headers.
+- What changes: `dbg45 -?`, `font45 -?`, `tune45 -?`, `asmCvt45 -?` / `-h` / `-V`, `basic45 -V`, `cc45 -h`,
+  `ca45 -h`, `ln45 -h`, `ar45 -h`, `disk45 -?` / `-h` / `--help` / `-V` work; `ar45`, `deploy45`, `font45` and
+  `tune45` answer the flags after a command too (`deploy45 m65ether --help`).
+- `tune45 --version` prints the suite's line (`tune45 v1.1.0.dev (commit)`, not `tune45 1.1.0.dev`); `al45
+  --version` says al45 and `cp45 --version` cp45 (both said the tool they are a link to).
+- **al45 has a help of its own**, with the lint options; it printed ca45's.
+- asmCvt45's help named `.asm` for ACME's output; it is `.a65`.
+- Test: `src/test/test_std_flags.sh` (in `make test`).
+
 ### Documentation: basic45, dbg45 and deploy45 examples (#647)
 
 - **basic45.md**: a compile step by step (`--checks`, `--line-numbers`, a `TRAP` handler and what the program

@@ -38,8 +38,8 @@ asmCvt45 [options] <input-file> [<input-file> ...]
 | `--clear-cache` | Clear the include-file cache before the batch |
 | `--init-config` | Write a default `.asmCvt45rc` in the current directory and exit |
 | `--show-config` | Print the configuration in effect and exit |
-| `--help` | Show usage (there is no `-h`) |
-| `--version` | Show version |
+| `-?`, `-h`, `--help` | Show usage |
+| `-V`, `--version` | Show version |
 
 With one input and no `-o`, the result goes to stdout. With several inputs and no `-o`, each result is written to `<basename><target extension>` in the current directory. The exit status is 1 if any file failed.
 

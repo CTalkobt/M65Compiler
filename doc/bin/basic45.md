@@ -81,7 +81,7 @@ Without `-o` the output is the input name with its extension replaced by `.prg` 
 | `--data-loader` | The input is machine code (a `.prg`, or a binary with `--load-at`): write a BASIC program that POKEs it from `DATA` lines and SYSes it, a type-in listing ([DATA Loaders](#data-loaders-data-loader)); with `--hex`, `--checksum`, `--per-line <n>`, `--start <line>`, `--increment <n>`, `--no-sys`, `--load-at <addr>` |
 | `--list-tokens` | List all keywords with their token values and exit |
 | `-v`, `--verbose` (… `-vvvv`, `-v0`) | Log on stderr as `[basic45:LEVEL] …` (the toolchain's format, `include/Logger.hpp`); cumulative, at most `-vvvv`; `-v0` off: the files, load address, included files, the ca45/ln45 commands of `--link`, the variable renames (`--list` prints those on stdout instead); notes for unused labels |
-| `--version` | Show version |
+| `-V`, `--version` | Show version |
 | `-h`, `--help` | Show help (exit status 0) |
 
 ## Processing Steps
