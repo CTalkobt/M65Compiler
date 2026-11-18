@@ -490,10 +490,10 @@ int main(int argc, char** argv) {
     // Parse all arguments
     for (size_t i = 0; i < allArgs.size(); ++i) {
         std::string arg = allArgs[i];
-        if (arg == "-V" || arg == "--version") {
-            std::cout << suiteVersionString(lintMode ? "cl45" : "cc45") << std::endl;
+        if (standardFlag(arg) == StdFlag::Version) {
+            std::cout << suiteVersionString(programName == "cp45" ? "cp45" : lintMode ? "cl45" : "cc45") << std::endl;
             return 0;
-        } else if (lintMode && (arg == "-?" || arg == "--help")) {
+        } else if (lintMode && standardFlag(arg) == StdFlag::Help) {
             std::cout << "Usage: cl45 [options] <input_file.c>\n"
                          "The C linter: cc45's front end and code generator over a file, MEGA65 rules, no output file.\n"
                          "  --checks=LIST       Rules on or off: globs, '-' removes (--checks=-*,mega65-signedness)\n"
@@ -523,7 +523,7 @@ int main(int argc, char** argv) {
             lintList = true;
         } else if (lintMode && arg.rfind("--explain=", 0) == 0) {
             lintExplain = arg.substr(10);
-        } else if (arg == "-?" || arg == "--help") {
+        } else if (standardFlag(arg) == StdFlag::Help) {
             // Phase 5.1: Dynamic program name in help output
             std::string inputType = (programName == "cp45") ? "<input_file.c>" : "[options] <input_file.c>";
             std::cout << "Usage: " << programName << " " << inputType << std::endl;

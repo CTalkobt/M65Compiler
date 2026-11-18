@@ -64,13 +64,10 @@ static void buildSymbolIndex(Ar45Archive& archive) {
 int main(int argc, char** argv) {
     Logger::setTool("ar45");
     argc = Logger::takeFlags(argc, argv);
-    if (argc < 2 || std::string(argv[1]) == "-?" || std::string(argv[1]) == "--help") {
+    if (answerStandardFlags(argc, argv, "ar45", [&] { printUsage(argv[0]); })) return 0;
+    if (argc < 2) {
         printUsage(argv[0]);
-        return (argc < 2) ? 1 : 0;
-    }
-    if (std::string(argv[1]) == "-V" || std::string(argv[1]) == "--version") {
-        std::cout << suiteVersionString("ar45") << std::endl;
-        return 0;
+        return 1;
     }
 
     std::string command = argv[1];

@@ -124,10 +124,9 @@ std::string extOf(const std::string& path) {
 int main(int argc, char** argv) {
     Logger::setTool("font45");
     argc = Logger::takeFlags(argc, argv);
+    if (answerStandardFlags(argc, argv, "font45", [] { usage(); })) return 0;
     if (argc < 2) { usage(); return 1; }
     std::string cmd = argv[1];
-    if (cmd == "-h" || cmd == "--help") { usage(); return 0; }
-    if (cmd == "-V" || cmd == "--version") { std::cout << suiteVersionString("font45") << std::endl; return 0; }
     if (cmd != "convert" && cmd != "list" && cmd != "preview") { std::cerr << "font45: unknown command " << cmd << " (convert, list, preview)\n"; return 1; }
 
     std::string input, output, name, format, form, charset, encoding = "petscii", from = "screencode", text = "The quick brown fox";

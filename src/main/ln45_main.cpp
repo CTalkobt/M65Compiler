@@ -140,8 +140,8 @@ int main(int argc, char** argv) {
 
     for (int i = 1; i < argc; i++) {
         std::string arg = argv[i];
-        if (arg == "-V" || arg == "--version") { std::cout << suiteVersionString("ln45") << std::endl; return 0; }
-        else if (arg == "-?" || arg == "--help") { printUsage(argv[0]); return 0; }
+        if (standardFlag(arg) == StdFlag::Version) { std::cout << suiteVersionString("ln45") << std::endl; return 0; }
+        else if (standardFlag(arg) == StdFlag::Help) { printUsage(argv[0]); return 0; }
         else if (arg == "-o" && i + 1 < argc) { outputFile = argv[++i]; outputSet = true; }
         else if (arg == "-prg") { isPrg = true; }
         else if (arg == "-basic") { isBasic = true; isPrg = true; }

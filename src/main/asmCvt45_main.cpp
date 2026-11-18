@@ -132,7 +132,7 @@ static void showUsage(const char* progName) {
     std::cerr << "  --help         Show this help message\n";
     std::cerr << "  --version      Show version information\n";
     std::cerr << "\nBatch conversion:\n";
-    std::cerr << "  " << progName << " -f ca65 -t acme *.s65        Convert all .s65 files to .asm\n";
+    std::cerr << "  " << progName << " -f ca65 -t acme *.s65        Convert all .s65 files to .a65\n";
     std::cerr << "  " << progName << " -t oscar -o output/ *.asm   Convert files to oscar format in output dir\n";
     std::cerr << "\nStatistics & validation:\n";
     std::cerr << "  " << progName << " --stats -t oscar input.s65          Show conversion stats\n";
@@ -831,10 +831,10 @@ int main(int argc, char** argv) {
         } else if (Logger::parseFlag(arg, verbosity)) {
             Logger::setLevel(verbosity);   // -v ... -vvvv, -v0
             verbose = Logger::isEnabled(LogLevel::INFO);
-        } else if (arg == "--help") {
+        } else if (standardFlag(arg) == StdFlag::Help) {
             showUsage(argv[0]);
             return 0;
-        } else if (arg == "--version") {
+        } else if (standardFlag(arg) == StdFlag::Version) {
             std::cout << suiteVersionString("asmCvt45") << "\n";
             return 0;
         } else if (arg[0] != '-') {

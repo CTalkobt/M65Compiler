@@ -85,6 +85,25 @@ static std::string getProjectConfigFilePath() {
     return ".ca45rc";
 }
 
+// al45's own help (#641: it printed ca45's, which names none of its options)
+static void printHelpLint() {
+    std::cout << "Usage: al45 [options] <input_file.s45>\n"
+                 "The assembly linter: ca45's front end over a file, MEGA65 rules, no output file.\n"
+                 "  -c                  Lint as a relocatable object (what ca45 -c assembles): the profile is cc45\n"
+                 "  --checks=LIST       Rules on or off: globs, '-' removes (--checks=mega65-*,-mega65-unused-label)\n"
+                 "  --disable=ID[,ID]   Rules off\n"
+                 "  --severity=ID=LEVEL A rule's level: off, info, warning, error\n"
+                 "  --profile=P         cc45 or standalone\n"
+                 "  --config=FILE       This configuration, not ~/.config/m65/cc45-lint.yml and .cc45-lint.yml\n"
+                 "  --format=F          text (default), json or sarif\n"
+                 "  --list-rules        The rules: id, level in force, profile, summary\n"
+                 "  --explain=ID        A rule in full\n"
+                 "  --suggest-clobbers  Each proc's .reg_clobbers / .flag_clobbers as its code has them\n"
+                 "  -I -D --cpu         As ca45\n"
+                 "  -v ... -vvvv        Log to stderr\n"
+                 "Exit status 1 when a finding is an error. See doc/bin/al45.md.\n";
+}
+
 static void printHelpGeneral() {
     std::cout << "ca45 — 45GS02 Assembler for MEGA65\n\n";
     std::cout << "Usage: ca45 [options] <input_file.s>\n\n";
@@ -517,11 +536,11 @@ int main(int argc, char** argv) {
 
     for (int i = 1; i < (int)allArgs.size(); ++i) {
         std::string arg = allArgs[i];
-        if (arg == "-V" || arg == "--version") {
-            std::cout << suiteVersionString("ca45") << std::endl;
+        if (standardFlag(arg) == StdFlag::Version) {
+            std::cout << suiteVersionString(lintMode ? "al45" : "ca45") << std::endl;
             return 0;
-        } else if (arg == "-?" || arg == "--help") {
-            printHelpGeneral();
+        } else if (standardFlag(arg) == StdFlag::Help) {
+            if (lintMode) printHelpLint(); else printHelpGeneral();
             return 0;
         } else if (arg.substr(0, 7) == "--help=") {
             std::string section = arg.substr(7);

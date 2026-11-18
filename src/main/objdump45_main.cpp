@@ -2084,10 +2084,10 @@ int main(int argc, char** argv) {
 
     for (int i = 1; i < argc; i++) {
         std::string arg = argv[i];
-        if (arg == "-V" || arg == "--version") {
+        if (standardFlag(arg, false) == StdFlag::Version) {     // (-h: the section headers)
             std::cout << suiteVersionString("objdump45") << std::endl;
             return 0;
-        } else if (arg == "-?" || arg == "--help") {
+        } else if (standardFlag(arg, false) == StdFlag::Help) {
             printUsage(argv[0]);
             return 0;
         } else if (arg == "-b") {

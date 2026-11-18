@@ -254,8 +254,9 @@ int main(int argc, char** argv) {
 
     for (int i = 1; i < argc; i++) {
         std::string arg = argv[i];
-        if (arg == "-V" || arg == "--version") { std::cout << suiteVersionString("nm45") << std::endl; return 0; }
-        else if (arg == "-?" || arg == "--help") { printUsage(argv[0]); return 0; }
+        // (-h is nm45's header option)
+        if (standardFlag(arg, false) == StdFlag::Version) { std::cout << suiteVersionString("nm45") << std::endl; return 0; }
+        else if (standardFlag(arg, false) == StdFlag::Help) { printUsage(argv[0]); return 0; }
         else if (arg == "-u") onlyUndefined = true;
         else if (arg == "-g") onlyGlobal = true;
         else if (arg == "-n") sortByAddress = true;
