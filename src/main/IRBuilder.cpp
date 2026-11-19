@@ -2169,7 +2169,7 @@ void IRBuilder::visit(FunctionDeclaration& node) {
                 localPointedToTypeName_[p.name] = p.type;
             }
         }
-        if (p.isVolatile) currentFunc_->memoryVregs.insert(vreg.vregId);
+        if (p.isVolatile) { currentFunc_->memoryVregs.insert(vreg.vregId); currentFunc_->volatileVregs.insert(vreg.vregId); }
         if (p.isPlainUnsigned) lintPlainParams_.insert(p.name);
         currentFunc_->localSlotVregs.insert(vreg.vregId);
         if (p.isRestrict) currentFunc_->restrictVregs.insert(vreg.vregId);
@@ -4772,7 +4772,7 @@ void IRBuilder::visit(VariableDeclaration& node) {
             }
         }
     }
-    if (node.isVolatile && currentFunc_) currentFunc_->memoryVregs.insert(vreg.vregId);
+    if (node.isVolatile && currentFunc_) { currentFunc_->memoryVregs.insert(vreg.vregId); currentFunc_->volatileVregs.insert(vreg.vregId); }
     if (node.isRegister && currentFunc_) currentFunc_->registerVregs.insert(vreg.vregId);
     if (currentFunc_) currentFunc_->localSlotVregs.insert(vreg.vregId);
     if (currentFunc_) {
@@ -8257,6 +8257,7 @@ normal_call:
                 if (byValueAggregate || inlineParamAssigned(inlineFunc->body.get(), p.name)) {
                     currentFunc_->localSlotVregs.insert(paramVreg.vregId);
                     if (p.isVolatile || byValueAggregate) currentFunc_->memoryVregs.insert(paramVreg.vregId);
+                    if (p.isVolatile) currentFunc_->volatileVregs.insert(paramVreg.vregId);
                     ir::Inst st;
                     st.op = ir::Op::STORE;
                     st.resultType = pt;

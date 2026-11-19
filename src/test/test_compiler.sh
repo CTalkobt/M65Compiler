@@ -835,6 +835,43 @@ else
     failed=$((failed + 1))
 fi
 
+# #657: a member of a local struct whose address was passed on is read at
+# its fixed address (lda _find__ar+..., no pointer built from &L first)
+printf 'struct line { unsigned start, y; unsigned char h, asc; };\nvoid get_line(unsigned l, struct line *L);\nunsigned find(unsigned n, unsigned dy) {\n    unsigned lo = 0, hi = n, mid;\n    struct line L;\n    while (lo < hi) {\n        mid = (lo + hi) / 2;\n        get_line(mid, &L);\n        if (L.y + L.h <= dy) lo = mid + 1; else hi = mid;\n    }\n    return lo;\n}\n' > $cs/lstr.c
+if ./bin/cc45 -O2 -c $cs/lstr.c -o $cs/lstr.o45 >/dev/null 2>&1 &&
+   CC45_NO_LOCAL_DIRECT=1 ./bin/cc45 -O2 -c $cs/lstr.c -o $cs/lstr0.o45 >/dev/null 2>&1 &&
+   [ $(./bin/objdump45 -d $cs/lstr.o45 | sed -n '/lstr.c:9/,/lstr.c:6/p' | grep -c '),y') = 0 ] &&
+   [ $((16#$(./bin/objdump45 -h $cs/lstr.o45 | awk '$2 == "TEXT" {print $3}'))) -le 150 ] &&
+   [ $((16#$(./bin/objdump45 -h $cs/lstr0.o45 | awk '$2 == "TEXT" {print $3}'))) -ge 165 ]; then
+    echo "SUCCESS: a local struct's member is read at its fixed address ($((16#$(./bin/objdump45 -h $cs/lstr.o45 | awk '$2 == "TEXT" {print $3}'))) bytes, $((16#$(./bin/objdump45 -h $cs/lstr0.o45 | awk '$2 == "TEXT" {print $3}'))) without)"
+else
+    echo "FAIL: a local struct's member read through a pointer (#657): $(./bin/objdump45 -h $cs/lstr.o45 2>&1 | awk '$2 == "TEXT" {print $3}') bytes"
+    failed=$((failed + 1))
+fi
+
+# #658: an element of an array member of a global union, by a variable
+# index, is sta _area+100,y: no address computed on each pass of the loop
+printf 'union area { unsigned char m[256]; struct { unsigned char pad[100]; unsigned char rows[50]; } r; };\nextern union area area;\nvoid clear_rows(void) {\n    unsigned char r;\n    for (r = 0; r < 50; r++) area.r.rows[r] = 0;\n}\n' > $cs/ebase.c
+if ./bin/cc45 -O2 -c $cs/ebase.c -o $cs/ebase.o45 >/dev/null 2>&1 &&
+   ./bin/objdump45 -d $cs/ebase.o45 | grep -q 'sta.*,y.*<_area+100>' &&
+   [ $((16#$(./bin/objdump45 -h $cs/ebase.o45 | awk '$2 == "TEXT" && $5 == "CODE" {print $3}'))) -le 24 ]; then
+    echo "SUCCESS: an array member's element is sta _area+100,y"
+else
+    echo "FAIL: an array member's element through a computed address (#658): $(./bin/objdump45 -d $cs/ebase.o45 2>&1 | grep -E 'sta|adc' | tr '\n' ' ')"
+    failed=$((failed + 1))
+fi
+
+# #659: a member of a local struct read again with nothing between that can
+# change it (not across a call: its address was passed on) is read once
+printf 'struct line { unsigned start, y; unsigned char h, asc; };\nvoid get_line(unsigned l, struct line *L);\nvoid put(unsigned v);\nunsigned f(unsigned n, unsigned dy) {\n    struct line L;\n    get_line(n, &L);\n    unsigned t = 0;\n    if (L.y > dy) t = L.y - dy;\n    t += L.y + L.h;\n    put(L.y);\n    return t + L.y;\n}\n' > $cs/lload.c
+if ./bin/cc45 -O2 -c -S $cs/lload.c -o $cs/lload.s45 >/dev/null 2>&1 &&
+   [ $(grep -c 'lda _f__local_[0-9]*+2$' $cs/lload.s45) = 2 ]; then
+    echo "SUCCESS: a local struct's member is read once between calls"
+else
+    echo "FAIL: a local struct's member read again with nothing between (#659): $(grep -c 'lda _f__local_[0-9]*+2$' $cs/lload.s45 2>&1) reads of L.y, want 2 (once before the call, once after)"
+    failed=$((failed + 1))
+fi
+
 # #355: a program reading the clock links none of mktime's date arithmetic
 # (rtc_read called mktime for tm_wday / tm_yday: 4,176 bytes, now under 1,000)
 printf '#include <time.h>\nunsigned char d;\nint main(void) { struct tm t; rtc_read(&t); d = t.tm_mday; return 0; }\n' > $cs/rtc.c

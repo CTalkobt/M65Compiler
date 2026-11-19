@@ -4,6 +4,34 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### cc45: struct members at their addresses, read once (#657, #658, #659)
+
+- **A member of a local struct whose address was taken is read and written at its fixed address** (#657): in a
+  function with static allocation `L.y` after `get_line(l, &L)` is `lda _f__local_6+2`, where the address `&L` was
+  built into a register pair and read through for each member (about 10 bytes more each). Also an element of a
+  local array at a constant index, a scalar local whose address was passed on. The issue's loop: 169 → 148 bytes.
+- **An element of an array that is a member of a global struct or union** (#658): `area.r.rows[r] = 0` in a loop is
+  `sta _area+100,y`, where `_area + 100` was computed on every pass (the issue's loop 35 → 22 bytes). The fill
+  loop is not turned into a `memset` (`-floop-idioms` does not see this shape).
+- **A member read again with nothing between that can change it is the value read before** (#659), now for a
+  local struct as for a global one: until a store into it, a store through a pointer, or a call once its address is
+  known elsewhere; never for a `volatile` one.
+- **After an `if`**, what was computed before it stays valid when no path through the `if` changes it. The block
+  after the `if` counted its own later stores and calls as if it were in a loop, so a call further down undid it.
+- The issue's own repro of #659 (`G.h` read in one branch and again after the `if`) is unchanged: that is a read on
+  one path only, and reading an absolute address again (3 bytes) costs no more than keeping the value.
+- The standard library: 2,293 bytes less code (ZP; 2,265 stack). `CC45_NO_LOCAL_DIRECT`, `CC45_NO_ELEM_BASE`,
+  `CC45_NO_LOCAL_LOADS`, `CC45_OLD_JOIN_CARRY` switch each part off, to compare.
+- **Fixed: a bit-field incremented or decremented, then read, gave the value before** (a global struct's since
+  #320; with this change a local's too). `g.mode++` writes the field's byte in memory without a store after it
+  (BFINS), which CSE took for an instruction that writes nothing, so the read after it reused the load before.
+  Compound assignment (`g.mode += 2`) was right: a store follows it. Test `test_bitfield_update_xemu.c`.
+- **dbg45: `break function` stops where its first statement begins**, after the entry's own code, as gdb does. A
+  leaf function's copy of a pointer parameter into a base-page register now has the function's line, not the first
+  statement's: a breakpoint there stopped before the copy and showed the register as the caller had left it.
+- Tests: `test_local_direct_xemu.c`, `test_elem_base_xemu.c`, `test_local_loads_xemu.c` (both conventions, `-O0`,
+  `-fno-staticalloc`), three checks in `test_compiler.sh`.
+
 ### The Docker images on a registry (#625)
 
 - **The release workflow builds and pushes the Alpine images** to the GitHub Container Registry for a tag `v*`:

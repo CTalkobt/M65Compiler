@@ -4425,6 +4425,39 @@ for slmode in "zp|" "stack|-fno-zpcall" "sd|-fsigned-default"; do
     xemu_case "FAIL: test_signed_default_literal_xemu.c $slname (compilation/linking failed)" "src/test-resources/test_signed_default_literal_xemu.c" "build/test/test_signed_default_literal_${slname}_xemu.prg" "$slflags" -- "test_signed_default_literal_$slname" "build/test/test_signed_default_literal_${slname}_xemu.prg" "C0C0" 14 "01 01 01 01 01 01 01 01 01 01 01 01 01 AA"
 done
 
+# An element of an array member of a global struct or union (g.s.arr[i]) at
+# the global's offset, not a pointer computed on each pass (#658)
+for ebmode in "zp|" "stack|-fno-zpcall" "O0|-O0"; do
+    IFS='|' read -r ebname ebflags <<< "$ebmode"
+    echo "Testing test_elem_base_xemu.c ($ebname)..."
+    xemu_case "FAIL: test_elem_base_xemu.c $ebname (compilation/linking failed)" "src/test-resources/test_elem_base_xemu.c" "build/test/test_elem_base_${ebname}_xemu.prg" "$ebflags" "src/test-resources/test_elem_base_b.c" -- "test_elem_base_$ebname" "build/test/test_elem_base_${ebname}_xemu.prg" "C0C0" 9 "01 01 01 01 01 01 01 01 AA"
+done
+
+# A bit-field updated in place (++, --, compound, through a pointer; local
+# and global) then read gives the new value: BFINS writes memory (#659)
+for bumode in "zp|" "stack|-fno-zpcall" "O0|-O0"; do
+    IFS='|' read -r buname buflags <<< "$bumode"
+    echo "Testing test_bitfield_update_xemu.c ($buname)..."
+    xemu_case "FAIL: test_bitfield_update_xemu.c $buname (compilation/linking failed)" "src/test-resources/test_bitfield_update_xemu.c" "build/test/test_bitfield_update_${buname}_xemu.prg" "$buflags" -- "test_bitfield_update_$buname" "build/test/test_bitfield_update_${buname}_xemu.prg" "C0C0" 8 "01 01 01 01 01 01 01 AA"
+done
+
+# A member read again with nothing between that can change it is the value
+# read before; what can change it makes it read again (#659)
+for llmode in "zp|" "stack|-fno-zpcall" "O0|-O0" "nosac|-fno-staticalloc"; do
+    IFS='|' read -r llname llflags <<< "$llmode"
+    echo "Testing test_local_loads_xemu.c ($llname)..."
+    xemu_case "FAIL: test_local_loads_xemu.c $llname (compilation/linking failed)" "src/test-resources/test_local_loads_xemu.c" "build/test/test_local_loads_${llname}_xemu.prg" "$llflags" "src/test-resources/test_local_loads_b.c" -- "test_local_loads_$llname" "build/test/test_local_loads_${llname}_xemu.prg" "C0C0" 10 "01 01 01 01 01 01 01 01 01 AA"
+done
+
+# A member of a local struct (an element of a local array, an address-taken
+# local) at its fixed address in a static-allocation function; what others
+# write through the address is what the direct read sees (#657)
+for ldmode in "zp|" "stack|-fno-zpcall" "O0|-O0" "nosac|-fno-staticalloc"; do
+    IFS='|' read -r ldname ldflags <<< "$ldmode"
+    echo "Testing test_local_direct_xemu.c ($ldname)..."
+    xemu_case "FAIL: test_local_direct_xemu.c $ldname (compilation/linking failed)" "src/test-resources/test_local_direct_xemu.c" "build/test/test_local_direct_${ldname}_xemu.prg" "$ldflags" "src/test-resources/test_local_direct_b.c" -- "test_local_direct_$ldname" "build/test/test_local_direct_${ldname}_xemu.prg" "C0C0" 13 "01 01 01 01 01 01 01 01 01 01 01 01 AA"
+done
+
 # for (;;) keeps its branch back; *p = *p + 1 adds to the loaded byte (#385)
 for fe in "zp|" "stack|-fno-zpcall" "O0|-O0" "O0stack|-O0 -fno-zpcall"; do
     fename=${fe%%|*}; feflags=${fe#*|}

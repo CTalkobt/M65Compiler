@@ -43,7 +43,7 @@ As gdb names them; RETURN at the prompt repeats the last command (at a terminal;
 | `step` (`s`) [N] | The next source line, into calls (a call into code without lines, a library's assembly, runs through) |
 | `finish` | Until the function returns (stops in the caller) |
 | `stepi` (`si`) [N] | One instruction |
-| `break` (`b`) LOC | A breakpoint: `function`, `file.c:line`, `line` (of the file it stopped in), `*ADDR` (`*$2124`, `*0x2124`, or decimal `*8484`). A line without code moves to the next one with code; a line whose code is in several places (a `for` loop's parts) breaks at each |
+| `break` (`b`) LOC | A breakpoint: `function` (where its first statement begins, after the entry's own code, as gdb does: the parameters are where the function keeps them there), `file.c:line`, `line` (of the file it stopped in), `*ADDR` (`*$2124`, `*0x2124`, or decimal `*8484`). A line without code moves to the next one with code; a line whose code is in several places (a `for` loop's parts) breaks at each |
 | `delete` (`d`) [N] | Delete a breakpoint (all without N) |
 | `info breakpoints` | The breakpoints and their addresses (`info` is also `i`, its word any abbreviation: `i b`) |
 | `info locals`, `info args` | The frame's local variables, its parameters |

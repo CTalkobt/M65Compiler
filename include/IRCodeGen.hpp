@@ -350,6 +350,15 @@ private:
     std::map<uint32_t, ByteJoin> findByteJoins(const ir::Function& fn) const;
     std::map<uint32_t, int> zpParams_;   // parameters used in the ZP parameter block (a leaf function)
     std::map<uint32_t, int> zarVregs_;   // variables in the function's own base-page block
+    // #657: in a static-allocation function a local has a fixed address, so a
+    // load or store through &local + c (a member of a local struct, an
+    // element of a local array at a constant index) is one of <symbol>+c,
+    // not of a pointer built first. localDirect_: the address vreg and that
+    // operand; localDirectSkip_: the addr_local / add that then compute
+    // nothing anyone reads
+    std::map<uint32_t, std::string> localDirect_;
+    std::set<uint32_t> localDirectSkip_;
+    void findLocalDirect(const ir::Function& fn);
     int zarSize_ = 0;
     int zarPlanLimit_ = ZAR_END - ZAR_START;   // a planned block's bytes (below the file's __zp variables)  // byte TRUNC stored as is: the STORE reads its source's low byte
     std::string foldedPtr(uint32_t addrVreg, const std::string& scratch, int& yOff);
