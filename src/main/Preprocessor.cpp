@@ -2,6 +2,7 @@
 #include <climits>
 #include <cstdio>
 #include "Preprocessor.hpp"
+#include "Version.hpp"
 #include <fstream>
 #include <sstream>
 #include <deque>
@@ -33,7 +34,7 @@ Preprocessor::Preprocessor(bool isCompiler) : isCompiler(isCompiler) {
 
     // Compiler identification
     macros["__cc45__"] = Macro{false, false, {}, "1"};
-    macros["__CC45_VERSION__"] = Macro{false, false, {}, "10005"};  // 1.00.05 → 10005
+    macros["__CC45_VERSION__"] = Macro{false, false, {}, std::to_string(suiteVersionNumber())};  // 1.1.0 → 10100
 
     // Target platform identification
     macros["__MEGA65__"] = Macro{false, false, {}, "1"};

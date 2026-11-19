@@ -309,6 +309,7 @@ void OptimizationCatalog::initializeCatalog() {
         {"SacSlotSharing",       OptimizationImpl::BUILDER,   "", 1},
         {"ZpArgs",               OptimizationImpl::BUILDER,   "", 1},
         {"FloatCopyCall",        OptimizationImpl::BUILDER,   "", 1},
+        {"LoopIdioms",           OptimizationImpl::BUILDER,   "", 10},   // (only with -floop-idioms)
         {"StrengthReduction",    OptimizationImpl::IR_PASS,   "", 1},
         {"AlgebraicSimplify",    OptimizationImpl::IR_PASS,   "", 1},
         {"ParamNarrowing",       OptimizationImpl::IR_PASS,   "", 1},

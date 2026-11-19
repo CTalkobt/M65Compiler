@@ -12,8 +12,9 @@ _Noreturn void _exit(int status);
 __fastcall__ _Noreturn void abort(void);
 _Noreturn void __builtin_trap(void);
 _Noreturn void __builtin_unreachable(void);
-int __builtin_abs(int x);
-long __builtin_labs(long x);
+/* |x|, computed inline (whether abs / labs are the macros below or not) */
+signed int __builtin_abs(signed int x);
+signed long __builtin_labs(signed long x);
 int __builtin_ffs(int x);
 int __builtin_clz(unsigned int x);
 int __builtin_ctz(unsigned int x);

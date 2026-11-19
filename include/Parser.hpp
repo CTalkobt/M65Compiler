@@ -7,6 +7,7 @@
 #include "Token.hpp"
 #include "AST.hpp"
 #include "ConstEval.hpp"
+#include "StructLayout.hpp"
 
 // (the context of ConstEval in constant expressions: enum constants, sizes)
 class Parser : public ConstEvalContext {
@@ -214,6 +215,16 @@ private:
     bool identifier(VariableReference& node, ConstValue& out) override;
     bool sizeOf(SizeofExpression& node, int64_t& out) override;
     bool alignOf(AlignofExpression& node, int64_t& out) override;
+    // offsetof in a constant expression: &((T *)0)->m (#639)
+    bool numericAddress(UnaryOperation& addr, int64_t& out) override;
+    // A struct's or union's layout as typeByteSize computes it (false when a
+    // member's size is not known)
+    bool structLayoutOf(StructDefinition* def, StructLayout::Result& r, int depth = 0);
+    // The member name of def (its anonymous members' and parent's too): its
+    // offset and declaration
+    const StructMember* findLayoutMember(StructDefinition* def, const std::string& name, int64_t& off, int depth = 0);
+    // The struct or union a type names (through typedefs); null if none
+    StructDefinition* aggregateOf(const std::string& type);
     int initListLength(const InitializerList& il);
     // Size of a scalar/pointer type in bytes; -1 for aggregates and unknowns
     static int scalarTypeSize(const std::string& type, int ptrLevel);

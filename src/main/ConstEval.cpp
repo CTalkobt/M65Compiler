@@ -245,6 +245,13 @@ bool eval(Expression* e, ConstEvalContext& ctx, ConstValue& out) {
     if (auto* v = dynamic_cast<VariableReference*>(e)) return ctx.identifier(*v, out);
     if (auto* u = dynamic_cast<UnaryOperation*>(e)) {
         ConstValue v;
+        if (u->op == "&") {
+            // offsetof: &((T *)0)->m is a number (#639); any other address is not
+            int64_t n;
+            if (!addressOfNumber(u->operand.get()) || !ctx.numericAddress(*u, n)) return false;
+            out = ConstValue::ofInt(n);
+            return true;
+        }
         if (u->op == "!" && !eval(u->operand.get(), ctx, v) && ctx.nonNullAddress(*u->operand)) {
             out = ConstValue::ofInt(0);   // !&x
             return true;
@@ -301,6 +308,32 @@ bool eval(Expression* e, ConstEvalContext& ctx, ConstValue& out) {
         if (!ctx.alignOf(*a, n)) return false;
         out = ConstValue::ofInt(n);
         return true;
+    }
+    return false;
+}
+
+bool isNumberPointer(Expression* e) {
+    bool cast = false;
+    while (auto* c = dynamic_cast<CastExpression*>(e)) {
+        if (c->pointerLevel > 0) cast = true;
+        e = c->expression.get();
+    }
+    auto* l = dynamic_cast<IntegerLiteral*>(e);
+    return l && (cast || l->castPointerLevel > 0);
+}
+
+bool addressOfNumber(Expression* lv) {
+    for (int depth = 0; lv && depth < 64; depth++) {
+        if (auto* m = dynamic_cast<MemberAccess*>(lv)) {
+            if (m->isArrow) return isNumberPointer(m->structExpr.get());
+            lv = m->structExpr.get();
+        } else if (auto* a = dynamic_cast<ArrayAccess*>(lv)) {
+            lv = a->arrayExpr.get();
+        } else if (auto* u = dynamic_cast<UnaryOperation*>(lv); u && u->op == "*") {
+            return isNumberPointer(u->operand.get());
+        } else {
+            return false;
+        }
     }
     return false;
 }

@@ -44,8 +44,14 @@ cc45):
   ```
   `enabled` is a clang-tidy style list: globs, `-` to remove, applied in
   order. `asm_rules` entries configure built-in rules by id (severity, an
-  optional message); a `pattern:` key for user-written rules is a later
-  extension and is rejected with a message for now.
+  optional message, `options`); a `pattern:` key for user-written rules is a
+  later extension and is rejected with a message for now. Rule options come
+  from a top-level `options:` map, `c_checks.options` and an `asm_rules`
+  entry's `options:`, all into one table keyed by option name (`Config::options`,
+  read by `Engine::option`; the last read wins); the only one so far is
+  `mega65-stack-frame-limit`. A key the reader does not know (at the top, in
+  `c_checks`, in an `asm_rules` entry) is an error naming the file and line
+  (`Config::apply`, `src/main/Lint.cpp`).
 - **Precedence**: inline suppression > command line (`--checks=LIST`,
   `--disable=ID[,ID]`, `--severity=ID=LEVEL`, `--profile=`; `--config=FILE`
   reads that file instead of the two below) > `./.cc45-lint.yml` (searched upward

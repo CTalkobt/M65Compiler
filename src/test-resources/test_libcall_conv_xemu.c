@@ -1,7 +1,7 @@
 /* test_libcall_conv_xemu.c — calls to the library's assembly routines
  * without a declaration (no headers): __builtin_alloca, __builtin_setjmp /
- * __builtin_longjmp, __builtin_abs / __builtin_labs, and implicitly declared
- * alloca and strlen. Those routines use the ZP convention in both libraries;
+ * __builtin_longjmp, __builtin_abs / __builtin_labs (computed inline since #639),
+ * and implicitly declared alloca and strlen. Those routines use the ZP convention in both libraries;
  * cc45 calls them with it in either convention, so a stack-convention build
  * links without bridge thunks (test_xemu.sh links it with ln45 --no-thunks).
  * A function the unit defines itself (toupper here) keeps the unit's

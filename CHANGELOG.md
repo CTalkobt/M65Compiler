@@ -70,6 +70,36 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 - Tests: `src/test/test_ar45.sh` (new), `test_objdump45.sh` (an attic RAM overlay program's `.ovd`, and a version
   2 one), `test_std_flags.sh` (the help texts), `test_ln45_tailcalls.sh`.
 
+### cc45 and cl45: offsetof in constant expressions, __builtin_abs with <stdlib.h>, the help, the linter's findings (#639, #640)
+
+- **`offsetof` / `__builtin_offsetof` is a constant everywhere C takes one**: `_Static_assert`, array sizes, enum
+  values, bit-field widths and case labels, where it was an error (only static initializers and `_Alignas` took
+  it). `ConstEval` evaluates `&((T *)N)->m[i].n` through the new `ConstEvalContext::numericAddress`: the parser
+  from the struct declarations so far (`Parser::numericAddress`, the layout of `typeByteSize`, now
+  `structLayoutOf`), IRBuilder from its member offsets (`constLvalue`).
+- **`__builtin_abs` / `__builtin_labs` compile with `<stdlib.h>` included** (where `abs` / `labs` are macros, and the
+  parser's rename to them made the call an undeclared function): |x| of a signed `int` / `long`, computed inline,
+  no call and no header needed.
+- **`sizeof(typeof(x))`** parses (`sizeof x`; `sizeof(typeof(T))`, `sizeof(typeof(x) *)` too).
+- **`__CC45_VERSION__` follows the suite's version**: major × 10000 + minor × 100 + patch (`10100` for 1.1.0.dev),
+  where it was the fixed `10005`.
+- `--future -floop-idioms` no longer says the switch is not implemented (`LoopIdioms` in the catalog's table).
+- `--help`: the base-page blocks are `$80`-`$F1` (not `$E9`); run as cp45 the log prefix is `[cp45:INFO]`; the
+  options it left out are listed (`-fstack-size`, `-foverlay`, `-ffunction-sections`, `-floop-idioms`,
+  `-Rcodegen`, `-fimplicit-function-declaration`, `-fsigned-char`, `-fstack16`, `-V`, `-fno-staticalloc`);
+  `--pragma` says it has no effect.
+- **Fixed: a frame held an unused copy of a local array when the function was inlined into itself.** A local the
+  inlined copy declares again was listed twice and given two frame slots (`VRegAllocator::assignLocations`): a
+  recursive function with `char b[600]` had a frame of 1802 bytes, 1208 now (its own array and the inlined
+  copy's), which is what cl45's `mega65-stack-frame-limit` reports.
+- cl45: **`mega65-signedness` reports a negative constant stored in a plain parameter** (`x = -1`), as for a
+  variable; **`mega65-narrow-param` names a static function by its C name** (`nar`, not `nar__c`); it is given
+  only for a function that is not inlined (documented). The configuration's `options:` maps (top level,
+  `c_checks`, an `asm_rules` entry) and the error on an unknown key are documented in cl45.md, al45.md and
+  lint.md.
+- Tests: `test_offsetof_abs_xemu.c` (both conventions), a check in `test_compiler.sh`, three in `test_cl45.sh`
+  (options and unknown keys, the narrow-param name and the frame size; the signedness fixture's parameter).
+
 ### cc45: &g.member as a value is a constant; ca45: an extern's offset kept beside a __zp variable (#660)
 
 - **The address of a member of a global as a value** (`&g.member`, an array member passed to a function or
