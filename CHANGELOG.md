@@ -4,6 +4,102 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### ca45: operators it lacks, relocations it lost, move.fp, options and messages (#635)
+
+- **`%`, `**` and `?:` are errors** (`ca45 has no '%' operator (modulo)`, `… '**' …`, `… '?:' …`): `5 % 3` and
+  `5 ? 1 : 2` assembled as 5 and `2 ** 3` as 0. `%0101` is still a binary literal (`#%0101`, `5 + %0101`). **`lda $`**
+  says `hex digits expected after '$'` instead of `stoul`.
+- **Fixed (`-c`): a relocatable label in an operand that does not start with it** was assembled at its offset in its
+  segment with no relocation and no message: `2*lbl`, `#2*lbl`, `-lbl`, `<(2*lbl)`, `lbl & $FF00` are now the
+  `can't be relocated` error that `lbl*2` and `lbl >> 1` already were, `#lbl` the `no relocation could be made`
+  one, and `3+lbl` is relocated against `lbl` (assembled absolute).
+- **Fixed (`-c`): a relocation at a segment's first byte was dropped** (`.byte <d1` or `.word d1` before anything else
+  in its segment, `.code` or not): the table's delta from offset 0 is 0, which ends it. It is written `$FF $00` (an
+  escape adding nothing, lib45.md 3.1); other objects are unchanged.
+- **Fixed: `move.fp` emitted zeros** (it had no emitter: its size was reserved and left zero, the `-L` listing showed
+  no bytes, a file of it alone wrote nothing). It is now one `lda.fp`/`sta.fp` pair per byte (A and Y changed; at
+  most 256 bytes).
+- **`push`/`pop` with a list** (`push .a, .x`, which pushed A only) is an error. **`call f, $20`** reads the word at
+  base-page `$20`, as `lda $20` does (`$0020`, a label or a value not known yet stay absolute).
+- **`-PNoOpBra`** enables the pass `NoOpBra` (the whole name is looked up first; `-PNoNoOpBra` disables it). **`-l`**
+  takes 1 or 2 (3 was accepted and behaved as 1). The two **`.const` redefinition messages** say which case they are
+  (`.const` twice: `Redefinition of constant symbol`; `.const` of a label or equate: `Redefinition of symbol`;
+  `K = …` after `.const K`: `Cannot redefine constant 'K' with '='`).
+- **`.init`, `.zp`, `.var_field_array`, `.array_dims`, `.fixed_prefix_size`, `.field_count`, `.field_class`** warn
+  `accepted and ignored`: `.init`/`.zp` do not switch segment (`.segment "zp"` does), and nothing emits or uses the
+  others (metadata of an unfinished optimiser pass).
+
+### basic45 and deploy45: --validate with --link, keyword labels, DT$; u64 timeouts, options anywhere (#636, #637)
+
+- **basic45 `--validate` with `--link` or `asm` / `incbin` blocks checks the program** (undefined labels, blocks,
+  statements), its `{name}` symbols standing in as `$FFFF` as in the build's first pass; it checked only the block
+  structure and exited 0 on an undefined label. Only what needs the link is left out.
+- **basic45: an option that takes a value, given last with none** (`-o`, `--increment`, `--link`, …), is an error;
+  it was ignored. `--increment` takes 1 to 63999 (`0`, a negative or a non-number: an error).
+- **basic45: a label named like a keyword that cannot be a statement alone** (`go: sys 8192`: `GO`, a function, an
+  operator, `TO`, a statement that always takes an operand) is an error naming the label and the keyword; it became
+  the statement. `end: print` is still `END` and `PRINT`.
+- **basic45 `--compile`: `DT$` is BASIC 65's date** (`"dd-MMM-20yy "`, the ROM's `Get_DT_RTC` from the RTC;
+  `lib/stdlib_asm/basic_ti.s45` `__bas_dts`), not an ordinary variable; a value given to it is refused as for `TI$`.
+- **basic45 `--compile --link`: `{name+1}`** and the other symbol operations (`+ - * / %` on a symbol and a number)
+  are substituted, as without `--compile` (the symbol's address in a BASIC expression); only plain names were.
+- basic45 `--help`: `--preserve-spaces`; the note on the ROM's rounding under `--speed` (it was under `--checks`);
+  the `--compile` and `--convert` forms in the usage lines.
+- **deploy45 `u64 --timeout 0` never times out**, as the help says (it failed at once: `poll` got 0 ms); a `u64`
+  timeout exits 124, as the mega65-tools commands do (it was 1). `--timeout` takes a whole number of seconds.
+- **deploy45: the options go anywhere**, before the command too (`deploy45 --dry-run m65ether -i 1.2.3.4 a.prg`
+  failed with "one file at a time"); `-V` / `--version` anywhere.
+- **deploy45 `--dry-run` checks the file can be read** for every command (a missing file: `cannot read`, exit 1);
+  the MEGA65 commands printed the command for a file that was not there, where `u64` failed.
+- Tests: checks for each in `test_basic45.sh` and `test_deploy45.sh` (a stand-in U64 that never answers, and one
+  that answers late).
+
+### ln45, nm45, objdump45, ar45: attic RAM overlays described, help texts complete, ar45 warns about non-objects (#638)
+
+- **Overlays kept in attic RAM show their address.** The overlay description (`<prog>.ovd`) is version 3: each
+  overlay's far address in 4 bytes (28 bits), where version 2 had 3, so an overlay kept at `$8000000`
+  (`--overlay-store=0x8000000-0x803FFFF`) showed as kept at `$00000` in `nm45 -h` and as LMA `00000000` in
+  `objdump45 -h`. nm45 and objdump45 read both versions (`include/O45OverlayFile.hpp`).
+- **Help texts as the parsers are:** ln45's `--stack-size` default under `--stack-size` (it printed after
+  `--zp-plan-out`), `-Woverride`, `--section=NAME=ADDR`, `-V`; nm45 `-o` (as `-A`) and `-V`; ar45 `-V`;
+  objdump45 `--entry`, `--data`, `--html=FILE`.
+- **ar45 `c` / `a` warn about a file that is not an `.o45` object** (`ar45: warning: notes.txt: not an .o45
+  object: stored, not indexed (…)`): it is stored, as before, with no symbols in the index; before, only `-vv` said so.
+- `ln45 --no-thunks` with a calling-convention mismatch exits with status 1 (confirmed; now checked by
+  `test_ln45_tailcalls.sh`). Comments giving the base-page blocks' area as `$80`-`$E9` corrected to `$80`-`$F1`.
+- Tests: `src/test/test_ar45.sh` (new), `test_objdump45.sh` (an attic RAM overlay program's `.ovd`, and a version
+  2 one), `test_std_flags.sh` (the help texts), `test_ln45_tailcalls.sh`.
+
+### cc45 and cl45: offsetof in constant expressions, __builtin_abs with <stdlib.h>, the help, the linter's findings (#639, #640)
+
+- **`offsetof` / `__builtin_offsetof` is a constant everywhere C takes one**: `_Static_assert`, array sizes, enum
+  values, bit-field widths and case labels, where it was an error (only static initializers and `_Alignas` took
+  it). `ConstEval` evaluates `&((T *)N)->m[i].n` through the new `ConstEvalContext::numericAddress`: the parser
+  from the struct declarations so far (`Parser::numericAddress`, the layout of `typeByteSize`, now
+  `structLayoutOf`), IRBuilder from its member offsets (`constLvalue`).
+- **`__builtin_abs` / `__builtin_labs` compile with `<stdlib.h>` included** (where `abs` / `labs` are macros, and the
+  parser's rename to them made the call an undeclared function): |x| of a signed `int` / `long`, computed inline,
+  no call and no header needed.
+- **`sizeof(typeof(x))`** parses (`sizeof x`; `sizeof(typeof(T))`, `sizeof(typeof(x) *)` too).
+- **`__CC45_VERSION__` follows the suite's version**: major × 10000 + minor × 100 + patch (`10100` for 1.1.0.dev),
+  where it was the fixed `10005`.
+- `--future -floop-idioms` no longer says the switch is not implemented (`LoopIdioms` in the catalog's table).
+- `--help`: the base-page blocks are `$80`-`$F1` (not `$E9`); run as cp45 the log prefix is `[cp45:INFO]`; the
+  options it left out are listed (`-fstack-size`, `-foverlay`, `-ffunction-sections`, `-floop-idioms`,
+  `-Rcodegen`, `-fimplicit-function-declaration`, `-fsigned-char`, `-fstack16`, `-V`, `-fno-staticalloc`);
+  `--pragma` says it has no effect.
+- **Fixed: a frame held an unused copy of a local array when the function was inlined into itself.** A local the
+  inlined copy declares again was listed twice and given two frame slots (`VRegAllocator::assignLocations`): a
+  recursive function with `char b[600]` had a frame of 1802 bytes, 1208 now (its own array and the inlined
+  copy's), which is what cl45's `mega65-stack-frame-limit` reports.
+- cl45: **`mega65-signedness` reports a negative constant stored in a plain parameter** (`x = -1`), as for a
+  variable; **`mega65-narrow-param` names a static function by its C name** (`nar`, not `nar__c`); it is given
+  only for a function that is not inlined (documented). The configuration's `options:` maps (top level,
+  `c_checks`, an `asm_rules` entry) and the error on an unknown key are documented in cl45.md, al45.md and
+  lint.md.
+- Tests: `test_offsetof_abs_xemu.c` (both conventions), a check in `test_compiler.sh`, three in `test_cl45.sh`
+  (options and unknown keys, the narrow-param name and the frame size; the signedness fixture's parameter).
+
 ### cc45: &g.member as a value is a constant; ca45: an extern's offset kept beside a __zp variable (#660)
 
 - **The address of a member of a global as a value** (`&g.member`, an array member passed to a function or

@@ -35,12 +35,12 @@ deploy45 -h | --help
 | `--info` | `u64`: print the device's information (`GET v1/info`) |
 | `--reset` | `u64`: reset the machine (`PUT v1/machine:reset`), with no file |
 | `--tool PATH` | The mega65-tools program to run. Default: `$ETHERLOAD`, `$M65` or `$MEGA65_FTP`, else the one on the `PATH`, else `~/mega65-tools/bin/` or `~/mega65-tools/` |
-| `--timeout SEC` | Give up after SEC seconds (exit status 124); 0: never (the mega65-tools commands; for `u64` it is the wait for each step of the request, an error with status 1, and 0 fails at once). Default 60 for loading (`etherload` waits forever for a MEGA65 that is off), 30 for `u64`, none for `m65mount` (an upload over serial runs at about 5 KB/s) |
-| `-n`, `--dry-run` | Print the command (or the HTTP request: method, URL, the body's size) instead of running it |
+| `--timeout SEC` | Give up after SEC seconds (exit status 124); 0: never (for `u64` it is the wait for each step of the request: connecting, sending, each part of the answer). SEC is a whole number from 0 to 86400 (anything else an error). Default 60 for loading (`etherload` waits forever for a MEGA65 that is off), 30 for `u64`, none for `m65mount` (an upload over serial runs at about 5 KB/s) |
+| `-n`, `--dry-run` | Print the command (or the HTTP request: method, URL, the body's size) instead of running it; the file must still be readable |
 | `-v` … `-vvvv` | Log on stderr as `[deploy45:LEVEL] …` |
-| `-V`, `--version`; `-h`, `--help` | Version; help (as the command, or `-h` after it) |
+| `-V`, `--version`; `-h`, `--help` | Version; help (anywhere among the arguments) |
 
-The command comes first, then options and one file in any order. An unknown command or option, or a second file, is an error (exit status 1); with no arguments the help is printed (exit status 1).
+The options go anywhere — before the command, between it and the file, after the file (`deploy45 --dry-run m65ether -i 1.2.3.4 a.prg`); the first argument that is not an option (nor an option's value) is the command, the next the file. An unknown command or option, no command, or a second file, is an error (exit status 1); with no arguments the help is printed (exit status 1).
 
 ## MEGA65 over Ethernet: `m65ether`
 
@@ -100,7 +100,7 @@ The Ultimate 64's REST API over HTTP: `POST v1/runners:run_prg` (or `load_prg` w
 
 ## What `--dry-run` Prints
 
-`--dry-run` (`-n`; after the command, as every option) prints the command deploy45 would run, or the HTTP request it would send, and exits 0; nothing is contacted:
+`--dry-run` (`-n`; anywhere, as every option) prints the command deploy45 would run, or the HTTP request it would send, and exits 0; nothing is contacted:
 
 ```
 $ deploy45 m65ether --dry-run -i 192.168.1.50 avg.prg
@@ -117,13 +117,13 @@ $ deploy45 u64 --dry-run -i 192.168.1.64 game.d81
 POST http://192.168.1.64/v1/drives/a:mount?type=d81&mode=readwrite (819200 bytes)
 ```
 
-For the MEGA65 commands the file is not opened (a name that does not exist is printed as it is); `u64` reads it, for the body's size.
+Every command checks the file as it would for real: one that cannot be read is an error (`cannot read …`, exit status 1; `m65mount --virtual`: read and written); `u64` reads it, for the body's size.
 
 ## Exit Status
 
 0 when the transfer succeeded; the mega65-tools program's own status when it failed; 124 when it did not finish
-within `--timeout`; 127 when it could not be started (not installed: name it with `--tool`); 128 + the signal's number
-when a signal ended it; 1 for `deploy45`'s own errors (an unreadable file, an HTTP error or no answer, no host, a bad
+within `--timeout` (`u64` too: no connection, or no answer, in time); 127 when it could not be started (not installed: name it with `--tool`); 128 + the signal's number
+when a signal ended it; 1 for `deploy45`'s own errors (an unreadable file, an HTTP error, a refused connection, no host, a bad
 command line).
 
 ## See Also

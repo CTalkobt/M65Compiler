@@ -112,6 +112,58 @@ if "$D45" u64 -i $H --timeout 2 $T/m65.prg > $T/out 2>&1; then fail "u64: nothin
 elif grep -q "cannot connect" $T/out; then pass "u64: nothing listening"; else fail "u64 no server: $(cat $T/out)"; fi
 refuse "u64: a file it cannot send" "not a PRG" u64 -i $H $T/u64.py
 
+# #637: a U64 that takes the connection and never answers: a timeout, exit
+# status 124; --timeout 0 waits for one that answers late
+cat > $T/slow_u64.py <<'PY'
+import socket, sys, time, threading
+mode = sys.argv[2]
+s = socket.socket(); s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+s.bind(('127.0.0.1', 0)); s.listen(4)
+open(sys.argv[1], 'w').write(str(s.getsockname()[1]))
+while True:
+    c, _ = s.accept()
+    if mode == 'mute':
+        threading.Thread(target=lambda c=c: (time.sleep(60), c.close()), daemon=True).start()
+        continue
+    c.settimeout(5)
+    data = b''
+    while b'\r\n\r\n' not in data:
+        data += c.recv(4096)
+    time.sleep(1.5)
+    c.sendall(b'HTTP/1.1 200 OK\r\nContent-Length: 0\r\nConnection: close\r\n\r\n')
+    c.close()
+PY
+for mode in mute late; do
+    rm -f $T/$mode.port
+    python3 $T/slow_u64.py $T/$mode.port $mode &
+    eval "SRV_$mode=\$!"
+    for i in $(seq 50); do [ -s $T/$mode.port ] && break; sleep 0.1; done
+done
+"$D45" u64 -i 127.0.0.1:$(cat $T/mute.port) --timeout 1 $T/m65.prg > $T/out 2>&1; rc=$?
+[ $rc -eq 124 ] && grep -q "timed out" $T/out && pass "u64: a timeout exits 124 (#637)" || fail "u64 timeout: status $rc, $(cat $T/out)"
+"$D45" u64 -i 127.0.0.1:$(cat $T/late.port) --timeout 0 $T/m65.prg > $T/out 2>&1; rc=$?
+[ $rc -eq 0 ] && pass "u64 --timeout 0: never times out (#637)" || fail "u64 --timeout 0: status $rc, $(cat $T/out)"
+kill $SRV_mute $SRV_late 2>/dev/null; wait $SRV_mute $SRV_late 2>/dev/null
+refuse "--timeout: not a number" "takes seconds" u64 -n -i x --timeout soon $T/m65.prg
+
+# #637: options anywhere (before the command too); -V anywhere
+out=$("$D45" --dry-run m65ether -i 1.2.3.4 --tool etherload $T/m65.prg 2>&1)
+[ "$out" = "etherload -i 1.2.3.4 -5 -r $T/m65.prg" ] && pass "options before the command (#637)" || fail "options before the command: $out"
+out=$("$D45" -n -i u64.local u64 $T/m65.prg 2>&1)
+[ "$out" = "POST http://u64.local/v1/runners:run_prg (6 bytes)" ] && pass "u64: options before the command (#637)" || fail "u64 options before the command: $out"
+ok=1
+for args in "-V" "m65ether -V" "--dry-run m65ether $T/m65.prg --version" "u64 -i x --version"; do
+    "$D45" $args 2>&1 | grep -q '^deploy45 v' || ok=0
+done
+[ $ok = 1 ] && pass "-V / --version anywhere (#637)" || fail "-V anywhere"
+refuse "no command" "no command" --dry-run -i 1.2.3.4
+
+# #637: --dry-run checks the file can be read, for every command
+for c in m65ether m65serial u64; do
+    refuse "$c --dry-run: a missing file" "cannot read" $c -n -i 1.2.3.4 $T/none.prg
+done
+refuse "m65mount --dry-run: a missing image" "cannot read" m65mount -n -l /dev/x $T/none.d81
+
 echo ""
 echo "deploy45 tests: $passed passed, $failed failed"
 [ $failed -eq 0 ]

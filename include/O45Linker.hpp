@@ -772,7 +772,7 @@ private:
     // (pointerCalls false: direct calls only, no edges for calls through pointers)
     void buildCallGraph(std::map<std::string, std::set<std::string>>& graph, std::set<std::string>& addrTaken,
                         bool pointerCalls = true);
-    // place the functions' private base-page blocks (cc45 .zar) in $80-$E9 of
+    // place the functions' private base-page blocks (cc45 .zar) in $80-$F1 of
     // the program's base page, sharing between functions never active together
     bool computeZarOverlay(std::string& errorMsg);
     // the order computeZarOverlay places blocks in: callers before callees,

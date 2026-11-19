@@ -1061,7 +1061,11 @@ void AssemblerSimulatedOps::emitCallCode(AssemblerParser* parser, M65Emitter& e,
         uint32_t v = parser->evaluateExpressionAt(tok, s->scopePrefix) & 0xFFFF;
         std::string rel = relocName(tok);
         if (kind == "B#") v &= 0xFF;
-        if (kind.empty()) {
+        if (kind == "bp") {
+            // the word at base-page address v (below $FF: both bytes in the page)
+            e.emitInstruction("lda", AddressingMode::BASE_PAGE, v + 1, true); e.pha();
+            e.emitInstruction("lda", AddressingMode::BASE_PAGE, v, true); e.pha();
+        } else if (kind.empty()) {
             // the word at address v
             if (!rel.empty()) e.recordSymbolReloc(rel);
             e.emitInstruction("lda", AddressingMode::ABSOLUTE, v + 1, true); e.pha();
@@ -2056,61 +2060,37 @@ void AssemblerSimulatedOps::emitLEAX_FPCode(AssemblerParser* parser, M65Emitter&
     emitSpBaseAddrCalc16(parser, e, yOff);
 }
 
-// move.fp dest, src, len — Block copy between frame-relative addresses
+// move.fp dest, src, len — copy len bytes between frame slots, through the
+// frame pointer as lda.fp / sta.fp (A and Y changed), one byte at a time:
+// upwards, or downwards when the destination overlaps above the source.
+// (It built a DMA job from an 8-bit TSX and was never emitted: its bytes
+// were zeros, #635.)
 void AssemblerSimulatedOps::emitMOVE_FPCode(AssemblerParser* parser, M65Emitter& e, int tokenIndex, const std::string& scopePrefix) {
     int idx = tokenIndex;
-    if (idx < 0 || idx >= (int)parser->tokens.size()) return;
+    if (idx < 0 || idx >= (int)parser->tokens.size()) throw std::runtime_error("move.fp needs dest, src, len");
 
     Symbol* fpSym = parser->resolveFrameVar(scopePrefix);
     uint8_t fpOff = fpSym ? (uint8_t)fpSym->value : 0;
-    uint16_t sb = e.spBase();
-
-    // Parse dest offset
-    auto destAST = parseExprAST(parser->tokens, idx, parser->symbolTable, scopePrefix);
-    uint32_t destOff = destAST ? destAST->getValue(parser) : 0;
-    if (idx < (int)parser->tokens.size() && parser->tokens[idx].type == AssemblerTokenType::COMMA) idx++;
-
-    // Parse src offset
-    auto srcAST = parseExprAST(parser->tokens, idx, parser->symbolTable, scopePrefix);
-    uint32_t srcOff = srcAST ? srcAST->getValue(parser) : 0;
-    if (idx < (int)parser->tokens.size() && parser->tokens[idx].type == AssemblerTokenType::COMMA) idx++;
-
-    // Parse length
-    uint32_t lenVal = 0;
-    if (idx < (int)parser->tokens.size() && parser->tokens[idx].type == AssemblerTokenType::HASH) {
-        idx++;
+    auto operand = [&](const char* what) -> uint32_t {
+        if (idx < (int)parser->tokens.size() && parser->tokens[idx].type == AssemblerTokenType::HASH) idx++;
+        auto ast = parseExprAST(parser->tokens, idx, parser->symbolTable, scopePrefix);
+        if (!ast) throw std::runtime_error(std::string("move.fp: ") + what + " expected (move.fp dest, src, len)");
+        return ast->getValue(parser);
+    };
+    auto comma = [&]() {
+        if (idx < (int)parser->tokens.size() && parser->tokens[idx].type == AssemblerTokenType::COMMA) { idx++; return; }
+        throw std::runtime_error("move.fp takes three operands: dest, src, len");
+    };
+    uint32_t destOff = operand("the destination offset"); comma();
+    uint32_t srcOff = operand("the source offset"); comma();
+    uint32_t len = operand("the length");
+    if (len > 256) throw std::runtime_error("move.fp: a length of at most 256 bytes (" + std::to_string(len) + " given)");
+    bool down = destOff > srcOff && destOff < srcOff + len;
+    for (uint32_t i = 0; i < len; i++) {
+        uint32_t k = down ? len - 1 - i : i;
+        e.lda_frame(fpOff, (uint16_t)(srcOff + k));
+        e.sta_frame(fpOff, (uint16_t)(destOff + k));
     }
-    auto lenAST = parseExprAST(parser->tokens, idx, parser->symbolTable, scopePrefix);
-    lenVal = lenAST ? lenAST->getValue(parser) : 0;
-
-    // Compute absolute addresses: SP + spBase + fpOff + varOffset
-    // We need to compute at runtime since SP is dynamic.
-    // Build DMA job on stack (same as emitMoveCode but with frame-relative sources)
-    uint16_t srcTotal = sb + fpOff + (uint16_t)srcOff;
-    uint16_t destTotal = sb + fpOff + (uint16_t)destOff;
-
-    // Push DMA job onto stack and trigger
-    e.pha(); e.phw_imm(0); e.lda_imm(0); e.pha();
-    // dest address: SPL + destTotal
-    e.tsx(); e.txa(); e.clc(); e.adc_imm(destTotal & 0xFF); e.pha();
-    e.lda_imm((destTotal >> 8) & 0xFF); e.adc_imm(0); e.pha();
-    // dest bank + command
-    e.lda_imm(0); e.pha();
-    // src address: SPL + srcTotal
-    e.tsx(); e.txa(); e.clc(); e.adc_imm((srcTotal + 6) & 0xFF); e.pha();  // +6 for stack growth
-    e.lda_imm((srcTotal >> 8) & 0xFF); e.adc_imm(0); e.pha();
-    // length
-    e.lda_imm(lenVal >> 8); e.pha(); e.lda_imm(lenVal & 0xFF); e.pha();
-    // DMA command byte
-    e.lda_imm(0x00); e.pha();
-    // Trigger DMA — write bank and MSB first, LSB last (triggers execution)
-    e.lda_imm(0); e.sta_addr(m65::DMA_ADDR_BANK);  // bank = 0 (NOT stz — STZ stores Z reg on 45GS02)
-    e.lda_imm(sb >> 8); e.sta_addr(m65::DMA_ADDR_MSB);
-    e.tsx(); e.txa(); e.clc(); e.adc_imm(sb & 0xFF);
-    e.sta_addr(m65::DMA_ADDR_LSB_TRIG);   // LSB — triggers DMA
-    // Clean up stack
-    e.tsx(); e.txa(); e.clc(); e.adc_imm(12); e.tax(); e.txs();
-    e.pla();
 }
 
 // ============================================================================

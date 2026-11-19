@@ -893,6 +893,57 @@ assert_contains "--compare: a file against itself: nothing changed" "$same" "Fun
 err=$($OD --compare $C/m.o45 2>&1); rc=$?
 [ $rc -ne 0 ] && echo "$err" | grep -q "takes two files" && pass "--compare needs two files" || fail "--compare one file: $rc $err"
 
+# Code overlay files (#638): an overlay kept in attic RAM has its 28-bit far
+# address in the description (.ovd version 3), shown by nm45 -h and
+# objdump45 -h; a version 2 description (3-byte far addresses) is still read
+C=$BUILD/odovd
+rm -rf $C; mkdir -p $C
+ovok=1
+for f in attic_main attic_x attic_y; do
+    ./bin/cc45 -O2 -c src/test-resources/overlay/$f.c -o $C/$f.o45 >/dev/null 2>&1 || ovok=0
+done
+if [ $ovok = 1 ] && ./bin/ln45 -basic --overlay-store=0x8000000-0x803FFFF --overlay-staging=4 -o $C/attic.prg \
+       $C/attic_main.o45 $C/attic_x.o45 $C/attic_y.o45 lib/build/c45.lib >/dev/null 2>&1 &&
+   ./bin/ln45 -basic -o $C/bank5.prg $C/attic_main.o45 $C/attic_x.o45 $C/attic_y.o45 lib/build/c45.lib >/dev/null 2>&1; then
+    [ "$(head -c 6 $C/attic.ovd | tail -c 1 | od -An -tu1 | tr -d ' ')" = 3 ] && pass ".ovd: version 3" || fail ".ovd: not version 3"
+    out=$(./bin/nm45 -h $C/attic.ovd)
+    assert_contains "nm45 -h: an attic RAM overlay kept at its attic address" "$out" "kept \$8000000-"
+    assert_not_contains "nm45 -h: no attic overlay at \$00000" "$out" "kept \$00000"
+    assert_contains "nm45 -h: the attic file's image where it is kept" "$out" "file loaded at \$8000000"
+    out=$($OD -h $C/attic.ovd)
+    assert_contains "objdump45 -h: an attic RAM overlay's LMA" "$out" "   08000000"
+    out=$($OD -h $C/attic.ov1)
+    assert_contains "objdump45 -h of the .ov1: the attic LMA" "$out" "   08000000"
+    # the same description as version 2 (as ln45 wrote it before #638)
+    v2() { python3 -I - "$1" "$2" <<'PYEOF'
+import sys
+d = open(sys.argv[1], 'rb').read()
+o = bytearray(d[:10]); o[5] = 2
+p, n = 10, d[9]
+for _ in range(n):
+    o += d[p:p + 7] + d[p + 8:p + 10]        # file, offset, far address (its low 3 bytes), length
+    p += 10
+    o += d[p:p + 1 + d[p]]; p += 1 + d[p]    # name
+o += d[p:len(d) - 9]                        # the symbols
+o += (len(o) + 9).to_bytes(4, 'little') + b'OVL45'
+open(sys.argv[2], 'wb').write(bytes(o))
+PYEOF
+    }
+    mkdir -p $C/v2
+    v2 $C/bank5.ovd $C/v2/bank5.ovd && cp $C/bank5.ov1 $C/v2/bank5.ov1
+    [ "$(head -c 6 $C/v2/bank5.ovd | tail -c 1 | od -An -tu1 | tr -d ' ')" = 2 ] && pass "a version 2 .ovd made" || fail "no version 2 .ovd"
+    [ "$(./bin/nm45 -h $C/v2/bank5.ovd)" = "$(./bin/nm45 -h $C/bank5.ovd)" ] && pass "nm45 -h reads a version 2 .ovd" ||
+        fail "nm45 -h: version 2 differs: $(./bin/nm45 -h $C/v2/bank5.ovd 2>&1 | head -2)"
+    [ "$(./bin/nm45 $C/v2/bank5.ovd)" = "$(./bin/nm45 $C/bank5.ovd)" ] && pass "nm45 reads a version 2 .ovd's symbols" || fail "nm45: version 2 symbols differ"
+    [ "$($OD -h -d $C/v2/bank5.ov1 | sed 's#v2/##g')" = "$($OD -h -d $C/bank5.ov1)" ] && pass "objdump45 -h -d reads a version 2 .ovd" ||
+        fail "objdump45: version 2 differs"
+    assert_contains "nm45 -h: a bank 5 overlay" "$(./bin/nm45 -h $C/v2/bank5.ovd)" "kept \$50000-"
+    v2 $C/attic.ovd $C/v2/attic.ovd
+    assert_contains "nm45 -h: version 2 keeps 24 bits of an attic address" "$(./bin/nm45 -h $C/v2/attic.ovd)" "kept \$00000-"
+else
+    fail "the attic RAM overlay program did not build"
+fi
+
 echo "objdump45 tests: $passed passed, $failed failed"
 echo "========================================"
 

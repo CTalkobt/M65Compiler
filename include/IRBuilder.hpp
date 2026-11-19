@@ -106,6 +106,7 @@ public:
     static bool isBoolType(const std::string& t) { return t == "_Bool" || t == "bool" || t == "__bit"; }
     ir::Operand emitBoolConvert(ir::Operand v, const ir::SourceLoc& sl);
     bool nonNullAddress(Expression& e) override;   // (ConstEvalContext)
+    bool numericAddress(UnaryOperation& addr, int64_t& out) override;   // offsetof (#639)
     // Fixed point (#72, IRBuilderFixed.cpp): __fixed(I, F), named __fixedI_F;
     // a type's code is (bits << 8) | F, 0 when not fixed
     static int fixedFracOf(const std::string& typeName);   // its code (0: not fixed)

@@ -50,6 +50,10 @@ public:
     // the address of an object or function (&x, an array, "..."): never a
     // null pointer, so &x != 0 is 1, !&x 0, (_Bool)&x 1
     virtual bool nonNullAddress(Expression& e) { (void)e; return false; }
+    // &lv where lv is reached from a pointer made of a number: offsetof's
+    // &((T *)0)->m[2].n (stddef.h, __builtin_offsetof) is the member's offset
+    // (#639). Asked only when ConstEval::addressOfNumber(lv) holds
+    virtual bool numericAddress(UnaryOperation& addr, int64_t& out) { (void)addr; (void)out; return false; }
 };
 
 namespace ConstEval {
@@ -72,5 +76,11 @@ bool isFloatType(const std::string& type, int pointerLevel);
 // evaluate only the operand that counts), casts, sizeof / _Alignof, names
 // the context knows
 bool eval(Expression* e, ConstEvalContext& ctx, ConstValue& out);
+
+// lv (members, subscripts, *) is reached from a pointer made of a number,
+// ((T *)0)->m, as offsetof's operand is: &lv has no label
+bool addressOfNumber(Expression* lv);
+// e is a pointer made of a number: (T *)0, or a literal cast to a pointer
+bool isNumberPointer(Expression* e);
 
 }  // namespace ConstEval

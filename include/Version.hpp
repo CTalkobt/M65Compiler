@@ -18,6 +18,19 @@ inline std::string suiteVersionString(const char* toolName) {
     return std::string(toolName) + " v" + SUITE_VERSION + " (" + GIT_HASH + ")";
 }
 
+// The version as a number, major * 10000 + minor * 100 + patch (1.1.0.dev →
+// 10100): cp45's __CC45_VERSION__
+inline long suiteVersionNumber() {
+    long part[3] = {0, 0, 0};
+    const char* p = SUITE_VERSION;
+    for (int i = 0; i < 3 && *p >= '0' && *p <= '9'; ++i) {
+        while (*p >= '0' && *p <= '9') part[i] = part[i] * 10 + (*p++ - '0');
+        if (*p != '.') break;
+        ++p;
+    }
+    return part[0] * 10000 + part[1] * 100 + part[2];
+}
+
 enum class StdFlag { None, Help, Version };
 
 // What one argument asks for. hIsHelp: false in a tool whose -h is an option

@@ -38,9 +38,19 @@ static void printUsage(const char* progName) {
     std::cout << "  s   Print symbol index" << std::endl;
     std::cout << "  a   Add .o45 files to existing archive" << std::endl;
     std::cout << "  d   Delete members from archive" << std::endl;
-    std::cout << "  -?  Display this help message" << std::endl;
+    std::cout << "  -V, --version  Display the version" << std::endl;
+    std::cout << "  -?, -h, --help Display this help message" << std::endl;
     std::cout << "Options (anywhere): -v ... -vvvv  log to stderr ([ar45:INFO] ...): members read,"
               << std::endl << "      added and removed (-v), their symbols (-vv, -vvv); -v0 off" << std::endl;
+}
+
+// A file given to c / a that is not an .o45 object is stored all the same,
+// but has no symbols in the index: say so (#638)
+static void warnIfNotObject(const char* path, const std::vector<uint8_t>& data) {
+    O45File obj;
+    std::string err;
+    if (!O45Reader::read(data, obj, err))
+        std::cerr << "ar45: warning: " << path << ": not an .o45 object: stored, not indexed (" << err << ")" << std::endl;
 }
 
 // Build the symbol index by scanning each member's .o45 exports
@@ -93,6 +103,7 @@ int main(int argc, char** argv) {
                 return 1;
             }
             LOG_INFO("ar45", "add " << basename(argv[i]) << " (" << data.size() << " bytes, from " << argv[i] << ")");
+            warnIfNotObject(argv[i], data);
             archive.members.push_back({basename(argv[i]), data});
         }
 
@@ -168,6 +179,7 @@ int main(int argc, char** argv) {
                 std::cerr << "ar45: cannot read " << argv[i] << std::endl;
                 return 1;
             }
+            warnIfNotObject(argv[i], data);
             std::string name = basename(argv[i]);
             // Replace existing member with same name
             bool replaced = false;

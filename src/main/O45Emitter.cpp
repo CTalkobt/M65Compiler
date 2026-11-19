@@ -280,7 +280,8 @@ std::vector<uint8_t> emitO45(AssemblerParser& parser, const std::string& asmVers
                          parser.isRelocatableSymbolIn(parser.tokens[stmt->instr.operandTokenIndex].value, stmt->scopePrefix)) &&
                         !parser.isZpSegmentSymbolIn(parser.tokens[stmt->instr.operandTokenIndex].value, stmt->scopePrefix))
                         forceAbs = true;
-                }
+                } else if (fitsIn8 && !forceAbs && parser.operandNamesRelocatable(stmt->instr.operandTokenIndex, stmt->scopePrefix))
+                    forceAbs = true;   // (3+lbl, as the parser sizes it)
                 if (resolvedMode == AddressingMode::BASE_PAGE || resolvedMode == AddressingMode::ABSOLUTE)
                     resolvedMode = (fitsIn8 && !forceAbs) ? AddressingMode::BASE_PAGE : AddressingMode::ABSOLUTE;
                 else if (resolvedMode == AddressingMode::BASE_PAGE_X || resolvedMode == AddressingMode::ABSOLUTE_X)
@@ -314,11 +315,40 @@ std::vector<uint8_t> emitO45(AssemblerParser& parser, const std::string& asmVers
         // Resolve the operand to see if it references a relocatable symbol
         if (operand.empty()) continue;
 
-        // Skip numeric literals — they're absolute addresses, not relocatable
-        if (operand[0] == '$' || operand[0] == '%' || (operand[0] >= '0' && operand[0] <= '9')) continue;
+        // The operand's first name that moves at link time (a label of a
+        // relocatable segment or an import), wherever it stands in the
+        // expression: 3+lbl, 2*lbl (#635: an operand starting with a number
+        // was taken for an absolute address and got no relocation)
+        auto movingName = [&]() -> std::string {
+            int depth = 0;
+            for (int t = stmt->instr.operandTokenIndex; t >= 0 && t < (int)parser.tokens.size(); ++t) {
+                const auto& tok = parser.tokens[t];
+                if (tok.type == AssemblerTokenType::NEWLINE || tok.type == AssemblerTokenType::END_OF_FILE) break;
+                if (tok.type == AssemblerTokenType::OPEN_PAREN || tok.type == AssemblerTokenType::OPEN_BRACKET) depth++;
+                else if (tok.type == AssemblerTokenType::CLOSE_PAREN || tok.type == AssemblerTokenType::CLOSE_BRACKET) {
+                    if (depth == 0) break;
+                    depth--;
+                } else if (tok.type == AssemblerTokenType::COMMA && depth == 0) break;
+                else if (tok.type == AssemblerTokenType::IDENTIFIER &&
+                         (parser.isExternSymbol(tok.value) || parser.isRelocatableSymbolIn(tok.value, stmt->scopePrefix)))
+                    return tok.value;
+            }
+            return "";
+        };
+
+        // An operand that starts with a number (or a sign, a bracket) is an
+        // absolute address unless a name in it moves: 3+lbl is relocated
+        // against lbl, 2*lbl an error (relocatedAs)
+        std::string leadName;
+        if (operand[0] == '$' || operand[0] == '%' || (operand[0] >= '0' && operand[0] <= '9') || operand[0] == '-' ||
+            operand[0] == '(' || operand[0] == '~') {
+            leadName = movingName();
+            if (leadName.empty()) continue;
+        }
 
         // Check for SAC AR symbol relocation first (e.g., _main:__ar+2)
-        AssemblerParser::ArRelocation arReloc = parser.tryParseArRelocation(operand);
+        AssemblerParser::ArRelocation arReloc;
+        if (leadName.empty()) arReloc = parser.tryParseArRelocation(operand);
         if (arReloc.isArReloc) {
             // This is an AR relocation — create an external reference
             // To avoid addend encoding complexity, use the offset as part of the symbol name
@@ -349,9 +379,9 @@ std::vector<uint8_t> emitO45(AssemblerParser& parser, const std::string& asmVers
         }
 
         // Try resolving the full operand as a symbol first (simple case: bare label)
-        std::string symName = operand;
+        std::string symName = leadName.empty() ? operand : leadName;
         Symbol* sym = parser.resolveSymbol(symName, stmt->scopePrefix);
-        if (!sym) {
+        if (!sym && leadName.empty()) {
             // Compound expression (e.g. "table+4"): extract base symbol from token stream
             int tokIdx = stmt->instr.operandTokenIndex;
             if (tokIdx >= 0 && tokIdx < (int)parser.tokens.size() &&
@@ -732,7 +762,64 @@ std::vector<uint8_t> emitO45(AssemblerParser& parser, const std::string& asmVers
             }
             return b;
         };
+        // a relocation in the statement's own bytes (its operand: not always
+        // at operandOffset -- a prefixed [zp],z or quad instruction has its
+        // operand after the prefix and the opcode)
+        auto relocIn = [&](const AssemblerParser::Statement& st) {
+            auto it = segRelocs.find(st.segmentName);
+            if (it == segRelocs.end()) return false;
+            uint32_t from = st.address - segBase(st.segmentName);
+            for (const auto& r : it->second) if (r.offset > from && r.offset < from + (uint32_t)st.size) return true;
+            return false;
+        };
         std::set<std::string> weakUsed;
+        // An operand naming a label of a relocatable segment: its value must
+        // hold the label's address once (lbl, lbl + n, 3 + lbl, a difference
+        // of two labels of one segment: none) and have a relocation;
+        // 2 * lbl, -lbl, <(2 * lbl) were assembled at the label's offset in
+        // its segment, with no relocation and no message (#635)
+        auto checkLabelOperand = [&](const AssemblerParser::Statement& st, const std::function<void(const std::string&)>& err) {
+            // (a branch's operand is relative: no relocation)
+            const std::string& mn = st.instr.mnemonic;
+            if ((mn.size() == 3 && mn[0] == 'b' && mn != "bit" && mn != "brk") ||
+                (mn.size() == 4 && (mn.compare(0, 3, "bbr") == 0 || mn.compare(0, 3, "bbs") == 0)))
+                return;
+            std::string first;
+            int depth = 0;
+            for (int t = st.instr.operandTokenIndex; t >= 0 && t < (int)parser.tokens.size(); ++t) {
+                const auto& tok = parser.tokens[t];
+                if (tok.type == AssemblerTokenType::NEWLINE || tok.type == AssemblerTokenType::END_OF_FILE) break;
+                if (tok.type == AssemblerTokenType::OPEN_PAREN || tok.type == AssemblerTokenType::OPEN_BRACKET) depth++;
+                else if (tok.type == AssemblerTokenType::CLOSE_PAREN || tok.type == AssemblerTokenType::CLOSE_BRACKET) {
+                    if (depth == 0) break;
+                    depth--;
+                } else if (tok.type == AssemblerTokenType::COMMA && depth == 0) break;
+                else if (tok.type == AssemblerTokenType::IDENTIFIER && !parser.isExternSymbol(tok.value) &&
+                         parser.isRelocatableSymbolIn(tok.value, st.scopePrefix)) { first = tok.value; break; }
+            }
+            if (first.empty()) return;
+            std::map<std::string, int> m;
+            try { m = parser.segmentMultiples(st.instr.operandTokenIndex, st.scopePrefix); }
+            catch (...) { return; }
+            if (m.empty()) {
+                Symbol* s = parser.resolveSymbol(first, st.scopePrefix);
+                if (s) m[s->segment] = 1;
+            }
+            for (const auto& [seg, k] : m) {
+                if (k == 0) continue;
+                if (k != 1) {
+                    err("the operand's value can't be relocated: it holds the address of a label of segment '" + seg + "' " +
+                        (k == 0x7FFF ? std::string("in part") : std::to_string(k) + " times") +
+                        " (only lbl, lbl + n, lbl - n, <lbl, >lbl and differences of labels of one segment)");
+                    return;
+                }
+                if (!relocIn(st)) {
+                    err("no relocation could be made for '" + first + "' in this operand (write it as " + first + ", " +
+                        first + " + n, <" + first + " or >" + first + ")");
+                    return;
+                }
+            }
+        };
         for (const auto& stmt : parser.statements) {
             if (stmt->deleted) continue;
             auto err = [&](const std::string& m) {
@@ -749,9 +836,12 @@ std::vector<uint8_t> emitO45(AssemblerParser& parser, const std::string& asmVers
                 if (k == 2) badForm(n);
                 else if (k == 1 && stmt->instr.mode != AddressingMode::RELATIVE &&
                          stmt->instr.mode != AddressingMode::RELATIVE16 &&
-                         !relocAt(stmt->segmentName, stmt->address + operandOffset(stmt.get()) - segBase(stmt->segmentName)))
+                         !relocIn(*stmt))
                     err("no relocation could be made for '" + n + "' in this operand (write it as " + n + ", " + n +
                         " + n, <" + n + " or >" + n + ")");
+                else if (k == 0 && stmt->instr.mode != AddressingMode::RELATIVE &&
+                         stmt->instr.mode != AddressingMode::RELATIVE16)
+                    checkLabelOperand(*stmt, err);
             } else if (stmt->type == AssemblerParser::Statement::DIRECTIVE) {
                 const auto& d = stmt->dir;
                 int width = d.name == "byte" ? 1 : d.name == "word" ? 2 : (d.name == "long" || d.name == "dword") ? 4 : 0;

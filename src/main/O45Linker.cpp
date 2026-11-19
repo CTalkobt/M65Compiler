@@ -28,7 +28,12 @@ std::vector<O45Reloc> O45RelocDecoder::decode(const std::vector<uint8_t>& raw) {
         uint8_t delta = raw[pos++];
         if (delta == O45_RELOC_END) break;
 
-        // Handle escape sequences
+        // Handle escape sequences ($FF $00: an entry at the current offset,
+        // the first at offset 0)
+        if (delta == O45_RELOC_ESCAPE && pos < raw.size() && raw[pos] == 0x00) {
+            pos++;
+            delta = 0;
+        }
         while (delta == O45_RELOC_ESCAPE) {
             offset += O45_RELOC_SKIP;
             if (pos >= raw.size()) return out;
@@ -1151,7 +1156,7 @@ bool O45Linker::resolveSymbols(std::string& errorMsg) {
     }
 
     // <f>__zar: function f's private base-page block (cc45 .zar), placed by
-    // computeZarOverlay in $80-$E9 of the program's base page (__zp_page is
+    // computeZarOverlay in $80-$F1 of the program's base page (__zp_page is
     // page-aligned: the low byte of the address is the base-page address)
     {
         uint32_t page = globalSymbols_.count("__zp_page") ? globalSymbols_["__zp_page"] : 0;

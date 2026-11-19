@@ -61,7 +61,7 @@ void test_const_redefinition_fails() {
         .const x = 10
         .const x = 20
     )";
-    bool failed = assembleFailed(code, "Redefinition of symbol");
+    bool failed = assembleFailed(code, "Redefinition of constant symbol 'x' (.const defined twice)");
     CHECK(failed, ".const redefinition fails with expected error");
 }
 

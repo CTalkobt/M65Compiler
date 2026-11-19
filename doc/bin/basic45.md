@@ -33,7 +33,7 @@ basic45 --compile [-O<n>] [--asm <file.s45>] <input.bas|program.prg> [-o <output
 basic45 --convert=basic7|basic35|simons|tsbneo|basic8 [--ntsc] <program.prg|listing.txt> [-o <output.bas>]
 ```
 
-Without `-o` the output is the input name with its extension replaced by `.prg` (`.bas` when decompiling; `-o -` writes the source to standard output; `-compiled.prg` for a `.prg` given to `--compile`). A `.prg` input is decompiled (with `--compile`: compiled). With no input file, the usage text is printed and the exit status is 1. Unrecognised options starting with `-` are ignored silently.
+Without `-o` the output is the input name with its extension replaced by `.prg` (`.bas` when decompiling; `-o -` writes the source to standard output; `-compiled.prg` for a `.prg` given to `--compile`). A `.prg` input is decompiled (with `--compile`: compiled). With no input file, the usage text is printed and the exit status is 1. Unrecognised options starting with `-` are ignored silently; an option that takes a value given last, with none (`-o`, `--increment`, `--link`, …), is an error (exit status 1).
 
 ## Options
 
@@ -42,13 +42,13 @@ Without `-o` the output is the input name with its extension replaced by `.prg` 
 | `-o <file>` | Output file (default: `<input>.prg`) |
 | `--symbols <file>` | Load a symbol file for `{...}` substitution |
 | `--load <addr>` | Load address, hex (`2001`, `0x2001`; default `2001`, where BASIC 65 programs start; `0801` is the C64's) |
-| `--increment <n>` | Line numbering: the first line is `n`, then `2n`, `3n`, ... (default 10). Numbers end at 63999 (an error past that) |
+| `--increment <n>` | Line numbering: the first line is `n`, then `2n`, `3n`, ... (default 10; `n` from 1 to 63999, anything else an error). Numbers end at 63999 (an error past that) |
 | `--label-table <file>` | Write a tab-separated label table: label, line number, address of the line |
 | `--docs <file>` | Write markdown documentation of labeled sections |
 | `-I <path>` | Include search path for `#include` (one path; a later `-I` replaces an earlier one) |
 | `--minify` | Remove `REM` and `'` comments and whitespace (a blank stays where two names, keywords or numbers would run together, `_` counted as a name's character: `goto __endif1`; and before a `$` hex or `%` binary constant after one: `poke $d1`), and join lines into the line before them: never across a label (a jump target starts its own line), never onto a line containing `IF` (statements after `THEN` run only when the condition holds), at most 160 characters per line |
 | `--preserve-spaces` | Keep the blanks the source has between tokens (outside strings) instead of basic45's spacing (one space after a keyword before a name, number or operator), so the program lists as it was typed. Not the indentation: BASIC lists one space after the line number |
-| `--validate` | Run the preprocessor and validation only; write nothing. With `--link` or an `asm` / `incbin` block only the block structure is checked (the labels and the rest need the link: build to see those messages) |
+| `--validate` | Run the preprocessor and validation only; write nothing; exit status 1 on an error (an undefined label, a block left open). With `--link` or an `asm` / `incbin` block the program is checked the same way, its `{name}` symbols standing in as `$FFFF`: only what needs the link (compiling and assembling the linked files, the symbols' addresses) is left out |
 | `--strict` | Treat validation warnings as errors (exit status 1) |
 | `--dry-run` | Compile, but only report what would be written |
 | `--watch` | Build, then rebuild whenever the source, an `#include`d file, a `--link` file, the `--symbols` file or `incbin`/`datainc` data changes (polled every half second; Ctrl-C stops). With `--emulator` xemu is restarted after each good build, with `--send` the program is sent again |
@@ -105,7 +105,7 @@ again: print "x"
   goto again
 ```
 
-- A line beginning with `identifier:` (letters, digits, `_`; not starting with a digit) defines a label; the rest of the line is the code. A reserved word is never a label: a BASIC 65 keyword (`end`, `loop`, `rcursor`, …) or one of basic45's own (`endif`, `proc`, `endproc`, `call`, `select`, `case`, `endselect`, `is`, `elif`, `asm`, `endasm`, `incbin`, `datainc`, `as`), in any case. `10 end: print` is `END` and `PRINT`.
+- A line beginning with `identifier:` (letters, digits, `_`; not starting with a digit) defines a label; the rest of the line is the code. A reserved word is never a label: a BASIC 65 keyword (`end`, `loop`, `rcursor`, …) or one of basic45's own (`endif`, `proc`, `endproc`, `call`, `select`, `case`, `endselect`, `is`, `elif`, `asm`, `endasm`, `incbin`, `datainc`, `as`), in any case. `10 end: print` is `END` and `PRINT`. A keyword that cannot be a statement on its own before the `:` — a function, an operator, a word such as `GO`, `TO` or `THEN`, a statement that always takes an operand (`GOTO`, `FOR`, `POKE`, `SYS`, …), basic45's `proc`, `call`, `case`… — is an error there, naming the label and the keyword: `go: sys 8192` is `label 'go' is the BASIC keyword GO, which cannot start a statement alone: rename the label`.
 - Every line with code is one BASIC line, numbered 10, 20, 30, ... (`--increment`).
 - A label with no code on its line (`main_loop:` alone) names the next line with code (or, at the end of the source, an extra line holding `:`).
 - A label is used by name after `GOTO`, `GOSUB`, `GO TO` (also each item of `ON x GOTO a, b, c`), `THEN`, `ELSE`, `RESTORE`, `TRAP`, `RESUME` and `RUN`, and becomes that line's number. Labels are matched without regard to case (`goto Again` finds `again:`). A reserved word alone after `GOTO`, `GOSUB` or `GO TO` (`goto end`, an item of `ON x GOTO`) is an error; after `THEN` / `ELSE` it is the statement (`then end`).
@@ -322,7 +322,8 @@ basic45 --link routines.c menu.bas -o menu.prg
 linked code are one link (`ln45 -basic`): the program already runs as C, so `SYS {name}` calls the function
 directly (no thunk, no `__basic_call`): A, X and Y (a missing one: the last value, as SYS's) its first three
 parameters, its result in A / X for `RREG`. Other `{name}` references are the symbols' addresses (asm blocks'
-labels and `incbin` data too; a name alone: `{name+1}` is not substituted here, write `{name} + 1`), and `SYS {label}` of assembly is SYS's call with the registers. The C files must
+labels and `incbin` data too; `{name+1}` and the other operations of [Symbol Substitution](#symbol-substitution) as
+the expression in BASIC: `({name}+1)`, `/` as `INT(a/b)`, `%` as `MOD(a,b)`), and `SYS {label}` of assembly is SYS's call with the registers. The C files must
 not define `main` (the program is). Test: the same `test_basic45_link_xemu.bas`, compiled (with and without
 `--checks`).
 
@@ -352,7 +353,7 @@ status at `$FD`/`$FE` is the error number), after which BASIC's `READY.` follows
 `TURBO` (nothing, as the ROM's: parameters are a `?SYNTAX ERROR`), `SYS {name}` of C linked with `--link`, `END`, `STOP`, `REM`; `POKE` / `WPOKE` with a list of values |
 | Values | floats, `%` integers (-32768..32767), strings (up to 255 characters); arrays of each (`DIM a(n, m)`; `DIM a` of a scalar does nothing, up to 8 subscripts; sizes at run time) |
 | Operators | `+ - * / ^`, unary `-`, `= <> < > <= >=` (numbers and strings), `AND`, `OR`, `XOR`, `NOT` (-32768..65535, as BASIC 65's), `<<`, `>>` |
-| Functions | `ABS`, `INT`, `SGN`, `SQR`, `USR`, `FRE`, `JOY`, `POT`, `LPEN`, `RPLAY`, `DECBIN`, `POINTER`, `SIN`, `COS`, `TAN`, `ATN`, `LOG`, `EXP`, `PEEK`, `LEN`, `ASC`, `CHR$`, `STR$`, `LEFT$`, `RIGHT$`, `MID$`, `RND`, `FN`, `POS`, `VAL`, `DEC`, `HEX$`, `STRBIN$`, `INSTR` (a pound sign's pattern too), `MOD`, `WPEEK`, `RPT$`, `ERR$`, `RSPRITE`, `RSPCOLOR`, `RSPPOS`, `BUMP`, `RCOLOR`, `RWINDOW`, `RSPEED`, `RGRAPHIC`, `PIXEL`, `RPEN`, `RPALETTE`, π; the variables `TI`, `TI$`, `ER`, `EL`, `ST`, `DS` and `DS$` (`ST$`, `ER$`, `EL$` and every `%` form, `TI%` too, are ordinary variables, as in the interpreter). Not compiled yet: `LOG10`, `LOG2`, `HASBIT`, `RDISK` and `RSPRSYS` (an error: `LOG10 is not a value in an expression`), and a value given to `TI`, `TI$`, `ST`, `DS`, `DS$`, `ER` or `EL` by an assignment, `INPUT`, `READ` or `FOR` (`TI (a reserved variable) is not supported by --compile yet`; `CLR TI` is compiled) |
+| Functions | `ABS`, `INT`, `SGN`, `SQR`, `USR`, `FRE`, `JOY`, `POT`, `LPEN`, `RPLAY`, `DECBIN`, `POINTER`, `SIN`, `COS`, `TAN`, `ATN`, `LOG`, `EXP`, `PEEK`, `LEN`, `ASC`, `CHR$`, `STR$`, `LEFT$`, `RIGHT$`, `MID$`, `RND`, `FN`, `POS`, `VAL`, `DEC`, `HEX$`, `STRBIN$`, `INSTR` (a pound sign's pattern too), `MOD`, `WPEEK`, `RPT$`, `ERR$`, `RSPRITE`, `RSPCOLOR`, `RSPPOS`, `BUMP`, `RCOLOR`, `RWINDOW`, `RSPEED`, `RGRAPHIC`, `PIXEL`, `RPEN`, `RPALETTE`, π; the variables `TI`, `TI$`, `DT$` (the date: `"dd-MMM-20yy "`, the ROM's twelve characters, `"NO-RTC-2000 "` when the clock's day reads 0 or `$FF`), `ER`, `EL`, `ST`, `DS` and `DS$` (`ST$`, `ER$`, `EL$` and every `%` form, `TI%` too, are ordinary variables, as in the interpreter). Not compiled yet: `LOG10`, `LOG2`, `HASBIT`, `RDISK` and `RSPRSYS` (an error: `LOG10 is not a value in an expression`), and a value given to `TI`, `TI$`, `DT$`, `ST`, `DS`, `DS$`, `ER` or `EL` by an assignment, `INPUT`, `READ` or `FOR` (`TI (a reserved variable) is not supported by --compile yet`; `CLR TI` is compiled) |
 
 **How**: the program is one function; each line and statement starts a block. `GOTO` is a branch; `GOSUB`
 pushes the address of the code after it on BASIC's stack and `RETURN` jumps back to it. `FOR` pushes its
@@ -380,8 +381,8 @@ going back to the `DO` on top); `EXIT` and a false `DO WHILE` go on after the ma
 nested ones passed; none: `?LOOP NOT FOUND`). `READ` takes the items of the `DATA` statements in program order
 (the same rules as `INPUT`'s: `?OUT OF DATA`, `?TYPE MISMATCH`), `RESTORE n` from the first `DATA` at or after
 line `n`. `RND` is the ROM's (the interpreter's seed and sequence), `TI` CIA 2's timers as BASIC 65 reads them,
-`TI$` the clock (`"hh:mm:ss"`). The run time of these is `lib/stdlib/basic_in.c` (`INPUT`'s and `READ`'s
-items `lib/stdlib_asm/basic_items.s45`; `TI`, `TI$`, `CLR TI` and `SLEEP` `lib/stdlib_asm/basic_ti.s45`); reading a number,
+`TI$` the clock (`"hh:mm:ss"`), `DT$` the date (b65.src `Get_DT_RTC`). The run time of these is `lib/stdlib/basic_in.c` (`INPUT`'s and `READ`'s
+items `lib/stdlib_asm/basic_items.s45`; `TI`, `TI$`, `DT$`, `CLR TI` and `SLEEP` `lib/stdlib_asm/basic_ti.s45`); reading a number,
 `lib/stdlib/basic_innum.c` (with `strtof`, linked only by a program that `INPUT`s or `READ`s a number).
 
 **Files**: `OPEN lf [, device [, secondary [, name]]]` (no device: the default drive, secondary 0; a device
@@ -1271,9 +1272,7 @@ A label is recognised when `name:` is followed by a space or the end of the line
 - `--link` uses the ZP calling convention and `c45.lib`; for stack-convention C, declare the called functions `__fastcall__`.
 - `--send`'s default commands (`etherload -r`, `m65 -F -r`) are untested; use `--send-cmd` with the options your tools need.
 - `--compile` does not compile the statements that work on the program's text, `MERGE` among them, the functions `LOG10`, `LOG2`, `HASBIT`, `RDISK` and `RSPRSYS`, or a value given to a reserved variable (`TI$ = "000000"`; [Compiling](#compiling-compile)).
-- `--validate` checks only the block structure of a program with `--link` or `asm` / `incbin` blocks (exit status 0 with an undefined label).
-- A label named as a keyword is not a label: `go: sys 8192` is the statement `GO` (see [Lines and Labels](#lines-and-labels)).
-- `--preserve-spaces` is not listed by `--help`.
+- A label named as a keyword that can be a statement alone is the statement: `end: print` is `END` and `PRINT` (see [Lines and Labels](#lines-and-labels)).
 
 `test_basic45_xemu.bas` (as is, `--minify` and `--preserve-spaces`), `test_basic45_struct_xemu.bas` (block IF, select, procs with local labels, comments; as is, `--minify` and `--compile`), `test_basic45_features_xemu.bas` (as is, decompiled and rebuilt, and formatted), `test_basic45_link_xemu.bas` (C, asm, incbin, datainc) and `test_basic45_numbered_xemu.bas` (a numbered program; `MOD`, `LOG10`, `WPEEK`, `POINTER`, `WPOKE`, `<<`, `>>`) are run by BASIC 65 on xemu; `src/test/test_basic45.sh` (`make test`) checks the tokens and messages.
 

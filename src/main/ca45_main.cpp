@@ -140,10 +140,10 @@ static void printHelpInputOutput() {
     std::cout << "                     Example: ca45 -o program.prg input.s45\n\n";
     std::cout << "  -L <filename>      Generate assembly listing file\n";
     std::cout << "                     Useful for inspecting generated code and symbol table\n";
-    std::cout << "                     Example: ca45 -L listing.txt -l2 input.s45\n\n";
-    std::cout << "  -l <level>         Listing level (requires -L)\n";
-    std::cout << "                     1 = Binary (default): hex dump with addresses\n";
-    std::cout << "                     2 = Expanded Assembly: full expanded instructions\n\n";
+    std::cout << "                     Example: ca45 -L listing.txt input.s45\n\n";
+    std::cout << "  -l <level>         Output level, 1 or 2\n";
+    std::cout << "                     1 = Binary (default)\n";
+    std::cout << "                     2 = Expanded Assembly to the -o file instead of a binary\n\n";
     std::cout << "  --dry-run          Validate assembly without generating output\n";
     std::cout << "                     Useful for checking syntax and finding errors\n";
     std::cout << "                     Reports symbol count, instruction count, and size estimates\n";
@@ -179,7 +179,7 @@ static void printHelpOptimization() {
     std::cout << "                     3 = aggressive (experimental optimizations)\n";
     std::cout << "                     Example: ca45 -O3 input.s45\n\n";
     std::cout << "  -P<OptName>        Enable individual optimization (after -O level)\n";
-    std::cout << "  -PNo<OptName>      Disable individual optimization\n";
+    std::cout << "  -PNo<OptName>      Disable individual optimization (-PNoNoOpBra: the NoOpBra pass)\n";
     std::cout << "                     Options: RedundantLoad, DeadStore, TailCall, JmpBra,\n";
     std::cout << "                     CmpElimination, BranchInvert, JSRRelocate, QuadMove, etc.\n";
     std::cout << "                     Example: ca45 -O2 -PNoRedundantLoad input.s45\n\n";
@@ -589,8 +589,14 @@ int main(int argc, char** argv) {
         } else if (arg == "-l" && i + 1 < (int)allArgs.size()) {
             const std::string& lv = allArgs[++i];
             if (lv.empty() || lv.find_first_not_of("0123456789") != std::string::npos) {
-                std::cerr << "ca45: -l takes a listing level (1, 2 or 3), not '" << lv
+                std::cerr << "ca45: -l takes a listing level (1 or 2), not '" << lv
                           << "' (the listing file is -L <file>)" << std::endl;
+                return 1;
+            }
+            // (3 was accepted and behaved as 1, #635)
+            if (lv != "1" && lv != "2") {
+                std::cerr << "ca45: -l takes a listing level (1 or 2), not '" << lv
+                          << "': 1 the binary, 2 the expanded assembly (the listing file is -L <file>)" << std::endl;
                 return 1;
             }
             listingLevel = std::stoi(lv);
@@ -609,38 +615,41 @@ int main(int argc, char** argv) {
             }
             optFlags = OptimizationFlags::fromLevel(optimizationLevel);
         } else if (arg.substr(0, 2) == "-P") {
-            // Named optimization flags: -P<Name> to enable, -PNo<Name> to disable
+            // Named optimization flags: -P<Name> to enable, -PNo<Name> to disable.
+            // The whole name first: NoOpBra is a pass of its own (-PNoOpBra
+            // enables it, -PNoNoOpBra disables it, #635); then "No" + a name
+            auto setFlag = [&](const std::string& n, bool enable) -> bool {
+                // IR-level optimizations
+                if (n == "StrengthReduction") optFlags.strengthReduction = enable;
+                else if (n == "AlgebraicSimplify") optFlags.algebraicSimplify = enable;
+                else if (n == "TypeNarrowing") optFlags.typeNarrowing = enable;
+                else if (n == "BranchFold") optFlags.branchFold = enable;
+                else if (n == "CSE") optFlags.cse = enable;
+                else if (n == "LICM") optFlags.licm = enable;
+                else if (n == "CopyChains") optFlags.copyChains = enable;
+                else if (n == "AddrElemFusion") optFlags.addrElemFusion = enable;
+                // Assembler-level optimizations
+                else if (n == "JSRRelocate") optFlags.jsrRelocate = enable;
+                else if (n == "TailCall") optFlags.tailCall = enable;
+                else if (n == "BranchInvert") optFlags.branchInvert = enable;
+                else if (n == "JmpBra") optFlags.jmpBra = enable;
+                else if (n == "NoOpBra") optFlags.noOpBra = enable;
+                else if (n == "CmpElimination") optFlags.cmpElimination = enable;
+                else if (n == "RedundantLoad") optFlags.redundantLoad = enable;
+                else if (n == "DeadStore") optFlags.deadStore = enable;
+                else if (n == "TailDedup") optFlags.tailDedup = enable;
+                else if (n == "PreserveXSP") optFlags.preserveXSP = enable;
+                else if (n == "SeqExtract") optFlags.seqExtract = enable;
+                else if (n == "StoreLoadPair") optFlags.storeLoadPair = enable;
+                else if (n == "FCmpOpt") optFlags.fcmpOpt = enable;
+                else if (n == "TSXRedundant") optFlags.tsxRedundant = enable;
+                else if (n == "QuadMove") optFlags.quadMove = enable;
+                else return false;
+                return true;
+            };
             std::string flagName = arg.substr(2);
-            bool enable = true;
-            if (flagName.substr(0, 2) == "No") {
-                enable = false;
-                flagName = flagName.substr(2);
-            }
-            // IR-level optimizations
-            if (flagName == "StrengthReduction") optFlags.strengthReduction = enable;
-            else if (flagName == "AlgebraicSimplify") optFlags.algebraicSimplify = enable;
-            else if (flagName == "TypeNarrowing") optFlags.typeNarrowing = enable;
-            else if (flagName == "BranchFold") optFlags.branchFold = enable;
-            else if (flagName == "CSE") optFlags.cse = enable;
-            else if (flagName == "LICM") optFlags.licm = enable;
-            else if (flagName == "CopyChains") optFlags.copyChains = enable;
-            else if (flagName == "AddrElemFusion") optFlags.addrElemFusion = enable;
-            // Assembler-level optimizations
-            else if (flagName == "JSRRelocate") optFlags.jsrRelocate = enable;
-            else if (flagName == "TailCall") optFlags.tailCall = enable;
-            else if (flagName == "BranchInvert") optFlags.branchInvert = enable;
-            else if (flagName == "JmpBra") optFlags.jmpBra = enable;
-            else if (flagName == "NoOpBra") optFlags.noOpBra = enable;
-            else if (flagName == "CmpElimination") optFlags.cmpElimination = enable;
-            else if (flagName == "RedundantLoad") optFlags.redundantLoad = enable;
-            else if (flagName == "DeadStore") optFlags.deadStore = enable;
-            else if (flagName == "TailDedup") optFlags.tailDedup = enable;
-            else if (flagName == "PreserveXSP") optFlags.preserveXSP = enable;
-            else if (flagName == "SeqExtract") optFlags.seqExtract = enable;
-            else if (flagName == "StoreLoadPair") optFlags.storeLoadPair = enable;
-            else if (flagName == "FCmpOpt") optFlags.fcmpOpt = enable;
-            else if (flagName == "TSXRedundant") optFlags.tsxRedundant = enable;
-            else if (flagName == "QuadMove") optFlags.quadMove = enable;
+            if (!setFlag(flagName, true) && flagName.substr(0, 2) == "No")
+                setFlag(flagName.substr(2), false);
         } else if (arg == "-Woverflow" || arg == "--warn-overflow") {
             warnOverflow = true;  // Phase 1.3: enable overflow warnings
         } else if (arg == "-Wunderflow" || arg == "--warn-underflow") {

@@ -16,6 +16,7 @@ int plain(int a, int b) {
     x += (a - b) >> 1;                  // EXPECT mega65-signedness
     x += (a - 1) % 3;                   // EXPECT mega65-signedness
     x += -a / 4;                        // EXPECT mega65-signedness
+    a = -1;                             // EXPECT mega65-signedness
     return x;
 }
 
@@ -25,6 +26,7 @@ int fine(signed int a, signed int b, unsigned int u, unsigned int v) {
     delta = -3;
     if (a < 0) return 1;
     if (b == -1) return 2;
+    a = -1;
     x = a / -2;
     x += (a - b) / 2;
     x += (a - b) >> 1;

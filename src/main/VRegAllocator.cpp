@@ -396,6 +396,10 @@ void VRegAllocator::assignLocations(const ir::Function& fn) {
         });
 
     for (uint32_t vid : localVidOrder) {
+        // (a name declared twice, as an inlined copy of the function's own
+        // body declares it again, is listed twice: one slot, not a second
+        // one with the first left unused; #639)
+        if (allocs_.count(vid)) continue;
         if (registerVregs_.count(vid)) continue;        // Skip register vars (handle in phase 2)
         auto fz = fixedZpVregs_.find(vid);
         if (fz != fixedZpVregs_.end()) {                // at a fixed ZP address (no frame slot)

@@ -382,7 +382,7 @@ void BasicEmitter::checkVariables(const std::vector<std::vector<BasicToken>>& li
                                   const std::vector<int>& sourceOf) {
     struct Use { int firstLine = 0; bool assigned = false, read = false, exempt = false, dimmed = false; };
     std::map<std::string, Use> vars;   // NAME[$|%][(]
-    static const std::set<std::string> reserved = {"ST", "TI", "TI$", "DS", "DS$", "ER", "EL"};
+    static const std::set<std::string> reserved = {"ST", "TI", "TI$", "DS", "DS$", "DT$", "ER", "EL"};
     auto up = [](std::string s) { std::transform(s.begin(), s.end(), s.begin(), ::toupper); return s; };
 
     // REM PRAGMA IMPORT's variables are assigned by the program that loads

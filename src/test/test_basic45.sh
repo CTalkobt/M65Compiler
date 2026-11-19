@@ -574,5 +574,71 @@ grep -q -- '--map needs --link or --compile' <<< "$out" && [ ! -e "$D/mapn.map" 
 [ $ok = 1 ] && pass "--map: ln45's map of a --link and a --compile build, pointer calls and base-page blocks (#595)" ||
     fail "--map: $(cat "$D/mapl.log" "$D/mapc.log" 2>/dev/null) $out"
 
+# #636: --validate with --link / asm blocks still checks the program (an
+# undefined label: status 1); an option without its value, --increment 0:
+# errors; --help lists --preserve-spaces and the --compile / --convert forms
+printf 'sys {twice}, 5\ngoto nowhere\n' > "$D/v1.bas"
+printf 'unsigned int twice(unsigned int x){ return x*2; }\n' > "$D/v1.c"
+printf 'asm\n  rts\nendasm\ngoto nowhere\n' > "$D/v2.bas"
+printf 'sys {twice}, 5\nprint 1\n' > "$D/v3.bas"
+ok=1; why=""
+out=$($B --validate "$D/v1.bas" --link "$D/v1.c" 2>&1); [ $? = 1 ] && grep -q "Undefined label: NOWHERE" <<< "$out" || { ok=0; why+=" [link: $out]"; }
+out=$($B --validate "$D/v2.bas" 2>&1); [ $? = 1 ] && grep -q "Undefined label: NOWHERE" <<< "$out" || { ok=0; why+=" [asm: $out]"; }
+out=$($B --validate --compile "$D/v1.bas" --link "$D/v1.c" 2>&1); [ $? = 1 ] || { ok=0; why+=" [compile link: $out]"; }
+out=$($B --validate "$D/v3.bas" --link "$D/v1.c" 2>&1); [ $? = 0 ] || { ok=0; why+=" [good: $out]"; }
+[ $ok = 1 ] && pass "--validate with --link and asm blocks checks the labels (#636)" || fail "--validate:$why"
+ok=1; why=""
+for o in -o --increment --link --symbols --encoding; do
+    out=$($B "$D/v3.bas" $o 2>&1); [ $? = 1 ] && grep -q -- "$o needs a value" <<< "$out" || { ok=0; why+=" [$o: $out]"; }
+done
+for v in 0 -5 x 64000; do
+    out=$($B "$D/v3.bas" --increment $v -o "$D/v3.prg" 2>&1); [ $? = 1 ] && grep -q -- "--increment takes" <<< "$out" || { ok=0; why+=" [--increment $v: $out]"; }
+done
+$B "$D/v3.bas" --increment 5 -o "$D/v3.prg" > /dev/null 2>&1 || { ok=0; why+=" [--increment 5]"; }
+[ $ok = 1 ] && pass "an option without its value and a bad --increment are errors (#636)" || fail "option values:$why"
+h=$($B --help)
+if grep -q -- '--preserve-spaces' <<< "$h" && grep -q -- '--compile \[options\]' <<< "$h" && grep -q -- '--convert=<dialect> <' <<< "$h" &&
+   grep -A1 -- '--speed, -Ospeed' <<< "$h" | grep -q 'faster than the ROM'; then
+    pass "--help: --preserve-spaces, the --compile / --convert forms, --speed's note (#636)"
+else
+    fail "--help: $h"
+fi
+
+# #636: a label named like a keyword that cannot start a statement alone
+# (go:) is an error naming it; end: print is still END and PRINT
+printf 'go: print 1\ngoto go\n' > "$D/kl.bas"
+out=$($B "$D/kl.bas" -o "$D/kl.prg" 2>&1); rc=$?
+printf 'print 1\nend: print 2\n' > "$D/kl2.bas"
+if [ $rc = 1 ] && grep -q "label 'go' is the BASIC keyword GO" <<< "$out" &&
+   $B "$D/kl2.bas" -o "$D/kl2.prg" > /dev/null 2>&1 &&
+   [ "$($B --decompile "$D/kl2.prg" -o - 2>/dev/null | grep -c 'end : print 2\|end: print 2\|end:print 2')" = 1 ]; then
+    pass "a label named like a keyword (go:) is an error; end: print stays two statements (#636)"
+else
+    fail "keyword label ($rc): $out / $($B --decompile "$D/kl2.prg" -o - 2>&1)"
+fi
+
+# #636: --compile: DT$ is the date (__bas_dts), not a variable; DTX$ kept
+# (--keep-names: the interpreter's DT$) is refused
+printf 'a$ = dt$\nprint len(a$)\n' > "$D/dt.bas"
+printf 'print dtx$\n' > "$D/dt2.bas"
+$B --compile "$D/dt.bas" --asm "$D/dt.s45" -o "$D/dt.prg" > "$D/dt.log" 2>&1; rc=$?
+out=$($B --compile --keep-names "$D/dt2.bas" -o "$D/dt2.prg" 2>&1); rc2=$?
+if [ $rc = 0 ] && grep -q '__bas_dts' "$D/dt.s45" && ! grep -q '__bv_DT_s' "$D/dt.s45" &&
+   [ $rc2 = 1 ] && grep -q 'DTX\$ (a reserved variable)' <<< "$out"; then
+    pass "--compile: DT\$ reads the date (#636)"
+else
+    fail "--compile DT\$ ($rc $rc2): $(cat "$D/dt.log") $out"
+fi
+
+# #636: --compile --link: {name+1} is substituted (the symbol's address + 1)
+printf 'unsigned char buf[4];\nunsigned char *bp(void){ return buf; }\n' > "$D/se.c"
+printf 'poke {buf+1}, 7\nprint peek({buf%%3}), {buf/2}, {2*buf}\n' > "$D/se.bas"
+if $B --compile "$D/se.bas" --link "$D/se.c" --asm "$D/se.s45" -o "$D/se.prg" > "$D/se.log" 2>&1 &&
+   grep -q '_buf' "$D/se.s45" && ! grep -q '{buf' "$D/se.s45"; then
+    pass "--compile --link: {name+1} and the other symbol operations are substituted (#636)"
+else
+    fail "--compile --link {name+1}: $(cat "$D/se.log")"
+fi
+
 echo "basic45 tests: $passed passed, $failed failed"
 [ $failed -eq 0 ]

@@ -296,7 +296,8 @@ void AssemblerGenerator::generate(AssemblerParser* parser, M65Emitter& e, const 
                                      parser->isRelocatableSymbolIn(parser->tokens[stmt->instr.operandTokenIndex].value, stmt->scopePrefix)) &&
                                     !parser->isZpSegmentSymbolIn(parser->tokens[stmt->instr.operandTokenIndex].value, stmt->scopePrefix))
                                     forceAbs = true;
-                            }
+                            } else if (fitsIn8 && !forceAbs && parser->operandNamesRelocatable(stmt->instr.operandTokenIndex, stmt->scopePrefix))
+                                forceAbs = true;   // (3+lbl, as the parser sizes it, #635)
                             if (stmt->instr.mode == AddressingMode::BASE_PAGE || stmt->instr.mode == AddressingMode::ABSOLUTE) resolvedMode = (fitsIn8 && !forceAbs) ? AddressingMode::BASE_PAGE : AddressingMode::ABSOLUTE;
                             else if (stmt->instr.mode == AddressingMode::BASE_PAGE_X || stmt->instr.mode == AddressingMode::ABSOLUTE_X) resolvedMode = (fitsIn8 && !forceAbs) ? AddressingMode::BASE_PAGE_X : AddressingMode::ABSOLUTE_X;
                             else if (stmt->instr.mode == AddressingMode::BASE_PAGE_Y || stmt->instr.mode == AddressingMode::ABSOLUTE_Y) resolvedMode = (fitsIn8 && !forceAbs) ? AddressingMode::BASE_PAGE_Y : AddressingMode::ABSOLUTE_Y;

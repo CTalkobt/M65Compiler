@@ -37,7 +37,7 @@ cat <<EOF > $TEMP_ASM
 .const MY_CONST = \$5678
 EOF
 
-$ASM $TEMP_ASM -o $TEMP_BIN 2>&1 | grep "Error: Redefinition of symbol" > /dev/null
+$ASM $TEMP_ASM -o $TEMP_BIN 2>&1 | grep "Error: Redefinition of constant symbol .MY_CONST. (.const defined twice)" > /dev/null
 if [ $? -ne 0 ]; then
     echo "FAILED: Redefinition of .const should fail"
     exit 1
@@ -50,7 +50,7 @@ cat <<EOF > $TEMP_ASM
 MY_CONST = \$5678
 EOF
 
-$ASM $TEMP_ASM -o $TEMP_BIN 2>&1 | grep "Error: Redefinition of constant symbol" > /dev/null
+$ASM $TEMP_ASM -o $TEMP_BIN 2>&1 | grep "Error: Cannot redefine constant .MY_CONST. with .=." > /dev/null
 if [ $? -ne 0 ]; then
     echo "FAILED: Redefinition of .const with equate should fail"
     exit 1

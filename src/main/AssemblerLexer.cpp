@@ -328,11 +328,18 @@ AssemblerToken AssemblerLexer::lexNumber() {
     char prefix = get(); 
     value += prefix;
     
+    // A '$' or '%' with no digit after it is no number: an UNKNOWN token,
+    // which pass 1 reports ('$' alone gave the raw "stoul", '%' as modulo
+    // was not seen at all, #635)
+    if ((prefix == '$' && !std::isxdigit((unsigned char)peek())) ||
+        (prefix == '%' && peek() != '0' && peek() != '1'))
+        return {AssemblerTokenType::UNKNOWN, value, startLine, startCol};
+
     if (prefix == '$') {
         while (std::isxdigit(peek())) value += get();
         return checkNumberEnd({AssemblerTokenType::HEX_LITERAL, value, startLine, startCol});
     }
-    
+
     if (prefix == '%') {
         while (peek() == '0' || peek() == '1') value += get();
         return checkNumberEnd({AssemblerTokenType::BINARY_LITERAL, value, startLine, startCol});

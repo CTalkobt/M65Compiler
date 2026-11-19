@@ -294,6 +294,9 @@ void IRBuilder::generate(TranslationUnit& unit) {
             const auto* allNonNegPtr = (nnIt != paramAllNonNeg.end()) ? &nnIt->second : nullptr;
             for (size_t i = 0; i < params.size() && i < allConst.size(); i++) {
                 std::string cleanName = (name.size() > 1 && name[0] == '_') ? name.substr(1) : name;
+                // a static function by its C name, not its module-unique symbol (nar__c; #640)
+                for (const auto& [cn, unique] : staticRenames_)
+                    if (unique == cleanName) { cleanName = cn; break; }
                 if (params[i] == ir::Type::I16 && allConst[i]) {
                     // All values fit in unsigned char
                     std::stringstream ss;
@@ -1439,6 +1442,8 @@ void IRBuilder::declareBuiltinPrototypes() {
         {"__builtin_parityll", "int", true, "long", false},
         {"__builtin_bswap16", "int", false, "int", false},
         {"__builtin_bswap32", "long", false, "long", false},
+        {"__builtin_abs", "int", true, "int", true},      // (inline, visit(FunctionCall))
+        {"__builtin_labs", "long", true, "long", true},
     };
     // The variadic stdio builtins (__builtin_printf etc. become these names):
     // without a declaration their arguments would be passed as for a fixed
@@ -5376,6 +5381,26 @@ void IRBuilder::visit(Assignment& node) {
         else tn = "the target";
         if (tn.compare(0, 3, "'__") != 0)     // (not the variables of cc45's own builtins: __jsr's)
             lintNarrowing(getExprTypeInfo(node.target.get()), node.expression.get(), node, tn);
+        // mega65-signedness: a negative constant stored in a plain parameter
+        // (variables: the folder's; #640)
+        auto* pv = dynamic_cast<VariableReference*>(node.target.get());
+        if (pv && locals_.count(pv->name) && lintPlainParams_.count(pv->name)) {
+            int64_t v = 0;
+            bool neg = false;
+            if (auto* lit = dynamic_cast<IntegerLiteral*>(node.expression.get()))
+                neg = lit->value < 0 && lit->castType.empty() && (v = lit->value, true);
+            else if (auto* u = dynamic_cast<UnaryOperation*>(node.expression.get()); u && u->op == "-")
+                if (auto* l2 = dynamic_cast<IntegerLiteral*>(u->operand.get()); l2 && l2->value > 0 && l2->castType.empty())
+                    neg = (v = -l2->value, true);
+            if (neg) {
+                std::string ptype = localTypeNames_.count(pv->name) ? localTypeNames_[pv->name] : "int";
+                int bits = ptype == "char" ? 8 : ptype == "long" ? 32 : 16;
+                lintReport("mega65-signedness", node.sourceFile, node.line, node.column,
+                           "'" + pv->name + "' is unsigned (plain " + ptype + " is unsigned in cc45): " +
+                           std::to_string(v) + " becomes " + std::to_string((uint64_t)v & ((1ull << bits) - 1)) +
+                           "; declare it 'signed' (or use -fsigned-default)");
+            }
+        }
     }
     if (farUsed_ && emitFarAssign(node)) return;
     if (farUsed_ && node.op == "=") {
@@ -7719,6 +7744,50 @@ void IRBuilder::visit(FunctionCall& node) {
             if (!isP) node.arguments[2] = std::move(static_cast<CastExpression*>(call.arguments[2].get())->expression);
             return;
         }
+    }
+
+    // __builtin_abs / __builtin_labs: |x| inline, as a signed int / long
+    // (x < 0 ? -x : x, x evaluated once), whatever <stdlib.h> makes of abs (#639)
+    if ((node.name == "__builtin_abs" || node.name == "__builtin_labs") && node.arguments.size() == 1 &&
+        !node.callExpr && currentFunc_) {
+        ir::Type t = node.name == "__builtin_abs" ? ir::Type::I16 : ir::Type::I32;
+        IRTypeInfo ai = getExprTypeInfo(node.arguments[0].get());
+        bool saved = computeAddressOnly_;
+        computeAddressOnly_ = false;
+        node.arguments[0]->accept(*this);
+        computeAddressOnly_ = saved;
+        ir::Operand v = lastValue_;
+        if (v.type == ir::Type::F32) v = emitCast(v, t, true);
+        else if (v.type != t) v = emitCast(v, t, ai.isSigned);
+        auto dest = allocVreg(t);
+        ir::Inst cp;
+        cp.op = ir::Op::COPY; cp.dest = dest; cp.src1 = v; cp.resultType = t; cp.loc = loc(node);
+        emit(cp);
+        auto neg = allocVreg(ir::Type::I8);
+        ir::Inst cmp;
+        cmp.op = ir::Op::CMP_LT; cmp.dest = neg; cmp.resultType = ir::Type::I8;
+        cmp.src1 = dest; cmp.src2 = ir::Operand::imm(0, t); cmp.loc = loc(node);
+        emit(cmp);
+        std::string negLabel = newLabel("abs_neg"), endLabel = newLabel("abs_end");
+        ir::Inst br;
+        br.op = ir::Op::BR_COND; br.src1 = neg;
+        br.dest = ir::Operand::label(negLabel); br.src2 = ir::Operand::label(endLabel); br.loc = loc(node);
+        emit(br);
+        startBlock(negLabel);
+        auto nv = allocVreg(t);
+        ir::Inst ng;
+        ng.op = ir::Op::NEG; ng.dest = nv; ng.src1 = dest; ng.resultType = t; ng.loc = loc(node);
+        emit(ng);
+        ir::Inst cp2;
+        cp2.op = ir::Op::COPY; cp2.dest = dest; cp2.src1 = nv; cp2.resultType = t; cp2.loc = loc(node);
+        emit(cp2);
+        ir::Inst be;
+        be.op = ir::Op::BR; be.src1 = ir::Operand::label(endLabel);
+        emit(be);
+        startBlock(endLabel);
+        lastValue_ = dest;
+        lastValueSigned_ = true;
+        return;
     }
 
     // __builtin_return_address(0): the caller's return address (the address
@@ -11316,6 +11385,18 @@ std::unique_ptr<Expression> IRBuilder::stringEqualsExpr(Expression* call) {
 
 // The address of a global object, function or string literal: not null
 // (a pointer made from an integer, (T *)0x1234, has no label: not counted)
+// offsetof in a constant expression (a case label): &((T *)N)->m is N plus
+// the member's offset, an address without a label (#639)
+bool IRBuilder::numericAddress(UnaryOperation& addr, int64_t& out) {
+    std::string label;
+    int off = 0;
+    if (!ConstEval::addressOfNumber(addr.operand.get()) || !constLvalue(addr.operand.get(), label, off) ||
+        !label.empty())
+        return false;
+    out = off;
+    return true;
+}
+
 bool IRBuilder::nonNullAddress(Expression& e) {
     std::string label;
     int off = 0;

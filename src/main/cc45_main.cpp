@@ -540,19 +540,26 @@ int main(int argc, char** argv) {
             if (programName != "cp45") {
                 std::cout << "  -O0..9         Optimization level" << std::endl;
             }
-            std::cout << "  -v ... -vvvv   Log to stderr ([cc45:INFO] ...): phases (-v), pass activity (-vv)," << std::endl;
+            std::cout << "  -v ... -vvvv   Log to stderr ([" << (programName == "cp45" ? "cp45" : "cc45") << ":INFO] ...): phases (-v), pass activity (-vv)," << std::endl;
             std::cout << "                 internals (-vvv), tokens (-vvvv); ca45/ln45 run at the same level; -v0 off" << std::endl;
             std::cout << "  -I<path>       Include path" << std::endl;
             std::cout << "  -D<name>=<val> Define symbol" << std::endl;
+            std::cout << "  -V, --version  Print the version" << std::endl;
             if (programName != "cp45") {
                 std::cout << "  -fzpcall       ZP parameter calling convention (default)" << std::endl;
                 std::cout << "  -fno-zpcall    Stack parameter calling convention" << std::endl;
                 std::cout << "  -fno-stack16   Keep the ROM's 8-bit CPU stack on page 1 (default: 16-bit stack topped at $BFFF)" << std::endl;
+                std::cout << "  -fstack16      The 16-bit CPU stack (default)" << std::endl;
                 std::cout << "  -fstack-top=ADDR  Top byte of the 16-bit CPU stack (e.g. 0x9FFF or $9FFF)" << std::endl;
+                std::cout << "  -fstack-size=N    Bytes kept for the stack below its top; the heap ends there" << std::endl;
+                std::cout << "                 (default 4096; 0x1000 or $1000 too)" << std::endl;
                 std::cout << "  -fbss-fill=V   Byte crt0 fills BSS with at startup (default $00; e.g. $FF to find" << std::endl;
                 std::cout << "                 code that relies on uninitialized data)" << std::endl;
                 std::cout << "  -fstaticalloc  Use static allocation (default)" << std::endl;
-                std::cout << "  -fno-zp-locals  No base-page blocks ($80-$E9) for pointer variables of functions" << std::endl;
+                std::cout << "  -fno-staticalloc  Parameters and locals of every function in a stack frame" << std::endl;
+                std::cout << "  -foverlay=NAME Code of this file in the overlay NAME (#pragma cc45 overlay(NAME))" << std::endl;
+                std::cout << "  -ffunction-sections  A section per function and variable, so ln45 drops what is not reached" << std::endl;
+                std::cout << "  -fno-zp-locals  No base-page blocks ($80-$F1) for pointer variables of functions" << std::endl;
                 std::cout << "                 that make calls (for call chains that do not fit there)" << std::endl;
                 std::cout << "  -fzp-locals-max=N  Bytes of such a block (default 16; 0 = none)" << std::endl;
                 std::cout << "  -fzp-plan=FILE     The blocks' variables as ln45 --zp-plan-out chose them program-wide" << std::endl;
@@ -566,11 +573,16 @@ int main(int argc, char** argv) {
                 std::cout << "  -fmax-unroll-bytes=N    Max estimated code bytes of an unrolled loop (default 128)" << std::endl;
                 std::cout << "  -fsigned-default  Plain char/short/int/long are signed (standard C); default is unsigned" << std::endl;
                 std::cout << "  -funsigned-char   With -fsigned-default, keep plain char unsigned" << std::endl;
+                std::cout << "  -fsigned-char     With -fsigned-default, make plain char signed" << std::endl;
+                std::cout << "  -fimplicit-function-declaration  Allow calls of undeclared functions, with a warning" << std::endl;
+                std::cout << "                 (default: an error)" << std::endl;
                 std::cout << "  -f<opt> / -fno-<opt>  Enable / disable an optimization (e.g. -fno-cse,"
                           << " -floop-invariant-code-motion; see doc/architecture/optimizations.md)" << std::endl;
                 std::cout << "  --future       Warn when an optimization that is not implemented yet is requested" << std::endl;
+                std::cout << "  -floop-idioms  Copy and fill loops of arrays as memmove / memset calls (off by default)" << std::endl;
                 std::cout << "  -Roptir        Report IR optimizer actions to stderr" << std::endl;
-                std::cout << "  --pragma <p>   Inject pragma" << std::endl;
+                std::cout << "  -Rcodegen      With -S: the reason for each instruction as a comment" << std::endl;
+                std::cout << "  --pragma <p>   Accepted, no effect (as --emit-ir)" << std::endl;
                 std::cout << "  --prg-base <a> PRG load address (hex)" << std::endl;
                 std::cout << "  --save-temps   Keep intermediate files" << std::endl;
             }
@@ -660,7 +672,7 @@ int main(int argc, char** argv) {
             // (inline everywhere; without either, calls outside loops)
             setenv("CC45_MUL_CALL", "0", 1);
         } else if (arg == "-fno-zp-locals") {
-            // no base-page blocks ($80-$E9) for pointer variables of functions that make calls
+            // no base-page blocks ($80-$F1) for pointer variables of functions that make calls
             setenv("CC45_NO_ZP_LOCALS", "1", 1);
         } else if (arg == "-fzp-locals") {
             unsetenv("CC45_NO_ZP_LOCALS");

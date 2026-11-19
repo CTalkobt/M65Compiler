@@ -3405,6 +3405,37 @@ std::unique_ptr<Expression> Parser::parseUnary() {
     if (match(TokenType::SIZEOF)) {
         const Token& startToken = tokens[pos-1];
         if (match(TokenType::OPEN_PAREN)) {
+            // sizeof(typeof(x)) is sizeof x; sizeof(typeof(T)) sizeof(T);
+            // with stars after it, a pointer's (#639)
+            if (peek().type == TokenType::TYPEOF && pos + 1 < tokens.size() &&
+                tokens[pos + 1].type == TokenType::OPEN_PAREN) {
+                advance();
+                advance();
+                std::unique_ptr<Expression> ofExpr;
+                TypeSpec ts;
+                if (isTypeStartToken()) {
+                    ts = parseTypeSpecifier();
+                    while (match(TokenType::STAR)) ts.pointerLevel++;
+                } else {
+                    ofExpr = parseCommaExpression();
+                }
+                expect(TokenType::CLOSE_PAREN, "Expected ')' after typeof");
+                int stars = 0;
+                while (match(TokenType::STAR)) stars++;
+                expect(TokenType::CLOSE_PAREN, "Expected ')' after type in sizeof");
+                if (ofExpr && !stars) return setPos(std::make_unique<SizeofExpression>(std::move(ofExpr)), startToken);
+                std::unique_ptr<SizeofExpression> node;
+                if (ofExpr) {
+                    DeclType dt = typeofExpr(ofExpr.get());
+                    node = std::make_unique<SizeofExpression>(dt.type, dt.ptrLevel + stars);
+                } else {
+                    ts.pointerLevel += stars;
+                    { int sp = ts.addressSpace; farPointer(ts.name, ts.pointerLevel, sp, ts.isSigned); }
+                    node = std::make_unique<SizeofExpression>(ts.name, ts.pointerLevel);
+                    if (!stars) node->arrayDims = ts.arrayDims;
+                }
+                return setPos(std::move(node), startToken);
+            }
             // Check if it's a type or an expression
             if (isTypeStartToken()) {
                 auto ts = parseTypeSpecifier();
@@ -3943,8 +3974,8 @@ std::unique_ptr<Expression> Parser::parsePrimary() {
                 {"__builtin_memset", "memset"},
                 {"__builtin_memmove", "memmove"},
                 {"__builtin_memcmp", "memcmp"},
-                {"__builtin_abs", "abs"},
-                {"__builtin_labs", "labs"},
+                // (__builtin_abs / __builtin_labs: computed inline by IRBuilder,
+                // whether <stdlib.h> makes abs / labs macros or not; #639)
                 {"__builtin_exit", "exit"},
                 {"__builtin_alloca", "alloca"},
                 {"__builtin_fabs", "fabs"}, {"__builtin_fabsf", "fabsf"},
@@ -5041,41 +5072,8 @@ int Parser::typeByteSize(const std::string& type, int ptrLevel, int* natAlign, i
     } else if (t.rfind("struct ", 0) == 0 || t.rfind("union ", 0) == 0) {
         auto it = structs.find(t.substr(t.find(' ') + 1));
         if (it == structs.end() || !it->second) return -1;
-        StructDefinition* def = it->second;
-        int startOffset = 0, startAlign = 1, startNatural = 1;
-        if (!def->parentStruct.empty()) {
-            int pna = 1, pda = 1;
-            startOffset = typeByteSize("struct " + def->parentStruct, 0, &pna, &pda, depth + 1);
-            if (startOffset < 0) return -1;
-            startAlign = pda; startNatural = pna;
-        }
-        std::vector<StructLayout::Member> lm;
-        for (const auto& m : def->members) {
-            for (const auto& d : m.vlaDimExprs) if (d) return -1;
-            StructLayout::Member l;
-            int mna = 1, mda = 1;
-            int es = typeByteSize(m.type, m.bitWidth > 0 ? 0 : m.pointerLevel, &mna, &mda, depth + 1);
-            if (es < 0) return -1;
-            if (m.bitWidth > 0) {
-                l.unitType = m.type;
-                l.size = es;
-                l.bitWidth = m.bitWidth;
-            } else {
-                l.size = es;
-                if (m.arraySize() >= 0) l.size *= m.arraySize();
-                long ea = std::max(1, m.alignment);
-                if (m.alignmentExpr) {
-                    long cv;
-                    if (!evalConstInt(m.alignmentExpr.get(), cv)) return -1;
-                    ea = std::max(ea, cv);
-                }
-                l.explicitAlign = std::max((int)ea, m.pointerLevel > 0 ? 1 : mda);
-            }
-            l.naturalAlign = mna;
-            lm.push_back(l);
-        }
-        StructLayout::Result r = StructLayout::layout(lm, def->isUnion, def->isUnpacked, def->alignment,
-                                                      startOffset, startAlign, startNatural);
+        StructLayout::Result r;
+        if (!structLayoutOf(it->second, r, depth)) return -1;
         size = r.size; na = r.naturalAlign; da = r.align;
     } else {
         size = scalarTypeSize(t, 0);
@@ -5086,6 +5084,156 @@ int Parser::typeByteSize(const std::string& type, int ptrLevel, int* natAlign, i
     if (natAlign) *natAlign = na;
     if (declAlign) *declAlign = da;
     return size;
+}
+
+bool Parser::structLayoutOf(StructDefinition* def, StructLayout::Result& r, int depth) {
+    if (!def || depth > 32) return false;
+    int startOffset = 0, startAlign = 1, startNatural = 1;
+    if (!def->parentStruct.empty()) {
+        int pna = 1, pda = 1;
+        startOffset = typeByteSize("struct " + def->parentStruct, 0, &pna, &pda, depth + 1);
+        if (startOffset < 0) return false;
+        startAlign = pda; startNatural = pna;
+    }
+    std::vector<StructLayout::Member> lm;
+    for (const auto& m : def->members) {
+        for (const auto& d : m.vlaDimExprs) if (d) return false;
+        StructLayout::Member l;
+        int mna = 1, mda = 1;
+        int es = typeByteSize(m.type, m.bitWidth > 0 ? 0 : m.pointerLevel, &mna, &mda, depth + 1);
+        if (es < 0) return false;
+        if (m.bitWidth > 0) {
+            l.unitType = m.type;
+            l.size = es;
+            l.bitWidth = m.bitWidth;
+        } else {
+            l.size = es;
+            if (m.arraySize() >= 0) l.size *= m.arraySize();
+            long ea = std::max(1, m.alignment);
+            if (m.alignmentExpr) {
+                long cv;
+                if (!evalConstInt(m.alignmentExpr.get(), cv)) return false;
+                ea = std::max(ea, cv);
+            }
+            l.explicitAlign = std::max((int)ea, m.pointerLevel > 0 ? 1 : mda);
+        }
+        l.naturalAlign = mna;
+        lm.push_back(l);
+    }
+    r = StructLayout::layout(lm, def->isUnion, def->isUnpacked, def->alignment,
+                             startOffset, startAlign, startNatural);
+    return true;
+}
+
+StructDefinition* Parser::aggregateOf(const std::string& type) {
+    std::string t = type;
+    for (int depth = 0; depth < 32; depth++) {
+        for (const char* q : {"const ", "volatile "})
+            for (size_t at; (at = t.find(q)) != std::string::npos; ) t.erase(at, std::strlen(q));
+        if (t.rfind("struct ", 0) == 0 || t.rfind("union ", 0) == 0) {
+            auto it = structs.find(t.substr(t.find(' ') + 1));
+            return it == structs.end() ? nullptr : it->second;
+        }
+        auto td = typedefs.find(t);
+        if (td == typedefs.end() || td->second.isFunctionPointer || td->second.pointerLevel ||
+            !td->second.arrayDims.empty())
+            return nullptr;
+        t = td->second.baseType;
+    }
+    return nullptr;
+}
+
+const StructMember* Parser::findLayoutMember(StructDefinition* def, const std::string& name, int64_t& off, int depth) {
+    StructLayout::Result r;
+    if (!def || depth > 32 || !structLayoutOf(def, r)) return nullptr;
+    for (size_t i = 0; i < def->members.size(); i++) {
+        const StructMember& m = def->members[i];
+        if (m.name == name && !m.isAnonymous) { off = r.placed[i].offset; return &m; }
+    }
+    for (size_t i = 0; i < def->members.size(); i++) {   // a member of an anonymous struct or union
+        const StructMember& m = def->members[i];
+        if (!m.isAnonymous) continue;
+        int64_t sub = 0;
+        if (const StructMember* f = findLayoutMember(aggregateOf(m.type), name, sub, depth + 1)) {
+            off = r.placed[i].offset + sub;
+            return f;
+        }
+    }
+    if (!def->parentStruct.empty()) {   // inherited: at its offset in the parent
+        auto it = structs.find(def->parentStruct);
+        if (it != structs.end()) return findLayoutMember(it->second, name, off, depth + 1);
+    }
+    return nullptr;
+}
+
+// offsetof(T, m[i].n) in a constant expression (_Static_assert, an array
+// size, an enum value, a bit-field width): &((T *)N)->m[i].n is N plus the
+// offsets the declarations so far give (#639)
+bool Parser::numericAddress(UnaryOperation& addr, int64_t& out) {
+    struct Obj { int64_t at = 0; std::string type; int ptr = 0; std::vector<int> dims; };
+    // what a pointer made of a number points to
+    auto pointee = [&](Expression* e, Obj& o) -> bool {
+        auto* c = dynamic_cast<CastExpression*>(e);
+        auto* l = dynamic_cast<IntegerLiteral*>(e);
+        if (c && c->pointerLevel > 0) {
+            ConstValue v;
+            if (!ConstEval::eval(c->expression.get(), *this, v) || !v.isInt()) return false;
+            o.at = v.intValue(); o.type = c->targetType; o.ptr = c->pointerLevel - 1;
+        } else if (l && l->castPointerLevel > 0) {
+            o.at = l->value; o.type = l->castType; o.ptr = l->castPointerLevel - 1;
+        } else {
+            return false;
+        }
+        o.dims.clear();
+        return true;
+    };
+    // an array typedef's dimensions on the object: typedef int row[4]; row m[2]
+    auto flatten = [&](Obj& o) {
+        for (int k = 0; k < 32 && o.ptr == 0; k++) {
+            auto td = typedefs.find(o.type);
+            if (td == typedefs.end() || td->second.isFunctionPointer || td->second.arrayDims.empty()) return;
+            o.dims.insert(o.dims.end(), td->second.arrayDims.begin(), td->second.arrayDims.end());
+            o.type = td->second.baseType;
+            o.ptr = td->second.pointerLevel;
+        }
+    };
+    std::function<bool(Expression*, Obj&, int)> lvalue = [&](Expression* e, Obj& o, int depth) -> bool {
+        if (depth > 64) return false;
+        if (auto* m = dynamic_cast<MemberAccess*>(e)) {
+            if (m->isArrow ? !pointee(m->structExpr.get(), o) : !lvalue(m->structExpr.get(), o, depth + 1))
+                return false;
+            flatten(o);
+            if (o.ptr || !o.dims.empty()) return false;
+            int64_t off = 0;
+            const StructMember* f = findLayoutMember(aggregateOf(o.type), m->memberName, off);
+            if (!f || f->bitWidth > 0) return false;
+            o.at += off; o.type = f->type; o.ptr = f->pointerLevel; o.dims = f->arrayDims;
+            flatten(o);
+            return true;
+        }
+        if (auto* a = dynamic_cast<ArrayAccess*>(e)) {
+            ConstValue k;
+            if (!lvalue(a->arrayExpr.get(), o, depth + 1) || o.dims.empty() ||
+                !ConstEval::eval(a->indexExpr.get(), *this, k) || !k.isInt())
+                return false;
+            int64_t stride = typeByteSize(o.type, o.ptr);
+            if (stride < 0) return false;
+            for (size_t d = 1; d < o.dims.size(); d++) stride *= o.dims[d];
+            o.at += k.intValue() * stride;
+            o.dims.erase(o.dims.begin());
+            return true;
+        }
+        if (auto* u = dynamic_cast<UnaryOperation*>(e); u && u->op == "*") {
+            if (!pointee(u->operand.get(), o)) return false;
+            flatten(o);
+            return true;
+        }
+        return false;
+    };
+    Obj o;
+    if (!lvalue(addr.operand.get(), o, 0)) return false;
+    out = o.at;
+    return true;
 }
 
 void Parser::recordVarSize(const std::string& name, const std::string& type, int ptrLevel, const std::vector<int>& dims) {

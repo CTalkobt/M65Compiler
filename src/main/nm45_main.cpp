@@ -84,7 +84,7 @@ static void printUsage(const char* progName) {
     std::cout << "  -n       Sort by address instead of name" << std::endl;
     std::cout << "  -p       No sorting (display in file order)" << std::endl;
     std::cout << "  -R       Reverse sort order" << std::endl;
-    std::cout << "  -A       Prepend filename to each symbol line" << std::endl;
+    std::cout << "  -A, -o   Prepend filename to each symbol line" << std::endl;
     std::cout << "Inspection options:" << std::endl;
     std::cout << "  -h       Display file header (mode, CPU, segment bases/lengths)" << std::endl;
     std::cout << "  -x       Hex dump of segment bodies" << std::endl;
@@ -93,8 +93,9 @@ static void printUsage(const char* progName) {
     std::cout << "  -s       Display segment sizes summary" << std::endl;
     std::cout << "  -f       Display function attributes (ZP calling convention)" << std::endl;
     std::cout << "  -a       Display all (header + relocations + symbols + func attrs)" << std::endl;
-    std::cout << "  -?       Display this help message" << std::endl;
     std::cout << "  -v ... -vvvv  Log to stderr ([nm45:INFO] ...): each file's kind and sizes; -v0 off" << std::endl;
+    std::cout << "  -V, --version  Display the version" << std::endl;
+    std::cout << "  -?, --help     Display this help message" << std::endl;
 }
 
 // The section table (OPT_SECTIONS) and section references (OPT_SECTREF)

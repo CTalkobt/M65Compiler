@@ -97,6 +97,47 @@ else
     fail "cl45 configuration: rc $rc1 $rc2 $rc3: $(cat $D/cfg1.txt $D/cfg2.txt $D/cfg3.txt | head -5)"
 fi
 
+# #640: the three options: maps (top level, c_checks, an asm_rules entry) set a
+# rule's option; an unknown key is an error naming it
+C=$D/opts
+mkdir -p $C
+cp $F/frames.c $C/a.c
+o640=1
+for y in 'options:\n  mega65-stack-frame-limit: 1000\n' \
+         'asm_rules:\n  - id: mega65-dead-store\n    options:\n      mega65-stack-frame-limit: 1000\n'; do
+    printf "$y" > $C/.cc45-lint.yml
+    $CL -O2 $C/a.c > $D/opt.txt 2>&1
+    grep -q stack-frame-limit $D/opt.txt && o640=0
+done
+printf 'colour: red\n' > $C/.cc45-lint.yml
+$CL -O2 $C/a.c > $D/opt.txt 2>&1 && o640=0
+grep -q "unknown key 'colour'" $D/opt.txt || o640=0
+printf 'c_checks:\n  colour: red\n' > $C/.cc45-lint.yml
+$CL -O2 $C/a.c > $D/opt.txt 2>&1 && o640=0
+grep -q "unknown key 'c_checks.colour'" $D/opt.txt || o640=0
+rm -f $C/.cc45-lint.yml
+if [ $o640 = 1 ]; then
+    pass "cl45: options: at the top and in an asm_rules entry set a rule's option; an unknown key is an error"
+else
+    fail "cl45 options: maps / unknown keys: $(head -3 $D/opt.txt)"
+fi
+
+# #640: mega65-narrow-param names a static function by its C name;
+# #639: mega65-stack-frame-limit gives the frame's size (one 600-byte array
+# in a recursive function inlined into itself: two copies, not three)
+$CL -O2 $F/narrow_param.c > $D/np.txt 2>&1
+printf 'unsigned char sink(char *p);\n#pragma cc45 recurse\nunsigned char big(unsigned char n) {\n    char b[600];\n    b[0] = n;\n    return sink(b) + (n ? big(n - 1) : 0);\n}\n' > $C/f.c
+$CL -O2 $C/f.c > $D/fr.txt 2>&1
+$CL -O1 $C/f.c > $D/fr1.txt 2>&1
+fr=$(sed -n "s/.*stack frame of \([0-9]*\) bytes.*/\1/p" $D/fr.txt)
+fr1=$(sed -n "s/.*stack frame of \([0-9]*\) bytes.*/\1/p" $D/fr1.txt)
+if grep -q "of 'fill' could be" $D/np.txt && ! grep -q "fill__" $D/np.txt &&
+   [ -n "$fr" ] && [ -n "$fr1" ] && [ "$fr" -lt 1250 ] && [ "$fr1" -lt 650 ]; then
+    pass "cl45: narrow-param names fill, not its symbol; stack-frame-limit: $fr bytes (-O2), $fr1 (-O1)"
+else
+    fail "cl45 narrow-param name / frame size: $(head -2 $D/np.txt) frames [$fr] [$fr1]"
+fi
+
 # output formats; --list-rules, --explain; the -v level does not change the output
 $CL -O2 --format=json $F/dma_order.c > $D/j.json 2>&1
 $CL -O2 --format=sarif $F/dma_order.c > $D/s.json 2>&1

@@ -46,6 +46,16 @@ public:
         out = 1;   // (cc45 packs everything)
         return true;
     }
+    // offsetof (#639): &((struct s *)N)->m, struct s { char a; int b; long c; }
+    std::map<std::string, int64_t> memberOff{{"a", 0}, {"b", 1}, {"c", 3}};
+    bool numericAddress(UnaryOperation& addr, int64_t& out) override {
+        auto* m = dynamic_cast<MemberAccess*>(addr.operand.get());
+        if (!m || !m->isArrow || !memberOff.count(m->memberName)) return false;
+        ConstValue base;
+        if (!ConstEval::eval(m->structExpr.get(), *this, base) || !base.isInt()) return false;
+        out = base.intValue() + memberOff[m->memberName];
+        return true;
+    }
 };
 
 struct Row {
@@ -89,7 +99,11 @@ const std::vector<Row> kRows = {
     {"(double)(unsigned char)255 + 0.5", Row::FLOAT, 255.5},
     {"2.0 > 1", Row::INT, 1},
     {"!0.0", Row::INT, 1},
+    {"(int)&((struct s *)0)->c", Row::INT, 3},          // offsetof (#639)
+    {"(unsigned)&((struct s *)10)->b + 1", Row::INT, 12},
     {"x + 1", Row::NONE, 0},                            // not constants
+    {"(int)&x", Row::NONE, 0},                          // an object's address: no number
+    {"(int)&((struct s *)x)->c", Row::NONE, 0},
     {"1 / 0", Row::NONE, 0},
     {"1 % 0", Row::NONE, 0},
     {"2.5 % 2", Row::NONE, 0},
@@ -100,7 +114,7 @@ const std::vector<Row> kRows = {
 }  // namespace
 
 int main() {
-    std::string src = "int x; long lx; char a4[4];\n";
+    std::string src = "int x; long lx; char a4[4]; struct s { char a; int b; long c; };\n";
     for (size_t i = 0; i < kRows.size(); i++)
         src += "long row" + std::to_string(i) + " = " + kRows[i].expr + ";\n";
     Lexer lexer(src);

@@ -398,6 +398,9 @@ xemu_case "FAIL: test_float_ptr_xemu.c -fno-float-copy-call (compilation/linking
 echo "Testing test_cmp_const_xemu.c (comparisons of two constants folded in the IR)..."
 xemu_case "FAIL: test_cmp_const_xemu.c (compilation/linking failed)" "src/test-resources/test_cmp_const_xemu.c" "build/test/test_cmp_const_xemu.prg" -- "test_cmp_const" "build/test/test_cmp_const_xemu.prg" "C0C0" 8 "01 02 03 04 05 06 07 AA"
 xemu_case "FAIL: test_cmp_const_xemu.c -fno-zpcall (compilation/linking failed)" "src/test-resources/test_cmp_const_xemu.c" "build/test/test_cmp_const_stack_xemu.prg" "-fno-zpcall" -- "test_cmp_const_stack" "build/test/test_cmp_const_stack_xemu.prg" "C0C0" 8 "01 02 03 04 05 06 07 AA"
+echo "Testing test_offsetof_abs_xemu.c (offsetof in constant expressions, __builtin_abs/labs with <stdlib.h>; #639)..."
+xemu_case "FAIL: test_offsetof_abs_xemu.c (compilation/linking failed)" "src/test-resources/test_offsetof_abs_xemu.c" "build/test/test_offsetof_abs_xemu.prg" -- "test_offsetof_abs" "build/test/test_offsetof_abs_xemu.prg" "C0C0" 8 "01 01 01 01 01 01 01 AA"
+xemu_case "FAIL: test_offsetof_abs_xemu.c -fno-zpcall (compilation/linking failed)" "src/test-resources/test_offsetof_abs_xemu.c" "build/test/test_offsetof_abs_stack_xemu.prg" "-fno-zpcall" -- "test_offsetof_abs_stack" "build/test/test_offsetof_abs_stack_xemu.prg" "C0C0" 8 "01 01 01 01 01 01 01 AA"
 echo "Testing test_compound_once_xemu.c (a compound assignment's target evaluated once; #526)..."
 xemu_case "FAIL: test_compound_once_xemu.c (compilation/linking failed)" "src/test-resources/test_compound_once_xemu.c" "build/test/test_compound_once_xemu.prg" -- "test_compound_once" "build/test/test_compound_once_xemu.prg" "C0C0" 9 "01 02 03 04 05 06 07 08 AA"
 xemu_case "FAIL: test_compound_once_xemu.c -fno-zpcall (compilation/linking failed)" "src/test-resources/test_compound_once_xemu.c" "build/test/test_compound_once_stack_xemu.prg" "-fno-zpcall" -- "test_compound_once_stack" "build/test/test_compound_once_stack_xemu.prg" "C0C0" 9 "01 02 03 04 05 06 07 08 AA"
@@ -788,6 +791,16 @@ if ./bin/basic45 src/test-resources/test_basic_compile_unchk_xemu.bas -o build/t
     run_xemu_test "test_basic_compile_unchk" "build/test/test_basic_compile_unchk.prg" "C0C0" 8 "$BCU_EXP"
 else
     echo "FAIL: test_basic_compile_unchk_xemu.bas (basic45 or basic45 --compile failed)"
+    failed=$((failed + 1))
+fi
+# test_basic_compile_dt_xemu.bas: DT$, the date (#636), interpreted and compiled
+BCD_EXP="01 01 01 01 AA"
+if ./bin/basic45 src/test-resources/test_basic_compile_dt_xemu.bas -o build/test/test_basic_compile_dt_i.prg >/dev/null 2>&1 &&
+   ./bin/basic45 --compile src/test-resources/test_basic_compile_dt_xemu.bas -o build/test/test_basic_compile_dt.prg >/dev/null 2>&1; then
+    run_xemu_test "test_basic_compile_dt_interpreted" "build/test/test_basic_compile_dt_i.prg" "C0C0" 5 "$BCD_EXP"
+    run_xemu_test "test_basic_compile_dt" "build/test/test_basic_compile_dt.prg" "C0C0" 5 "$BCD_EXP"
+else
+    echo "FAIL: test_basic_compile_dt_xemu.bas (basic45 or basic45 --compile failed)"
     failed=$((failed + 1))
 fi
 # test_basic_compile_sad_xemu.bas: coordinates (getsad) of constants computed

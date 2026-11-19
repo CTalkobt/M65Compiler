@@ -1240,6 +1240,54 @@ else
     failed=$((failed + 1))
 fi
 
+# #639: --help lists the options cc45 takes, the base-page block area right,
+# cp45's log prefix; -floop-idioms is implemented; __CC45_VERSION__ follows the
+# suite's version; offsetof in every constant expression, sizeof(typeof(x)),
+# __builtin_abs / __builtin_labs with <stdlib.h> (inline: no call)
+T639=build/test/t639
+mkdir -p $T639
+hlp=$(./bin/cc45 --help)
+h639=1
+for o in -fstack-size -foverlay -ffunction-sections -floop-idioms -Rcodegen -fimplicit-function-declaration \
+         -fsigned-char -fstack16 -V -fno-staticalloc; do
+    echo "$hlp" | grep -q -- "^  $o\b" || { h639=0; echo "  (--help lacks $o)"; }
+done
+echo "$hlp" | grep -q '\$80-\$F1' && ! echo "$hlp" | grep -q 'E9' || h639=0
+./bin/cp45 --help | grep -q '\[cp45:INFO\]' || h639=0
+printf 'int main(void) { return 0; }\n' > $T639/m.c
+fut=$(./bin/cc45 -O2 --future -floop-idioms -c $T639/m.c -o $T639/m.o45 2>&1)
+[ -z "$fut" ] || h639=0
+ver=$(sed -n 's/^#define SUITE_VERSION "\([0-9]*\)\.\([0-9]*\)\.\([0-9]*\).*/\1 \2 \3/p' include/Version.hpp)
+printf 'v=__CC45_VERSION__\n' > $T639/v.c
+./bin/cc45 -O2 -E $T639/v.c -o $T639/v.i 2>/dev/null
+[ "$(grep -o 'v=[0-9]*' $T639/v.i)" = "v=$(echo $ver | awk '{ print $1 * 10000 + $2 * 100 + $3 }')" ] || h639=0
+cat > $T639/c.c <<'EOF'
+#include <stddef.h>
+#include <stdlib.h>
+struct s { char a; int b[3]; long c; };
+_Static_assert(offsetof(struct s, c) == 7, "c");
+_Static_assert(__builtin_offsetof(struct s, b[2]) == 5, "b[2]");
+char pad[offsetof(struct s, b)];
+enum { E = offsetof(struct s, c) };
+struct bf { unsigned w : offsetof(struct s, b) + 3; };
+long l;
+int f(int x, long y) {
+    _Static_assert(sizeof(typeof(l)) == 4 && sizeof(typeof(pad)) == 1 && sizeof(typeof(l) *) == 2, "typeof");
+    switch (x) { case offsetof(struct s, c): return 1; case E + 1: return 2; }
+    return __builtin_abs(x) + (int)__builtin_labs(y) + abs(x);
+}
+EOF
+if ./bin/cc45 -O2 -c $T639/c.c -o $T639/c.o45 > $T639/c.log 2>&1 && ! ./bin/nm45 $T639/c.o45 | grep -q 'U _*\(__builtin_\)\?l\?abs'; then :; else
+    h639=0; head -3 $T639/c.log
+fi
+if [ $h639 = 1 ]; then
+    echo "SUCCESS: --help, cp45's prefix, -floop-idioms, __CC45_VERSION__, offsetof constants, sizeof(typeof), __builtin_abs (#639)"
+    passed=$((passed + 1))
+else
+    echo "FAIL: #639 checks (--help / cp45 / --future -floop-idioms / __CC45_VERSION__ / offsetof / typeof / __builtin_abs)"
+    failed=$((failed + 1))
+fi
+
 # #367: cc45 stopped while its trial assemblies run leaves no files behind
 # (its temporary files are in a private directory under $TMPDIR) and no ca45
 mkdir -p build/test_cc45_kill/tmp
