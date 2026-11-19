@@ -61,6 +61,16 @@ void LabelBasedSourceParser::parse(const std::string& sourceCode) {
             }
         }
         std::string labelName, code;
+        static const std::regex wordColon(R"(^([A-Za-z_]\w*)\s*:)");
+        std::smatch wm;
+        if (std::regex_search(trimmed, wm, wordColon) && basic45KeywordNotStatement(wm[1].str())) {
+            // "go: sys 8192": meant as a label, but a keyword: the line would
+            // be the statement GO (a ?SYNTAX ERROR when run; #636)
+            std::string kw;
+            for (char c : wm[1].str()) kw += (char)std::toupper((unsigned char)c);
+            numberErrors.push_back({lineNum, "label '" + wm[1].str() + "' is the BASIC keyword " + kw +
+                                                 ", which cannot start a statement alone: rename the label"});
+        }
         if (isLabelDefinition(trimmed, labelName, code)) {
             sl.label = labelName;
             sl.code = code;
@@ -321,6 +331,33 @@ bool basic45IsReservedWord(const std::string& name) {
                               "ASM", "ENDASM", "INCBIN", "DATAINC", "AS",
                               // (words the tokenizer splits: DIR ECTORY, GET KEY, GO 64; #584)
                               "DIRECTORY", "GETKEY", "GO64"})
+            w.insert(k);
+        return w;
+    }();
+    std::string u;
+    for (char c : name) u += (char)std::toupper((unsigned char)c);
+    return words.count(u) > 0;
+}
+
+// A keyword that cannot be a statement on its own before a ':' (a function,
+// an operator, a secondary word such as TO or THEN, GO, a statement that
+// always takes an operand): "go:" at a line's start can only be meant as a
+// label. ("end:", "loop:", "trap:" are statements: "end: print" is END, then
+// PRINT.)
+bool basic45KeywordNotStatement(const std::string& name) {
+    static const std::unordered_set<std::string> words = [] {
+        std::unordered_set<std::string> w;
+        BasicTokenizer t;
+        for (const auto& [k, v] : t.getKeywords())
+            if ((v >= 0xA3 && v <= 0xD4) || v == 0xE9 || v >= 0xFB) w.insert(k);   // TAB( .. INSTR, XOR, USING UNTIL WHILE
+        for (const auto& [k, v] : t.getCeKeywords()) w.insert(k);                   // functions
+        for (const char* k : {"OFF", "ECTORY",
+                              // statements that always take an operand
+                              "FOR", "DIM", "LET", "GOTO", "GOSUB", "IF", "ON", "WAIT", "DEF", "POKE", "WPOKE",
+                              "SYS", "OPEN", "GET", "INPUT", "READ", "SLEEP", "FGOTO", "FGOSUB", "BANK", "DMA",
+                              "EDMA",
+                              // basic45's own that take one
+                              "ELIF", "PROC", "CALL", "SELECT", "CASE", "IS", "AS", "INCBIN", "DATAINC"})
             w.insert(k);
         return w;
     }();

@@ -28,6 +28,9 @@ struct LabelInfo {
 // A BASIC 65 keyword or one of basic45's own (block IF, procs, select, asm,
 // incbin), in any case: never a label, nor a proc's name (#584)
 bool basic45IsReservedWord(const std::string& name);
+// a keyword that cannot stand alone as a statement before ':' ("go:"): such a
+// line is reported as a label named like a keyword (#636)
+bool basic45KeywordNotStatement(const std::string& name);
 
 class LabelBasedSourceParser {
 public:

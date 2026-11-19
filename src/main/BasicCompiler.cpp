@@ -415,7 +415,7 @@ private:
         static const std::set<std::string> safe = {
             "__bas_prs", "__bas_prn", "__bas_prcr", "__bas_prcomma", "__bas_prspc", "__bas_prtab", "__bas_scmp",
             "__bas_left", "__bas_right", "__bas_chr", "__bas_str", "__bas_iline", "__bas_iitem", "__bas_iitemn", "__bas_get", "__bas_st", "__bas_clrch",
-            "__bas_ti", "__bas_tis", "__bas_restore", "__bas_rnd", "__bas_int", "__float_sin", "__float_cos",
+            "__bas_ti", "__bas_tis", "__bas_dts", "__bas_restore", "__bas_rnd", "__bas_int", "__float_sin", "__float_cos",
             "__float_tan", "__float_atn", "__float_abs", "__bas_mvget", "__bas_mvput", "__bas_mvarg",
             "__bas_sprcol", "__bas_sprclr", "__bas_sprgs", "__bas_sprcp", "__bas_sprirq"};
         // (with CMD, PRINT's output can go to a file: an error)
@@ -535,11 +535,11 @@ private:
         std::string base = name;
         if (suffix == '$' || suffix == '%') base.pop_back();
         std::string key = base.substr(0, 2);
-        // (reserved: TI, ST, DS, ER and EL themselves, read above; TI$ and DS$,
-        // whatever follows their two letters. ST$, ER$, EL$ and every % form are
+        // (reserved: TI, ST, DS, ER and EL themselves, read above; TI$, DS$ and
+        // DT$, whatever follows their two letters. ST$, ER$, EL$ and every % form are
         // ordinary variables, as in the interpreter)
         static const std::set<std::string> reserved = {"TI", "ST", "DS", "ER", "EL"};
-        bool r = suffix == '$' ? key == "TI" || key == "DS" : suffix != '%' && reserved.count(key) && base.size() == 2;
+        bool r = suffix == '$' ? key == "TI" || key == "DS" || key == "DT" : suffix != '%' && reserved.count(key) && base.size() == 2;
         if (r) fail(name + " (a reserved variable) is not supported by --compile yet");
         std::string g;
         ir::Type t;
@@ -567,6 +567,8 @@ private:
             return v;
         }
         if (name == "TI$") return strCall("__bas_tis", nullptr, nullptr);
+        // DT$: the date, "dd-MMM-20yy " (the ROM's 12 characters; #636)
+        if (name == "DT$") return strCall("__bas_dts", nullptr, nullptr);
         // DS: the drive's status number, DS$ its message (read when not kept)
         if (name == "DS") {
             call("__bas_ds");
@@ -3233,7 +3235,7 @@ int Compiler::dosArgs(const char* what, int errflags, std::vector<Val>& names, i
 // every variable 0 or "", arrays and DEF FNs forgotten, the GOSUB / FOR / DO
 // stack emptied, the graphics kernel set up again, DATA from the start.
 // CLR ERR$: ER and EL cleared. CLR variable: a scalar 0 or "" (TI: the clock
-// restarted, ST: 0, DS / DS$: the drive's status forgotten; ER, EL, TI$: no
+// restarted, ST: 0, DS / DS$: the drive's status forgotten; ER, EL, TI$, DT$: no
 // effect, as the ROM's)
 void Compiler::clrStmt() {
     if (stmtEnd()) {
@@ -3259,7 +3261,7 @@ void Compiler::clrStmt() {
     if (name == "TI") { p_++; call("__bas_ticlr"); return; }
     if (name == "ST") { p_++; call("__bas_stclr"); return; }
     if (name == "DS" || name == "DS$") { p_++; call("__bas_dsclr"); return; }
-    if (name == "ER" || name == "EL" || name == "TI$") { p_++; return; }
+    if (name == "ER" || name == "EL" || name == "TI$" || name == "DT$") { p_++; return; }
     p_++;
     if (isCh('(')) fail("CLR clears scalars only (?SYNTAX ERROR)");
     LV lv = parseLV(name);
@@ -4560,7 +4562,7 @@ void Compiler::pragmas() {
                 VK vk;
                 std::string key = chainKey(t.text, vk);
                 std::string base = key.substr(0, 2);
-                if (base == "TI" || base == "ST" || base == "DS" || base == "ER" || base == "EL") continue;
+                if (base == "TI" || base == "ST" || base == "DS" || base == "ER" || base == "EL" || key == "DT$") continue;
                 if (seenNames.insert(key).second) names.push_back(key);
             }
     for (const auto& l : lines_)

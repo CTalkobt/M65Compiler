@@ -29,6 +29,31 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
   `accepted and ignored`: `.init`/`.zp` do not switch segment (`.segment "zp"` does), and nothing emits or uses the
   others (metadata of an unfinished optimiser pass).
 
+### basic45 and deploy45: --validate with --link, keyword labels, DT$; u64 timeouts, options anywhere (#636, #637)
+
+- **basic45 `--validate` with `--link` or `asm` / `incbin` blocks checks the program** (undefined labels, blocks,
+  statements), its `{name}` symbols standing in as `$FFFF` as in the build's first pass; it checked only the block
+  structure and exited 0 on an undefined label. Only what needs the link is left out.
+- **basic45: an option that takes a value, given last with none** (`-o`, `--increment`, `--link`, …), is an error;
+  it was ignored. `--increment` takes 1 to 63999 (`0`, a negative or a non-number: an error).
+- **basic45: a label named like a keyword that cannot be a statement alone** (`go: sys 8192`: `GO`, a function, an
+  operator, `TO`, a statement that always takes an operand) is an error naming the label and the keyword; it became
+  the statement. `end: print` is still `END` and `PRINT`.
+- **basic45 `--compile`: `DT$` is BASIC 65's date** (`"dd-MMM-20yy "`, the ROM's `Get_DT_RTC` from the RTC;
+  `lib/stdlib_asm/basic_ti.s45` `__bas_dts`), not an ordinary variable; a value given to it is refused as for `TI$`.
+- **basic45 `--compile --link`: `{name+1}`** and the other symbol operations (`+ - * / %` on a symbol and a number)
+  are substituted, as without `--compile` (the symbol's address in a BASIC expression); only plain names were.
+- basic45 `--help`: `--preserve-spaces`; the note on the ROM's rounding under `--speed` (it was under `--checks`);
+  the `--compile` and `--convert` forms in the usage lines.
+- **deploy45 `u64 --timeout 0` never times out**, as the help says (it failed at once: `poll` got 0 ms); a `u64`
+  timeout exits 124, as the mega65-tools commands do (it was 1). `--timeout` takes a whole number of seconds.
+- **deploy45: the options go anywhere**, before the command too (`deploy45 --dry-run m65ether -i 1.2.3.4 a.prg`
+  failed with "one file at a time"); `-V` / `--version` anywhere.
+- **deploy45 `--dry-run` checks the file can be read** for every command (a missing file: `cannot read`, exit 1);
+  the MEGA65 commands printed the command for a file that was not there, where `u64` failed.
+- Tests: checks for each in `test_basic45.sh` and `test_deploy45.sh` (a stand-in U64 that never answers, and one
+  that answers late).
+
 ### cc45: &g.member as a value is a constant; ca45: an extern's offset kept beside a __zp variable (#660)
 
 - **The address of a member of a global as a value** (`&g.member`, an array member passed to a function or

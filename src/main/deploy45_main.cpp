@@ -197,9 +197,11 @@ struct HttpResult {
     int status = 0;
     std::string body;
     std::string error;
+    bool timedOut = false;     // (exit status 124, as the m65 commands')
 };
 
-// host: name[:port] (default port 80); "http://" in front is allowed
+// host: name[:port] (default port 80); "http://" in front is allowed.
+// timeoutSec 0: wait for ever (each wait: the connection, sending, each answer's part)
 HttpResult http(const std::string& hostIn, const std::string& method, const std::string& path,
                 const std::string& password, const std::string& body, int timeoutSec) {
     HttpResult res;
@@ -213,6 +215,7 @@ HttpResult http(const std::string& hostIn, const std::string& method, const std:
         host = host.substr(0, colon);
     }
     if (host.size() > 2 && host.front() == '[' && host.back() == ']') host = host.substr(1, host.size() - 2);
+    const int waitMs = timeoutSec > 0 ? timeoutSec * 1000 : -1;   // (poll: -1 never times out)
 
     addrinfo hints{};
     hints.ai_family = AF_UNSPEC;
@@ -231,12 +234,13 @@ HttpResult http(const std::string& hostIn, const std::string& method, const std:
         int r = connect(fd, p->ai_addr, p->ai_addrlen);
         if (r < 0 && errno == EINPROGRESS) {
             pollfd pf{fd, POLLOUT, 0};
-            r = poll(&pf, 1, timeoutSec * 1000);
+            r = poll(&pf, 1, waitMs);
             int soerr = 0;
             socklen_t len = sizeof soerr;
             if (r == 1 && getsockopt(fd, SOL_SOCKET, SO_ERROR, &soerr, &len) == 0 && soerr == 0) r = 0;
             else {
                 lastErr = r == 0 ? "timed out" : std::strerror(soerr ? soerr : errno);
+                if (r == 0) res.timedOut = true;
                 r = -1;
             }
         } else if (r < 0) {
@@ -248,6 +252,7 @@ HttpResult http(const std::string& hostIn, const std::string& method, const std:
     }
     freeaddrinfo(ai);
     if (fd < 0) {
+        if (lastErr != "timed out") res.timedOut = false;
         res.error = "cannot connect to " + host + ":" + port + ": " + lastErr;
         return res;
     }
@@ -264,7 +269,7 @@ HttpResult http(const std::string& hostIn, const std::string& method, const std:
     size_t sent = 0;
     while (sent < out.size()) {
         pollfd pf{fd, POLLOUT, 0};
-        if (poll(&pf, 1, timeoutSec * 1000) != 1) { res.error = "timed out sending"; close(fd); return res; }
+        if (poll(&pf, 1, waitMs) != 1) { res.error = "timed out sending"; res.timedOut = true; close(fd); return res; }
         ssize_t n = send(fd, out.data() + sent, out.size() - sent, MSG_NOSIGNAL);
         if (n < 0) {
             if (errno == EAGAIN || errno == EINTR) continue;
@@ -278,8 +283,11 @@ HttpResult http(const std::string& hostIn, const std::string& method, const std:
     char buf[4096];
     for (;;) {
         pollfd pf{fd, POLLIN, 0};
-        int r = poll(&pf, 1, timeoutSec * 1000);
-        if (r != 1) { if (in.empty()) res.error = "no answer (timed out)"; break; }
+        int r = poll(&pf, 1, waitMs);
+        if (r != 1) {
+            if (in.empty()) { res.error = "no answer (timed out)"; res.timedOut = r == 0; }
+            break;
+        }
         ssize_t n = recv(fd, buf, sizeof buf, 0);
         if (n < 0 && (errno == EAGAIN || errno == EINTR)) continue;
         if (n <= 0) break;
@@ -342,7 +350,7 @@ struct Options {
 
 int cmdM65Ether(const Options& o) {
     if (o.file.empty()) return fail("m65ether: no program (deploy45 m65ether [options] prog.prg)");
-    if (!o.dryRun && access(o.file.c_str(), R_OK) != 0) return fail("cannot read " + o.file);
+    if (access(o.file.c_str(), R_OK) != 0) return fail("cannot read " + o.file);
     std::vector<std::string> a{findTool(o.tool, "ETHERLOAD", "etherload")};
     std::string host = o.host.empty() ? envOr("M65_HOST", "") : o.host;
     if (!host.empty()) { a.push_back("-i"); a.push_back(host); }
@@ -361,7 +369,7 @@ void serialArgs(std::vector<std::string>& a, const Options& o) {
 
 int cmdM65Serial(const Options& o) {
     if (o.file.empty()) return fail("m65serial: no program (deploy45 m65serial [options] prog.prg)");
-    if (!o.dryRun && access(o.file.c_str(), R_OK) != 0) return fail("cannot read " + o.file);
+    if (access(o.file.c_str(), R_OK) != 0) return fail("cannot read " + o.file);
     std::vector<std::string> a{findTool(o.tool, "M65", "m65")};
     serialArgs(a, o);
     if (o.reset) a.push_back("-F");
@@ -379,7 +387,7 @@ int cmdM65Mount(const Options& o) {
         // m65 -d: the MEGA65's drive reads and writes the local image through m65, while it runs
         if (o.file.empty()) return fail("m65mount --virtual: no image");
         if (ether) return fail("m65mount --virtual works through the serial monitor (-l), not Ethernet");
-        if (!o.dryRun && access(o.file.c_str(), R_OK | W_OK) != 0) return fail("cannot read and write " + o.file);
+        if (access(o.file.c_str(), R_OK | W_OK) != 0) return fail("cannot read and write " + o.file);
         std::vector<std::string> a{findTool(o.tool, "M65", "m65")};
         serialArgs(a, o);
         a.push_back("-d");
@@ -395,7 +403,7 @@ int cmdM65Mount(const Options& o) {
         if (o.file.empty()) return fail("m65mount: no image (deploy45 m65mount [options] image.d81)");
         std::string ext = extOf(o.file);
         if (ext != "d81" && ext != "d65") return fail("m65mount: the MEGA65 mounts .d81 (and .d65) images, not ." + ext);
-        if (!o.dryRun && access(o.file.c_str(), R_OK) != 0) return fail("cannot read " + o.file);
+        if (access(o.file.c_str(), R_OK) != 0) return fail("cannot read " + o.file);
         if (o.file.find(' ') != std::string::npos)
             return fail("m65mount: mega65_ftp takes no spaces in a file name: copy " + o.file + " to a name without them");
         name = o.name.empty() ? cardName(o.file) : o.name;
@@ -449,7 +457,10 @@ int cmdU64(const Options& o) {
     }
     LOG_INFO(TOOL, method << " " << host << "/" << path << " " << body.size() << " bytes");
     HttpResult r = http(host, method, path, password, body, timeout);
-    if (!r.error.empty()) return fail("u64: " + r.error);
+    if (!r.error.empty())
+        return r.timedOut ? fail("u64: " + r.error + " after " + std::to_string(timeout) +
+                                 " s (is the U64 on and reachable?); --timeout changes the limit", 124)
+                          : fail("u64: " + r.error);
     if (r.status == 403) return fail("u64: refused (403): wrong network password (--password or U64_PASSWORD)");
     if (r.status < 200 || r.status >= 300) {
         std::string msg = r.body.substr(0, 300);
@@ -463,6 +474,7 @@ int cmdU64(const Options& o) {
 void usage() {
     std::cout <<
         "Usage: deploy45 <command> [options] <file>\n"
+        "       (the options anywhere: before the command too)\n"
         "\n"
         "Commands:\n"
         "  m65ether  <prog.prg>   load (and run) on a MEGA65 over Ethernet (etherload)\n"
@@ -499,8 +511,9 @@ void usage() {
         "  --tool PATH            the mega65-tools program to run (or $ETHERLOAD, $M65,\n"
         "                         $MEGA65_FTP; else the PATH, ~/mega65-tools)\n"
         "  --timeout SEC          give up after SEC seconds (0: never; default 60 for\n"
-        "                         loading, 30 for u64, none for m65mount)\n"
-        "  -n, --dry-run          print the command or request, do nothing\n"
+        "                         loading, 30 for u64, none for m65mount); exit status 124\n"
+        "  -n, --dry-run          print the command or request, do nothing (the file must\n"
+        "                         still be readable)\n"
         "  -v ... -vvvv           log on stderr\n"
         "  -V, --version          the version\n"
         "  -h, --help             this help\n";
@@ -513,10 +526,11 @@ int main(int argc, char** argv) {
     argc = Logger::takeFlags(argc, argv);
     if (answerStandardFlags(argc, argv, TOOL, [] { usage(); })) return 0;
     if (argc < 2) { usage(); return 1; }
-    std::string cmd = argv[1];
 
+    // the options anywhere: before the command, between it and the file, after the file
+    std::string cmd;
     Options o;
-    for (int i = 2; i < argc; i++) {
+    for (int i = 1; i < argc; i++) {
         std::string a = argv[i];
         auto value = [&](const char* what) -> std::string {
             if (i + 1 >= argc) { fail(std::string(a) + " needs " + what); std::exit(1); }
@@ -540,13 +554,21 @@ int main(int argc, char** argv) {
         else if (a == "--song") o.song = value("a number");
         else if (a == "--info") o.info = true;
         else if (a == "--tool") o.tool = value("a path");
-        else if (a == "--timeout") o.timeout = std::atoi(value("seconds").c_str());
+        else if (a == "--timeout") {
+            std::string v = value("seconds");
+            char* end = nullptr;
+            long t = std::strtol(v.c_str(), &end, 10);
+            if (v.empty() || *end || t < 0 || t > 86400) return fail("--timeout takes seconds (0: never), not " + v);
+            o.timeout = (int)t;
+        }
         else if (a == "-n" || a == "--dry-run") o.dryRun = true;
         else if (!a.empty() && a[0] == '-') return fail("unknown option " + a + " (deploy45 --help)");
+        else if (cmd.empty()) cmd = a;
         else if (o.file.empty()) o.file = a;
         else return fail("one file at a time (" + o.file + ", " + a + ")");
     }
     if (o.drive != "a" && o.drive != "b") return fail("--drive is a or b");
+    if (cmd.empty()) return fail("no command (m65ether, m65serial, m65mount, u64; deploy45 --help)");
 
     if (cmd == "m65ether") return cmdM65Ether(o);
     if (cmd == "m65serial") return cmdM65Serial(o);

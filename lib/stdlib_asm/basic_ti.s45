@@ -1,4 +1,4 @@
-; basic_ti.s45 — TI, TI$ and SLEEP of BASIC 65 programs compiled by basic45
+; basic_ti.s45 — TI, TI$, DT$ and SLEEP of BASIC 65 programs compiled by basic45
 ; --compile (#369), in assembly (were basic_in.c's _bas_ti, _bas_ticlr,
 ; _bas_tis and basic_fn.c's _bas_sleep).
 ;
@@ -10,6 +10,9 @@
 ;                 with $FFFF each, started again
 ;   __bas_tis     TI$ ("hh:mm:ss", the RTC's BCD registers at $FFD7110) into
 ;                 __bas_sr's buffer
+;   __bas_dts     DT$ (b65.src Get_DT_RTC: "dd-MMM-20yy ", 12 characters, the
+;                 RTC's day, month, year at $FFD7113; "NO-RTC-2000 " when the
+;                 day reads 0 or $FF) into __bas_sr's buffer (#636)
 ;   __bas_sleep   SLEEP __float_a seconds (TI; ?ILLEGAL QUANTITY below 0)
 ;   __bas_tconv   (for the test) the count elapsed in __bas_tcnt (32 bits,
 ;                 low byte first) in seconds into __float_a, as __bas_ti does
@@ -22,7 +25,7 @@
 .weak cc45.icallinfo
 cc45.icallinfo = 1
 
-.global __bas_ti, __bas_ticlr, __bas_tis, __bas_sleep, __bas_tconv, __bas_tcnt
+.global __bas_ti, __bas_ticlr, __bas_tis, __bas_dts, __bas_sleep, __bas_tconv, __bas_tcnt
 .extern __float_a, __float_b, __float_ultof, __float_mul, __float_add, __float_lt
 .extern __bas_sr, __bas_n, __bas_error
 
@@ -39,6 +42,12 @@ __bas_tcnt: .res 4      ; the count elapsed
 __tk_until: .res 5      ; SLEEP's end (TI)
 
 .segment "data"
+__dt_default:           ; NO-RTC-2000 (PETSCII upper case)
+    .byte $4E, $4F, $2D, $52, $54, $43, $2D, $32, $30, $30, $30, $20
+__dt_months:            ; JAN FEB ... DEC
+    .byte $4A, $41, $4E, $46, $45, $42, $4D, $41, $52, $41, $50, $52
+    .byte $4D, $41, $59, $4A, $55, $4E, $4A, $55, $4C, $41, $55, $47
+    .byte $53, $45, $50, $4F, $43, $54, $4E, $4F, $56, $44, $45, $43
 __tk_scale:             ; (cc45's conversions of the ROM's .real constants)
     .byte $81, $08, $8F, $D9, $FD       ; PAL  1.066890
     .byte $81, $07, $65, $3C, $9B       ; NTSC 1.057777
@@ -158,6 +167,80 @@ proc __bas_tis
     inz
     bra @rd
 @done:
+    rts
+endproc
+
+proc __bas_dts
+    lda __bas_sr
+    sta R
+    lda __bas_sr+1
+    sta R+1
+    ldy #12                 ; "NO-RTC-2000 " and the length 12
+@df:
+    lda __dt_default-1,y
+    sta (R),y
+    dey
+    bne @df
+    lda #12
+    sta (R),y
+    lda #$13                ; $FFD7113: day, month, year (BCD)
+    sta P
+    lda #$71
+    sta P+1
+    lda #$FD
+    sta P+2
+    lda #$0F
+    sta P+3
+    ldz #0
+    jsr @rd                 ; the day
+    beq @done
+    cmp #$FF
+    beq @done
+    ldy #1
+    jsr @bcd
+    inz                     ; the month: its name
+    jsr @rd
+    cmp #$10
+    bcc @m
+    sbc #6                  ; (BCD $10-$12: 10-12)
+@m: sta R+2
+    asl a
+    clc
+    adc R+2                 ; * 3
+    tax
+    ldy #4
+@mn:
+    lda __dt_months-3,x
+    sta (R),y
+    inx
+    iny
+    cpy #7
+    bne @mn
+    inz                     ; the year: 20yy
+    jsr @rd
+    ldy #10
+    jsr @bcd
+@done:
+    rts
+@rd:                        ; A := the RTC's byte z (read until it holds)
+    lda [P],z
+    cmp [P],z
+    bne @rd
+    cmp #0
+    rts
+@bcd:                       ; A's two BCD digits at (R),y and y+1
+    pha
+    lsr a
+    lsr a
+    lsr a
+    lsr a
+    ora #'0'
+    sta (R),y
+    iny
+    pla
+    and #15
+    ora #'0'
+    sta (R),y
     rts
 endproc
 

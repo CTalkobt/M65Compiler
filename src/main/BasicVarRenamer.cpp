@@ -25,12 +25,12 @@ std::string baseOf(const std::string& v) {
     return (!v.empty() && v.back() == '$') ? v.substr(0, v.size() - 1) : v;
 }
 
-// Reserved variables, and every keyword of one or two characters (TO IF ON
+// Reserved variables (DT: DT$, the date), and every keyword of one or two characters (TO IF ON
 // OR GO FN DO ...): such a name would be read as the keyword when the line
 // is listed and entered again
 bool forbidden(const std::string& s) {
     static const std::set<std::string> bad = [] {
-        std::set<std::string> b = {"ST", "TI", "DS", "ER", "EL"};
+        std::set<std::string> b = {"ST", "TI", "DS", "DT", "ER", "EL"};
         BasicTokenizer t;
         for (const auto& [kw, tok] : t.getKeywords()) if (kw.size() <= 2) b.insert(kw);
         for (const auto& [kw, tok] : t.getEscapeKeywords()) if (kw.size() <= 2) b.insert(kw);

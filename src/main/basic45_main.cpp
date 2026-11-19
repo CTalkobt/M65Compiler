@@ -188,7 +188,9 @@ private:
 
 static void printUsage(const char* progName) {
     std::cout << "Usage: " << progName << " [options] <input.bas> [-o <output.prg>]" << std::endl;
+    std::cout << "       " << progName << " --compile [options] <input.bas|program.prg> [-o <output.prg>]" << std::endl;
     std::cout << "       " << progName << " --decompile <program.prg> [-o <output.bas>]" << std::endl;
+    std::cout << "       " << progName << " --convert=<dialect> <program.prg|listing.txt> [-o <output.bas>]" << std::endl;
     std::cout << "Label-Based BASIC 65 Compiler — Source uses labels, not line numbers" << std::endl;
     std::cout << "Options:" << std::endl;
     std::cout << "  -o <file>           Output file (default: the input name with .prg)" << std::endl;
@@ -208,6 +210,7 @@ static void printUsage(const char* progName) {
     std::cout << "  --docs <f>          Generate markdown documentation to file" << std::endl;
     std::cout << "  -I <path>           Add include search path for #include" << std::endl;
     std::cout << "  --minify            Minify output (remove comments, join lines)" << std::endl;
+    std::cout << "  --preserve-spaces   Keep the spaces between keywords and operands as written" << std::endl;
     std::cout << "  --validate          Validate only (no compilation)" << std::endl;
     std::cout << "  --strict            Treat validation warnings as errors" << std::endl;
     std::cout << "  --dry-run           Don't write files, report actions only" << std::endl;
@@ -227,10 +230,10 @@ static void printUsage(const char* progName) {
     std::cout << "  --asm <file>        --compile: also write the generated ca45 assembly" << std::endl;
     std::cout << "  --import-map FILE   --compile: REM PRAGMA IMPORT's map file (an exporting program's <name>.map)" << std::endl;
     std::cout << "  --speed, -Ospeed    --compile: -O3 and float + - * / and comparisons by RAM routines" << std::endl;
+    std::cout << "                      (faster than the ROM's; its rounding fixes, see the docs)" << std::endl;
     std::cout << "  --line-numbers      --compile: record the running line for error messages (IN line) and EL" << std::endl;
     std::cout << "  --bank=N            --compile: arrays and string variables in bank N (1, 4, 5), not the program's heap" << std::endl;
     std::cout << "  --checks            --compile: check values, subscripts and flow as the interpreter (else undefined)" << std::endl;
-    std::cout << "                      (faster than the ROM's; its rounding fixes, see the docs)" << std::endl;
     std::cout << "  --convert=<dialect> Another BASIC's program (a .prg, or a text listing) as BASIC 65 basic45" << std::endl;
     std::cout << "                      source: keywords renamed, statements rewritten, warnings for the rest;" << std::endl;
     std::cout << "                      basic7 (C128 BASIC 7.0), basic35 (C16 / Plus/4 BASIC 3.5), simons" << std::endl;
@@ -260,8 +263,19 @@ static int32_t parseHexAddress(const std::string& s) {
 static Options parseArgs(int argc, char* argv[]) {
     Options opts;
 
+    // the options that take a value: one given last, with none, is an error (#636)
+    static const char* const valued[] = {
+        "-o", "--symbols", "--load", "--load-at", "--per-line", "--start", "--label-table", "--increment",
+        "--docs", "-I", "--source-map", "--emulator-path", "--asm", "--import-map", "--convert", "--disk",
+        "--disk-name", "--link", "--lib", "--map", "--send-cmd", "--encoding"};
     for (int i = 1; i < argc; i++) {
         std::string arg = argv[i];
+        if (i + 1 >= argc)
+            for (const char* v : valued)
+                if (arg == v) {
+                    std::cerr << "basic45: " << arg << " needs a value (basic45 --help)" << std::endl;
+                    exit(1);
+                }
 
         if (arg == "-o" && i + 1 < argc) {
             opts.outputFile = argv[++i];
@@ -294,8 +308,14 @@ static Options parseArgs(int argc, char* argv[]) {
         } else if (arg == "--label-table" && i + 1 < argc) {
             opts.labelTableFile = argv[++i];
         } else if (arg == "--increment" && i + 1 < argc) {
-            std::istringstream iss(argv[++i]);
-            iss >> opts.lineIncrement;
+            std::string v = argv[++i];
+            char* end = nullptr;
+            long n = std::strtol(v.c_str(), &end, 10);
+            if (v.empty() || *end || n < 1 || n > 63999) {
+                std::cerr << "basic45: --increment takes a line number step from 1 to 63999, not '" << v << "'" << std::endl;
+                exit(1);
+            }
+            opts.lineIncrement = (int)n;
         } else if (arg == "--docs" && i + 1 < argc) {
             opts.docsFile = argv[++i];
             opts.generateDocs = true;
@@ -933,10 +953,27 @@ int main(int argc, char* argv[]) {
         std::cerr << "basic45: warning: --map needs --link or --compile (nothing is linked: no map written)" << std::endl;
     std::vector<BasicChainOptions::LinkSym> linkSyms;
     if (compileLink) {
-        std::regex ref(R"((\bsys\s*)?\{([A-Za-z_]\w*)\})", std::regex::icase);
+        // {name}, and (as without --compile) {a op b}: a symbol or a number,
+        // + - * / %, a symbol or a number (#636)
+        std::regex ref(R"((\bsys\s*)?\{([^{}"\n]*)\})", std::regex::icase);
+        std::regex plain(R"([A-Za-z_]\w*)");
+        std::regex binop(R"(^\s*([A-Za-z_]\w*|0[xX][0-9a-fA-F]+|\d+)\s*([-+*/%])\s*([A-Za-z_]\w*|0[xX][0-9a-fA-F]+|\d+)\s*$)");
         PETSCIIEncoder petscii;
         std::string out;
         size_t last = 0;
+        // a symbol's number ($1000000 + its index)
+        auto symNumber = [&](const std::string& name, bool cfunc) {
+            bool label = directLabels.count(name) > 0;
+            BasicChainOptions::LinkSym ls;
+            ls.symbol = label || name[0] == '_' ? name : "_" + name;
+            ls.cfunc = cfunc && !label;
+            size_t k = 0;
+            while (k < linkSyms.size() && !(linkSyms[k].symbol == ls.symbol && linkSyms[k].cfunc == ls.cfunc)) k++;
+            if (k == linkSyms.size()) linkSyms.push_back(ls);
+            char hex[16];
+            std::snprintf(hex, sizeof hex, "$%X", 0x1000000u + (unsigned)k);
+            return std::string(hex);
+        };
         for (auto it = std::sregex_iterator(programText.begin(), programText.end(), ref); it != std::sregex_iterator(); ++it) {
             const auto& m = *it;
             size_t lineStart = programText.rfind('\n', m.position(0));
@@ -950,16 +987,28 @@ int main(int argc, char* argv[]) {
             std::string name = m[2].str();
             std::vector<uint8_t> esc;
             if (petscii.escapeBytes(name, esc)) continue;     // ({clear}: an escape, not a symbol)
-            bool label = directLabels.count(name) > 0;
-            BasicChainOptions::LinkSym ls;
-            ls.symbol = label || name[0] == '_' ? name : "_" + name;
-            ls.cfunc = m[1].matched && !label;
-            size_t k = 0;
-            while (k < linkSyms.size() && !(linkSyms[k].symbol == ls.symbol && linkSyms[k].cfunc == ls.cfunc)) k++;
-            if (k == linkSyms.size()) linkSyms.push_back(ls);
-            char hex[16];
-            std::snprintf(hex, sizeof hex, "$%X", 0x1000000u + (unsigned)k);
-            out += programText.substr(last, m.position(0) - last) + m[1].str() + hex;
+            std::string text;
+            std::smatch bm;
+            if (std::regex_match(name, plain)) {
+                text = symNumber(name, m[1].matched);
+            } else if (std::regex_match(name, bm, binop)) {
+                // the operation in BASIC: a symbol is its address (as {name}),
+                // / the whole quotient, % MOD (% alone is BASIC's binary prefix)
+                auto operand = [&](const std::string& o) {
+                    if (std::isalpha((unsigned char)o[0]) || o[0] == '_') return symNumber(o, false);
+                    return std::to_string(std::stoul(o, nullptr, o.size() > 1 && (o[1] == 'x' || o[1] == 'X') ? 16 : 10));
+                };
+                if (!std::isalpha((unsigned char)bm[1].str()[0]) && bm[1].str()[0] != '_' &&
+                    !std::isalpha((unsigned char)bm[3].str()[0]) && bm[3].str()[0] != '_')
+                    continue;   // (numbers alone: the symbol table's substitution, below)
+                std::string a = operand(bm[1].str()), b = operand(bm[3].str());
+                char op = bm[2].str()[0];
+                text = op == '/' ? "int(" + a + "/" + b + ")" : op == '%' ? "mod(" + a + "," + b + ")"
+                                                                            : "(" + a + op + b + ")";
+            } else {
+                continue;
+            }
+            out += programText.substr(last, m.position(0) - last) + m[1].str() + text;
             last = m.position(0) + m.length(0);
         }
         out += programText.substr(last);
@@ -1074,11 +1123,32 @@ int main(int argc, char* argv[]) {
         return preOrigin(l);
     };
 
-    if (opts.validateOnly) {
-        if (!linking) {
-            Build b = build(symbols);
-            if (!b.ok) return 1;
+    // Every symbol not yet known as $FFFF (the most digits): the program
+    // built before the link, its code placed after it
+    auto placeholderSymbols = [&]() {
+        SymbolTable placeholder;
+        if (!opts.symbolFile.empty()) placeholder.loadFromFile(opts.symbolFile);
+        std::regex braces(R"(\{([^}]*)\})");
+        std::regex ident(R"([A-Za-z_]\w*)");
+        PETSCIIEncoder petscii;
+        for (auto it = std::sregex_iterator(programText.begin(), programText.end(), braces);
+             it != std::sregex_iterator(); ++it) {
+            std::string inner = (*it)[1].str();
+            std::vector<uint8_t> esc;
+            if (petscii.escapeBytes(inner, esc)) continue;
+            for (auto jt = std::sregex_iterator(inner.begin(), inner.end(), ident);
+                 jt != std::sregex_iterator(); ++jt)
+                if (!placeholder.has(jt->str())) placeholder.addSymbol(jt->str(), 0xFFFF);
         }
+        return placeholder;
+    };
+
+    if (opts.validateOnly) {
+        // the program's own checks (labels, blocks, statements) also with
+        // --link or asm / incbin blocks: their symbols stand in as $FFFF
+        // (only what needs the link is left out; #636)
+        Build b = linking && !compileLink ? build(placeholderSymbols()) : build(symbols);
+        if (!b.ok) return 1;
         if (opts.verbose) Logger::stream(LogLevel::INFO) << "Validation successful" << std::endl;
         return 0;
     }
@@ -1101,21 +1171,7 @@ int main(int argc, char* argv[]) {
     } else {
         // Pass 1: every symbol not yet known as $FFFF (the most digits), to
         // place the code after the program
-        SymbolTable placeholder;
-        if (!opts.symbolFile.empty()) placeholder.loadFromFile(opts.symbolFile);
-        std::regex braces(R"(\{([^}]*)\})");
-        std::regex ident(R"([A-Za-z_]\w*)");
-        PETSCIIEncoder petscii;
-        for (auto it = std::sregex_iterator(programText.begin(), programText.end(), braces);
-             it != std::sregex_iterator(); ++it) {
-            std::string inner = (*it)[1].str();
-            std::vector<uint8_t> esc;
-            if (petscii.escapeBytes(inner, esc)) continue;
-            for (auto jt = std::sregex_iterator(inner.begin(), inner.end(), ident);
-                 jt != std::sregex_iterator(); ++jt)
-                if (!placeholder.has(jt->str())) placeholder.addSymbol(jt->str(), 0xFFFF);
-        }
-        Build first = build(placeholder);
+        Build first = build(placeholderSymbols());
         if (!first.ok) return 1;
         uint32_t basicEnd = opts.loadAddress + (uint32_t)first.binary.size() - 2;
         uint32_t codeBase = (basicEnd + 0xFF) & ~0xFFu;

@@ -790,6 +790,16 @@ else
     echo "FAIL: test_basic_compile_unchk_xemu.bas (basic45 or basic45 --compile failed)"
     failed=$((failed + 1))
 fi
+# test_basic_compile_dt_xemu.bas: DT$, the date (#636), interpreted and compiled
+BCD_EXP="01 01 01 01 AA"
+if ./bin/basic45 src/test-resources/test_basic_compile_dt_xemu.bas -o build/test/test_basic_compile_dt_i.prg >/dev/null 2>&1 &&
+   ./bin/basic45 --compile src/test-resources/test_basic_compile_dt_xemu.bas -o build/test/test_basic_compile_dt.prg >/dev/null 2>&1; then
+    run_xemu_test "test_basic_compile_dt_interpreted" "build/test/test_basic_compile_dt_i.prg" "C0C0" 5 "$BCD_EXP"
+    run_xemu_test "test_basic_compile_dt" "build/test/test_basic_compile_dt.prg" "C0C0" 5 "$BCD_EXP"
+else
+    echo "FAIL: test_basic_compile_dt_xemu.bas (basic45 or basic45 --compile failed)"
+    failed=$((failed + 1))
+fi
 # test_basic_compile_sad_xemu.bas: coordinates (getsad) of constants computed
 # when compiled, of integers as they are, of floats at run time (#369)
 BCS_EXP="70 01 FF 00 FF 01 2C 00 FD 01 F1 00 01 01 F0 00 0B 01 DC 00 AA"
