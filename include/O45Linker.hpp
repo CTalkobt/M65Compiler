@@ -355,6 +355,15 @@ public:
     // The CPU stack's share below __stack_top: the heap ends there
     // (__stack_size, unless an object defines it)
     void setStackSize(uint16_t v) { stackSize_ = v; stackSizeSet_ = true; }
+    // --stack-page: the CPU stack in a page of its own (page $02-$FF:
+    // __stack_top = page * 256 + $FF, __stack_size 256), or BASIC's
+    // (STACK_PAGE_BASIC: __stack_top = 0, the caller's 8-bit page-1 stack);
+    // STACK_PAGE_NONE (the default): __stack_top as the objects or the
+    // library define it. ramTop: where the heap ends when the page is
+    // below the program
+    static constexpr int STACK_PAGE_NONE = -1, STACK_PAGE_BASIC = -2;
+    void setStackPage(int page, uint32_t ramTop) { stackPage_ = page; ramTop_ = ramTop; }
+    int stackPage() const { return stackPage_; }
     // the stack's share chosen (--stack-size, or an object's __stack_size:
     // cc45 -fstack-size / #pragma cc45 stack_size), not the default (#467)
     bool stackSizeChosen() const {
@@ -546,6 +555,8 @@ private:
                        O45File& out, std::string& err);
     uint16_t stackSize_ = 0x1000;
     bool stackSizeSet_ = false;
+    int stackPage_ = STACK_PAGE_NONE;   // --stack-page
+    uint32_t ramTop_ = 0xC000;
 
     // Code overlays
     std::vector<std::string> ovlNames_;            // overlay i + 1

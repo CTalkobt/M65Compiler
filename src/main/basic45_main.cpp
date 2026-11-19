@@ -72,6 +72,7 @@ struct Options {
     std::vector<std::string> linkFiles;   // --link: C / asm / .o45 to link in
     std::string linkLib;                  // --lib: the C library for --link
     std::string mapFile;                  // --map: ln45's -M map of the --link / --compile build (#595)
+    std::string stackPage;                // --stack-page: ln45's, for the --link / --compile build
     char encoding = 'u';                  // --encoding: strings without a prefix
     bool report = false;                  // --report: memory use
     bool send = false;                    // --send: to a MEGA65 (etherload / m65)
@@ -224,6 +225,8 @@ static void printUsage(const char* progName) {
     std::cout << "  --lib <file>        The C library for --link (default: c45.lib)" << std::endl;
     std::cout << "  --map <file>        Write the link map of a --link or --compile build (ln45 -M: symbols," << std::endl;
     std::cout << "                      call graph, calls through pointers, base-page blocks)" << std::endl;
+    std::cout << "  --stack-page=P      The CPU stack of a --link / --compile build in page P ($17: $1700-$17FF)" << std::endl;
+    std::cout << "                      or 'basic' (BASIC's own page-1 stack): ln45 --stack-page" << std::endl;
     std::cout << "  --decompile         Turn a BASIC .prg into basic45 source (also for a .prg input)" << std::endl;
     std::cout << "  --compile           Compile the program to machine code (a .prg run with RUN); the" << std::endl;
     std::cout << "                      input can also be a tokenized BASIC 65 .prg. -O0 .. -O4 (default -O2)" << std::endl;
@@ -390,6 +393,8 @@ static Options parseArgs(int argc, char* argv[]) {
             opts.linkLib = argv[++i];
         } else if (arg == "--map" && i + 1 < argc) {
             opts.mapFile = argv[++i];
+        } else if (arg.rfind("--stack-page=", 0) == 0) {
+            opts.stackPage = arg.substr(13);
         } else if (arg == "--send") {
             opts.send = true;
         } else if (arg == "--send-cmd" && i + 1 < argc) {
@@ -655,6 +660,7 @@ static bool compileToMachineCode(const Options& opts, const char* argv0, std::ve
               // (a 1 KB share for the CPU stack: the run time's functions are statically
               // allocated, nothing recurses; the heap, arrays and strings, gets the rest)
               step(shellQuote(tools + "/ln45") + " -basic --stack-size=1024" +
+                       (opts.stackPage.empty() ? std::string() : " --stack-page=" + shellQuote(opts.stackPage)) +
                        (opts.mapFile.empty() ? std::string() : " -M " + shellQuote(opts.mapFile)) + " -o " +
                        shellQuote(prg) + " " + shellQuote(obj) + extra + " " + shellQuote(lib),
                    "linking the compiled program");
@@ -1246,6 +1252,7 @@ int main(int argc, char* argv[]) {
         std::string cmd = shellQuote(tools + "/ln45") + " -prg -m -t " + base + " -o " + shellQuote(codePrg);
         // (--map with --compile: the compiled program's link writes it, below)
         if (!opts.mapFile.empty() && !opts.compile) cmd += " -M " + shellQuote(opts.mapFile);
+        if (!opts.stackPage.empty() && !opts.compile) cmd += " --stack-page=" + shellQuote(opts.stackPage);
         for (const auto& o : objects) cmd += " " + shellQuote(o);
         cmd += " " + shellQuote(lib);
         if (!step(cmd, "linking")) return 1;

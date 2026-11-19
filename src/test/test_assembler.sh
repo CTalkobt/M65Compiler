@@ -248,6 +248,33 @@ else
     failed=$((failed + 1))
 fi
 
+echo "Testing ln45 --stack-page..."
+# a page of its own below the program (the heap then ends at $C000) or
+# above it, or BASIC's page-1 stack (__stack_top 0); an overlap with the
+# program, page 0/1 and a page in ROM are errors; no option: as before
+printf '#include <stdlib.h>\nint main(void) { char *p = malloc(100); return p != 0; }\n' > build/test/sp_heap.c
+sp_ok=1
+./bin/cc45 -O2 -c build/test/sp_heap.c -o build/test/sp_heap.o45 >/dev/null 2>&1 || sp_ok=0
+sp_link() { ./bin/ln45 -basic -M build/test/sp_heap.map -o build/test/sp_heap.prg build/test/sp_heap.o45 lib/build/c45.lib "$@" 2>&1; }
+sp_sym() { grep -E "^ +\\\$[0-9A-F]+ +$1 " build/test/sp_heap.map | awk '{print $1}'; }
+sp_link >/dev/null || sp_ok=0
+[ "$(sp_sym __stack_top)" = '$BFFF' ] && [ "$(sp_sym __stack_size)" = '$1000' ] || sp_ok=0
+sp_link '--stack-page=$17' >/dev/null || sp_ok=0
+[ "$(sp_sym __stack_top)" = '$17FF' ] && [ "$(sp_sym __stack_size)" = '$0100' ] && [ "$(sp_sym __heap_end)" = '$C000' ] || sp_ok=0
+sp_link '--stack-page=23' >/dev/null && [ "$(sp_sym __stack_top)" = '$17FF' ] || sp_ok=0
+sp_link '--stack-page=0xBF' >/dev/null && [ "$(sp_sym __stack_top)" = '$BFFF' ] && [ "$(sp_sym __heap_end)" = '$0000' ] || sp_ok=0
+sp_link '--stack-page=basic' >/dev/null && [ "$(sp_sym __stack_top)" = '$0000' ] || sp_ok=0
+sp_link '--stack-page=$21' | grep -q "overlaps the program" || sp_ok=0
+sp_link '--stack-page=$C0' | grep -q "above the end of bank 0's RAM" || sp_ok=0
+for v in 0 1 '$100' x ''; do sp_link "--stack-page=$v" | grep -q "invalid --stack-page value" || sp_ok=0; done
+if [ $sp_ok -eq 1 ]; then
+    echo "SUCCESS: --stack-page places the stack, or BASIC's, and checks the page"
+    passed=$((passed + 1))
+else
+    echo "FAIL: ln45 --stack-page"
+    failed=$((failed + 1))
+fi
+
 echo "Testing ln45's overlap warning (Issue #316)..."
 # on the final addresses only: twenty functions' 2 KB locals the SAC overlay
 # shares reach past the code overlays' region before sharing, where a BSS

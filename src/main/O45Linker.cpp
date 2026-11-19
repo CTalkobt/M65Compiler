@@ -1215,6 +1215,29 @@ bool O45Linker::resolveSymbols(std::string& errorMsg) {
         symbolSource_["__stack_size"] = "<linker>";
         symbolWeak_["__stack_size"] = false;
     }
+    // --stack-page: it wins over an object's or the library's __stack_top.
+    // A page: the stack is that page (__stack_size 256); below the program,
+    // malloc's automatic heap would end below its start (__stack_top + 1 -
+    // __stack_size), so it ends at the top of RAM instead (__heap_end, unless
+    // an object places the heap). basic: the caller's 8-bit page-1 stack
+    // (__stack_top 0), whose heap already ends at $C000
+    if (stackPage_ != STACK_PAGE_NONE) {
+        uint32_t top = stackPage_ == STACK_PAGE_BASIC ? 0 : (uint32_t)stackPage_ * 0x100 + 0xFF;
+        globalSymbols_["__stack_top"] = top;
+        symbolSource_["__stack_top"] = "<linker: --stack-page>";
+        symbolWeak_["__stack_top"] = false;
+        if (top) {
+            globalSymbols_["__stack_size"] = 0x100;
+            symbolSource_["__stack_size"] = "<linker: --stack-page>";
+            symbolWeak_["__stack_size"] = false;
+            auto he = globalSymbols_.find("__heap_end");
+            if (top < textBase_ && (he == globalSymbols_.end() || he->second == 0)) {
+                globalSymbols_["__heap_end"] = std::min<uint32_t>(ramTop_, 0xFFFF);
+                symbolSource_["__heap_end"] = "<linker: --stack-page>";
+                symbolWeak_["__heap_end"] = false;
+            }
+        }
+    }
     // The byte crt0 fills BSS with: --bss-fill (default 0), unless an object
     // defines it (cc45 -fbss-fill=V in the module defining main)
     if (!globalSymbols_.count("__bss_fill")) {
@@ -3353,7 +3376,12 @@ bool O45Linker::placeOverlayRegion(std::string& errorMsg) {
             }
             if (exp.name == "__stack_size") size = exp.offset;
         }
+    // (--stack-page: that page, or the page-1 stack; a page below the
+    // program leaves all the RAM above it, as the 8-bit stack does)
+    if (stackPage_ == STACK_PAGE_BASIC) top = 0;
+    else if (stackPage_ >= 0) { top = (uint32_t)stackPage_ * 0x100 + 0xFF; size = 0x100; }
     uint32_t end = top ? (top + 1 > size ? top + 1 - size : 0) : 0xC000;
+    if (stackPage_ >= 0 && top < textBase_) end = 0xC000;
     if (ovlMap_) {
         // whole 8 KB blocks of the map's lower half ending at $8000: $6000
         // or $4000 (the upper half keeps the KERNAL mapped at $E000, and

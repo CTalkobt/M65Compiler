@@ -4,6 +4,18 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### ln45 / basic45: `--stack-page`, the CPU stack in a page of its own or BASIC's
+
+- **`--stack-page=P`** puts the CPU stack in page `P` (`$02`-`$FF`; `$17` is `$1700`-`$17FF`, from `$17FF` down),
+  **below the program** as well as above it, or **`--stack-page=basic`** on BASIC's own page-1 stack (`__stack_top`
+  0). It overrides `__stack_top` (cc45 `-fstack-top`, the library's `$BFFF`); a page makes `__stack_size` 256 and,
+  below the program, ends `malloc`'s automatic heap at `--ram-top` instead of below the stack. ln45 refused any
+  stack top below the program's end (`program ends at $BC39, above the CPU stack top $17FF`): with the option only
+  an overlap with the program or its base page, or a page above `--ram-top`, is an error, and the "only N bytes
+  left for the CPU stack" warning is the default stack's alone. Without the option nothing changes. basic45 passes
+  it to the link of a `--link` / `--compile` build. For a program with a small stack and a full bank 0 (MEGA65
+  Writer: 512 bytes, with its base page moved below the program by defining `__zp_page`).
+
 ### ca45: operators it lacks, relocations it lost, move.fp, options and messages (#635)
 
 - **`%`, `**` and `?:` are errors** (`ca45 has no '%' operator (modulo)`, `… '**' …`, `… '?:' …`): `5 % 3` and

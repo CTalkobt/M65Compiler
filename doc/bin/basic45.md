@@ -67,6 +67,7 @@ Without `-o` the output is the input name with its extension replaced by `.prg` 
 | `--link <file>` | Link a C (`.c`, compiled with `cc45 -c -O2`), assembly (`.s45`, `.s`, `.asm`: `ca45 -c`) or object (any other name: given to ln45 as it is) file after the program; repeatable ([Calling C Functions](#calling-c-functions-link)) |
 | `--lib <file>` | The library for `--link` and `--compile` (default: `c45.lib` next to the tools, `bin/../lib/build` or `bin/../lib/cc45`, else `ln45`'s `CC45_LIB` search) |
 | `--map <file>` | Write the link map of a `--link` or `--compile` build: `ln45 -M` (segments, objects, symbols with their addresses, the call graph, calls through pointers, base-page blocks; see [ln45's map](ln45.md#map-file-format)). A warning without either option (nothing is linked) |
+| `--stack-page=P` | The CPU stack of a `--link` or `--compile` build in page `P` (`$17`: `$1700`-`$17FF`) or `basic` (BASIC's own page-1 stack): passed to `ln45 --stack-page` ([ln45](ln45.md)). Without it: as before |
 | `--decompile` | Turn a tokenized BASIC `.prg` into basic45 source ([Listing, Source Map and Decompiling](#listing-source-map-and-decompiling)) |
 | `--compile` | Compile the program (the source, or a tokenized BASIC 65 `.prg`) to machine code: a `.prg` started with `RUN` ([Compiling](#compiling-compile)) |
 | `-O0` … `-O4` | `--compile`: cc45's optimization level (default `-O2`) |
