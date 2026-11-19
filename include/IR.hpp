@@ -285,6 +285,7 @@ struct Function {
     std::map<std::string, std::string> debugTypes;
     std::vector<std::string> localNamesOrder; // preserves declaration order of local variables
     std::set<uint32_t> memoryVregs;    // vRegs that MUST be in memory (e.g. volatile or address-taken)
+    std::set<uint32_t> volatileVregs;  // those of them declared volatile: every read is a read (#659)
     // restrict pointer parameters (Issue #77): what one points to is reached
     // only through it (and pointers made from it) while the function runs
     std::set<uint32_t> restrictVregs;

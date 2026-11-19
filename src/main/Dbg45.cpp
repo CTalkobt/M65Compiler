@@ -96,9 +96,33 @@ int Dbg45::addBreakpoint(const std::string& where, std::string& err) {
         if (!f) { err = "no function " + where + " in the program"; return 0; }
         // its entries: the function's start and, for a static-allocation
         // function, <f>__sac (callers that know it call that one)
-        addrs.push_back((uint16_t)f->start);
         long sac = dbg.symbol(f->name + "__sac");
-        if (sac > (long)f->start && sac < (long)f->end) addrs.push_back((uint16_t)sac);
+        bool hasSac = sac > (long)f->start && sac < (long)f->end;
+        // Where its first statement begins: the first line after the entry's
+        // own (the function's line: the code that takes the parameters to
+        // where the function keeps them). Both entries run into it, and
+        // there the parameters show their values (#657: at the entry itself
+        // a pointer parameter kept in a ZP register was not there yet)
+        // (the line table has the function's line at the entry even when no
+        // code is under it: then the first statement is at the entry itself)
+        uint32_t entry = hasSac ? (uint32_t)sac : f->start;
+        long body = -1;
+        const DbgLine* decl = nullptr;
+        for (const auto& l : dbg.lines) {           // (by address, as written)
+            if (l.overlay != f->overlay || l.addr < entry || l.addr >= f->end) continue;
+            if (!decl) {
+                if (l.addr != entry) break;         // (no line at the entry: stop there, as before)
+                decl = &l;
+                continue;
+            }
+            if (l.line != decl->line || l.file != decl->file) { body = (long)l.addr; break; }
+        }
+        if (body >= 0) {
+            addrs.push_back((uint16_t)body);
+        } else {
+            addrs.push_back((uint16_t)f->start);
+            if (hasSac) addrs.push_back((uint16_t)sac);
+        }
         desc = dbg.cName(f->name);
     }
     int id = nextBp_++;

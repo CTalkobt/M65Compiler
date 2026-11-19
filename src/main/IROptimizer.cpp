@@ -68,12 +68,15 @@ struct ExprKey {
 bool isCSECandidate(Op op);
 
 // Instructions that never write memory (#320: loads of globals stay valid
-// across them); anything else may
+// across them); anything else may. (Not BFINS: it writes the field into its
+// storage unit in memory, with a result or without one -- g.mode++ is a
+// BFINS alone, no store after it: a load of g.mode after it was the value
+// before, #659)
 bool memoryNeutral(Op op) {
     if (isCSECandidate(op)) return true;
     switch (op) {
         case Op::CONST: case Op::FCONST: case Op::LOAD: case Op::LOAD_ZP: case Op::ADDR_LOCAL:
-        case Op::ADDR_UPLEVEL: case Op::BFEXT: case Op::BFINS: case Op::COPY: case Op::DEREF: case Op::BR:
+        case Op::ADDR_UPLEVEL: case Op::BFEXT: case Op::COPY: case Op::DEREF: case Op::BR:
         case Op::BR_COND: case Op::SWITCH: case Op::RET: case Op::RET_VOID: case Op::PHI: case Op::GET_FP:
         case Op::NOP: case Op::CPU_REG_READ: case Op::CPU_FLAG_READ: case Op::FADD: case Op::FSUB:
         case Op::FMUL: case Op::FDIV: case Op::FCMP: case Op::FNEG: case Op::FTOI: case Op::ITOF:
@@ -549,6 +552,10 @@ void optimizeCSE(Module& mod) {
                 return o.vregId < fn.paramTypes.size() ? "p" + std::to_string(o.vregId) : "";
             if (n->second != 1) return "";
             const Inst& d = *defOf[o.vregId];
+            // (a local's address never changes: &L in two places is one value,
+            // and so is &L + 2, the address of a member; #659)
+            if (d.op == Op::ADDR_LOCAL && d.src1.isVreg() && d.args.empty())
+                return "L" + std::to_string(d.src1.vregId);
             switch (d.op) {
                 case Op::ZEXT: case Op::SEXT: case Op::TRUNC: case Op::ADD: case Op::SUB: case Op::AND:
                 case Op::OR: case Op::XOR: case Op::SHL: case Op::SHR: case Op::LSL: case Op::LSR: case Op::ASR:
@@ -595,6 +602,8 @@ void optimizeCSE(Module& mod) {
                     ++it;
             }
         }
+        // (CC45_NO_LOCAL_LOADS=1: local objects as before #659, to compare the code)
+        const bool localObjectsOff = getenv("CC45_NO_LOCAL_LOADS") != nullptr;
         std::function<std::string(const Operand&, int)> baseOf = [&](const Operand& o, int depth) -> std::string {
             if (o.kind == OperandKind::GLOBAL) return o.name;
             if (o.isVreg() && restrictSlots.count(o.vregId)) return "&r" + std::to_string(o.vregId);
@@ -602,7 +611,7 @@ void optimizeCSE(Module& mod) {
                 auto os = onlyStoreOf.find(o.vregId);
                 if (os != onlyStoreOf.end()) {
                     std::string b = baseOf(os->second->src1, depth + 1);
-                    return b == "#" ? "" : b;
+                    return b == "#" ? "" : b;     // ("#L<slot>": that local, as &L itself)
                 }
             }
             if (!o.isVreg() || depth > 8 || slots.count(o.vregId) || fn.memoryVregs.count(o.vregId)) return "";
@@ -611,7 +620,13 @@ void optimizeCSE(Module& mod) {
             const Inst& d = *defOf[o.vregId];
             switch (d.op) {
                 case Op::ADDR_GLOBAL: return d.src1.name;
-                case Op::ADDR_LOCAL: return "#";
+                // (#659: a local is an object as a global is, "#L<slot>": a
+                // load of one of its members is reused until a store into it,
+                // or anything that may write anywhere. Not a local that must
+                // be read each time, volatile: "#", as before)
+                case Op::ADDR_LOCAL:
+                    return d.src1.isVreg() && !fn.volatileVregs.count(d.src1.vregId) && !localObjectsOff
+                        ? "#L" + std::to_string(d.src1.vregId) : "#";
                 case Op::DEREF:   // (a restrict parameter's value: its object)
                     return d.src1.isVreg() && restrictSlots.count(d.src1.vregId) ? baseOf(d.src1, depth + 1) : "";
                 case Op::ADDR_ELEM: case Op::COPY: return baseOf(d.src1, depth + 1);
@@ -622,10 +637,12 @@ void optimizeCSE(Module& mod) {
         };
         // a store's effect on loads of globals: the global it writes ("#": none), "" any
         auto storeBase = [&](const Inst& in) -> std::string {
+            // (a variable assigned: the loads of that local made through its
+            // address, #659; of nothing else)
             if ((in.op == Op::STORE || in.op == Op::STORE_ZP) && in.src2.isVreg() && slots.count(in.src2.vregId) &&
                 !fn.memoryVregs.count(in.src2.vregId))
-                return "#";
-            if (in.op == Op::STORE) return baseOf(in.src2, 0);
+                return localObjectsOff ? "#" : "#L" + std::to_string(in.src2.vregId);
+            if (in.op == Op::STORE || in.op == Op::BFINS) return baseOf(in.src2, 0);   // (BFINS: the unit at src2)
             return "";
         };
         // Extended blocks: a block whose one predecessor is the block before
@@ -730,6 +747,7 @@ void optimizeCSE(Module& mod) {
                 }
                 if (in.dest.isVreg()) blockDefs[b].insert(in.dest.vregId);
                 bool st = in.op == Op::STORE || in.op == Op::STORE_ZP;
+                if (in.op == Op::BFINS) { blockMem[b] = true; blockMemPure[b] = true; }   // (a write through its address)
                 if (st && in.src2.isVreg() && slots.count(in.src2.vregId)) {
                     blockDefs[b].insert(in.src2.vregId);
                     if (fn.memoryVregs.count(in.src2.vregId)) blockMemPure[b] = true;
@@ -781,14 +799,27 @@ void optimizeCSE(Module& mod) {
                 std::set<uint32_t> killed;
                 bool mem = false, memPure = false, anyStore = false;
                 std::set<std::string> stored;
+                // blockIdx is in a loop without D when a path from it comes
+                // back to it (not through D). (#659: the test was "a
+                // predecessor on a path from D", which every join has: a
+                // store or call in a join block after an if made it forget
+                // what D computed, even before them)
+                bool selfLoop = false;
+                if (!getenv("CC45_OLD_JOIN_CARRY")) {
+                    std::vector<bool> from(nb, false);
+                    for (size_t s2 : succOf[blockIdx]) if (s2 != D && !from[s2]) { from[s2] = true; todo.push_back(s2); }
+                    while (!todo.empty()) {
+                        size_t x = todo.back(); todo.pop_back();
+                        for (size_t s2 : succOf[x]) if (s2 != D && !from[s2]) { from[s2] = true; todo.push_back(s2); }
+                    }
+                    selfLoop = from[blockIdx];
+                } else {
+                    for (size_t p2 : predSet[blockIdx]) if (p2 != D && fwd[p2] && bwd[p2]) selfLoop = true;
+                }
                 for (size_t x = 0; x < nb; x++) {
                     if (x == D || !fwd[x] || !bwd[x]) continue;
                     // (blockIdx itself only when a path from it comes back)
-                    if (x == blockIdx) {
-                        bool loops = false;
-                        for (size_t p2 : predSet[blockIdx]) if (p2 != D && fwd[p2] && bwd[p2]) loops = true;
-                        if (!loops) continue;
-                    }
+                    if (x == blockIdx && !selfLoop) continue;
                     killed.insert(blockDefs[x].begin(), blockDefs[x].end());
                     mem = mem || blockMem[x];
                     memPure = memPure || blockMemPure[x];
@@ -911,11 +942,12 @@ void optimizeCSE(Module& mod) {
                             return pair.first.op == Op::LOAD && (sb.empty() || pair.first.base == sb);
                         }), activeExprs.end());
                 }
-                if ((inst.op == Op::STORE || inst.op == Op::STORE_ZP ||
+                if ((inst.op == Op::STORE || inst.op == Op::STORE_ZP || inst.op == Op::BFINS ||
                      inst.op == Op::CALL || inst.op == Op::CALL_INDIRECT || inst.op == Op::CALL_VOID ||
                      inst.op == Op::ASM_INLINE || inst.op == Op::CPU_REG_WRITE || inst.op == Op::CPU_FLAG_WRITE) &&
                     !purity) {
-                    // A STORE to a slot vreg assigns that variable
+                    // A STORE to a slot vreg assigns that variable (a BFINS
+                    // writes through its address, as a STORE through a pointer)
                     if ((inst.op == Op::STORE || inst.op == Op::STORE_ZP) && inst.src2.isVreg() &&
                         slots.count(inst.src2.vregId))
                         invalidate(inst.src2.vregId);
@@ -4648,8 +4680,12 @@ void leafPointerParamsToZp(Module& mod) {
             st.resultType = Type::PTR;
             st.src1 = Operand::vreg(p, Type::PTR);
             st.src2 = Operand::vreg(v, Type::PTR);
+            // (no line of its own: the copy is part of the function's entry,
+            // under the function's line. With the first statement's line a
+            // breakpoint there stopped before the copy, and a debugger showed
+            // the parameter's ZP register as it was left by the caller, #657)
             auto& entry = fn.blocks[0].insts;
-            if (!entry.empty()) st.loc = entry[0].loc;
+            SourceLoc firstLoc = entry.empty() ? SourceLoc() : entry[0].loc;
             entry.insert(entry.begin(), st);
             fn.localSlotVregs.insert(v);
             fn.registerVregs.insert(v);
@@ -4658,7 +4694,7 @@ void leafPointerParamsToZp(Module& mod) {
                                           ? fn.paramNames[p] : std::to_string(p));
             fn.localNames[name] = v;
             fn.localNamesOrder.push_back(name);
-            trace("zp", fn.name, "pointer parameter " + name.substr(5) + " in a ZP register (leaf)", st.loc);
+            trace("zp", fn.name, "pointer parameter " + name.substr(5) + " in a ZP register (leaf)", firstLoc);
         }
     }
 }
@@ -4742,17 +4778,25 @@ void foldGlobalOffsetAccess(Module& mod) {
         std::map<uint32_t, int> defCount;
         std::map<uint32_t, const Inst*> def;
         std::set<uint32_t> other;          // used other than as a load's / store's address
+        // (#658) ... or as the base of an element: addr_elem's, or that of a
+        // load / store an addr_elem was fused into (args: base, index, stride)
+        auto fusedBase = [](const Inst& in) {
+            return (in.op == Op::LOAD || in.op == Op::STORE) && in.args.size() >= 3 && in.args[0].isVreg();
+        };
+        const bool elemBaseOn = !getenv("CC45_NO_ELEM_BASE");
         for (const auto& b : fn.blocks)
             for (const auto& in : b.insts) {
                 if (in.dest.isVreg()) { defCount[in.dest.vregId]++; def[in.dest.vregId] = &in; }
                 bool addr1 = in.op == Op::LOAD && in.args.empty();
                 bool addr2 = in.op == Op::STORE && in.args.empty();
-                if (in.src1.isVreg() && !addr1) other.insert(in.src1.vregId);
+                bool base1 = elemBaseOn && in.op == Op::ADDR_ELEM;
+                if (in.src1.isVreg() && !addr1 && !base1) other.insert(in.src1.vregId);
                 if (in.src2.isVreg() && !addr2) other.insert(in.src2.vregId);
-                for (const auto& a : in.args)
-                    if (a.isVreg()) other.insert(a.vregId);
+                for (size_t ai = 0; ai < in.args.size(); ai++)
+                    if (in.args[ai].isVreg() && !(elemBaseOn && ai == 0 && fusedBase(in))) other.insert(in.args[ai].vregId);
             }
         std::map<uint32_t, std::string> at;   // vreg -> "@g+c"
+        std::map<uint32_t, std::pair<std::string, int>> atOff;   // vreg -> g, c
         for (const auto& [v, n] : defCount) {
             if (n != 1 || other.count(v) || fn.localSlotVregs.count(v) || fn.memoryVregs.count(v)) continue;
             const Inst* d = def[v];
@@ -4761,10 +4805,28 @@ void foldGlobalOffsetAccess(Module& mod) {
             int64_t c = d->src2.immVal;
             if (c <= 0 || c > 0xFFFF) continue;
             at[v] = d->src1.name + "+" + std::to_string(c);
+            atOff[v] = {d->src1.name, (int)c};
         }
         if (at.empty()) continue;
         for (auto& b : fn.blocks)
             for (auto& in : b.insts) {
+                // (#658: g.rows[i] was the element i of a pointer @g + 100
+                // computed first, on every pass of a loop; it is the element
+                // of @g at the offset 100 -- sta _g+100,y for a small one)
+                if (in.op == Op::ADDR_ELEM && in.src1.isVreg() && atOff.count(in.src1.vregId)) {
+                    const auto& go = atOff[in.src1.vregId];
+                    trace("globaloff", fn.name, "an element's base v" + std::to_string(in.src1.vregId) + " is " + at[in.src1.vregId], in.loc);
+                    in.src1 = Operand::global(go.first);
+                    in.elemOffset += go.second;
+                    continue;
+                }
+                if (fusedBase(in) && atOff.count(in.args[0].vregId)) {
+                    const auto& go = atOff[in.args[0].vregId];
+                    trace("globaloff", fn.name, "an element's base v" + std::to_string(in.args[0].vregId) + " is " + at[in.args[0].vregId], in.loc);
+                    in.args[0] = Operand::global(go.first);
+                    in.elemOffset += go.second;
+                    continue;
+                }
                 ir::Operand* a = in.op == Op::LOAD ? &in.src1 : in.op == Op::STORE ? &in.src2 : nullptr;
                 if (!a || !a->isVreg() || !at.count(a->vregId)) continue;
                 trace("globaloff", fn.name, "v" + std::to_string(a->vregId) + " is " + at[a->vregId], in.loc);

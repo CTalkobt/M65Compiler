@@ -199,6 +199,90 @@ const std::map<std::string, std::set<std::string>>& IRCodeGen::zpPlan() {
 }
 
 // SAC storage symbol of a frame vreg: fn__param_<name> for parameters, else fn__local_<id>
+// #657: the address vregs of this function that are &local (+ a constant)
+// of a local with static storage, defined once: a plain load or store
+// through one is that of <symbol>+c (localDirect_). One used for nothing
+// else is not computed at all (localDirectSkip_); one that is also passed on
+// (get_line(l, &L), which CSE makes the same vreg as the &L of L.start, #659)
+// is still computed for that
+void IRCodeGen::findLocalDirect(const ir::Function& fn) {
+    localDirect_.clear();
+    localDirectSkip_.clear();
+    // (CC45_NO_LOCAL_DIRECT=1: off, to compare the code)
+    // (not for a function compiled as written: #pragma cc45 optimize(off))
+    if (!currentFunctionUseSAC_ || fn.noOptimize || std::getenv("CC45_NO_LOCAL_DIRECT")) return;
+    std::map<uint32_t, int> defCount;
+    std::map<uint32_t, const ir::Inst*> def;
+    std::set<uint32_t> otherUse;                         // used as more than a plain load's / store's address
+    std::map<uint32_t, std::vector<uint32_t>> addUsers;  // a vreg: the constant adds to it
+    for (const auto& b : fn.blocks)
+        for (const auto& in : b.insts) {
+            if (in.dest.isVreg()) { defCount[in.dest.vregId]++; def[in.dest.vregId] = &in; }
+            bool plain = in.args.empty();
+            bool addr1 = in.op == ir::Op::LOAD && plain;
+            bool addr2 = in.op == ir::Op::STORE && plain;
+            bool constAdd = in.op == ir::Op::ADD && in.resultType == ir::Type::PTR && in.src1.isVreg() &&
+                            in.src2.isImm() && in.dest.isVreg() && plain;
+            // (a store to a vreg as a variable assigns it: not an address)
+            if (in.op == ir::Op::STORE_ZP && in.src2.isVreg()) otherUse.insert(in.src2.vregId);
+            if (in.src1.isVreg() && !addr1) {
+                if (constAdd) addUsers[in.src1.vregId].push_back(in.dest.vregId);
+                else otherUse.insert(in.src1.vregId);
+            }
+            if (in.src2.isVreg() && !addr2) otherUse.insert(in.src2.vregId);
+            for (const auto& a : in.args)
+                if (a.isVreg()) otherUse.insert(a.vregId);
+            for (const auto& ph : in.phiIncoming)
+                if (ph.first.isVreg()) otherUse.insert(ph.first.vregId);
+        }
+    auto single = [&](uint32_t v) {
+        return defCount[v] == 1 && !fn.localSlotVregs.count(v) && !fn.memoryVregs.count(v) &&
+               (int)v != fn.staticLinkVreg && (int)v != fn.retAddrSlot;
+    };
+    // the symbol of an addr_local's local, if it has static storage here
+    auto symbolOf = [&](const ir::Inst* d, std::string& sym) {
+        if (!d || d->op != ir::Op::ADDR_LOCAL || !d->src1.isVreg() || !d->args.empty()) return false;
+        uint32_t slot = d->src1.vregId;
+        if (!vregOffset_.count(slot)) return false;
+        // (as sacSymbol, but of fn: currentFn_ is still the function before)
+        if (slot < fn.paramTypes.size()) {
+            std::string pName = slot < fn.paramNames.size() && !fn.paramNames[slot].empty()
+                ? fn.paramNames[slot] : std::to_string(slot);
+            sym = fn.name + "__param_" + pName;
+        } else {
+            sym = fn.name + "__local_" + std::to_string(slot);
+        }
+        return true;
+    };
+    // &local, and &local + c
+    for (const auto& [v, n] : defCount) {
+        if (!single(v)) continue;
+        const ir::Inst* d = def[v];
+        std::string sym;
+        if (symbolOf(d, sym)) { localDirect_[v] = sym; continue; }
+        if (d->op == ir::Op::ADD && d->resultType == ir::Type::PTR && d->src1.isVreg() && d->src2.isImm() &&
+            d->args.empty()) {
+            uint32_t base = d->src1.vregId;
+            int64_t c = d->src2.immVal;
+            if (c < 0 || c > 0xFFFF || !single(base) || !symbolOf(def[base], sym)) continue;
+            localDirect_[v] = c ? sym + "+" + std::to_string(c) : sym;
+        }
+    }
+    // what is still read as a value: an add used otherwise (or added to
+    // again), and the &local such an add (or one that is not direct) starts from
+    for (const auto& [v, sym] : localDirect_) {
+        const ir::Inst* d = def[v];
+        if (d->op == ir::Op::ADD) {
+            if (!otherUse.count(v) && !addUsers.count(v)) localDirectSkip_.insert(v);
+            continue;
+        }
+        bool needed = otherUse.count(v) > 0;
+        for (uint32_t u : addUsers[v])
+            if (!localDirect_.count(u) || otherUse.count(u) || addUsers.count(u)) needed = true;
+        if (!needed) localDirectSkip_.insert(v);
+    }
+}
+
 std::string IRCodeGen::sacSymbol(uint32_t vregId) const {
     if (currentFn_ && vregId < currentFn_->paramTypes.size()) {
         std::string pName = (vregId < currentFn_->paramNames.size() && !currentFn_->paramNames[vregId].empty())
@@ -5231,6 +5315,7 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
 
     // Store SAC mode for this function (used by loadVreg/storeVreg for addressing)
     currentFunctionUseSAC_ = useSAC;
+    findLocalDirect(fn);
 
     // the byte joins whose leaves all have an address (in ZP or SAC storage)
     for (auto it = byteJoins_.begin(); it != byteJoins_.end();) {
@@ -6387,6 +6472,23 @@ void IRCodeGen::emitInstBody(const ir::Inst& inst) {
     }
     // (a node of a byte join: built by its root)
     if (inst.dest.isVreg() && byteJoinSkip_.count(inst.dest.vregId)) return;
+    // #657: &local + c as the address of a load or store, in a function
+    // whose locals have fixed addresses: the load or store of <symbol>+c
+    if (!localDirect_.empty()) {
+        if ((inst.op == ir::Op::ADDR_LOCAL || inst.op == ir::Op::ADD) && inst.dest.isVreg() &&
+            localDirectSkip_.count(inst.dest.vregId))
+            return;
+        if (inst.args.empty() && (inst.op == ir::Op::LOAD || inst.op == ir::Op::STORE)) {
+            const ir::Operand& addr = inst.op == ir::Op::LOAD ? inst.src1 : inst.src2;
+            auto ld = addr.isVreg() ? localDirect_.find(addr.vregId) : localDirect_.end();
+            if (ld != localDirect_.end()) {
+                ir::Inst direct = inst;
+                (inst.op == ir::Op::LOAD ? direct.src1 : direct.src2) = ir::Operand::global(ld->second);
+                emitInstBody(direct);
+                return;
+            }
+        }
+    }
     // Reset value-role tracking for each new instruction
     clearValueRoles();
 
