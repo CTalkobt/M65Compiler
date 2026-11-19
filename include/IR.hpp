@@ -154,6 +154,14 @@ struct Operand {
     static Operand imm(int64_t val, Type t) { Operand o; o.kind = OperandKind::IMM; o.immVal = val; o.type = t; return o; }
     static Operand global(const std::string& name) { Operand o; o.kind = OperandKind::GLOBAL; o.name = name; o.type = Type::PTR; return o; }
     static Operand label(const std::string& name) { Operand o; o.kind = OperandKind::LABEL; o.name = name; o.type = Type::PTR; return o; }
+    // ADDR_UPLEVEL's target: a variable (vreg id) of an enclosing function
+    // (name), in that function's frame. Not a VREG: passes walking this
+    // function's operands took it for one of its own vregs of the same
+    // number (its type, its liveness: a nested function's static link was
+    // allocated one byte when the parent's vreg of that number was a char)
+    static Operand parentVar(uint32_t id, const std::string& fn) {
+        Operand o; o.kind = OperandKind::FRAME_RELATIVE; o.vregId = id; o.name = fn; o.type = Type::PTR; return o;
+    }
 
     bool isNone() const { return kind == OperandKind::NONE; }
     bool isVreg() const { return kind == OperandKind::VREG; }

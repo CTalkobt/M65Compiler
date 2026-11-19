@@ -289,6 +289,24 @@ else
     failed=$((failed + 1))
 fi
 
+echo "Testing relocatable operands beside a .zpsym range (Issue #660)..."
+# an operand naming an extern or a label of a relocatable segment keeps its
+# offset, whatever its value before linking: with .zpsym _zs, $90, 7,
+# lda _area+149 ($95 before linking) was assembled as _area+5. A plain
+# number in the range is still the variable's
+mkdir -p build/test/zp660
+printf '    .extern _area\n    .extern _zs\n    .zpsym _zs, $90, 7\n    .segment "bss"\nbuf: .res 200\n    .code\nf:  lda _area+149\n    lda _area+$92\n    lda buf+$94\n    lda $92\n    rts\n' > build/test/zp660/t.s45
+if $AS -c build/test/zp660/t.s45 -o build/test/zp660/t.o45 >/dev/null 2>&1 &&
+   D=$(./bin/objdump45 -d build/test/zp660/t.o45) &&
+   grep -q 'ad 95 00 .*<_area+149>' <<< "$D" && grep -q 'ad 92 00 .*<_area+146>' <<< "$D" &&
+   grep -q 'ad 94 00 .*<BSS+\$94>' <<< "$D" && grep -q 'a5 02 .*<_zs+2>' <<< "$D"; then
+    echo "SUCCESS: an extern's or a label's operand keeps its offset next to a .zpsym range"
+    passed=$((passed + 1))
+else
+    echo "FAIL: a relocatable operand taken for a .zpsym variable: $(./bin/objdump45 -d build/test/zp660/t.o45 2>&1 | grep lda | tr '\n' ';')"
+    failed=$((failed + 1))
+fi
+
 echo "Testing what a minimal C program links (Issue #322)..."
 # crt0 no longer carries __basic_call and __rom_call: library members of
 # their own, linked only by programs that use them

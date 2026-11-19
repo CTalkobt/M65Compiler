@@ -872,6 +872,19 @@ else
     failed=$((failed + 1))
 fi
 
+# #660: the address of a global's member as a value (passed to a function)
+# is the constant _area+100, not the global's address and an add
+printf '#include <string.h>\nunion area { unsigned char m[256]; struct { unsigned char pad[100]; unsigned char rows[50]; } r; };\nextern union area area;\nvoid clear_rows(void) { memset(area.r.rows, 0, 50); }\n' > $cs/maddr.c
+if ./bin/cc45 -O2 -c $cs/maddr.c -o $cs/maddr.o45 >/dev/null 2>&1 &&
+   ./bin/objdump45 -d $cs/maddr.o45 | grep -q 'lda.*#\$64.*<_area+100> lo' &&
+   ! ./bin/objdump45 -d $cs/maddr.o45 | grep -q 'adc' &&
+   [ $((16#$(./bin/objdump45 -h $cs/maddr.o45 | awk '$2 == "TEXT" && $5 == "CODE" {print $3}'))) -le 28 ]; then
+    echo "SUCCESS: &g.member as an argument is the constant _area+100"
+else
+    echo "FAIL: &g.member as an argument computed at run time (#660): $(./bin/objdump45 -d $cs/maddr.o45 2>&1 | grep -E 'lda|adc' | head -4 | tr '\n' ' ')"
+    failed=$((failed + 1))
+fi
+
 # #355: a program reading the clock links none of mktime's date arithmetic
 # (rtc_read called mktime for tm_wday / tm_yday: 4,176 bytes, now under 1,000)
 printf '#include <time.h>\nunsigned char d;\nint main(void) { struct tm t; rtc_read(&t); d = t.tm_mday; return 0; }\n' > $cs/rtc.c

@@ -181,6 +181,7 @@ void AssemblerGenerator::generate(AssemblerParser* parser, M65Emitter& e, const 
             // Regular instructions: don't pre-invalidate — let the typed methods
             // (lda_imm/sta_zp via emitInstruction) and our post-emission tracking
             // handle state updates accurately.
+            e.setOperandRelocated(false);
           try {
             if (!stmt->label.empty()) {
                 isDeadCode = false;
@@ -264,6 +265,21 @@ void AssemblerGenerator::generate(AssemblerParser* parser, M65Emitter& e, const 
                     continue;
                 } else { // Handle all other instructions
                     if (!isDeadCode) {
+                        // (an operand naming a relocatable symbol is that
+                        // symbol's address + an offset: not a base-page
+                        // block's or .zpsym variable's, #660)
+                        {
+                            bool rel = false;
+                            for (int t = stmt->instr.operandTokenIndex; t >= 0 && t < (int)parser->tokens.size() && !rel; ++t) {
+                                const auto& tok = parser->tokens[t];
+                                if (tok.type == AssemblerTokenType::NEWLINE || tok.type == AssemblerTokenType::END_OF_FILE) break;
+                                if (tok.type == AssemblerTokenType::IDENTIFIER &&
+                                    parser->isRelocatableSymbolIn(tok.value, stmt->scopePrefix) &&
+                                    !parser->isZpSegmentSymbolIn(tok.value, stmt->scopePrefix))
+                                    rel = true;
+                            }
+                            e.setOperandRelocated(rel);
+                        }
                         AddressingMode resolvedMode = stmt->instr.mode;
                         if (!stmt->instr.forceMode && stmt->instr.operandTokenIndex != -1 && (stmt->instr.mode == AddressingMode::BASE_PAGE || stmt->instr.mode == AddressingMode::ABSOLUTE ||
                             stmt->instr.mode == AddressingMode::BASE_PAGE_X || stmt->instr.mode == AddressingMode::ABSOLUTE_X ||
