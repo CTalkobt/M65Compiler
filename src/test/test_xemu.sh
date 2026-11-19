@@ -4458,6 +4458,24 @@ for ldmode in "zp|" "stack|-fno-zpcall" "O0|-O0" "nosac|-fno-staticalloc"; do
     xemu_case "FAIL: test_local_direct_xemu.c $ldname (compilation/linking failed)" "src/test-resources/test_local_direct_xemu.c" "build/test/test_local_direct_${ldname}_xemu.prg" "$ldflags" "src/test-resources/test_local_direct_b.c" -- "test_local_direct_$ldname" "build/test/test_local_direct_${ldname}_xemu.prg" "C0C0" 13 "01 01 01 01 01 01 01 01 01 01 01 01 AA"
 done
 
+# A nested function reading and writing its parent's char variables, whose
+# vreg numbers are those of its own static link and temporaries (#660)
+for numode in "zp|" "stack|-fno-zpcall" "O0|-O0"; do
+    IFS='|' read -r nuname nuflags <<< "$numode"
+    echo "Testing test_nested_uplevel_xemu.c ($nuname)..."
+    xemu_case "FAIL: test_nested_uplevel_xemu.c $nuname (compilation/linking failed)" "src/test-resources/test_nested_uplevel_xemu.c" "build/test/test_nested_uplevel_${nuname}_xemu.prg" "$nuflags" -- "test_nested_uplevel_$nuname" "build/test/test_nested_uplevel_${nuname}_xemu.prg" "C0C0" 5 "01 01 01 01 AA"
+done
+
+# The address of a global's member as a value (&g.m, g.arr, &g.arr[k]
+# passed on or assigned) is the constant g+offset; writes through it land
+# in the member; beside a __zp struct, whose .zpsym range an extern's
+# offset fell in and was taken for (#660)
+for mamode in "zp|" "stack|-fno-zpcall" "O0|-O0" "nosac|-fno-staticalloc"; do
+    IFS='|' read -r maname maflags <<< "$mamode"
+    echo "Testing test_member_addr_xemu.c ($maname)..."
+    xemu_case "FAIL: test_member_addr_xemu.c $maname (compilation/linking failed)" "src/test-resources/test_member_addr_xemu.c" "build/test/test_member_addr_${maname}_xemu.prg" "$maflags" "src/test-resources/test_member_addr_b.c" -- "test_member_addr_$maname" "build/test/test_member_addr_${maname}_xemu.prg" "C0C0" 5 "01 01 01 01 AA"
+done
+
 # for (;;) keeps its branch back; *p = *p + 1 adds to the loaded byte (#385)
 for fe in "zp|" "stack|-fno-zpcall" "O0|-O0" "O0stack|-O0 -fno-zpcall"; do
     fename=${fe%%|*}; feflags=${fe#*|}

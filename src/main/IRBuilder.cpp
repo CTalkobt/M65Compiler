@@ -5236,10 +5236,9 @@ void IRBuilder::visit(VariableReference& node) {
             addrInst.dest = addr;
             addrInst.resultType = ir::Type::PTR;
             addrInst.src1 = ir::Operand::vreg(currentFunc_->staticLinkVreg, ir::Type::PTR);
-            // Pack metadata into args: [0]=parent_vreg, [1]=imm(levels)
-            ir::Operand parentVreg = pit->second;
-            parentVreg.name = scope.func->name;
-            addrInst.args = { parentVreg, ir::Operand::imm(levels, ir::Type::I16) };
+            // Pack metadata into args: [0]=the parent's variable, [1]=imm(levels)
+            addrInst.args = { ir::Operand::parentVar(pit->second.vregId, scope.func->name),
+                              ir::Operand::imm(levels, ir::Type::I16) };
             addUplevelChain(addrInst, levels);
             addrInst.loc = loc(node);
             emit(addrInst);
@@ -8129,7 +8128,7 @@ normal_call:
                     addrUp.resultType = ir::Type::PTR;
                     addrUp.src1 = currentSL;
                     // Pack levels. In this case, we just want the frame base, so vregId is -1
-                    addrUp.args = { ir::Operand::vreg(0xFFFFFFFF, ir::Type::PTR), ir::Operand::imm(levels, ir::Type::I16) };
+                    addrUp.args = { ir::Operand::parentVar(0xFFFFFFFF, ""), ir::Operand::imm(levels, ir::Type::I16) };
                     addUplevelChain(addrUp, levels);
                     addrUp.loc = loc(node);
                     emit(addrUp);

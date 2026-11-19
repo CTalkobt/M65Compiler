@@ -6707,6 +6707,20 @@ void IRCodeGen::emitInstBody(const ir::Inst& inst) {
         case ir::Op::SUB: {
             // A pointer + offset folded into its loads/stores
             if (inst.op == ir::Op::ADD && inst.dest.isVreg() && foldedAddrs_.count(inst.dest.vregId)) break;
+            // A global's address + / - a constant as a value (&g.member passed
+            // on or assigned, an array member as a pointer): a constant the
+            // linker resolves, ldax #g+c, not the address and an add (#660)
+            if (inst.resultType == ir::Type::PTR && inst.src1.kind == ir::OperandKind::GLOBAL && inst.src2.isImm() &&
+                inst.args.empty() && inst.dest.isVreg() && !std::getenv("CC45_NO_CONST_ADDR")) {
+                int64_t c = inst.op == ir::Op::ADD ? inst.src2.immVal : -inst.src2.immVal;
+                c = (int16_t)(c & 0xFFFF);
+                std::string name = inst.src1.name;
+                if (c > 0) name += "+" + std::to_string(c);
+                else if (c < 0) name += "-" + std::to_string(-c);
+                loadOperand(ir::Operand::global(name));
+                storeVreg(inst.dest.vregId);
+                break;
+            }
             // an int's x + c stored through a far pointer next, its one use:
             // added there byte by byte (#348)
             if ((inst.resultType == ir::Type::I16 || inst.resultType == ir::Type::PTR) && inst.dest.isVreg() &&

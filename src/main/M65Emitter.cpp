@@ -426,6 +426,7 @@ void M65Emitter::recordSymbolReloc(const std::string& name) {
 }
 
 uint8_t M65Emitter::zarOperand(uint8_t value, int width) {
+    if (operandRelocated_) return value;
     if (!zarSym_.empty() && value >= zarStart_ && value < zarStart_ + zarLen_) {
         if (mode == Mode::BINARY)   // (the byte is the next one: currentAddress)
             symbolRelocs_.push_back({currentAddress, zarSym_, 0xE0, 0, relocScope_, relocLocalScope_}); // R_LOWX
@@ -443,6 +444,7 @@ uint8_t M65Emitter::zarOperand(uint8_t value, int width) {
 }
 
 uint16_t M65Emitter::zpAbsOperand(uint16_t value) {
+    if (operandRelocated_) return value;
     for (const auto& z : zpRanges_)
         if (value >= z.start && value < z.start + z.len) {
             if (mode == Mode::BINARY)   // (the word is the next two bytes)

@@ -4,6 +4,27 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### cc45: &g.member as a value is a constant; ca45: an extern's offset kept beside a __zp variable (#660)
+
+- **The address of a member of a global as a value** (`&g.member`, an array member passed to a function or
+  assigned to a pointer: `memset(area.r.rows, 0, 50)`) is the constant `ldax #_area+100`, where the global's
+  address was loaded and the offset added at run time (the issue's call 33 → 27 bytes, `__dma_fill` 92 → 81; the
+  library 192 bytes smaller).
+- **Fixed (ca45): an operand naming an extern or a label of a relocatable segment, whose value before linking fell
+  in a `__zp` variable's range, was assembled as that variable's offset.** A file with a `__zp` global (`.zpsym
+  _zs, $90, 7`) reading `area.m[149]` of an extern `area` (`lda _area+149`, `$95` before linking) got `_area+5`:
+  another byte. A label of the file's own BSS at such an offset the same. Found by this issue's test. Such
+  operands are now the symbol's address plus their offset; a plain number in the range is still the variable's.
+- **Fixed: a nested function reading its parent's variables could read the wrong memory.** `addr_uplevel` named
+  the parent's variable as a vreg, and passes walking the nested function's operands took it for its own vreg of
+  that number: a nested function's static link (a pointer) got the type of a parent's `char` of the same number,
+  was kept in one byte, and the parent's variable was read through a pointer with a zero high byte; or a pointer
+  the nested function computed lost its high byte (`calc_graph`'s check, 25 of 32, with the change above). The
+  target is now an operand of its own kind (`Operand::parentVar`). `test_nested_uplevel_xemu.c`: with the tools
+  before, a parent's variables read wrong at every `-O` level.
+- Tests: `test_member_addr_xemu.c` (both conventions, `-O0`, `-fno-staticalloc`), `test_nested_uplevel_xemu.c`
+  (both conventions, `-O0`), a check each in `test_compiler.sh` and `test_assembler.sh`.
+
 ### cc45: struct members at their addresses, read once (#657, #658, #659)
 
 - **A member of a local struct whose address was taken is read and written at its fixed address** (#657): in a

@@ -370,6 +370,12 @@ public:
     struct ZpRange { int start, len; std::string sym; };
     void setZpSyms(std::vector<ZpRange> r) { zpRanges_ = std::move(r); }
     uint16_t zpAbsOperand(uint16_t value);
+    // The next instruction's operand names a relocatable symbol (an extern,
+    // a label of a relocatable segment): it is that symbol's address plus an
+    // offset, never a .zar block's or a .zpsym variable's, whatever its value
+    // before linking (#660: with .zpsym _zs, $90, 7, lda _area+149 -- $95
+    // before linking -- became _area+5)
+    void setOperandRelocated(bool on) { operandRelocated_ = on; }
     // building a relocatable object (.o45): relocations are kept
     void setObjectMode(bool on) { objectMode_ = on; }
     bool objectMode() const { return objectMode_; }
@@ -405,6 +411,7 @@ public:
 
 private:
     std::vector<SpBaseReloc> spBaseRelocs_;
+    bool operandRelocated_ = false;
     std::vector<SymbolReloc> symbolRelocs_;
     int zarStart_ = -1, zarLen_ = 0;
     int bpPoolTop_ = 0;

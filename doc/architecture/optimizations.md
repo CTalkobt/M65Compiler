@@ -375,6 +375,14 @@ under `#pragma cc45 optimize(off)`; `CC45_NO_LOCAL_DIRECT=1` turns it off.
 The library: 1,947 bytes less (ZP), 1,916 (stack). Test
 `test_local_direct_xemu.c` (both conventions, `-O0`, `-fno-staticalloc`).
 
+The same address as a value -- `&g.member` or an array member passed to a
+function or assigned to a pointer (`memset(area.r.rows, 0, 50)`) -- is loaded
+as the constant it is, `ldax #_area+100`, where the global's address was
+loaded and the offset added at run time (#660; `IRCodeGen`, an `add` / `sub`
+of a global's address and a constant; `CC45_NO_CONST_ADDR=1` turns it off).
+The issue's `memset` call 33 → 27 bytes; the library 192 bytes smaller.
+Test `test_member_addr_xemu.c`.
+
 The same changes in the code generator and ca45:
 
 - **Sign extension** (`sxt.8`, ca45): `ldx #0`, `ora #0`, `bpl`, `dex` (7
