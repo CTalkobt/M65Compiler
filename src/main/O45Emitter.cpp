@@ -762,6 +762,16 @@ std::vector<uint8_t> emitO45(AssemblerParser& parser, const std::string& asmVers
             }
             return b;
         };
+        // a relocation in the statement's own bytes (its operand: not always
+        // at operandOffset -- a prefixed [zp],z or quad instruction has its
+        // operand after the prefix and the opcode)
+        auto relocIn = [&](const AssemblerParser::Statement& st) {
+            auto it = segRelocs.find(st.segmentName);
+            if (it == segRelocs.end()) return false;
+            uint32_t from = st.address - segBase(st.segmentName);
+            for (const auto& r : it->second) if (r.offset > from && r.offset < from + (uint32_t)st.size) return true;
+            return false;
+        };
         std::set<std::string> weakUsed;
         // An operand naming a label of a relocatable segment: its value must
         // hold the label's address once (lbl, lbl + n, 3 + lbl, a difference
@@ -803,7 +813,7 @@ std::vector<uint8_t> emitO45(AssemblerParser& parser, const std::string& asmVers
                         " (only lbl, lbl + n, lbl - n, <lbl, >lbl and differences of labels of one segment)");
                     return;
                 }
-                if (!relocAt(st.segmentName, st.address + operandOffset(&st) - segBase(st.segmentName))) {
+                if (!relocIn(st)) {
                     err("no relocation could be made for '" + first + "' in this operand (write it as " + first + ", " +
                         first + " + n, <" + first + " or >" + first + ")");
                     return;
@@ -826,7 +836,7 @@ std::vector<uint8_t> emitO45(AssemblerParser& parser, const std::string& asmVers
                 if (k == 2) badForm(n);
                 else if (k == 1 && stmt->instr.mode != AddressingMode::RELATIVE &&
                          stmt->instr.mode != AddressingMode::RELATIVE16 &&
-                         !relocAt(stmt->segmentName, stmt->address + operandOffset(stmt.get()) - segBase(stmt->segmentName)))
+                         !relocIn(*stmt))
                     err("no relocation could be made for '" + n + "' in this operand (write it as " + n + ", " + n +
                         " + n, <" + n + " or >" + n + ")");
                 else if (k == 0 && stmt->instr.mode != AddressingMode::RELATIVE &&
