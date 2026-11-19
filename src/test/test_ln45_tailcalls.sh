@@ -69,6 +69,9 @@ printf 'int s(int a, int b) { return a + b; }\n' > $T/sc.c
 $CC -c $T/zc.c -o $T/zc.o45 && $CC -fno-zpcall -c $T/sc.c -o $T/sc.o45
 tailjmp $T/zc.o45 _s || fail "h's call of s is not a JMP (the test needs one)"
 $LD --no-thunks -basic -o $T/nt.prg $LIB/crt0_zp.o45 $T/zc.o45 $T/sc.o45 -l $LIB/c45.lib > $T/nt.log 2>&1
+ntrc=$?   # (the status itself, not through a pipe, #638)
+[ $ntrc -ne 0 ] && pass "--no-thunks: a mismatch makes the exit status non-zero ($ntrc)" ||
+    fail "--no-thunks: exit status 0 with a calling convention mismatch"
 grep -q "calling convention mismatch: '_h' calls '_s'" $T/nt.log &&
     pass "--no-thunks: the mismatch of a tail call is reported" || fail "--no-thunks: no mismatch for the tail call"
 link thunk $T/zc.o45 $T/sc.o45 && grep -q "'_h' calls '_s'.*generating thunk" $T/thunk.log &&

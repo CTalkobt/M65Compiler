@@ -33,5 +33,18 @@ done
 ./bin/nm45 -h nothing.o45 2>&1 | grep -qi "usage" && fail "nm45 -h prints the usage" || pass
 ./bin/objdump45 -h nothing.o45 2>&1 | grep -qi "^usage" && fail "objdump45 -h prints the usage" || pass
 
+# each tool's help lists the options its parser takes (#638)
+helphas() { # tool text...: the tool's --help has each text
+    local t=$1 h; shift; h=$(./bin/$t --help 2>&1)
+    for x in "$@"; do echo "$h" | grep -qF -- "$x" && pass || fail "$t --help lacks '$x'"; done
+}
+helphas ln45 "-V, --version" "-Woverride " "--section=NAME=ADDR" "--stack-size=N"
+helphas nm45 "-A, -o" "-V, --version"
+helphas ar45 "-V, --version"
+helphas objdump45 "--entry ADDR" "--data A-B" "--html=FILE" "-V, --version"
+# ln45: the --stack-size default under --stack-size, not after --zp-plan-out
+./bin/ln45 --help | grep -A1 -- "--stack-size=N" | grep -q "default 4096" && pass || fail "ln45 --help: the --stack-size default is not under it"
+./bin/ln45 --help | grep -A2 -- "--zp-plan-out" | grep -q "default 4096" && fail "ln45 --help: the --stack-size default after --zp-plan-out" || pass
+
 echo "standard flag tests: $passed passed, $failed failed"
 [ $failed -eq 0 ]

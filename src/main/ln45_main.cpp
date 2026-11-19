@@ -48,7 +48,9 @@ static void printUsage(const char* progName) {
     std::cout << "  -u <sym>       Keep <sym> and what it reaches" << std::endl;
     std::cout << "  --bss-fill=V   Byte crt0 fills BSS with at startup (default $00; $FF, 0xFF or decimal)" << std::endl;
     std::cout << "  --stack-size=N The CPU stack's share below __stack_top; malloc's heap ends there" << std::endl;
-    std::cout << "  --section NAME=ADDR  The address of section NAME (cc45 __section variables; overrides #pragma section)" << std::endl;
+    std::cout << "                 (default 4096; $1000, 0x1000 or decimal)" << std::endl;
+    std::cout << "  --section NAME=ADDR, --section=NAME=ADDR" << std::endl;
+    std::cout << "                 The address of section NAME (cc45 __section variables; overrides #pragma section)" << std::endl;
     std::cout << "  --ram-top=ADDR End of the RAM a C program may use in bank 0 (default $C000: $C000-$CFFF" << std::endl;
     std::cout << "                 reads as ROM in C65 mode); for a program that maps RAM there itself" << std::endl;
     std::cout << "  --overlay-store=ADDR[-END][,ADDR-END...]" << std::endl;
@@ -67,15 +69,16 @@ static void printUsage(const char* progName) {
     std::cout << "                        program's __ovl_init unpacks them at start" << std::endl;
     std::cout << "  --zp-plan-out=FILE    Write the program-wide choice of base-page block variables, for a" << std::endl;
     std::cout << "                        second build with cc45 -fzp-plan=FILE" << std::endl;
-    std::cout << "                 (default 4096; $1000, 0x1000 or decimal)" << std::endl;
     std::cout << "  -Wthunk        Warn (but still generate thunks) on convention mismatches" << std::endl;
     std::cout << "  -Wno-override  No warning when the program's own definition of a library function" << std::endl;
     std::cout << "                 takes a library object's call (a program's putchar for printf)" << std::endl;
+    std::cout << "  -Woverride     That warning (the default; undoes an earlier -Wno-override)" << std::endl;
     std::cout << "  -v             Log to stderr ([ln45:INFO] ...): the cross-module analysis and" << std::endl;
     std::cout << "                 informational warnings (unused global symbols, SAC overlay)" << std::endl;
     std::cout << "  -vv            As -v, plus the call graph's calls through pointers (DEBUG)" << std::endl;
     std::cout << "  -vvv, -vvvv    As -vv, plus every relocation record and patch (DEEP); -v0 off" << std::endl;
-    std::cout << "  -?             Display this help message" << std::endl;
+    std::cout << "  -V, --version  Print the version" << std::endl;
+    std::cout << "  -?, -h, --help Display this help message" << std::endl;
 }
 
 // -t/-d/-b/-z: hex, written 2000, $2000 or 0x2000 (#366)

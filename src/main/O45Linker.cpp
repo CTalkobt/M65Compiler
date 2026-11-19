@@ -1156,7 +1156,7 @@ bool O45Linker::resolveSymbols(std::string& errorMsg) {
     }
 
     // <f>__zar: function f's private base-page block (cc45 .zar), placed by
-    // computeZarOverlay in $80-$E9 of the program's base page (__zp_page is
+    // computeZarOverlay in $80-$F1 of the program's base page (__zp_page is
     // page-aligned: the low byte of the address is the base-page address)
     {
         uint32_t page = globalSymbols_.count("__zp_page") ? globalSymbols_["__zp_page"] : 0;

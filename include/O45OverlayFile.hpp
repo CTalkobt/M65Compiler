@@ -7,12 +7,15 @@
 //   the overlays' code, one after another (mapped overlays page-aligned)
 //
 // <program>.ovd (the description, which the program never loads):
-//   "OVL45" 2                       signature, version
+//   "OVL45" 3                       signature, version (3; nm45 and
+//                                   objdump45 also read version 2, whose
+//                                   far address is 3 bytes)
 //   region (2) flags (1) count (1)  where overlays run; bit 0: mapped,
 //                                   bit 1: code files packed (ln45
 //                                   --pack-overlays: load address, then a
 //                                   Pack45.hpp stream of the image)
-//   per overlay: file (1, 1: .ov1), offset in it (3), far address (3),
+//   per overlay: file (1, 1: .ov1), offset in it (3), far address (4:
+//                28 bits, attic RAM $8000000+ too; version 2: 3),
 //                length (2), name length (1), name
 //   symbol count (2)
 //   per symbol: overlay (1, 1..n), address (2), name length (1), name
@@ -44,6 +47,7 @@ struct O45OverlayFile {
     std::vector<std::vector<uint8_t>> files;   // the code files read by open() (files[0]: .ov1)
 
     static constexpr const char* kSig = "OVL45";
+    static constexpr int kVersion = 3;    // written; version 2 (a 3-byte far address) is still read
 
     // The description (the .ovd file)
     std::vector<uint8_t> describe() const {
@@ -51,14 +55,14 @@ struct O45OverlayFile {
         auto put = [&](uint32_t v, int n) { for (int i = 0; i < n; i++) d.push_back((v >> (8 * i)) & 0xFF); };
         auto str = [&](const std::string& s) { d.push_back((uint8_t)std::min<size_t>(s.size(), 255)); for (size_t i = 0; i < s.size() && i < 255; i++) d.push_back((uint8_t)s[i]); };
         for (const char* p = kSig; *p; p++) d.push_back((uint8_t)*p);
-        d.push_back(2);
+        d.push_back(kVersion);
         put(region, 2);
         d.push_back((mapped ? 1 : 0) | (packed ? 2 : 0));
         d.push_back((uint8_t)overlays.size());
         for (const auto& o : overlays) {
             d.push_back((uint8_t)o.file);
             put((uint32_t)o.fileOffset, 3);
-            put(o.at, 3);
+            put(o.at, 4);
             put(o.length, 2);
             str(o.name);
         }
@@ -166,7 +170,8 @@ private:
         try {
             for (int i = 0; i < 5; i++) if (d[p + i] != (uint8_t)kSig[i]) { err = "bad overlay description"; return false; }
             p += 5;
-            if (get(1) != 2) { err = "unknown overlay file version"; return false; }
+            uint32_t version = get(1);
+            if (version != 2 && version != 3) { err = "unknown overlay file version"; return false; }
             out.region = get(2);
             uint32_t fl = get(1);
             out.mapped = (fl & 1) != 0;
@@ -176,7 +181,7 @@ private:
                 Overlay o;
                 o.file = (int)get(1);
                 o.fileOffset = get(3);
-                o.at = get(3);
+                o.at = get(version == 2 ? 3 : 4);
                 o.length = get(2);
                 o.name = str();
                 out.overlays.push_back(o);

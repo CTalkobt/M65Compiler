@@ -54,6 +54,22 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 - Tests: checks for each in `test_basic45.sh` and `test_deploy45.sh` (a stand-in U64 that never answers, and one
   that answers late).
 
+### ln45, nm45, objdump45, ar45: attic RAM overlays described, help texts complete, ar45 warns about non-objects (#638)
+
+- **Overlays kept in attic RAM show their address.** The overlay description (`<prog>.ovd`) is version 3: each
+  overlay's far address in 4 bytes (28 bits), where version 2 had 3, so an overlay kept at `$8000000`
+  (`--overlay-store=0x8000000-0x803FFFF`) showed as kept at `$00000` in `nm45 -h` and as LMA `00000000` in
+  `objdump45 -h`. nm45 and objdump45 read both versions (`include/O45OverlayFile.hpp`).
+- **Help texts as the parsers are:** ln45's `--stack-size` default under `--stack-size` (it printed after
+  `--zp-plan-out`), `-Woverride`, `--section=NAME=ADDR`, `-V`; nm45 `-o` (as `-A`) and `-V`; ar45 `-V`;
+  objdump45 `--entry`, `--data`, `--html=FILE`.
+- **ar45 `c` / `a` warn about a file that is not an `.o45` object** (`ar45: warning: notes.txt: not an .o45
+  object: stored, not indexed (…)`): it is stored, as before, with no symbols in the index; before, only `-vv` said so.
+- `ln45 --no-thunks` with a calling-convention mismatch exits with status 1 (confirmed; now checked by
+  `test_ln45_tailcalls.sh`). Comments giving the base-page blocks' area as `$80`-`$E9` corrected to `$80`-`$F1`.
+- Tests: `src/test/test_ar45.sh` (new), `test_objdump45.sh` (an attic RAM overlay program's `.ovd`, and a version
+  2 one), `test_std_flags.sh` (the help texts), `test_ln45_tailcalls.sh`.
+
 ### cc45: &g.member as a value is a constant; ca45: an extern's offset kept beside a __zp variable (#660)
 
 - **The address of a member of a global as a value** (`&g.member`, an array member passed to a function or
