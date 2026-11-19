@@ -286,8 +286,9 @@ The offset is a delta from the previous relocation site (the first from segment 
 | `$00`      | End of table |
 | `$01-$FE`  | Add this value to the current offset; an entry follows |
 | `$FF`      | Add 254 and read another delta byte |
+| `$FF $00`  | An entry at the current offset (a relocation at offset 0) |
 
-A relocation at segment offset 0 cannot be encoded (the writer drops it).
+A relocation at segment offset 0 (no delta from the start) is written `$FF $00`: an escape followed by `$00` adds nothing, and the entry follows. The writer never puts `$00` after an escape otherwise (a delta after escapes is 1–254), so objects without such a relocation are written and read as before; a reader older than #635 misreads `$FF $00`. (Before #635 such a relocation, `.byte <lbl` as a segment's first byte, was dropped.)
 
 ### 3.2 Segment IDs (bits 4-0)
 

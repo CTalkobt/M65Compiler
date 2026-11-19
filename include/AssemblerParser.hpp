@@ -201,6 +201,7 @@ public:
     bool isRelocatableSymbolIn(const std::string& name, const std::string& scopePrefix);
     // A label of the "zp" segment: a base-page address the linker places in
     // the program's base page (operands keep their base-page modes)
+    bool operandNamesRelocatable(int index, const std::string& scopePrefix);
     bool isZpSegmentSymbolIn(const std::string& name, const std::string& scopePrefix);
     // The relocatable segments an operand's value moves with, from index to
     // the operand's end: for each segment of the labels it names, how many

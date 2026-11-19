@@ -1736,6 +1736,87 @@ else
     failed=$((failed + 1))
 fi
 
+# #635: what the documentation audit found ca45 doing silently
+W635=build/test/asm635
+mkdir -p $W635
+ok635() { echo "SUCCESS: $1"; passed=$((passed + 1)); }
+bad635() { echo "FAIL: $1"; failed=$((failed + 1)); }
+# no %, ** or ?: operator, '$' alone: errors naming them; %0101 still a binary literal
+for c in '5 % 3|no .%. operator' '5 %11|no .%. operator' '2 ** 3|no .\*\*. operator' '5 ? 1 : 2|no .?:. operator'; do
+    e=${c%%|*}; m=${c#*|}
+    printf '  .org $1000\n  lda #%s\n' "$e" > $W635/op.s45
+    if ! ./bin/ca45 $W635/op.s45 -o $W635/op.bin 2>$W635/op.err && grep -q "ca45 has $m" $W635/op.err; then
+        ok635 "'$e' is an error"
+    else bad635 "'$e': $(cat $W635/op.err)"; fi
+done
+printf '  .org $1000\n  lda #%%0101\n  lda #5 + %%0101\n  .byte %%11\n' > $W635/bin.s45
+if ./bin/ca45 $W635/bin.s45 -o $W635/bin.bin >/dev/null 2>&1 && [ "$(xxd -p $W635/bin.bin)" = "a905a90a03" ]; then
+    ok635 "%0101 is a binary literal (alone and after +)"
+else bad635 "binary literals: $(xxd -p $W635/bin.bin)"; fi
+printf '  lda $\n' > $W635/dollar.s45
+if ! ./bin/ca45 $W635/dollar.s45 -o $W635/dollar.bin 2>$W635/dollar.err && grep -q "hex digits expected after '\$'" $W635/dollar.err &&
+   ! grep -q stoul $W635/dollar.err; then
+    ok635 "'lda \$' says hex digits are expected"
+else bad635 "lda \$: $(cat $W635/dollar.err)"; fi
+# a relocatable label times anything (in any position) is an error in -c; 3+lbl is relocated
+for e in '2*lbl' '#2*lbl' '-lbl' '2*lbl,x' '#<(2*lbl)' 'lbl&$ff00'; do
+    printf '.code\n  lda %s\n  rts\nlbl: rts\n' "$e" > $W635/rel.s45
+    if ! ./bin/ca45 -c $W635/rel.s45 -o $W635/rel.o45 2>$W635/rel.err && grep -q "can't be relocated" $W635/rel.err; then
+        ok635 "-c: 'lda $e' is an error"
+    else bad635 "-c: lda $e: $(cat $W635/rel.err)"; fi
+done
+printf '.code\n  lda 3+lbl\n  rts\nlbl: rts\n' > $W635/rel3.s45
+if ./bin/ca45 -c $W635/rel3.s45 -o $W635/rel3.o45 >/dev/null 2>&1 && ./bin/nm45 -r $W635/rel3.o45 | grep -q "0001  R_WORD      TEXT"; then
+    ok635 "-c: 'lda 3+lbl' is relocated"
+else bad635 "-c: lda 3+lbl: $(./bin/nm45 -r $W635/rel3.o45 2>&1)"; fi
+# push / pop take one register set
+printf '  push .a, .x\n' > $W635/push.s45
+if ! ./bin/ca45 $W635/push.s45 -o $W635/push.bin 2>$W635/push.err && grep -q "'push' takes one register set" $W635/push.err; then
+    ok635 "'push .a, .x' is an error"
+else bad635 "push .a, .x: $(cat $W635/push.err)"; fi
+# call f, $20: base page (as lda $20); $0020 and $1234 absolute
+printf '  .org $2000\n  call f, $20, $0030\n  rts\nf: rts\n' > $W635/call.s45
+if ./bin/ca45 -O0 $W635/call.s45 -o $W635/call.bin >/dev/null 2>&1 &&
+   [ "$(xxd -p $W635/call.bin)" = "ad310048ad300048a52148a520482012206060" ]; then
+    ok635 "call f, \$20 reads base page; \$0030 absolute"
+else bad635 "call f, \$20: $(xxd -p $W635/call.bin)"; fi
+# a relocation at a segment's first byte (.byte <d1 before anything) is kept
+printf '  .byte <d1, >d1\nd1: .byte 1\n' > $W635/b0.s45
+if ./bin/ca45 -c $W635/b0.s45 -o $W635/b0.o45 >/dev/null 2>&1 && ./bin/nm45 -r $W635/b0.o45 | grep -q "0000  R_LOWX      TEXT" &&
+   ./bin/nm45 -r $W635/b0.o45 | grep -q "0001  R_HIGH      TEXT"; then
+    ok635 ".byte <d1 at offset 0 keeps its R_LOWX"
+else bad635 ".byte <d1 at offset 0: $(./bin/nm45 -r $W635/b0.o45 2>&1)"; fi
+# move.fp: its bytes are emitted (they were zeros), listed, and a file of it alone is written
+printf '  move.fp 2, 6, 2\n' > $W635/mfp.s45
+rm -f $W635/mfp.bin
+if ./bin/ca45 $W635/mfp.s45 -o $W635/mfp.bin -L $W635/mfp.lst >/dev/null 2>&1 &&
+   [ "$(xxd -p $W635/mfp.bin)" = "a006b1fda00291fda007b1fda00391fd" ] && grep -q "a0 06 b1 fd     move.fp" $W635/mfp.lst; then
+    ok635 "move.fp is assembled and listed"
+else bad635 "move.fp: $(xxd -p $W635/mfp.bin 2>&1) $(cat $W635/mfp.lst 2>&1 | head -5)"; fi
+# -PNoOpBra names the pass NoOpBra; -PNoNoOpBra turns it off
+printf '  .org $2000\n  lda #1\n  bra nx\nnx: sta $d020\n  rts\n' > $W635/nob.s45
+./bin/ca45 -O0 -PNoOpBra $W635/nob.s45 -o $W635/nob1.bin >/dev/null 2>&1
+./bin/ca45 -O2 -PNoNoOpBra $W635/nob.s45 -o $W635/nob2.bin >/dev/null 2>&1
+if [ "$(xxd -p $W635/nob1.bin)" = "a9018d20d060" ] && [ "$(xxd -p $W635/nob2.bin)" = "a90180008d20d060" ]; then
+    ok635 "-PNoOpBra enables NoOpBra, -PNoNoOpBra disables it"
+else bad635 "-PNoOpBra: $(xxd -p $W635/nob1.bin) / $(xxd -p $W635/nob2.bin)"; fi
+# -l: only 1 and 2
+if ! ./bin/ca45 -l 3 $W635/nob.s45 -o $W635/l3.bin 2>$W635/l3.err && grep -q "(1 or 2)" $W635/l3.err; then
+    ok635 "-l 3 is refused"
+else bad635 "-l 3: $(cat $W635/l3.err)"; fi
+# the two .const redefinitions say which they are
+printf '.const K = 1\n.const K = 2\n' > $W635/rd1.s45
+printf 'K = 1\n.const K = 2\n' > $W635/rd2.s45
+if ./bin/ca45 $W635/rd1.s45 -o $W635/rd.bin 2>&1 | grep -q "Redefinition of constant symbol 'K' (.const defined twice)" &&
+   ./bin/ca45 $W635/rd2.s45 -o $W635/rd.bin 2>&1 | grep -q "Redefinition of symbol 'K' (.const of a name already defined)"; then
+    ok635 ".const redefinition messages match their cases"
+else bad635 ".const redefinition messages"; fi
+# directives with no effect warn
+printf '.zp\n.init\n.array_dims 3 4\n.var_field_array a\n.field_count 1\n.field_class f POINTER\n.fixed_prefix_size 2\n  rts\n' > $W635/dir.s45
+if ./bin/ca45 $W635/dir.s45 -o $W635/dir.bin 2>$W635/dir.err >/dev/null && [ "$(grep -c "is accepted and ignored" $W635/dir.err)" = 7 ]; then
+    ok635 ".zp, .init and the striped-array metadata directives warn"
+else bad635 "ignored directives: $(cat $W635/dir.err)"; fi
+
 if [ $failed -eq 0 ]; then
     echo "All assembler feature tests passed!"
     exit 0

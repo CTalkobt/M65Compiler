@@ -4,6 +4,31 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### ca45: operators it lacks, relocations it lost, move.fp, options and messages (#635)
+
+- **`%`, `**` and `?:` are errors** (`ca45 has no '%' operator (modulo)`, `… '**' …`, `… '?:' …`): `5 % 3` and
+  `5 ? 1 : 2` assembled as 5 and `2 ** 3` as 0. `%0101` is still a binary literal (`#%0101`, `5 + %0101`). **`lda $`**
+  says `hex digits expected after '$'` instead of `stoul`.
+- **Fixed (`-c`): a relocatable label in an operand that does not start with it** was assembled at its offset in its
+  segment with no relocation and no message: `2*lbl`, `#2*lbl`, `-lbl`, `<(2*lbl)`, `lbl & $FF00` are now the
+  `can't be relocated` error that `lbl*2` and `lbl >> 1` already were, `#lbl` the `no relocation could be made`
+  one, and `3+lbl` is relocated against `lbl` (assembled absolute).
+- **Fixed (`-c`): a relocation at a segment's first byte was dropped** (`.byte <d1` or `.word d1` before anything else
+  in its segment, `.code` or not): the table's delta from offset 0 is 0, which ends it. It is written `$FF $00` (an
+  escape adding nothing, lib45.md 3.1); other objects are unchanged.
+- **Fixed: `move.fp` emitted zeros** (it had no emitter: its size was reserved and left zero, the `-L` listing showed
+  no bytes, a file of it alone wrote nothing). It is now one `lda.fp`/`sta.fp` pair per byte (A and Y changed; at
+  most 256 bytes).
+- **`push`/`pop` with a list** (`push .a, .x`, which pushed A only) is an error. **`call f, $20`** reads the word at
+  base-page `$20`, as `lda $20` does (`$0020`, a label or a value not known yet stay absolute).
+- **`-PNoOpBra`** enables the pass `NoOpBra` (the whole name is looked up first; `-PNoNoOpBra` disables it). **`-l`**
+  takes 1 or 2 (3 was accepted and behaved as 1). The two **`.const` redefinition messages** say which case they are
+  (`.const` twice: `Redefinition of constant symbol`; `.const` of a label or equate: `Redefinition of symbol`;
+  `K = …` after `.const K`: `Cannot redefine constant 'K' with '='`).
+- **`.init`, `.zp`, `.var_field_array`, `.array_dims`, `.fixed_prefix_size`, `.field_count`, `.field_class`** warn
+  `accepted and ignored`: `.init`/`.zp` do not switch segment (`.segment "zp"` does), and nothing emits or uses the
+  others (metadata of an unfinished optimiser pass).
+
 ### cc45: &g.member as a value is a constant; ca45: an extern's offset kept beside a __zp variable (#660)
 
 - **The address of a member of a global as a value** (`&g.member`, an array member passed to a function or

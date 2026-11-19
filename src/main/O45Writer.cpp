@@ -41,12 +41,15 @@ std::vector<uint8_t> O45RelocEncoder::encode(const std::vector<O45Reloc>& relocs
         }
 
         if (delta == 0) {
-            // Can't emit $00 (end-of-table). Segment data is padded so this
-            // shouldn't happen. Skip if it does (defensive).
-            continue;
+            // $00 ends the table: an entry at the current offset (the
+            // segment's first byte, offset 0) is written $FF $00, an escape
+            // that adds nothing (#635: .byte <lbl as a segment's first byte
+            // lost its relocation)
+            out.push_back(O45_RELOC_ESCAPE);
+            out.push_back(0x00);
+        } else {
+            out.push_back((uint8_t)delta);
         }
-
-        out.push_back((uint8_t)delta);
 
         // Type/segment byte
         uint8_t typeSeg = (uint8_t)r.type | (uint8_t)r.segment;

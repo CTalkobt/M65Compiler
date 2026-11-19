@@ -277,7 +277,7 @@ static const std::map<std::string, OpEffect>& getTable() {
 
         // --- Frame address/copy ---
         {"leax.fp",  {E::A|E::X,              true,  false, false}},
-        {"move.fp",  {E::A|E::X,              true,  true,  false}},
+        {"move.fp",  {E::A|E::X|E::Y,         true,  true,  false}},
 
         // --- Frame inc/dec ---
         {"inc.fp",   {E::A|E::X|E::Y,         true,  true,  false}},

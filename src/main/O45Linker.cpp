@@ -28,7 +28,12 @@ std::vector<O45Reloc> O45RelocDecoder::decode(const std::vector<uint8_t>& raw) {
         uint8_t delta = raw[pos++];
         if (delta == O45_RELOC_END) break;
 
-        // Handle escape sequences
+        // Handle escape sequences ($FF $00: an entry at the current offset,
+        // the first at offset 0)
+        if (delta == O45_RELOC_ESCAPE && pos < raw.size() && raw[pos] == 0x00) {
+            pos++;
+            delta = 0;
+        }
         while (delta == O45_RELOC_ESCAPE) {
             offset += O45_RELOC_SKIP;
             if (pos >= raw.size()) return out;

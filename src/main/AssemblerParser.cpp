@@ -392,6 +392,25 @@ bool AssemblerParser::isRelocatableSymbolIn(const std::string& name, const std::
     return sit != segments.end() && !sit->second->hasOrg;
 }
 
+// An operand that names a label of a relocatable segment (not a "zp" one)
+// or an import anywhere in it (3+lbl: its first token a number, #635)
+bool AssemblerParser::operandNamesRelocatable(int index, const std::string& scopePrefix) {
+    int depth = 0;
+    for (int t = index; t >= 0 && t < (int)tokens.size(); ++t) {
+        const auto& tok = tokens[t];
+        if (tok.type == AssemblerTokenType::NEWLINE || tok.type == AssemblerTokenType::END_OF_FILE) break;
+        if (tok.type == AssemblerTokenType::OPEN_PAREN || tok.type == AssemblerTokenType::OPEN_BRACKET) depth++;
+        else if (tok.type == AssemblerTokenType::CLOSE_PAREN || tok.type == AssemblerTokenType::CLOSE_BRACKET) {
+            if (depth == 0) break;
+            depth--;
+        } else if (tok.type == AssemblerTokenType::COMMA && depth == 0) break;
+        else if (tok.type == AssemblerTokenType::IDENTIFIER && isRelocatableSymbolIn(tok.value, scopePrefix) &&
+                 !isZpSegmentSymbolIn(tok.value, scopePrefix))
+            return true;
+    }
+    return false;
+}
+
 bool AssemblerParser::isZpSegmentSymbolIn(const std::string& name, const std::string& scopePrefix) {
     if (externIndex.count(name)) return false;
     Symbol* sym = resolveSymbol(name, scopePrefix);
@@ -420,7 +439,17 @@ std::map<std::string, int> AssemblerParser::segmentMultiples(int index, const st
         else if (tok.type == AssemblerTokenType::STAR || tok.type == AssemblerTokenType::SLASH ||
                  tok.type == AssemblerTokenType::LSHIFT || tok.type == AssemblerTokenType::RSHIFT ||
                  tok.type == AssemblerTokenType::AMPERSAND || tok.type == AssemblerTokenType::PIPE ||
-                 tok.type == AssemblerTokenType::CARET || tok.type == AssemblerTokenType::TILDE) arith = true;
+                 tok.type == AssemblerTokenType::CARET || tok.type == AssemblerTokenType::TILDE ||
+                 tok.type == AssemblerTokenType::BANG) arith = true;
+        // (a unary minus: -lbl holds the label -1 times, #635)
+        else if (tok.type == AssemblerTokenType::MINUS &&
+                 (t == index || !(tokens[t - 1].type == AssemblerTokenType::IDENTIFIER ||
+                                  tokens[t - 1].type == AssemblerTokenType::DECIMAL_LITERAL ||
+                                  tokens[t - 1].type == AssemblerTokenType::HEX_LITERAL ||
+                                  tokens[t - 1].type == AssemblerTokenType::BINARY_LITERAL ||
+                                  tokens[t - 1].type == AssemblerTokenType::CHAR_LITERAL ||
+                                  tokens[t - 1].type == AssemblerTokenType::CLOSE_PAREN ||
+                                  tokens[t - 1].type == AssemblerTokenType::CLOSE_BRACKET))) arith = true;
         else if (tok.type == AssemblerTokenType::IDENTIFIER) {
             names++;
             if (externIndex.count(tok.value)) continue;
@@ -441,7 +470,19 @@ std::map<std::string, int> AssemblerParser::segmentMultiples(int index, const st
         for (Symbol* s : syms) s->value -= step;
         int32_t d = (int32_t)(moved - base);
         // (not a whole number of steps, buf>>1: no relocation can hold it)
-        out[seg] = d % (int32_t)step == 0 ? d / (int32_t)step : 0x7FFF;
+        int k = d % (int32_t)step == 0 ? d / (int32_t)step : 0x7FFF;
+        // an operator besides + and -: moved by one byte too, the value must
+        // move k bytes (<(2*buf) keeps its low byte over a step of $1000 but
+        // not over 1; buf & $FF00 the other way round, #635)
+        if (arith && k != 0x7FFF) {
+            for (Symbol* s : syms) s->value += 1;
+            uint32_t moved1 = 0;
+            try { moved1 = evaluateExpressionAt(index, scopePrefix); }
+            catch (...) { for (Symbol* s : syms) s->value -= 1; throw; }
+            for (Symbol* s : syms) s->value -= 1;
+            if ((int32_t)(moved1 - base) != k) k = 0x7FFF;
+        }
+        out[seg] = k;
     }
     return out;
 }
@@ -725,6 +766,39 @@ void AssemblerParser::pass1() {
                                   "unexpected '" + rest + "' after the number '" + t.value.substr(0, t.value.size() - rest.size()) + "'"));
     }
     badNumbers_.clear();
+    // Operators ca45 does not have: %, ** and ?: were read as something else
+    // or cut the expression short, so 5 % 3 was 5 and 2 ** 3 was 0 (#635)
+    {
+        auto valueEnd = [](AssemblerTokenType ty) {
+            return ty == AssemblerTokenType::DECIMAL_LITERAL || ty == AssemblerTokenType::HEX_LITERAL ||
+                   ty == AssemblerTokenType::BINARY_LITERAL || ty == AssemblerTokenType::CHAR_LITERAL ||
+                   ty == AssemblerTokenType::IDENTIFIER || ty == AssemblerTokenType::CLOSE_PAREN ||
+                   ty == AssemblerTokenType::CLOSE_BRACKET;
+        };
+        auto report = [&](const AssemblerToken& t, const std::string& msg) {
+            std::string f = includeFileOf(t);
+            addError(formatDiagnostic(f.empty() ? currentSourceFile_ : f, t.line, t.column, Severity::Error, msg));
+        };
+        for (size_t k = 0; k < tokens.size(); ++k) {
+            const auto& t = tokens[k];
+            bool afterValue = k > 0 && tokens[k - 1].line == t.line && valueEnd(tokens[k - 1].type) &&
+                              // (a macro's name and its first argument: store %0101, $d020)
+                              !(tokens[k - 1].type == AssemblerTokenType::IDENTIFIER &&
+                                (k < 2 || tokens[k - 2].line != t.line || tokens[k - 2].type == AssemblerTokenType::COLON));
+            if (t.type == AssemblerTokenType::UNKNOWN && t.value == "%")
+                report(t, "ca45 has no '%' operator (modulo); a binary literal is %0101");
+            else if (t.type == AssemblerTokenType::UNKNOWN && t.value == "?")
+                report(t, "ca45 has no '?:' operator");
+            else if (t.type == AssemblerTokenType::UNKNOWN && t.value == "$")
+                report(t, "hex digits expected after '$' ('$' is not the program counter: that is '*')");
+            else if (t.type == AssemblerTokenType::BINARY_LITERAL && afterValue && !t.value.empty() && t.value[0] == '%')
+                report(t, "ca45 has no '%' operator (modulo): '" + t.value + "' after a value is a binary literal");
+            else if (t.type == AssemblerTokenType::STAR && afterValue && k + 1 < tokens.size() &&
+                     tokens[k + 1].type == AssemblerTokenType::STAR && tokens[k + 1].line == t.line &&
+                     tokens[k + 1].column == t.column + 1)
+                report(t, "ca45 has no '**' operator");
+        }
+    }
     segments.clear();
     segmentOrder.clear();
     segmentStack.clear();
@@ -796,7 +870,8 @@ void AssemblerParser::pass1() {
             uint32_t val = evaluateExpressionAt((int)pos, stmt->scopePrefix);
             std::string fullSymName = stmt->scopePrefix + name;
             if (symbolTable.count(fullSymName) && symbolTable[fullSymName].isConstant) {
-                errors.push_back("Error: Redefinition of constant symbol '" + fullSymName + "'");
+                // ('K = ...' after '.const K': the constant is assigned, #635)
+                errors.push_back("Error: Cannot redefine constant '" + fullSymName + "' with '=' (it is a .const)");
             }
             symbolTable[fullSymName] = {val, false, 2, false, false, val, false, 0, false, 0, ""};
             // kept as a statement (an internal .equ): pass 2 and the generator
@@ -951,8 +1026,13 @@ void AssemblerParser::pass1() {
                 std::string cN = expect(AssemblerTokenType::IDENTIFIER, "Expected constant name").value;
                 std::string scCN = stmt->scopePrefix + cN;
                 stmt->dir.varName = scCN;
+                // (.const of a name defined before: a .const again, or a
+                // label / equate; the two messages were the other way round, #635)
                 if (symbolTable.count(scCN)) {
-                    errors.push_back("Error: Redefinition of symbol '" + scCN + "'");
+                    if (symbolTable[scCN].isConstant)
+                        errors.push_back("Error: Redefinition of constant symbol '" + scCN + "' (.const defined twice)");
+                    else
+                        errors.push_back("Error: Redefinition of symbol '" + scCN + "' (.const of a name already defined)");
                 }
                 expect(AssemblerTokenType::EQUALS, "Expected '=' after constant name");
                 uint32_t val = evaluateExpressionAt((int)pos, stmt->scopePrefix);
@@ -1677,6 +1757,19 @@ void AssemblerParser::pass1() {
             else if (fullMnemonic == "staxyz.fp") { SIMOP(STAXYZ_FP, dispatch_STAXYZ_FP); }
             #undef SIMOP
 
+            // push / pop take one register set: what followed a comma was
+            // left out without a word (push .a, .x pushed only A, #635)
+            if (stmt->type == Statement::PUSH || stmt->type == Statement::POP) {
+                for (size_t k = pos; k < tokens.size() && tokens[k].type != AssemblerTokenType::NEWLINE &&
+                                     tokens[k].type != AssemblerTokenType::END_OF_FILE; ++k)
+                    if (tokens[k].type == AssemblerTokenType::COMMA) {
+                        addError(formatDiagnostic(tokenFile(tokens[k]), tokens[k].line, tokens[k].column, Severity::Error,
+                            "'" + fullMnemonic + "' takes one register set (" + fullMnemonic + " .ax, " + fullMnemonic +
+                            " .axyz), not a list"));
+                        break;
+                    }
+            }
+
             // Calculate sizes for SIMOP statements that need pre-emission size calculation
             if (stmt->instr.mnemonic == "fill" || stmt->instr.mnemonic == "fill.sp") {
                 stmt->instr.operandTokenIndex = (int)pos;
@@ -1684,17 +1777,21 @@ void AssemblerParser::pass1() {
                 std::vector<uint8_t> d; emitFillCode(d, stmt->instr.operandTokenIndex, stmt->scopePrefix, stmt->instr.mnemonic == "fill.sp");
                 stmt->size = d.size();
             }
-            else if (stmt->instr.mnemonic == "move" || stmt->instr.mnemonic == "move.sp" || stmt->instr.mnemonic == "move.fp") {
+            else if (stmt->instr.mnemonic == "move" || stmt->instr.mnemonic == "move.sp") {
                 stmt->instr.operandTokenIndex = (int)pos;
                 while (peek().type != AssemblerTokenType::NEWLINE && peek().type != AssemblerTokenType::END_OF_FILE) advance();
-                if (stmt->instr.mnemonic == "move.fp") {
-                    stmt->type = Statement::COPY;  // Set type to COPY so it's recognized as handled
-                    std::vector<uint8_t> d; emitMOVE_FPCode(d, stmt->instr.operandTokenIndex, stmt->scopePrefix);
-                    stmt->size = d.size();
-                } else {
-                    std::vector<uint8_t> d; emitMoveCode(d, stmt->instr.operandTokenIndex, stmt->scopePrefix, stmt->instr.mnemonic == "move.sp");
-                    stmt->size = d.size();
-                }
+                std::vector<uint8_t> d; emitMoveCode(d, stmt->instr.operandTokenIndex, stmt->scopePrefix, stmt->instr.mnemonic == "move.sp");
+                stmt->size = d.size();
+            }
+            else if (stmt->instr.mnemonic == "move.fp") {
+                // a simulated op like the others (it had no emitFn: its size
+                // was reserved and written as zeros, the listing showed no
+                // bytes and a file of it alone wrote nothing, #635)
+                stmt->type = Statement::MOVE_FP; stmt->emitFn = AssemblerSimulatedOps::dispatch_MOVE_FP;
+                stmt->instr.operandTokenIndex = (int)pos;
+                while (peek().type != AssemblerTokenType::NEWLINE && peek().type != AssemblerTokenType::END_OF_FILE) advance();
+                std::vector<uint8_t> d; emitMOVE_FPCode(d, stmt->instr.operandTokenIndex, stmt->scopePrefix);
+                stmt->size = d.size();
             }
             else if (stmt->instr.mnemonic == "expr") {
                 stmt->type = Statement::EXPR; stmt->emitFn = AssemblerSimulatedOps::dispatch_Expr;
@@ -1921,6 +2018,33 @@ void AssemblerParser::pass1() {
                         else if (peek().type == AssemblerTokenType::IDENTIFIER && (peek().value == "B" || peek().value == "W") &&
                                  pos + 1 < tokens.size() && tokens[pos + 1].type == AssemblerTokenType::HASH) {
                             kind = advance().value + "#"; advance();
+                        }
+                        // a plain address that fits in a byte is a base-page
+                        // address, as for plain instructions (lda $20): its
+                        // word is read in base-page form ("bp"); one written
+                        // with leading zeros ($0020), a label or a value not
+                        // known yet stays absolute (#635)
+                        if (kind.empty()) {
+                            bool constant = exprSymbolsDefined((int)pos, stmt->scopePrefix);
+                            int depth0 = 0;
+                            for (size_t k = pos; constant && k < tokens.size(); ++k) {
+                                const auto& tk = tokens[k];
+                                if (tk.type == AssemblerTokenType::NEWLINE || tk.type == AssemblerTokenType::END_OF_FILE) break;
+                                if (tk.type == AssemblerTokenType::OPEN_PAREN) depth0++;
+                                else if (tk.type == AssemblerTokenType::CLOSE_PAREN) depth0--;
+                                else if (tk.type == AssemblerTokenType::COMMA && depth0 == 0) break;
+                                else if (tk.type == AssemblerTokenType::STAR) constant = false;
+                                else if (tk.type == AssemblerTokenType::HEX_LITERAL && tk.value.size() >= 4 &&
+                                         k == pos) constant = false;
+                                else if (tk.type == AssemblerTokenType::IDENTIFIER) {
+                                    Symbol* sy = resolveSymbol(tk.value, stmt->scopePrefix);
+                                    if (!sy || sy->isAddress || isRelocatableSymbolIn(tk.value, stmt->scopePrefix)) constant = false;
+                                }
+                            }
+                            if (constant) {
+                                try { if (evaluateExpressionAt((int)pos, stmt->scopePrefix) < 0xFF) kind = "bp"; }
+                                catch (...) {}
+                            }
                         }
                         stmt->instr.callArgs.push_back(kind);
                         stmt->instr.callArgTokens.push_back((int)pos);
@@ -2449,7 +2573,8 @@ int AssemblerParser::calculateInstructionSize(const Instruction& instr, uint32_t
                 if ((isRelocatableSymbol(symName) ||
                      isRelocatableSymbolIn(tokens[instr.operandTokenIndex].value, scopePrefix)) &&
                     !isZpSegmentSymbolIn(tokens[instr.operandTokenIndex].value, scopePrefix)) forceAbs = true;
-            }
+            } else if (fitsIn8 && !forceAbs && operandNamesRelocatable(instr.operandTokenIndex, scopePrefix))
+                forceAbs = true;   // (3+lbl: absolute too, with its relocation, #635)
 
             // A zero-page operand on an instruction without the matching
             // base-page mode (LDZ, LDA zp,Y, ...) is assembled as absolute
@@ -2568,6 +2693,19 @@ void AssemblerParser::warnUnknownDirective(const AssemblerToken& tok) {
         "param_const", "param_sizes", "reg_clobbers", "repeat", "res", "sac", "screencode", "segment",
         "segmentOrder", "space", "text", "var", "var_field_array", "vtable_entry", "weak", "word", "zp", "zp_clobbers", "zpsym",
         "zp_release", "zp_uses"};
+    // Known, but with no effect (#635): .init and .zp do not switch segment;
+    // the striped-array metadata of an unfinished optimiser pass is emitted
+    // by nothing and changes nothing
+    static const std::set<std::string> ignored = {"init", "zp", "array_dims", "field_class", "field_count",
+                                                  "fixed_prefix_size", "var_field_array"};
+    if (ignored.count(tok.value)) {
+        if (!warnedDirectives_.insert(tok.value + ":" + std::to_string(tok.line)).second) return;
+        std::string msg = "'." + tok.value + "' is accepted and ignored";
+        if (tok.value == "init" || tok.value == "zp") msg += " (it does not switch segment: use .segment \"" + tok.value + "\")";
+        else msg += " (metadata no pass uses)";
+        addWarning(formatDiagnostic(tokenFile(tok), tok.line, tok.column, Severity::Warning, msg));
+        return;
+    }
     if (known.count(tok.value)) return;
     if (!warnedDirectives_.insert(tok.value + ":" + std::to_string(tok.line)).second) return;
     std::string lower = tok.value;
