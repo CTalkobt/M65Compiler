@@ -49,7 +49,8 @@ void registerRules(lint::Engine& e) {
            "VIC-III/IV registers written with no $47 $53 knock to $D02F",
            "The MEGA65's own I/O ($D030-$D07F and above) is visible only after the knock: $47 then $53\n"
            "written to $D02F. Programs linked with cc45's crt0 have it done at startup; a standalone file\n"
-           "should do it itself."});
+           "should do it itself, with interrupts masked (php; sei; ...; plp): between the two\n"
+           "writes the KERNAL's keyboard scan reads $D611 as $FF and turns its Ctrl-S pause on."});
     e.add({"mega65-rom-call-bp", L::Warning, "cc45",
            "A ROM call ($E000 and up) not bracketed by __bp_rom / __bp_prog",
            "The ROM expects the base page at 0; cc45 programs run with their own (crt0 moves B). Call the ROM\n"

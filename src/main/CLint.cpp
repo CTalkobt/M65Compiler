@@ -63,7 +63,8 @@ void registerRules(lint::Engine& e) {
            "VIC-III/IV registers written with no $47 $53 knock to $D02F",
            "The MEGA65's own I/O ($D030-$D07F and above) is visible only after the knock: $47 then $53\n"
            "written to $D02F. Programs linked with cc45's crt0 have it done at startup; code built to run\n"
-           "without it should do it itself."});
+           "without it should do it itself, with interrupts masked (php; sei; ...; plp): between the two\n"
+           "writes the KERNAL's keyboard scan reads $D611 as $FF and turns its Ctrl-S pause on."});
     e.add({"mega65-isr-rom-call", L::Warning, "cc45",
            "An __interrupt handler, or a function it calls, calls the ROM",
            "The KERNAL and the BASIC ROM are not reentrant: a handler that calls them while the program\n"
