@@ -87,11 +87,18 @@ __start:
     tsy
     sty __saved_sph + 1
 
-    ; Enable MEGA65 I/O — GS knock must precede hardware register access
+    ; Enable MEGA65 I/O — GS knock must precede hardware register access.
+    ; Interrupts off across the two writes: between them I/O is not the
+    ; MEGA65's, and the KERNAL's IRQ (keyboard_scan) read $D611 as $FF -- No
+    ; Scroll and Ctrl "held" -- and toggled its Ctrl-S pause flag ($1119) on,
+    ; so the next PRINT waited for ever (#667). PLP: the caller's I again
+    php
+    sei
     lda #$47            ; 'G'
     sta $D02F
     lda #$53            ; 'S'
     sta $D02F
+    plp
 
     ; "Never reached __exit" until the program exits (B is still 0 here)
     lda #$FF

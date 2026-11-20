@@ -4,6 +4,17 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### crt0: the I/O knock with interrupts masked (#667)
+
+- **Fixed: a program entered from BASIC could hang at its next PRINT**, the KERNAL waiting in its Ctrl-S pause
+  (`$1119` = `$13`). crt0 enables the MEGA65's I/O with two writes to `$D02F` (`$47`, `$53`), which ran with
+  interrupts on. An IRQ between the two found `$D611` (the key modifiers) reading `$FF`, and the KERNAL's keyboard
+  scan took that as No Scroll held and turned the pause on. The writes are now between `php` / `sei` and `plp`.
+  Every start and every `__basic_call` (basic45 `--link` SYS) goes through this code. MEGA65 Writer, which SYSes
+  into C all the time, hung in 7 of 20 test sessions with `--stack-page=basic` (that mode's timing put the IRQ in
+  the window far more often) and in none of 20 after the fix. `make test` checks the built crt0 objects
+  (`src/test/test_crt0.sh`); al45's and cl45's `mega65-io-personality` explanation says to mask interrupts too.
+
 ### ln45 / basic45: `--stack-page`, the CPU stack in a page of its own or BASIC's
 
 - **`--stack-page=P`** puts the CPU stack in page `P` (`$02`-`$FF`; `$17` is `$1700`-`$17FF`, from `$17FF` down),

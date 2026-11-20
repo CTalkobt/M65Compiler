@@ -452,7 +452,9 @@ Limitations:
 crt0 (`lib/crt0.s45`) runs these steps:
 
 1. Saves the caller's SP (the flags are saved in step 5).
-2. Sends the `GS` knock to `$D02F`.
+2. Sends the `GS` knock to `$D02F`, with interrupts masked (`php`, `sei`, the two writes,
+   `plp`): an IRQ between the writes found `$D611` reading `$FF`, and the KERNAL's keyboard
+   scan turned its Ctrl-S pause (`$1119`) on, so the next PRINT waited for ever (#667).
 3. Sets the exit status at ROM `$FD/$FE` to `$FFFF`.
 4. Relocates the base page.
 5. Saves the caller's flags and switches to a **16-bit stack** whose top
