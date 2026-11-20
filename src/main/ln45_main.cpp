@@ -49,6 +49,10 @@ static void printUsage(const char* progName) {
     std::cout << "  --bss-fill=V   Byte crt0 fills BSS with at startup (default $00; $FF, 0xFF or decimal)" << std::endl;
     std::cout << "  --stack-size=N The CPU stack's share below __stack_top; malloc's heap ends there" << std::endl;
     std::cout << "                 (default 4096; $1000, 0x1000 or decimal)" << std::endl;
+    std::cout << "  --stack-page=P The CPU stack in page P ($02-$FF: $17 is $1700-$17FF, from $17FF down;" << std::endl;
+    std::cout << "                 0x17 or decimal), below the program or above it, or 'basic': BASIC's" << std::endl;
+    std::cout << "                 own page-1 stack (the caller's). Overrides __stack_top. Default: the" << std::endl;
+    std::cout << "                 16-bit stack from __stack_top ($BFFF; cc45 -fstack-top) down" << std::endl;
     std::cout << "  --section NAME=ADDR, --section=NAME=ADDR" << std::endl;
     std::cout << "                 The address of section NAME (cc45 __section variables; overrides #pragma section)" << std::endl;
     std::cout << "  --ram-top=ADDR End of the RAM a C program may use in bank 0 (default $C000: $C000-$CFFF" << std::endl;
@@ -112,6 +116,7 @@ int main(int argc, char** argv) {
     bool printMap = false;
     int bssFill = -1;
     int stackSize = -1;
+    int stackPage = O45Linker::STACK_PAGE_NONE;   // --stack-page
     std::map<std::string, uint32_t> sectionAddrs;   // --section NAME=ADDR
     uint32_t ramTop = 0xC000;   // bank 0 reads as RAM below $C000 in C65 mode
     bool gcObjects = true, printGc = false, gcInputs = false;
@@ -190,6 +195,24 @@ int main(int argc, char** argv) {
             try { size_t used = 0; sv = std::stoul(v, &used, base); if (used != v.size() || sv > 0xFFFF) throw 0; }
             catch (...) { std::cerr << "ln45: error: invalid --stack-size value '" << arg.substr(13) << "' (0-65535, $1000, 0x1000)" << std::endl; return 1; }
             stackSize = (int)sv;
+        }
+        else if (arg.rfind("--stack-page=", 0) == 0) {
+            std::string v = arg.substr(13);
+            if (v == "basic" || v == "BASIC") stackPage = O45Linker::STACK_PAGE_BASIC;
+            else {
+                std::string d = v;
+                int base = 10;
+                if (!d.empty() && d[0] == '$') { d = d.substr(1); base = 16; }
+                else if (d.size() > 2 && d[0] == '0' && (d[1] == 'x' || d[1] == 'X')) { d = d.substr(2); base = 16; }
+                unsigned long pv = 0;
+                try { size_t used = 0; pv = std::stoul(d, &used, base); if (d.empty() || used != d.size() || pv < 2 || pv > 0xFF) throw 0; }
+                catch (...) {
+                    std::cerr << "ln45: error: invalid --stack-page value '" << v << "' (a page $02-$FF: $17, 0x17 or 23 for "
+                              << "$1700-$17FF; or 'basic' for BASIC's page-1 stack)" << std::endl;
+                    return 1;
+                }
+                stackPage = (int)pv;
+            }
         }
         else if (arg.rfind("--ram-top=", 0) == 0) {
             std::string v = arg.substr(10);
@@ -307,6 +330,7 @@ int main(int argc, char** argv) {
     for (const auto& k : keepSyms) linker.addKeepSymbol(k);
     if (bssFill >= 0) linker.setBssFill((uint8_t)bssFill);
     if (stackSize >= 0) linker.setStackSize((uint16_t)stackSize);
+    if (stackPage != O45Linker::STACK_PAGE_NONE) linker.setStackPage(stackPage, ramTop);
     for (const auto& [n, a] : sectionAddrs) linker.setSectionAddr(n, a);
     // Code overlays: the file name the program loads them from (by default
     // the output's base name, upper case: PETSCII letters, with .OV1) and
@@ -457,7 +481,7 @@ int main(int argc, char** argv) {
         if (zpi != syms.end() && zpi->second != 0 && zpi->second + 0x100 > end) end = zpi->second + 0x100;
         auto hex = [](uint32_t v) { std::ostringstream o; o << "$" << std::hex << std::uppercase << v; return o.str(); };
         if (zp != syms.end()) {
-            if (st != syms.end() && st->second != 0 && st->second >= ramTop) {
+            if (stackPage < 0 && st != syms.end() && st->second != 0 && st->second >= ramTop) {
                 std::cerr << "ln45: error: the CPU stack top " << hex(st->second) << " is above the end of bank 0's RAM "
                           << hex(ramTop - 1) << " ($C000-$CFFF reads as ROM in C65 mode; cc45 -fstack-top=ADDR "
                           << "at most " << hex(ramTop - 1) << ", or ln45 --ram-top=ADDR for a program that maps RAM there)"
@@ -471,7 +495,31 @@ int main(int argc, char** argv) {
                 return 1;
             }
         }
-        if (st != syms.end() && st->second != 0) {
+        if (stackPage >= 0 && st != syms.end() && st->second != 0) {
+            // --stack-page: a page of its own, below the program or above
+            // it; only an overlap with the program (from $2001, or a lower
+            // -t / -d) or its base page is an error, and there is no
+            // warning about the room left (that is the default stack's)
+            uint32_t lo = st->second & ~0xFFu, hi = st->second;
+            uint32_t start = std::min<uint32_t>(textBase, 0x2001);
+            if (dataBaseSet) start = std::min(start, dataBase);
+            if (hi >= ramTop) {
+                std::cerr << "ln45: error: the CPU stack page " << hex(lo) << "-" << hex(hi) << " (--stack-page) is above the end "
+                          << "of bank 0's RAM " << hex(ramTop - 1) << " ($C000-$CFFF reads as ROM in C65 mode)" << std::endl;
+                return 1;
+            }
+            if (end > 0 && lo < end && hi >= start) {
+                std::cerr << "ln45: error: the CPU stack page " << hex(lo) << "-" << hex(hi) << " (--stack-page) overlaps the "
+                          << "program (" << hex(start) << "-" << hex(end - 1) << ")" << std::endl;
+                return 1;
+            }
+            for (auto p : {zp, zpi})
+                if (p != syms.end() && p->second != 0 && (p->second & ~0xFFu) == lo) {
+                    std::cerr << "ln45: error: the CPU stack page " << hex(lo) << "-" << hex(hi) << " (--stack-page) is the "
+                              << "program's base page (" << p->first << ")" << std::endl;
+                    return 1;
+                }
+        } else if (st != syms.end() && st->second != 0) {
             if (end > 0 && end > st->second) {
                 std::cerr << "ln45: error: program ends at " << hex(end) << ", above the CPU stack top "
                           << hex(st->second) << " (cc45 -fstack-top=ADDR, at most " << hex(ramTop - 1)
