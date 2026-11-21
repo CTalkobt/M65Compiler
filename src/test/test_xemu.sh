@@ -3319,6 +3319,14 @@ for tnmode in "zp|" "stack|-fno-zpcall"; do
     xemu_case "FAIL: test_tgi_ncm_xemu.c $tnname (compilation/linking failed)" "src/test-resources/test_tgi_ncm_xemu.c" "build/test/test_tgi_ncm_${tnname}_xemu.prg" "$tnflags" -- "test_tgi_ncm_$tnname" "build/test/test_tgi_ncm_${tnname}_xemu.prg" "C0C0" 12 "01 01 01 01 01 01 01 01 01 01 01 AA"
 done
 
+# Test: <tgi.h>'s page layout for direct drawing (TGI_IOCTL_LAYOUT,
+# TGI_PIXEL_ADDR, the column table; all four drivers; #653)
+for tlmode in "zp|" "stack|-fno-zpcall"; do
+    IFS='|' read -r tlname tlflags <<< "$tlmode"
+    echo "Testing test_tgi_layout_xemu.c ($tlname)..."
+    xemu_case "FAIL: test_tgi_layout_xemu.c $tlname (compilation/linking failed)" "src/test-resources/test_tgi_layout_xemu.c" "build/test/test_tgi_layout_${tlname}_xemu.prg" "$tlflags" -- "test_tgi_layout_$tlname" "build/test/test_tgi_layout_${tlname}_xemu.prg" "C0C0" 7 "01 01 01 01 01 01 AA"
+done
+
 # Test: <tgi.h>'s .vfn vector font files (written to an empty D81, loaded,
 # drawn; a missing file, a bad magic)
 for tvmode in "zp|" "stack|-fno-zpcall"; do

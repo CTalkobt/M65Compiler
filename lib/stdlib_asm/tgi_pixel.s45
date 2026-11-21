@@ -30,6 +30,7 @@ P3 = $1C                ; (cx + x, cy + y)
 .global _tgi_line, _tgi_lineto, ___tgi_clipline, ___tgi_ellipse, _tgi_ellipse, _tgi_circle
 .global ___tgi_ks1, ___tgi_ks2, ___tgi_ke1, ___tgi_ke2, ___tgi_cs1, ___tgi_ce1, ___tgi_cs2, ___tgi_ce2
 .global ___tgi_allow, ___tgi_arcon, ___tgi_coll, ___tgi_colh, __tgi_onscreen
+.global _tgi_col_lo, _tgi_col_hi     ; <tgi.h>'s names for them (#653)
 .extern ___tgi_draw, _tgi_xmax, _tgi_ymax, _tgi_color, _tgi_drv, ___tgi_mode
 ; the 640x200 driver's drawing (tgi_ncm.s45, linked with it; ___tgi_mode $80)
 .global ___tgi_n_setpixel, ___tgi_n_getpixel, ___tgi_n_line, ___tgi_n_plotc, ___tgi_n_glyph
@@ -98,9 +99,11 @@ ___tgi_arcon:   .res 1  ; $80: keep c_s and c_e
 .segment "code"
 ; (c * 1600) for the character columns c = 0..39
 ___tgi_coll:
+_tgi_col_lo:
     .byte $00, $40, $80, $C0, $00, $40, $80, $C0, $00, $40, $80, $C0, $00, $40, $80, $C0, $00, $40, $80, $C0
     .byte $00, $40, $80, $C0, $00, $40, $80, $C0, $00, $40, $80, $C0, $00, $40, $80, $C0, $00, $40, $80, $C0
 ___tgi_colh:
+_tgi_col_hi:
     .byte $00, $06, $0C, $12, $19, $1F, $25, $2B, $32, $38, $3E, $44, $4B, $51, $57, $5D, $64, $6A, $70, $76
     .byte $7D, $83, $89, $8F, $96, $9C, $A2, $A8, $AF, $B5, $BB, $C1, $C8, $CE, $D4, $DA, $E1, $E7, $ED, $F3
 

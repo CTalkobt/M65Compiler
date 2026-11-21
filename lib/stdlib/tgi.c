@@ -94,6 +94,20 @@ unsigned tgi_ioctl(unsigned char code, void *data) {
             *(unsigned long *)data = __tgi_page[__tgi_view];
             return TGI_ERR_OK;
         }
+        if (code == TGI_IOCTL_LAYOUT) {
+            tgi_layout_t *l = (tgi_layout_t *)data;
+            l->page = __tgi_draw;
+            l->col_bytes = 1600;
+            l->row_bytes = 8;
+            if (__tgi_mode & 0x80) {        /* 640x200: 16 pixels a column, a nibble each */
+                l->col_px = 16;
+                l->bpp = 4;
+            } else {
+                l->col_px = 8;
+                l->bpp = 8;
+            }
+            return TGI_ERR_OK;
+        }
     }
     tgi_error = TGI_ERR_INV_FUNC;
     return TGI_ERR_INV_FUNC;

@@ -67,6 +67,33 @@
 /* tgi_ioctl codes of the MEGA65 drivers */
 #define TGI_IOCTL_DRAWPAGE_ADDR 0x80    /* *(unsigned long *)data := the draw page's address */
 #define TGI_IOCTL_VIEWPAGE_ADDR 0x81    /* *(unsigned long *)data := the view page's address */
+#define TGI_IOCTL_LAYOUT        0x82    /* *(tgi_layout_t *)data := the draw page's layout */
+
+/* A page's layout, for drawing on it directly (DMA, far pointers). Every
+ * driver's page is character columns of col_bytes (1600) bytes, one after
+ * another; in a column a pixel row is row_bytes (8) bytes after the one above.
+ * A column is col_px pixels across: 8 a byte each (FCM, bpp 8) or 16 a nibble
+ * each (NCM, bpp 4; the left pixel of a byte its low nibble). page is the
+ * current draw page (two-page drivers: after tgi_setdrawpage too). */
+typedef struct {
+    unsigned long page;                 /* the draw page (as TGI_IOCTL_DRAWPAGE_ADDR) */
+    unsigned int  col_bytes;            /* bytes a character column: 1600 */
+    unsigned char row_bytes;            /* bytes from a pixel row to the next in a column: 8 */
+    unsigned char col_px;               /* pixels a character column: 8 (FCM) / 16 (NCM) */
+    unsigned char bpp;                  /* bits a pixel: 8 (FCM) / 4 (NCM) */
+} tgi_layout_t;
+
+/* The byte of pixel (x, y) (0 <= x <= tgi_getmaxx(), 0 <= y <= tgi_getmaxy())
+ * of a page with layout *l, and the pixel's nibble in it (NCM; 0 the low one,
+ * always 0 with FCM) */
+#define TGI_PIXEL_ADDR(l, x, y) ((l)->page + (unsigned long)((unsigned)(x) / (l)->col_px) * (l)->col_bytes + \
+    (unsigned)(y) * (l)->row_bytes + ((unsigned)(x) % (l)->col_px) * (l)->bpp / 8)
+#define TGI_PIXEL_NIBBLE(l, x)  ((l)->bpp == 4 ? (unsigned char)((unsigned)(x) & 1) : 0)
+
+/* Character column c's offset in a page, c * 1600, for c = 0..39 (both kinds of
+ * driver have 40 columns): tgi_col_lo[c] | tgi_col_hi[c] << 8 */
+extern const unsigned char tgi_col_lo[40];
+extern const unsigned char tgi_col_hi[40];
 
 /* The name of the standard tgi driver for a platform */
 extern const char tgi_stddrv[];
@@ -79,7 +106,10 @@ extern const void tgi_static_fcm2[];
 
 /* 640x200 in 16 colours, one page: the VIC-IV's nibble-colour characters at
  * H640, a page as one of the 320x200 driver's (64000 bytes); colour c is
- * palette entry c. */
+ * palette entry c for c = 1..14. Colour 0 shows the background colour
+ * register $D021 (tgi_init sets it to 0) and colour 15 the characters' colour
+ * RAM byte ($0F): they are palette entries 0 and 15 only while those keep
+ * these values (a program changing $D021 changes colour 0). */
 extern const void tgi_static_ncm640[];
 
 /* The same with two pages (double buffering): the screens from malloc */

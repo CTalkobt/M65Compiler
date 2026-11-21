@@ -4,6 +4,18 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### tgi: the page layout for direct drawing (#653)
+
+- **`tgi_ioctl(TGI_IOCTL_LAYOUT, &layout)`** fills a `tgi_layout_t`: the draw page (the current one with the two-page
+  drivers), the bytes a character column (1600) and a pixel row (8), the pixels a column (8 with the 320x200 drivers,
+  16 with the 640x200 ones) and the bits a pixel (8 / 4). A program drawing on a page by DMA or far pointers no longer
+  hard-codes the strides or needs to know which driver it installed. `TGI_PIXEL_ADDR(&layout, x, y)` is a pixel's
+  byte, `TGI_PIXEL_NIBBLE(&layout, x)` its nibble (the left pixel the low one), and the drivers' column table is
+  public as `tgi_col_lo[]` / `tgi_col_hi[]` (column c's offset, c * 1600). Test `test_tgi_layout_xemu.c` (all four
+  drivers).
+- `<tgi.h>` no longer says every colour of `tgi_static_ncm640` is its palette entry: colour 0 shows `$D021` and 15 the
+  colour RAM's `$0F`, entries 0 and 15 only while those keep the values `tgi_init` gives them.
+
 ### lib: basic_str, basic_bank, seam, palette and font in assembly
 
 Five C modules of the library are now hand-written assembly (`lib/stdlib_asm/`), one object shared by both
