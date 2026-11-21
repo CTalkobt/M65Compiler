@@ -59,6 +59,6 @@ unsigned long load_unpack(const char *name, unsigned char len, unsigned char dev
     unsigned long n;
     if (!load_far(name, len, device, at)) return 0;
     n = unpack(at);
-    if (!n) load_error = LOAD_NOT_PACKED;
+    if (n == UNPACK_ERROR) load_error = LOAD_NOT_PACKED;   /* (no decoder takes it) */
     return n;
 }

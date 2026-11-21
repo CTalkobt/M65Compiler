@@ -13,7 +13,8 @@ const font_t *font_load(const char *name, unsigned char len, unsigned long lin) 
     if (p[0] == 1) {
         /* a pack45 stream (format 1): unpacked to the address in its header */
         unsigned long dest = p[1] | ((unsigned long)p[2] << 8) | ((unsigned long)p[3] << 16) | ((unsigned long)p[4] << 24);
-        if (!unpack(lin)) return 0;
+        unsigned long n = unpack(lin);
+        if (!n || n == UNPACK_ERROR) return 0;       /* (UNPACK_ERROR: no decoder took it) */
         lin = dest;
     }
     return font_from(&loaded, lin);

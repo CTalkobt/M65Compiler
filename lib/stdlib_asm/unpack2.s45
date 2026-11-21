@@ -17,7 +17,9 @@
 ; A member of its own (BSS 0.9 KB): a program that unpacks format 2 streams
 ; names ___unpack_format2 (<unpack.h>'s UNPACK_FORMAT2, or UNPACK_IMAGES),
 ; which links it; its ___unpack2 then takes the place of unpack.s45's weak
-; one (which returns 0).
+; one (which returns UNPACK_ERROR). A header it cannot take (w over 256, N
+; over 16, an unknown prediction, lengths that are no code) gives
+; UNPACK_ERROR as well, nothing written.
 
 ; no calls through pointers here (ln45's call graph)
 .weak cc45.icallinfo
@@ -111,8 +113,8 @@ proc ___unpack2
     adc #10
     jsr __u2_skip
     jmp __u2_table
-@bad:
-    lda #0
+@bad:                       ; (not a format 2 header: UNPACK_ERROR)
+    lda #$FF
     tax
     tay
     taz
@@ -193,8 +195,8 @@ proc __u2_table
     lda __u2_n              ; P: the codes
     jsr __u2_skip
     jmp __u2_rows
-@bad:                       ; not a code: 0
-    lda #0
+@bad:                       ; not a code: UNPACK_ERROR
+    lda #$FF
     tax
     tay
     taz

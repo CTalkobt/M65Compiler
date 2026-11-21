@@ -115,8 +115,8 @@ void registerRules(lint::Engine& e) {
            "Each pack45 format's decoder is linked only when the program names it at file scope:\n"
            "UNPACK_FORMAT1; or UNPACK_FORMAT2; (<unpack.h>; UNPACK_IMAGES; is UNPACK_FORMAT2). <unpack.h>\n"
            "names format 1 itself unless UNPACK_EXPLICIT_FORMATS is defined. Without the decoder, unpack(),\n"
-           "unpack_to() and load_unpack() return 0 for such a stream and write nothing. The rule reads the\n"
-           "format of streams it can see (an array initialized in the file, #embed too; load_unpack of a\n"
+           "unpack_to() and load_unpack() return UNPACK_ERROR for such a stream and write nothing. The rule\n"
+           "reads the format of streams it can see (an array initialized in the file, #embed too; load_unpack of a\n"
            "name whose file is beside the source or in an include directory) and checks the file with\n"
            "main(): another file may name the decoder, so ln45 checks the whole program as well."});
 }
@@ -566,7 +566,7 @@ void unpackFormats(Context& c, const ir::Module& m) {
         std::string n = std::to_string(s.format);
         c.report("mega65-unpack-format", s.file, s.line, s.column,
                  "a format " + n + " stream (" + s.what + ") is unpacked here, but this file does not link its decoder: "
-                 "put UNPACK_FORMAT" + n + "; at file scope (unless another file of the program does, unpack() returns 0 for it)");
+                 "put UNPACK_FORMAT" + n + "; at file scope (unless another file of the program does, unpack() returns UNPACK_ERROR for it)");
     }
 }
 

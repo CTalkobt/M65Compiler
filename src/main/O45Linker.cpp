@@ -1355,7 +1355,8 @@ bool O45Linker::resolveSymbols(std::string& errorMsg) {
 
 // pack45 streams cc45 saw unpacked (cc45.unpackfmt.<format>.<line>.<file>,
 // #666) whose format's decoder the program does not link (unpack1.s45's
-// ___unpack_format1, unpack2.s45's ___unpack_format2): unpack() returns 0
+// ___unpack_format1, unpack2.s45's ___unpack_format2): unpack() returns
+// UNPACK_ERROR
 // for them. (Once a link; the other way round, a decoder no stream needs,
 // is not reported: load_unpack's names are often not known)
 void O45Linker::checkUnpackFormats() {
@@ -1376,7 +1377,7 @@ void O45Linker::checkUnpackFormats() {
         std::string n = std::to_string(s.format);
         *warnStream_ << "ln45: warning: format " << n << " stream unpacked at " << s.file << ":" << s.line
                      << ", but the program links no format " << n << " decoder (UNPACK_FORMAT" << n
-                     << "; at file scope, <unpack.h>): unpack() returns 0 for it" << std::endl;
+                     << "; at file scope, <unpack.h>): unpack() returns UNPACK_ERROR for it" << std::endl;
     }
 }
 

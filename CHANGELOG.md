@@ -4,6 +4,18 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### unpack(): UNPACK_ERROR for a stream no decoder takes (#666)
+
+- `unpack()` / `unpack_to()` return **`UNPACK_ERROR`** (`<unpack.h>`, `0xFFFFFFFFUL`, the same as `<limits.h>`'s
+  `ULONG_MAX`) instead of 0 for a stream no linked decoder takes: an unknown format byte, a format whose decoder is
+  not linked, a format 2 header the decoder cannot take. 0 was not distinctive: a stream of no bytes writes 0.
+  Nothing is written, as before.
+- `load_unpack()` returns `UNPACK_ERROR` for such a stream (`load_error` `LOAD_NOT_PACKED`, as before), 0 when the
+  load fails (`load_error` says why). `font_load` takes `UNPACK_ERROR` (and 0) as a failure; the overlay loader's
+  streams are always format 1, whose decoder it links.
+- Tests: `test_unpack_xemu.c`, `test_unpack2_xemu.c`, `test_unpack2only_xemu.c` and `test_load_far_xemu.c` expect
+  `UNPACK_ERROR` where they expected 0, and check that a real stream's count is not it.
+
 ### cl45 / ln45: a pack45 stream unpacked without its format's decoder (#666)
 
 - **cl45 `mega65-unpack-format`** (warning, cc45 profile): in the file with `main()`, a stream whose format byte is
@@ -37,7 +49,7 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
   `UNPACK_FORMAT1;` (`unpack1.s45`, 315 bytes and 5 of BSS: the format 1 decoder as it was) and `UNPACK_FORMAT2;`
   (`unpack2.s45`, 581 bytes and 952 of BSS: two 256-entry lookup tables, a row of ranks and one of bytes; a code a
   pixel by one lookup, a row at a time by DMA; `UNPACK_IMAGES;` is the same). Without its decoder `unpack()` /
-  `unpack_to()` / `load_unpack()` return 0 for a stream (weak defaults). A program that names none gets format 1 as
+  `unpack_to()` / `load_unpack()` return `UNPACK_ERROR` for a stream (weak defaults; see above). A program that names none gets format 1 as
   before: `<unpack.h>` names it, and `<load.h>` now includes `<unpack.h>`, unless the program defines
   `UNPACK_EXPLICIT_FORMATS` first (in every file, or `-DUNPACK_EXPLICIT_FORMATS`). A program of format 2 streams
   alone is then 315 bytes smaller than with both decoders; one of format 1 alone carries 419 bytes of unpacking, 20
@@ -51,7 +63,7 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 - Tests: `test_pack45_image.sh` (`make test`: round trips through pack45's model of the decoder and an independent
   decoder, 1, 2, 3, 5 and 16 colours, widths 6 to 256, odd heights, PNG with and without a palette, the errors),
   `test_unpack2_xemu.c` (chip RAM, in place, attic RAM, `unpack_to`, both formats in one program) and
-  `test_unpack2only_xemu.c` (format 2 alone: a format 1 stream gives 0, and its map has no format 1 decoder); both
+  `test_unpack2only_xemu.c` (format 2 alone: a format 1 stream gives `UNPACK_ERROR`, its map no format 1 decoder); both
   conventions.
 
 ### font: FCM / NCM glyphs drawn a span at a time (#670)

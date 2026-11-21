@@ -5,7 +5,7 @@
  *
  * Results at $C0C0 (01 = pass):
  *   +0 a (format 2) to $40000: the bytes and the count
- *   +1 a's bytes as a format 1 stream: 0, nothing written
+ *   +1 a's bytes as a format 1 stream: UNPACK_ERROR, nothing written
  *   +2 $AA
  */
 #define UNPACK_EXPLICIT_FORMATS
@@ -31,7 +31,7 @@ int main(void) {
     OUT[0] = unpack(ADDR(a_chip)) == sizeof a_img && same(0x40000UL, a_img, sizeof a_img);
 
     dma_fill_far(0x40000UL, 2000, 0xEE);
-    OUT[1] = unpack(ADDR(a1_chip)) == 0 && *(unsigned char __far *)0x40000UL == 0xEE;
+    OUT[1] = unpack(ADDR(a1_chip)) == UNPACK_ERROR && *(unsigned char __far *)0x40000UL == 0xEE;
 
     OUT[2] = 0xAA;
     return 0;

@@ -41,11 +41,15 @@
 #include <unpack.h>
 
 #define LOAD_TOO_BIG    0x80    /* a file for attic RAM larger than the stage */
-#define LOAD_NOT_PACKED 0x81    /* load_unpack: not a pack45 stream (or one of a format not linked) */
+#define LOAD_NOT_PACKED 0x81    /* load_unpack: not a stream a linked decoder takes (UNPACK_ERROR returned) */
 
 extern unsigned char load_error;
 
 unsigned int load_far(const char *name, unsigned char len, unsigned char device, unsigned long lin);
+/* load_unpack: the bytes unpacked (load_error 0); 0 when the load failed
+   (load_error: the KERNAL's error, or LOAD_TOO_BIG; a stream of no bytes also
+   gives 0, with load_error 0); UNPACK_ERROR when no linked decoder takes the
+   stream (load_error LOAD_NOT_PACKED) */
 unsigned long load_unpack(const char *name, unsigned char len, unsigned char device, unsigned long at);
 void load_stage(unsigned long lin, unsigned int size);
 

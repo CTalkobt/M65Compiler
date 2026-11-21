@@ -4,14 +4,15 @@
 ; unpack1.s45 (___unpack1; <unpack.h> names it unless the program defines
 ; UNPACK_EXPLICIT_FORMATS, then UNPACK_FORMAT1), format 2 unpack2.s45
 ; (___unpack2; UNPACK_FORMAT2). Without one, the weak default here takes its
-; place: nothing written, 0.
+; place: nothing written, UNPACK_ERROR ($FFFFFFFF).
 ;
 ; unsigned long __unpack(unsigned long src)
 ;   to the destination in the stream's header
 ; unsigned long __unpack_to(unsigned long src, unsigned long dst)
 ;   to dst (the header's destination ignored)
-; Both return the bytes written, 0 for a stream of another format or one
-; whose decoder is not linked (nothing written). The ZP convention in
+; Both return the bytes written, or UNPACK_ERROR ($FFFFFFFF, <limits.h>'s
+; ULONG_MAX) for a stream no linked decoder takes: an unknown format byte,
+; or a format whose decoder is not linked (nothing written). The ZP convention in
 ; either library (the overlay loader calls __unpack from assembly); from
 ; assembly:
 ;   src in $10-$13 (and dst in $14-$17), jsr ___unpack (___unpack_to): the
@@ -89,7 +90,7 @@ proc ___unpack_to
 endproc
 
 ; a decoder not linked (the weak defaults), or not a format: nothing
-; written, 0
+; written, UNPACK_ERROR ($FFFFFFFF; 0 is a stream of no bytes)
 proc ___unpack1
     .reg_clobbers A, X, Y, Z
     .flag_clobbers C, N, Z, V
@@ -105,7 +106,7 @@ proc ___unpack2
 endproc
 
 proc __u_none
-    lda #0
+    lda #$FF
     tax
     tay
     taz

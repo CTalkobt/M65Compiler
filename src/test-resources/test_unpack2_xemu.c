@@ -5,11 +5,12 @@
  *
  * Results at $C0C0 (01 = pass):
  *   +0 a (64x40, 16 colours, from the left) to $40000: the bytes and the count
+ *      (never UNPACK_ERROR)
  *   +1 a in place: the stream copied into bank 4 at its in-place offset
  *   +2 a to attic RAM ($8000000)
  *   +3 b (256x3, 2 colours, from above) to $40000
  *   +4 c (10x5, 1 colour) with unpack_to to $50000 (its header's $40000 ignored)
- *   +5 a stream of format 3: 0, nothing written
+ *   +5 a stream of format 3: UNPACK_ERROR, nothing written
  *   +6 a's bytes as a format 1 stream: both formats in one program (format 1
  *      by <unpack.h>'s default, format 2 by UNPACK_IMAGES)
  *   +7 $AA
@@ -34,9 +35,11 @@ static unsigned char same(unsigned long at, const unsigned char *expect, unsigne
 
 int main(void) {
     static unsigned char bad[16] = {3, 0, 0, 4, 0, 1, 1, 0, 1, 0, 0, 1, 0, 0, 0, 0};
+    unsigned long n;
 
     dma_fill_far(0x40000UL, 2000, 0xEE);
-    OUT[0] = unpack(ADDR(a_chip)) == sizeof a_img && same(0x40000UL, a_img, sizeof a_img);
+    n = unpack(ADDR(a_chip));
+    OUT[0] = n == sizeof a_img && n != UNPACK_ERROR && same(0x40000UL, a_img, sizeof a_img);
 
     dma_fill_far(0x40000UL, 2000, 0xEE);
     dma_copy_far(0x40000UL + A_INPLACE, ADDR(a_chip), sizeof a_chip);
@@ -55,7 +58,7 @@ int main(void) {
              *(unsigned char __far *)0x40000UL == 0xEE;
 
     dma_fill_far(0x40000UL, 16, 0x77);
-    OUT[5] = unpack(ADDR(bad)) == 0 && *(unsigned char __far *)0x40000UL == 0x77;
+    OUT[5] = unpack(ADDR(bad)) == UNPACK_ERROR && *(unsigned char __far *)0x40000UL == 0x77;
 
     dma_fill_far(0x40000UL, 2000, 0xEE);
     OUT[6] = unpack(ADDR(a1_chip)) == sizeof a_img && same(0x40000UL, a_img, sizeof a_img);

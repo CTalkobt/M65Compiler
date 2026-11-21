@@ -8,7 +8,7 @@
 ; back in Q. A member of its own (#666): a program links it by naming
 ; ___unpack_format1 (<unpack.h> does unless the program defines
 ; UNPACK_EXPLICIT_FORMATS; UNPACK_FORMAT1 then), and its ___unpack1 takes the
-; place of unpack.s45's weak one, which returns 0.
+; place of unpack.s45's weak one, which returns UNPACK_ERROR ($FFFFFFFF).
 
 ; no calls through pointers here (ln45's call graph)
 .weak cc45.icallinfo

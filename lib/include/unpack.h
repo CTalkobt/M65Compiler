@@ -19,8 +19,13 @@
  * pack45 --image): an image in up to 16 colours, w (even, up to 256) x h
  * pixels, each coded against the pixel above or to its left; it unpacks to
  * h rows of w / 2 bytes, 4 bits a pixel (the left one the low nibble), each
- * the pixel's palette entry. Both unpack in place. unpack returns the number
- * of bytes it wrote, 0 for a stream of another format.
+ * the pixel's palette entry. Both unpack in place.
+ *
+ * unpack returns the number of bytes it wrote, or UNPACK_ERROR
+ * (0xFFFFFFFFUL, the same as <limits.h>'s ULONG_MAX) for a stream it cannot
+ * unpack: an unknown format byte, a format whose decoder is not linked (below),
+ * or a format 2 header it cannot take; nothing is written then. 0 is a stream
+ * of no bytes.
  *
  * Each format's decoder is a library member of its own, linked only when the
  * program asks for it (#666): at file scope, in any one of its files,
@@ -29,8 +34,8 @@
  *   UNPACK_FORMAT2;         format 2 (stdlib_asm/unpack2.s45, 581 bytes and
  *                           0.9 KB of BSS); UNPACK_IMAGES is the same
  *
- * unpack / unpack_to (and load_unpack) return 0 for a stream whose decoder is
- * not linked. A program that names none gets format 1: this header names it
+ * unpack / unpack_to (and load_unpack) return UNPACK_ERROR for a stream whose
+ * decoder is not linked. A program that names none gets format 1: this header names it
  * itself, unless the program defines UNPACK_EXPLICIT_FORMATS before including
  * it (or <load.h>) in each of its files (or with cc45 -DUNPACK_EXPLICIT_FORMATS)
  * and names its formats: a program of format 2 streams alone then links no
@@ -49,6 +54,10 @@
 
 #define UNPACK_FORMAT 1
 #define UNPACK_FORMAT_IMAGE 2
+
+/* what unpack / unpack_to return for a stream no linked decoder takes (an
+   unknown format, a decoder not linked); <limits.h>'s ULONG_MAX */
+#define UNPACK_ERROR 0xFFFFFFFFUL
 
 /* link a format's decoder: at file scope, once in the program */
 #define UNPACK_FORMAT1 __asm__(".extern ___unpack_format1")
