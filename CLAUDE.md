@@ -40,7 +40,7 @@ FUSE, both optional, only for disk45):
   `--compile`: the program to machine code through cc45's IR and code generator, BASIC 65 but for the statements on the program's text (`MERGE`, `SAVE`, `LIST`…),
   `src/main/BasicCompiler.cpp`, run time `lib/stdlib_asm/basic_rt.s45` / `lib/stdlib/basic_str.c`, #369;
   integer narrowing of whole-number float variables; `--speed`: the RAM float routines;
-  `--bank=N`: arrays and string variables in bank 1, 4 or 5, `lib/stdlib/basic_bank.c` / `stdlib_asm/basic_bankx.s45`, #580)
+  `--bank=N`: arrays and string variables in bank 1, 4 or 5, `lib/stdlib_asm/basic_bank.s45` / `basic_bankx.s45`, #580)
 - **disk45** — CBM disk/tape/archive image utility (25 formats, FUSE mount, SQLite catalog)
 - **asmCvt45** — assembler source converter between 7 dialects
 - **pack45** — packs data into a stream the library's `unpack()` (`<unpack.h>`) unpacks by DMA to any 28-bit

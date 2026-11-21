@@ -460,7 +460,7 @@ private:
     // it none is compiled (undefined behaviour: the program goes on)
     bool checks() const { return chainOpt_ && chainOpt_->checks; }
     // --bank=N (#580): the arrays and the string variables in bank N
-    // (basic_bank.c), each named by its 16-bit offset there; 0: on the heap
+    // (basic_bank.s45), each named by its 16-bit offset there; 0: on the heap
     int bank() const { return chainOpt_ ? chainOpt_->bank : 0; }
     // the element at the offset a to (put) / from __bas_ecell (es bytes;
     // basic_bankx.s45)
@@ -2484,7 +2484,7 @@ void Compiler::finish() {
         mod_->globals.push_back(gv);
     }
     if (bank()) {
-        // the bank and its range for basic_bank.c: bank 1 $2000-$F6FF (the
+        // the bank and its range for basic_bank.s45: bank 1 $2000-$F6FF (the
         // interpreter's variables' area), 4 and 5 $0100-$FFFE
         int first = bank() == 1 ? 0x2000 : 0x0100, end = bank() == 1 ? 0xF700 : 0xFFFF;
         auto data = [&](const char* nm, ir::Type t, int v) {
