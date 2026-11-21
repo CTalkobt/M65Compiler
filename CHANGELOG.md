@@ -4,6 +4,16 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### cc45: an array reached through a pointer keeps its frame slot (#664)
+
+- **Fixed: an array or address-taken variable declared again under the same name** (in an inner scope, or by an
+  inlined copy of a recursive function's own body) could have its storage reused while a pointer to it was still in use.
+  The allocator keeps the variables in its name map (`localNames`) for the whole function. The outer one of two
+  same-named variables is not in that map, and its slot was freed after its last mention by name. The next array of the
+  same size took it, and the pointer then read the other variable's bytes (three nested `char b[4]` gave 180 instead of
+  81, with static allocation or a stack frame, at `-O0` too). Such a slot is now kept to the end of the function, like
+  the named ones'. Test `test_shadow_slot_xemu.c` (four modes).
+
 ### crt0: the I/O knock with interrupts masked (#667)
 
 - **Fixed: a program entered from BASIC could hang at its next PRINT**, the KERNAL waiting in its Ctrl-S pause
