@@ -304,6 +304,13 @@ private:
     void exportVars();
     void importVars();
     void chainStmt(int kw);
+    // basic45's compiled procs (#577, BasicChainOptions::mixed): each one's
+    // IMPORT line and its parameters
+    struct MixedProc { size_t li; std::vector<std::string> params; };
+    std::vector<MixedProc> mixed_;
+    bool mixed() const { return chainOpt_ && chainOpt_->mixed; }
+    void mixedEntry();
+    void mixedReturn();
     const std::vector<Line>& lines_;
     std::string source_;
     const NarrowMap& narrow_;
@@ -417,6 +424,7 @@ private:
             "__bas_left", "__bas_right", "__bas_chr", "__bas_str", "__bas_iline", "__bas_iitem", "__bas_iitemn", "__bas_get", "__bas_st", "__bas_clrch",
             "__bas_ti", "__bas_tis", "__bas_dts", "__bas_restore", "__bas_rnd", "__bas_int", "__float_sin", "__float_cos",
             "__float_tan", "__float_atn", "__float_abs", "__bas_mvget", "__bas_mvput", "__bas_mvarg",
+            "__bas_vget", "__bas_vputf", "__bas_vputi",
             "__bas_sprcol", "__bas_sprclr", "__bas_sprgs", "__bas_sprcp", "__bas_sprirq"};
         // (with CMD, PRINT's output can go to a file: an error)
         if (!safe.count(f) || (cmdUsed_ && f.compare(0, 8, "__bas_pr") == 0)) raises();
@@ -2138,6 +2146,7 @@ std::shared_ptr<ir::Module> Compiler::run() {
     br(init);
     block("start");
     if (!imports_.empty()) importVars();
+    if (mixed()) mixedEntry();
     for (li_ = 0; li_ < lines_.size(); li_++) {
         block(lineLabel(li_));
         entry();
@@ -2864,7 +2873,10 @@ void Compiler::statement() {
         if (acceptKw(T_TO)) { br(lineLabel(lineTarget())); block(newLabel("dead")); return; }
         fail("GO without TO");
     case T_GOSUB: gosubTo(lineTarget()); return;
-    case T_RETURN: returnStmt(); return;
+    case T_RETURN:
+        if (mixed() && !atEnd() && !isKw(T_ELSE)) { mixedReturn(); return; }
+        returnStmt();
+        return;
     case T_ON: onStmt(); return;
     case T_FOR: forStmt(); return;
     case T_NEXT: nextStmt(); return;
@@ -2957,6 +2969,8 @@ void Compiler::statement() {
     }
     case T_BEGIN: return;     // (THEN BEGIN / ELSE BEGIN: already passed)
     case T_IMPORT:
+        // (a compiled proc's start, #577: its parameters, read at the entry)
+        if (mixed()) { p_ = toks_->size(); return; }
         // direct mode only (b65.src import: errind): in a program
         // ?DIRECT MODE ONLY when it runs, whatever --checks says
         p_ = toks_->size();
@@ -4691,6 +4705,78 @@ void Compiler::exportVars() {
 
 // The imported variables from the chain block, when it holds the
 // exporter's (its id): at the start
+// basic45's compiled procs (#577): the proc __bas_psel names (its IMPORT
+// line's place, 1 for the first), its parameters read from the interpreter's
+// variables (their POINTERs in __bas_parg) and assigned, then its first line;
+// none: back to BASIC
+void Compiler::mixedEntry() {
+    static const std::vector<Tok> none;
+    for (size_t li = 0; li < lines_.size(); li++) {
+        const auto& segs = lines_[li].segs;
+        if (segs.empty() || segs[0].toks.empty() || segs[0].toks[0].k != TK::Kw || segs[0].toks[0].kw != T_IMPORT)
+            continue;
+        MixedProc mp;
+        mp.li = li;
+        const auto& t = segs[0].toks;
+        for (size_t i = 1; i < t.size(); i++)
+            if (t[i].k == TK::Name) mp.params.push_back(t[i].text);
+        mixed_.push_back(mp);
+    }
+    toks_ = &none;
+    p_ = 0;
+    auto sel = load(ir::Type::I8, global("__bas_psel"));
+    for (size_t k = 0; k < mixed_.size(); k++) {
+        std::string go = newLabel("mproc"), next = newLabel("mnext");
+        brCond(bin(ir::Op::CMP_EQ, ir::Type::I8, sel, ir::Operand::imm((int64_t)k + 1, ir::Type::I8)), go, next);
+        block(go);
+        li_ = mixed_[k].li;
+        for (size_t i = 0; i < mixed_[k].params.size(); i++) {
+            const std::string& name = mixed_[k].params[i];
+            LV lv;
+            lv.g = varGlobal(name, lv.k);
+            if (lv.k == VK::S) { errors.push_back({lines_[li_].num, "a compiled proc's parameter is a number: " + name}); continue; }
+            auto a = addrElem(global("__bas_parg"), iconst(ir::Type::I8, (int64_t)i), 2);
+            store(ir::Type::I16, load(ir::Type::I16, a), global("__bas_n"));
+            store(ir::Type::I16, iconst(ir::Type::I16, lv.k == VK::I ? 1 : 0), global("__bas_m"));
+            call("__bas_vget");
+            Val v;
+            if (lv.k == VK::I) { v.k = VK::I; v.bound = 32768; v.op = load(ir::Type::I16, global("__bas_n")); }
+            else { v.k = VK::F; v.op = load(ir::Type::F32, global("__float_a")); }
+            assignLV(lv, v);
+        }
+        br(lineLabel(mixed_[k].li));
+        block(next);
+    }
+    li_ = 0;
+    br("Lend");
+    block(newLabel("dead"));
+}
+
+// RETURN expr in a compiled proc (#577): the value to the interpreter's
+// variable __bas_pres points to (a float; an integer as BASIC's AYINT:
+// ?ILLEGAL QUANTITY outside -32768..32767), then back to BASIC
+void Compiler::mixedReturn() {
+    Val v = expr();
+    if (v.k == VK::S) fail("a compiled proc returns a number, not a string (?TYPE MISMATCH)");
+    auto kind = load(ir::Type::I8, global("__bas_pkind"));
+    std::string fl = newLabel("rflt"), nf = newLabel("rnf"), in = newLabel("rint");
+    brCond(bin(ir::Op::CMP_EQ, ir::Type::I8, kind, ir::Operand::imm(1, ir::Type::I8)), fl, nf);
+    block(fl);
+    store(ir::Type::F32, toF(v), global("__float_a"));
+    store(ir::Type::I16, load(ir::Type::I16, global("__bas_pres")), global("__bas_n"));
+    call("__bas_vputf");
+    br("Lend");
+    block(nf);
+    brCond(bin(ir::Op::CMP_EQ, ir::Type::I8, kind, ir::Operand::imm(2, ir::Type::I8)), in, "Lend");
+    block(in);
+    Val x = toI16(v);
+    store(ir::Type::I16, asType(x, ir::Type::I16), global("__bas_m"));
+    store(ir::Type::I16, load(ir::Type::I16, global("__bas_pres")), global("__bas_n"));
+    call("__bas_vputi");
+    br("Lend");
+    block(newLabel("dead"));
+}
+
 void Compiler::importVars() {
     static const std::vector<Tok> none;
     toks_ = &none;

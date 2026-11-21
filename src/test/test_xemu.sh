@@ -1499,6 +1499,20 @@ else
     echo "FAIL: test_basic45_link_xemu.bas --link-align=1 (basic45 --link failed)"
     failed=$((failed + 1))
 fi
+# #577: compiled procs in an interpreted program (proc ... compiled, call ...
+# to v, return <expr>), as is (--minify too) and the whole program --compile'd:
+# the same results (--checks: the compiled code's ?ILLEGAL QUANTITY)
+for mxmode in "|" "m|--minify" "c|--compile"; do
+    IFS='|' read -r mxname mxflags <<< "$mxmode"
+    echo "Testing test_basic45_mixed_xemu.bas $mxflags..."
+    if ./bin/basic45 --strict --checks $mxflags src/test-resources/test_basic45_mixed_xemu.bas \
+           -o build/test/test_basic45_mixed$mxname.prg >/dev/null 2>&1; then
+        run_xemu_test "test_basic45_mixed$mxname" "build/test/test_basic45_mixed$mxname.prg" "C0C0" 11 "01 01 01 01 01 01 01 01 01 01 AA"
+    else
+        echo "FAIL: test_basic45_mixed_xemu.bas $mxflags (basic45 failed)"
+        failed=$((failed + 1))
+    fi
+done
 # --compile --link (#369): the same program compiled, its C functions called
 # directly, {name} the symbols' addresses, the asm block and incbin linked in
 for blmode in "|" "_checks|--checks"; do

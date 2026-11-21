@@ -575,6 +575,9 @@ bool isDiskParameter(const std::vector<BasicToken>& t, size_t s, size_t i) {
     bool isCommand = false;
     for (const char* c : commands) if (t[s].value == c) { isCommand = true; break; }
     if (!isCommand || i >= t.size() || t[i].type != BasicToken::IDENTIFIER) return false;
+    // (IMPORT without a file name: basic45's compiled proc, its parameters'
+    // names, #577)
+    if (t[s].value == "IMPORT" && !(s + 1 < t.size() && t[s + 1].type == BasicToken::STRING)) return false;
     const std::string& v = t[i].value;
     char c = (char)std::toupper((unsigned char)v[0]);
     if (std::string("DUBPLWIR").find(c) == std::string::npos) return false;

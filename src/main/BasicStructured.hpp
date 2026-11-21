@@ -13,6 +13,18 @@
 //   endproc                                        return
 //                                                  __endproc<N>:
 //   call name[(x, y$, ...)]                        a = x : b$ = y$ : gosub name
+//   call name[(...)] to v                          ... : gosub name : v = zret
+//   return <expr>         (in a proc)              zret = <expr> : return
+//
+//   proc name[(a, b%)] compiled   (#577) cut out to compiledText, compiled to
+//                         machine code with basic45 --compile's code
+//                         generator and linked after the program; a call
+//                         writes the variables' POINTERs and SYSes it:
+//   call name(x, y) to v   a = x : b% = y : wpoke {__bas_pres}, pointer(v) :
+//                          wpoke {__bas_parg}, pointer(a) : wpoke {__bas_parg+2},
+//                          pointer(b%) : wpoke {__bas_psel}, k + 256 * kind :
+//                          sys {__bas_mixed}
+//                         (in compiledText: name: / import a, b% ... return 0)
 //
 //   select <expr>                                  zselN = <expr>     (zselN$ for a string)
 //   case 1, 2                                      if (zselN=1 or zselN=2)=0 then __case<N>_2
@@ -48,8 +60,20 @@ struct BasicStructuredResult {
     std::set<std::string> asmLabels;                      // labels there: called directly by SYS
     std::set<std::string> dataLabels;                     // incbin names (and _size)
     std::vector<std::pair<std::string, int>> procs;       // (name, input line)
+    // the compiled procs (#577): their lowered text (an input line's
+    // origin as text's), their names in the order of their k
+    std::string compiledText;
+    std::vector<int> compiledOrigin;
+    std::vector<std::string> compiledProcs;
+    size_t compiledArgs = 0;                              // the most parameters
 };
 
 // fileOf(line): the source file of an input line, for incbin/datainc paths
+// Interpreted: the compiled procs cut out to compiledText (lowered as
+// CompiledProcs: for basic45 --compile's compiler, BasicChainOptions::mixed;
+// #577). Compiled (basic45 --compile): the whole program compiled, a compiled
+// proc an ordinary one
+enum class BasicLowerMode { Interpreted, CompiledProcs, Compiled };
 BasicStructuredResult lowerBasicStructured(const std::string& source,
-                                           const std::function<std::string(int)>& fileOf = nullptr);
+                                           const std::function<std::string(int)>& fileOf = nullptr,
+                                           BasicLowerMode mode = BasicLowerMode::Interpreted);

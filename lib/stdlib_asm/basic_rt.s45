@@ -549,6 +549,16 @@ __bas_error:
     cli
     jmp (__bas_trapv)
 @show:
+    ; a compiled proc in an interpreted program (basic45 #577; its thunk
+    ; file sets __bas_mixon): the message without " IN line" (the compiled
+    ; procs' lines are not the program's); the thunk gives the number to
+    ; the interpreted CALL, which ends the program
+    lda __bas_mixon
+    beq @msgs
+    lda #$FF
+    sta __bas_line
+    sta __bas_line+1
+@msgs:
     jsr __bas_gtext         ; (a graphics screen viewed: the text screen, as BASIC's RestoreTextScreen)
     lda #13
     jsr __bas_out
@@ -711,6 +721,13 @@ __bas_trapinit:
     adc #0
     sta __bas_sp0+1
     rts
+
+; (basic45's compiled procs, #577: 1 in their thunk file)
+    .split "__bas_mixon"
+.weak __bas_mixon
+.segment "data"
+__bas_mixon: .byte 0
+.segment "code"
 
 ; The error A
     .split "__bas_raise"

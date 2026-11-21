@@ -127,7 +127,8 @@ bool neverFallsThrough(const std::string& line) {
     }
     std::string last = lower(trim(line.substr(start)));
     if (last == "return" || last == "end" || last == "run" || last == "resume") return true;
-    for (const char* w : {"goto ", "run ", "resume "})
+    // (return <expr>: a compiled proc's, #577)
+    for (const char* w : {"goto ", "run ", "resume ", "return ", "return("})
         if (last.compare(0, strlen(w), w) == 0) return true;
     return false;
 }
@@ -193,9 +194,10 @@ std::string oppositeCond(const std::string& cond) {
 
 }  // namespace
 
-BasicStructuredResult lowerBasicStructured(const std::string& source,
-                                           const std::function<std::string(int)>& fileOf) {
+BasicStructuredResult lowerBasicStructured(const std::string& fullSource,
+                                           const std::function<std::string(int)>& fileOf, BasicLowerMode mode) {
     BasicStructuredResult r;
+    const bool unit = mode == BasicLowerMode::CompiledProcs;
     std::vector<std::string> lines;
     static const std::regex loneLabelRe(R"(^[A-Za-z_]\w*\s*:$)");
     // whether the next line can be reached from the one before it or by a
@@ -217,7 +219,7 @@ BasicStructuredResult lowerBasicStructured(const std::string& source,
 
     static const std::regex labelRe(R"(^([A-Za-z_]\w*)\s*:\s*(.*)$)");
     static const std::regex ifThenRe(R"(^if\s+(.*\S)\s+then$)", std::regex::icase);
-    static const std::regex procRe(R"(^proc\s+([A-Za-z_]\w*)\s*(\((.*)\))?$)", std::regex::icase);
+    static const std::regex procRe(R"(^proc\s+([A-Za-z_]\w*)\s*(\((.*)\))?(\s+compiled)?$)", std::regex::icase);
     static const std::regex selectRe(R"(^select\s+(.+)$)", std::regex::icase);
     static const std::regex caseRe(R"(^case\s+(.+)$)", std::regex::icase);
     static const std::regex rangeRe(R"(^(.*\S)\s+to\s+(.+)$)", std::regex::icase);
@@ -227,20 +229,49 @@ BasicStructuredResult lowerBasicStructured(const std::string& source,
                                       std::regex::icase);
     static const std::regex asmLabelRe(R"(^([A-Za-z_]\w*):)");
 
-    // First pass: the parameters of each proc
+    // First pass: the parameters of each proc, and the compiled ones (#577):
+    // their place (1, 2, ...); in the interpreted program cut out of the
+    // source (their lines left empty) and lowered as a text of their own
     std::map<std::string, std::vector<std::string>> procParams;   // lower-case name -> params
+    std::map<std::string, int> compiledK;                         // lower-case name -> k
+    std::string source;
     {
-        std::istringstream in(source);
-        std::string raw;
-        static const std::regex procDef(R"(^\s*(?:[A-Za-z_]\w*\s*:\s*)?proc\s+([A-Za-z_]\w*)\s*(\((.*)\))?\s*$)",
-                                        std::regex::icase);
+        std::istringstream in(fullSource);
+        std::string raw, unitSrc;
+        static const std::regex procDef(
+            R"(^\s*(?:[A-Za-z_]\w*\s*:\s*)?proc\s+([A-Za-z_]\w*)\s*(\((.*)\))?(\s+compiled)?\s*$)", std::regex::icase);
         std::smatch m;
-        while (std::getline(in, raw))
-            if (std::regex_match(raw, m, procDef)) {
+        bool inCompiled = false;
+        while (std::getline(in, raw)) {
+            std::string tt = stripTrailingComment(trim(raw)), t = lower(tt);
+            if (std::regex_match(tt, m, procDef)) {
                 std::vector<std::string> ps;
                 if (m[2].matched && !trim(m[3].str()).empty()) ps = splitTop(m[3].str());
                 procParams[lower(m[1].str())] = ps;
+                if (m[4].matched && mode != BasicLowerMode::Compiled) {
+                    int k = (int)compiledK.size() + 1;
+                    compiledK[lower(m[1].str())] = k;
+                    inCompiled = mode == BasicLowerMode::Interpreted;
+                }
             }
+            if (inCompiled) {
+                unitSrc += raw + "\n";
+                source += "\n";
+                if (t == "endproc" || t == "end proc") inCompiled = false;
+            } else {
+                unitSrc += "\n";
+                source += raw + "\n";
+            }
+        }
+        if (mode == BasicLowerMode::Interpreted && !compiledK.empty()) {
+            BasicStructuredResult u = lowerBasicStructured(unitSrc, fileOf, BasicLowerMode::CompiledProcs);
+            r.compiledText = u.text;
+            r.compiledOrigin = u.origin;
+            r.compiledProcs = u.compiledProcs;
+            r.compiledArgs = u.compiledArgs;
+            r.errors = u.errors;
+        }
+        if (mode != BasicLowerMode::Interpreted) source = fullSource;
     }
 
     // call name[(args)] -> parameters assigned, then gosub name
@@ -273,21 +304,123 @@ BasicStructuredResult lowerBasicStructured(const std::string& source,
                         args = splitTop(code.substr(after + 1, close - after - 1));
                         e = close + 1;
                     }
+                    // ... to v: the proc's result (return <expr>) into v, up to
+                    // the statement's end (a : or ELSE outside strings and
+                    // parentheses)
+                    std::string to;
+                    {
+                        size_t t0 = code.find_first_not_of(" \t", e);
+                        if (t0 != std::string::npos && t0 + 2 < code.size() && lower(code.substr(t0, 2)) == "to" &&
+                            (code[t0 + 2] == ' ' || code[t0 + 2] == '\t')) {
+                            size_t v0 = t0 + 3, v1 = v0;
+                            int depth = 0;
+                            for (; v1 < code.size(); v1++) {
+                                char d = code[v1];
+                                if (d == '(') depth++;
+                                else if (d == ')') depth--;
+                                else if (depth == 0 && (d == ':' || (lower(code.substr(v1, 4)) == "else" &&
+                                                                     (v1 == 0 || code[v1 - 1] == ' '))))
+                                    break;
+                            }
+                            to = trim(code.substr(v0, v1 - v0));
+                            e = v1;
+                            if (to.empty()) error(lineNum, "call " + name + " to: a variable expected");
+                        }
+                    }
                     auto pp = procParams.find(lower(name));
+                    auto ck = compiledK.find(lower(name));
                     std::string assigns;
+                    bool argsOk = false;
                     if (pp == procParams.end()) {
                         if (!args.empty()) error(lineNum, "call " + name + "(...): no proc " + name + " with parameters");
+                        if (!to.empty()) error(lineNum, "call " + name + " to " + to + ": no proc " + name);
                     } else if (pp->second.size() != args.size()) {
                         error(lineNum, "call " + name + ": " + std::to_string(args.size()) + " argument(s), proc " +
                                        name + " takes " + std::to_string(pp->second.size()));
                     } else {
+                        argsOk = true;
                         for (size_t k = 0; k < args.size(); k++)
                             assigns += pp->second[k] + " = " + args[k] + " : ";
                     }
-                    res += assigns + "gosub " + name;
+                    if (unit) {
+                        error(lineNum, "call " + name + ": a compiled proc cannot call a proc");
+                    } else if (ck != compiledK.end() && argsOk) {
+                        // a compiled proc (#577): one WPOKE of the block's
+                        // words, the proc's number and the result's kind, the
+                        // result's POINTER (0: none), the parameters' (a
+                        // variable POINTER makes moves no scalar made before it)
+                        int kind = 0;
+                        if (!to.empty()) {
+                            std::string base = to.substr(0, to.find('('));
+                            char sfx = trim(base).back();
+                            if (sfx == '$' || sfx == '&') error(lineNum, "call " + name + " to " + to +
+                                                                         ": a compiled proc's result is a number (a float or % variable)");
+                            kind = sfx == '%' ? 2 : 1;
+                        }
+                        // (the block in bank 0: BANK 128, SYS's, maps ROM
+                        // over the code's RAM for POKE; the SYS in BANK 128,
+                        // as --link's)
+                        res += assigns + "bank 0 : wpoke {__bas_psel}, " + std::to_string(ck->second + 256 * kind);
+                        if (kind || !args.empty()) res += ", " + (kind ? "pointer(" + to + ")" : std::string("0"));
+                        for (size_t k = 0; k < args.size(); k++) res += ", pointer(" + pp->second[k] + ")";
+                        // (an error in the proc: its message printed, its
+                        // number back in A; the program ends at __mixerr)
+                        res += " : bank 128 : sys {__bas_mixed} : rreg zerr : on sgn(zerr) goto __mixerr";
+                    } else {
+                        // (zret 0 first: a proc that ends without return
+                        // <expr> gives 0, as a compiled one does)
+                        res += assigns + (to.empty() ? "" : "zret = 0 : ") + "gosub " + name;
+                        if (!to.empty()) res += " : " + to + " = zret";
+                    }
                     i = e - 1;
                     continue;
                 }
+            }
+            res += c;
+        }
+        return res;
+    };
+
+    // return <expr> (a proc's result, for call ... to v): zret = <expr> :
+    // return; in a compiled proc (#577) the compiler's own RETURN <expr>
+    auto lowerReturns = [&](const std::string& code, int lineNum, bool inProc) {
+        std::string res;
+        bool inString = false;
+        for (size_t i = 0; i < code.size(); i++) {
+            char c = code[i];
+            if (c == '"') inString = !inString;
+            // (REM and DATA take the rest of the line as text)
+            if (!inString && (i == 0 || !(std::isalnum((unsigned char)code[i - 1]) || code[i - 1] == '_')))
+                for (const char* w : {"rem", "data"}) {
+                    size_t n = strlen(w);
+                    if (lower(code.substr(i, n)) == w &&
+                        (i + n == code.size() || !(std::isalnum((unsigned char)code[i + n]) || code[i + n] == '_')))
+                        return res + code.substr(i);
+                }
+            if (!inString && (i == 0 || !(std::isalnum((unsigned char)code[i - 1]) || code[i - 1] == '_')) &&
+                i + 6 < code.size() && lower(code.substr(i, 6)) == "return" &&
+                (code[i + 6] == ' ' || code[i + 6] == '\t' || code[i + 6] == '(')) {
+                size_t v0 = code.find_first_not_of(" \t", i + 6), v1 = v0;
+                if (v0 == std::string::npos || code[v0] == ':' || lower(code.substr(v0, 4)) == "else") {
+                    res += c;
+                    continue;
+                }
+                int depth = 0;
+                bool q = false;
+                for (; v1 < code.size(); v1++) {
+                    char d = code[v1];
+                    if (d == '"') q = !q;
+                    if (q) continue;
+                    if (d == '(') depth++;
+                    else if (d == ')') depth--;
+                    else if (depth == 0 && (d == ':' || (lower(code.substr(v1, 4)) == "else" && code[v1 - 1] == ' ')))
+                        break;
+                }
+                std::string ex = trim(code.substr(v0, v1 - v0));
+                if (!inProc) error(lineNum, "return " + ex + ": a value is returned only from a proc");
+                res += unit ? "return " + ex + (v1 < code.size() ? " " : "") : "zret = " + ex + " : return" + (v1 < code.size() ? " " : "");
+                i = v1 - 1;
+                continue;
             }
             res += c;
         }
@@ -461,6 +594,27 @@ BasicStructuredResult lowerBasicStructured(const std::string& source,
             // "call directory" a GOSUB of the DIRECTORY token, #584)
             if (basic45IsReservedWord(m[1].str()))
                 error(lineNum, "proc name '" + m[1].str() + "' is a BASIC keyword");
+            if (unit) {
+                // a compiled proc (#577): its label and its parameters,
+                // read by the compiled program's entry; a number each
+                std::vector<std::string> ps;
+                if (m[2].matched && !trim(m[3].str()).empty()) ps = splitTop(m[3].str());
+                for (const auto& p : ps)
+                    if (p.empty() || p.back() == '$' || p.back() == '&' || p.find('(') != std::string::npos)
+                        error(lineNum, "proc " + m[1].str() + " compiled: a parameter is a float or % variable, not " + p);
+                if (!stack.empty()) error(lineNum, "proc inside a block");
+                stack.push_back(Block{'p', nextId++, false, lineNum, 0, ""});
+                labelAlone();
+                // (a label of its own: the line is reached, by the entry)
+                emit("__cp_" + m[1].str() + ":", lineNum);
+                std::string imp = "import";
+                for (size_t k = 0; k < ps.size(); k++) imp += (k ? ", " : " ") + ps[k];
+                emit(imp, lineNum);
+                r.compiledProcs.push_back(m[1].str());
+                r.compiledArgs = std::max(r.compiledArgs, ps.size());
+                scope = "p" + lower(m[1].str());
+                continue;
+            }
             int id = nextId++;
             stack.push_back(Block{'p', id, false, lineNum, 0, ""});
             // The GOTO around the proc (#605): none where the line before
@@ -488,7 +642,10 @@ BasicStructuredResult lowerBasicStructured(const std::string& source,
             }
             Block b = stack.back();
             stack.pop_back();
-            emit(prefix + "return", lineNum);
+            // (a compiled proc's end: its result 0, #577; none after a
+            // RETURN that cannot fall through)
+            if (!unit) emit(prefix + "return", lineNum);
+            else if (!label.empty() || reach) emit(prefix + "return 0", lineNum);
             if (b.skip >= 0) {
                 emit("__endproc" + std::to_string(b.id) + ":", lineNum);
                 chainEnd = (int)lines.size() - 1;
@@ -566,13 +723,19 @@ BasicStructuredResult lowerBasicStructured(const std::string& source,
                 emit("__case" + sel + "_" + std::to_string(b.cases + 1) + ":", lineNum);
             emit("__endsel" + sel + ":", lineNum);
         } else {
-            emit(prefix + lowerCalls(code, lineNum), lineNum);
+            emit(prefix + lowerReturns(lowerCalls(code, lineNum), lineNum, scope != "main"), lineNum);
         }
     }
     if (inAsm) error(asmLine, "asm without endasm");
+    if (unit && !r.asmText.empty()) error(1, "asm, incbin: not in a compiled proc");
     for (const auto& b : stack)
         error(b.line, b.kind == 'i' ? "if block without endif" :
                       b.kind == 's' ? "select without endselect" : "proc without endproc");
+    // (the compiled procs' error exit, #577: after the program's last line)
+    if (mode == BasicLowerMode::Interpreted && !compiledK.empty()) {
+        lines.push_back("__mixerr: end");
+        r.origin.push_back(lineNum);
+    }
     for (const auto& l : lines) r.text += l + "\n";
     return r;
 }
