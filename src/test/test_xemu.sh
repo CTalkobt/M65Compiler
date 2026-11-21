@@ -1490,6 +1490,15 @@ else
     echo "FAIL: test_basic45_link_xemu.bas (basic45 --link failed)"
     failed=$((failed + 1))
 fi
+# --link-align=1: the code right after the program, not at a page boundary
+echo "Testing test_basic45_link_xemu.bas --link-align=1..."
+if ./bin/basic45 --strict --link-align=1 --link src/test-resources/test_basic45_link_xemu.c \
+       src/test-resources/test_basic45_link_xemu.bas -o build/test/test_basic45_link_a1_xemu.prg >/dev/null 2>&1; then
+    run_xemu_test "test_basic45_link_a1" "build/test/test_basic45_link_a1_xemu.prg" "C0C0" 9 "01 01 01 01 01 01 01 01 AA"
+else
+    echo "FAIL: test_basic45_link_xemu.bas --link-align=1 (basic45 --link failed)"
+    failed=$((failed + 1))
+fi
 # --compile --link (#369): the same program compiled, its C functions called
 # directly, {name} the symbols' addresses, the asm block and incbin linked in
 for blmode in "|" "_checks|--checks"; do

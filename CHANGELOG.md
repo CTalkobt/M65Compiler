@@ -4,6 +4,14 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### basic45: --link-align=N, where the linked C code starts
+
+- `--link-align=N` (a power of 2 from 1 to 32768): the `--link` code is linked at the first multiple of `N` after the
+  BASIC program instead of the first page boundary. The default stays 256; `1` puts it right after the program,
+  saving up to 255 bytes of bank 0. Nothing in the code needs a page boundary (ln45 aligns the base page block
+  itself). Not used with `--compile`, whose program and code are linked together.
+- Test: `test_basic45_link_xemu.bas` also built with `--link-align=1` (`test_xemu.sh`).
+
 ### cc45: (unsigned long)x << k lost the high byte (#676)
 
 - The byte-move shift (#550) puts the source's bytes at their byte offset in the destination. When the source was

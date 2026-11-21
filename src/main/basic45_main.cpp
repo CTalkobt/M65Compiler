@@ -72,6 +72,7 @@ struct Options {
     std::vector<std::string> linkFiles;   // --link: C / asm / .o45 to link in
     std::string linkLib;                  // --lib: the C library for --link
     std::string mapFile;                  // --map: ln45's -M map of the --link / --compile build (#595)
+    unsigned linkAlign = 256;             // --link-align=N: where the --link code starts (a power of 2)
     std::string stackPage;                // --stack-page: ln45's, for the --link / --compile build
     char encoding = 'u';                  // --encoding: strings without a prefix
     bool report = false;                  // --report: memory use
@@ -225,6 +226,8 @@ static void printUsage(const char* progName) {
     std::cout << "  --lib <file>        The C library for --link (default: c45.lib)" << std::endl;
     std::cout << "  --map <file>        Write the link map of a --link or --compile build (ln45 -M: symbols," << std::endl;
     std::cout << "                      call graph, calls through pointers, base-page blocks)" << std::endl;
+    std::cout << "  --link-align=N      Start the --link code at a multiple of N (a power of 2; default 256," << std::endl;
+    std::cout << "                      1: right after the program)" << std::endl;
     std::cout << "  --stack-page=P      The CPU stack of a --link / --compile build in page P ($17: $1700-$17FF)" << std::endl;
     std::cout << "                      or 'basic' (BASIC's own page-1 stack): ln45 --stack-page" << std::endl;
     std::cout << "  --decompile         Turn a BASIC .prg into basic45 source (also for a .prg input)" << std::endl;
@@ -393,6 +396,15 @@ static Options parseArgs(int argc, char* argv[]) {
             opts.linkLib = argv[++i];
         } else if (arg == "--map" && i + 1 < argc) {
             opts.mapFile = argv[++i];
+        } else if (arg.rfind("--link-align=", 0) == 0) {
+            std::string v = arg.substr(13);
+            char* e = nullptr;
+            unsigned long n = std::strtoul(v.c_str(), &e, 0);
+            if (v.empty() || *e || n == 0 || n > 0x8000 || (n & (n - 1))) {
+                std::cerr << "basic45: --link-align: a power of 2 from 1 to 32768, not '" << v << "'" << std::endl;
+                exit(1);
+            }
+            opts.linkAlign = (unsigned)n;
         } else if (arg.rfind("--stack-page=", 0) == 0) {
             opts.stackPage = arg.substr(13);
         } else if (arg == "--send") {
@@ -1180,7 +1192,7 @@ int main(int argc, char* argv[]) {
         Build first = build(placeholderSymbols());
         if (!first.ok) return 1;
         uint32_t basicEnd = opts.loadAddress + (uint32_t)first.binary.size() - 2;
-        uint32_t codeBase = (basicEnd + 0xFF) & ~0xFFu;
+        uint32_t codeBase = (basicEnd + opts.linkAlign - 1) & ~(opts.linkAlign - 1);   // (--link-align)
 
         // The thunks, the linked files, the library
         std::string tools = toolDir(argv[0]);
