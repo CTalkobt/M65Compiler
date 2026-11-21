@@ -15,8 +15,11 @@
  *   [1] font_glyph_width for every code, font_width of strings
  *   [2] font_draw_bitmap: the same pixels and result for 3 fonts, x and y
  *       at and past each edge, 4 clips (negative, empty), ramps
- *   [3] font_draw_fcm: strips 4 and -5, the same cases (clips >= 0)
- *   [4] font_draw_ncm: strips 3 and -4, ramps reaching past entry 15
+ *   [3] font_draw_fcm: strips 4 and -5, the same cases (clips >= 0); and
+ *       pixels at negative x or y (clips < 0), the character numbers kept
+ *       in the buffer (-1 cells, -1 rows of characters: 16-bit sums)
+ *   [4] font_draw_ncm: strips 3 and -4, ramps reaching past entry 15; the
+ *       same negative cases
  *   [5] font_put_cells: the sets, rows and columns, width tables made up
  *       (0 to 255 pixels: 1 up to all of a glyph's columns)
  *   [6] $AA sentinel
@@ -243,6 +246,38 @@ static unsigned char draws(unsigned char kind, signed int pitch) {
     return ok;
 }
 
+/* pixels left of or above 0 (#670): strip < 0, x from -9 and y from 8 (the
+ * character (py >> 3) * -strip + (px >> 3), a cell -1 or -2); strip > 0, y
+ * from -7 and x from 16 ((px >> 3) * strip + (py >> 3), a row -1) */
+static unsigned char draws_neg(unsigned char kind, signed int pitch) {
+    static const signed int xn[] = { -9, -3, -1 }, yn[] = { 8, 9 };
+    static const signed int xp[] = { 16, 21 }, yp[] = { -7, -3 };
+    font_t f1, f2, f3;
+    font_t *fs[3];
+    unsigned char fi, xi, yi, ok = 1;
+    font_from(&f1, LIN(tiny));
+    font_from(&f2, LIN(seg2));
+    font_from(&f3, LIN(seg4));
+    fs[0] = &f1; fs[1] = &f2; fs[2] = &f3;
+    if (pitch < 0) clip(-12, -10, 40, 30);
+    else clip(-12, -10, 60, 30);
+    for (fi = 0; fi < 3; fi++)
+        for (xi = 0; xi < (pitch < 0 ? 3 : 2); xi++)
+            for (yi = 0; yi < 2; yi++) {
+                signed int ra, rb, x = pitch < 0 ? xn[xi] : xp[xi], y = pitch < 0 ? yn[yi] : yp[yi];
+                ramp((unsigned char)(2 + xi * 5 + yi));
+                memset(bufa, 0x11, SIZE);
+                memset(bufb, 0x11, SIZE);
+                ra = kind == 1 ? font_draw_fcm(fs[fi], LIN(bufa), pitch, x, y, strs[fi])
+                               : font_draw_ncm(fs[fi], LIN(bufa), pitch, x, y, strs[fi]);
+                rb = ref_draw(fs[fi], kind, LIN(bufb), pitch, x, y, strs[fi]);
+                if (ra != rb || memcmp(bufa, bufb, SIZE)) ok = 0;
+            }
+    clip(0, 0, 32767, 32767);
+    ramp(1);
+    return ok;
+}
+
 int main(void) {
     font_t f, s;
     unsigned char ok, i;
@@ -277,8 +312,8 @@ int main(void) {
     OUT[1] = ok;
     /* [2] - [4] */
     OUT[2] = draws(0, 32);
-    OUT[3] = draws(1, 4) && draws(1, -5);
-    OUT[4] = draws(2, 3) && draws(2, -4);
+    OUT[3] = draws(1, 4) && draws(1, -5) && draws_neg(1, 4) && draws_neg(1, -5);
+    OUT[4] = draws(2, 3) && draws(2, -4) && draws_neg(2, 3) && draws_neg(2, -4);
     /* [5] */
     ok = 1;
     for (i = 0; i < 3; i++) {

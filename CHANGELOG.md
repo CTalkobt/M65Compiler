@@ -4,6 +4,16 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### font: FCM / NCM glyphs drawn a span at a time (#670)
+
+- `font_draw_fcm` / `font_draw_ncm` no longer clip, shift, multiply and add a 32-bit address for every pixel. The
+  glyph is clipped once (as `font_draw_bitmap`'s), its first character number computed once and stepped in 16 bits
+  (the C's arithmetic) a cell across or a row of characters down, the address once a cell, the cell's pixels walked
+  with `z`; the pixel values are shifted out of the glyph's bytes, a byte's blank rest skipped at once. A 16-row 2 bpp
+  font, 1000 glyphs: FCM 29 frames instead of 93, NCM 31 instead of 99 (`font_draw_bitmap` 27); `font.s45` 2700
+  bytes of code instead of 2376, 94 of BSS instead of 81. `test_font_ref_xemu.c` also draws at negative x and y now
+  (character numbers below a column's or a row's first).
+
 ### tgi: the page layout for direct drawing (#653)
 
 - **`tgi_ioctl(TGI_IOCTL_LAYOUT, &layout)`** fills a `tgi_layout_t`: the draw page (the current one with the two-page
