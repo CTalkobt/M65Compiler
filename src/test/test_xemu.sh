@@ -3304,6 +3304,14 @@ for smode in "zp|" "stack|-fno-zpcall"; do
     xemu_case "FAIL: test_seam_xemu.c $sname (compilation/linking failed)" "src/test-resources/test_seam_xemu.c" "build/test/test_seam_${sname}_xemu.prg" "$sflags" -- "test_seam_$sname" "build/test/test_seam_${sname}_xemu.prg" "C0C0" 8 "01 01 01 01 01 01 01 AA"
 done
 
+# Test: seam.h's edges (offsets over 16 bits, cells across a 64 KB boundary,
+# seam_show of 200 columns, shown / hidden twice)
+for smode in "zp|" "stack|-fno-zpcall"; do
+    IFS='|' read -r sname sflags <<< "$smode"
+    echo "Testing test_seam2_xemu.c ($sname)..."
+    xemu_case "FAIL: test_seam2_xemu.c $sname (compilation/linking failed)" "src/test-resources/test_seam2_xemu.c" "build/test/test_seam2_${sname}_xemu.prg" "$sflags" -- "test_seam2_$sname" "build/test/test_seam2_${sname}_xemu.prg" "C0C0" 8 "01 01 01 01 01 01 01 AA"
+done
+
 # Test: constant initializers of aggregate globals / local statics (struct
 # layout, nested braces, brace elision, designators, unions, bitfields)
 for simode in "zp|" "stack|-fno-zpcall"; do

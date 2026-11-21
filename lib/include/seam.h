@@ -1,5 +1,5 @@
 /* seam.h — VIC-IV screens of two-byte cells: full-colour characters among
- * text (lib/stdlib/seam.c)
+ * text (lib/stdlib_asm/seam.s45)
  *
  * In Super-Extended Attribute Mode (SEAM: CHR16, $D054 bit 0) a cell is
  * two bytes of screen RAM, a 13-bit character number (low byte first),
@@ -42,38 +42,38 @@ typedef struct {
 } seam_screen_t;
 
 /* Describe a screen of cols x rows cells and clear it (spaces, colour 1) */
-void seam_init(seam_screen_t *s, unsigned long screen, unsigned int colour,
-               unsigned char cols, unsigned char rows);
+__fastcall__ void seam_init(seam_screen_t *s, unsigned long screen, unsigned int colour,
+                            unsigned char cols, unsigned char rows);
 
 /* Fill it with spaces in colour */
-void seam_clear(const seam_screen_t *s, unsigned char colour);
+__fastcall__ void seam_clear(const seam_screen_t *s, unsigned char colour);
 
 /* Show it (CHR16 and FCLRHI on); put back what was shown */
-void seam_show(seam_screen_t *s);
-void seam_hide(seam_screen_t *s);
+__fastcall__ void seam_show(seam_screen_t *s);
+__fastcall__ void seam_hide(seam_screen_t *s);
 
 /* A cell: character number ch, colour (0-15; a full-colour character's
  * $FF pixels) */
-void seam_put(const seam_screen_t *s, unsigned char x, unsigned char y, unsigned int ch, unsigned char colour);
+__fastcall__ void seam_put(const seam_screen_t *s, unsigned char x, unsigned char y, unsigned int ch, unsigned char colour);
 
 /* n screen codes (one byte each, characters 0-255, in bank 0) from x, y
  * in colour */
-void seam_text(const seam_screen_t *s, unsigned char x, unsigned char y, const void *codes,
+__fastcall__ void seam_text(const seam_screen_t *s, unsigned char x, unsigned char y, const void *codes,
                unsigned char n, unsigned char colour);
 
 /* n cells from x, y from a one-byte screen's characters and colours (bank
  * 0: a row of a text screen's buffers) */
-void seam_row(const seam_screen_t *s, unsigned char x, unsigned char y, unsigned char n,
+__fastcall__ void seam_row(const seam_screen_t *s, unsigned char x, unsigned char y, unsigned char n,
               const void *codes, const void *colours);
 
 /* n cells from x, y (along the row and on: the screen's cells are one run)
  * from character numbers at a linear address (two bytes each, low byte
  * first: a picture's cells); their colours stay */
-void seam_cells(const seam_screen_t *s, unsigned char x, unsigned char y, unsigned long numbers,
+__fastcall__ void seam_cells(const seam_screen_t *s, unsigned char x, unsigned char y, unsigned long numbers,
                 unsigned int n);
 
 /* the linear address of cell x, y's screen bytes; of its colour RAM bytes */
-unsigned long seam_cell(const seam_screen_t *s, unsigned char x, unsigned char y);
-unsigned long seam_colour(const seam_screen_t *s, unsigned char x, unsigned char y);
+__fastcall__ unsigned long seam_cell(const seam_screen_t *s, unsigned char x, unsigned char y);
+__fastcall__ unsigned long seam_colour(const seam_screen_t *s, unsigned char x, unsigned char y);
 
 #endif /* SEAM_H */
