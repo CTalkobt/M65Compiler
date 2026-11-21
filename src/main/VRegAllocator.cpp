@@ -468,7 +468,13 @@ void VRegAllocator::assignLocations(const ir::Function& fn) {
         {
             std::vector<uint32_t> expired;
             for (auto& [vid, fsi] : frameAllocMap) {
-                if (localVarVregs.count(vid)) continue;
+                // (an array or a variable whose address is taken keeps its
+                // slot to the end: a pointer to it may be used long after its
+                // last mention. Such a vreg outside localNames -- a name
+                // declared again in an inner scope, or by an inlined copy of
+                // the function's own body -- lost it to the next one of its
+                // size; #664)
+                if (localVarVregs.count(vid) || pinnedFrameVregs_.count(vid)) continue;
                 for (auto& r : ranges_) {
                     if (r.vregId == vid && r.lastUse < lr.firstDef) {
                         expired.push_back(vid);
