@@ -15,6 +15,7 @@
 - **Block IF, select and procedures** — `if ... then` / `else` / `endif`, `select` / `case`, `proc name(params)` / `call`, local `.labels` ([Block IF and Procedures](#block-if-and-procedures))
 - **Assembly and binary data** — `asm` … `endasm`, `incbin`, `datainc` ([Assembly and Binary Data](#assembly-and-binary-data))
 - **Calling C** — `--link file.c`: C functions called with `SYS {name}` ([Calling C Functions](#calling-c-functions-link))
+- **Compiled procs** — `proc name(a, b%) compiled`: chosen procs machine code, the rest of the program interpreted ([Compiled Procs](#compiled-procs-proc--compiled))
 - **Compiling** — `--compile`: the program as machine code, through cc45's IR and code generator; BASIC 65 but for the statements that work on the program's text and five functions ([Compiling](#compiling-compile))
 - **Listing, source map, decompiler** — `--list`, `--source-map`, `--decompile` ([Listing, Source Map and Decompiling](#listing-source-map-and-decompiling))
 - **Converting other dialects** — `--convert=basic7`, `basic35`, `simons`, `basic8`: a BASIC 7.0 (C128), BASIC 3.5 (C16 / Plus/4), Simons' BASIC (C64) or BASIC 8 (C128) program as BASIC 65 source ([Converting BASIC 7.0 Programs](#converting-basic-70-programs-convertbasic7))
@@ -71,8 +72,8 @@ Without `-o` the output is the input name with its extension replaced by `.prg` 
 | `--stack-page=P` | The CPU stack of a `--link` or `--compile` build in page `P` (`$17`: `$1700`-`$17FF`) or `basic` (BASIC's own page-1 stack): passed to `ln45 --stack-page` ([ln45](ln45.md)). Without it: as before |
 | `--decompile` | Turn a tokenized BASIC `.prg` into basic45 source ([Listing, Source Map and Decompiling](#listing-source-map-and-decompiling)) |
 | `--compile` | Compile the program (the source, or a tokenized BASIC 65 `.prg`) to machine code: a `.prg` started with `RUN` ([Compiling](#compiling-compile)) |
-| `-O0` … `-O4` | `--compile`: cc45's optimization level (default `-O2`) |
-| `--asm <file>` | `--compile`: also write the generated ca45 assembly |
+| `-O0` … `-O4` | `--compile` (and the [compiled procs](#compiled-procs-proc--compiled)): cc45's optimization level (default `-O2`) |
+| `--asm <file>` | `--compile` (and the compiled procs): also write the generated ca45 assembly |
 | `--import-map FILE` | `--compile`: the map file of `REM PRAGMA IMPORT` without one (the exporting program's `<output>.map`; see Chaining) |
 | `--checks` | `--compile`: the checks of the program's own values and flow, as the interpreter's: ranges (`?ILLEGAL QUANTITY`), subscripts, `?SYNTAX ERROR` found when run, `RETURN` / `NEXT` / `RESUME` without their match, the `GOSUB` stack, `DEF FN` not defined. Off by default: none of them is compiled, a program is taken to be tested already (undefined behaviour: it goes on with the next statement); errors of files, the disk and memory stay, and `TRAP` without `--checks` warns (#489) |
 | `--line-numbers` | `--compile`: each line that can raise an error records its number, for the messages' ` IN line` and `EL` (as the interpreter's). Off by default: smaller and faster code (8 bytes a line), an error's message without ` IN line` and `EL` 65535 (#483) |
@@ -257,6 +258,8 @@ endproc                        ' return
 | `endproc` | `RETURN` and, for a proc with a `GOTO` around it, the label after it |
 | `call name` | `GOSUB name` |
 | `call name(x, y$, ...)` | `A = x : B$ = y$ : GOSUB name` — the arguments are assigned to the parameters left to right (they are ordinary, global variables) |
+| `return <expr>` (in a proc) | `ZRET = <expr> : RETURN`: the proc's result (`ZRET` is renamed like any long name) |
+| `call name(...) to v` | `... : ZRET = 0 : GOSUB name : v = ZRET` — the result into `v` (0 when the proc ends without `return <expr>`) |
 | `select <expr>` | `ZSELn = <expr>` (`ZSELn$` when the expression is a string; renamed like any long name) |
 | `case 1, 2` / `case 3 to 5` / `case is > 10` | `IF ZSELn=1 OR ZSELn=2 THEN <the case's statements> : GOTO <endselect>` on one line; a range is `>=` and `<=`, `is` takes `= <> < > <= >=`; several items are or-ed. No `GOTO` for the last case or after a statement that leaves (`GOTO`, `RETURN`). A case with a label, an `IF`, `REM`, `DATA`, `BEGIN`/`BEND` or a block in it, or whose line would pass 160 characters, keeps its own lines: `IF ZSELn<>1 AND ZSELn<>2 THEN <next case>`, the statements, `GOTO <endselect>`. An item with a comparison or `AND`/`OR`/`NOT`/`XOR` outside parentheses is tested as `(ZSELn=item)` (and `(...)=0` for the opposite) |
 | `case else` | the code when no case matched |
@@ -319,6 +322,51 @@ basic45 --link routines.c menu.bas -o menu.prg
 - `--map file` writes the link's `ln45 -M` map; `-v` shows the cc45, ca45 and ln45 commands. `BASIC45_KEEP_TMP=1` in the environment keeps the build's temporary directory (`basic45_link_<pid>`, `basic45_compile_<pid>` in the system's temporary directory): the thunks, the objects, the compiled program's assembly.
 
 `examples/basic/c_routines` is a complete example; `test_basic45_link_xemu.bas` with `test_basic45_link_xemu.c` is run by BASIC 65 on xemu.
+
+## Compiled Procs (`proc ... compiled`)
+
+A proc marked `compiled` is machine code; the rest of the program stays BASIC 65, run by the interpreter, so it can
+still be listed and edited on the MEGA65 (#577). The slow parts get the compiler's speed (`--compile`'s code
+generator, [Compiling](#compiling-compile)); the rest can use what `--compile` does not compile.
+
+```basic
+start: input "n"; n
+  call tri(n) to t
+  print "1 + ... + n ="; t
+  end
+proc tri(m) compiled
+  z = 0
+  for j = 1 to m : z = z + j : next
+  return z
+endproc
+```
+
+- `proc name(a, b%) compiled` … `endproc`: the parameters are numbers (floats or `%` integers); `return <expr>`
+  ends the proc with a number; `endproc` (no `return <expr>`) gives 0. `return` alone is a `GOSUB`'s, inside the proc.
+- `call name(x, y) to v` assigns the arguments to the parameters as for any proc, calls the compiled proc, and puts
+  its result into `v` (a float or `%` variable, or an array element: `to x(3)`; an integer as BASIC's: `?ILLEGAL
+  QUANTITY` outside -32768..32767). Without `to v` the result is dropped.
+- **The values cross by `POINTER`**: the call writes the result's and the parameters' `POINTER`s (BASIC 65's
+  variable addresses: bank 0 from `$F700`, else bank 1) and the proc's number with one `WPOKE` (in `BANK 0`), then
+  `SYS`es the compiled code (in `BANK 128`, as for `--link`). The compiled proc reads its parameters there
+  (`lib/stdlib_asm/basic_mixed.s45`: floats as they are, integers high byte first) and writes its result. It
+  shares nothing else with the interpreted program: **its parameters are copies** (a proc changing one leaves the
+  caller's variable as the call assigned it), its other variables its own, kept from one call to the next.
+- The compiled procs are one program (their bodies, each started by an `IMPORT` line of its parameters, which the
+  compiler takes as the proc's entry; `BasicChainOptions::mixed`), compiled as `--compile` compiles one (`-O`,
+  `--speed`, `--checks`, `--line-numbers`, `--bank` apply; `--asm` writes its assembly) and linked after the BASIC
+  program as `--link` links C (with C files and `asm` blocks too): the thunk `__bas_mixed` enters it through
+  `__basic_call`, its main runs the proc the block names.
+- **Run-time errors**: an error in a compiled proc prints BASIC's message (no ` IN line`: the compiled procs' lines
+  are not the program's) and ends the program (the thunk returns the error number, the call's `RREG` reads it, and an
+  `ON ... GOTO` leaves for an `END` after the last line). A `TRAP` does not catch it: BASIC 65 has no statement that
+  raises an error by its number, and its error routine cannot be reached from a `SYS`.
+- Not yet: string parameters and results, a compiled proc calling a proc (`call` in one is an error), `GOTO` or
+  `GOSUB` out of it (its labels are its own: an undefined label), `asm` / `incbin` in one, `{name}` symbols in one.
+- With `--compile` (the whole program compiled) a compiled proc is an ordinary one, its parameters global as any
+  proc's; the results are the same where the proc does not change its parameters.
+
+Test: `test_basic45_mixed_xemu.bas` (as is, `--minify`, `--compile`; with `--checks`), `test_basic45.sh` (the errors).
 
 **With `--compile`** (`basic45 --compile --link routines.c menu.bas -o menu.prg`), the compiled program and the
 linked code are one link (`ln45 -basic`): the program already runs as C, so `SYS {name}` calls the function

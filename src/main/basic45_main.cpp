@@ -915,13 +915,17 @@ int main(int argc, char* argv[]) {
     }
 
     // Block IF / proc / call (BasicStructured)
+    // (--compile: the whole program compiled, a compiled proc an ordinary one;
+    // else the compiled procs cut out, compiled below and linked, #577)
     BasicStructuredResult lowered = lowerBasicStructured(sourceCode, [&](int line) {
         auto o = preprocessor.getLineOrigin(line);
         return o.first.empty() ? opts.inputFile : o.first;
-    });
+    }, opts.compile ? BasicLowerMode::Compiled : BasicLowerMode::Interpreted);
+    // (the lowered text a build parses: the program's, or the compiled procs')
+    const std::vector<int>* buildOrigin = &lowered.origin;
     auto preOrigin = [&](int loweredLine) -> std::pair<std::string, int> {
-        if (loweredLine < 1 || loweredLine > (int)lowered.origin.size()) return {"", 0};
-        auto o = preprocessor.getLineOrigin(lowered.origin[loweredLine - 1]);
+        if (loweredLine < 1 || loweredLine > (int)buildOrigin->size()) return {"", 0};
+        auto o = preprocessor.getLineOrigin((*buildOrigin)[loweredLine - 1]);
         if (o.first.empty()) o.first = opts.inputFile;
         return o;
     };
@@ -958,7 +962,9 @@ int main(int argc, char* argv[]) {
         while (std::getline(in, l))
             if (std::regex_search(l, lm, lab)) directLabels.insert(lm[1].str());
     }
-    const bool linking = !opts.linkFiles.empty() || !lowered.asmText.empty();
+    // (the compiled procs: SYS {__bas_mixed}, their entry, #577)
+    if (!lowered.compiledProcs.empty()) directLabels.insert("__bas_mixed");
+    const bool linking = !opts.linkFiles.empty() || !lowered.asmText.empty() || !lowered.compiledProcs.empty();
 
     std::vector<std::string> sysTargets;
     std::string programText = lowered.text;
@@ -1059,11 +1065,12 @@ int main(int argc, char* argv[]) {
         programText = out;
     }
 
-    // quiet: no messages (the second build of --link repeats the first's)
-    auto build = [&](const SymbolTable& syms, bool quiet = false) -> Build {
+    // quiet: no messages (the second build of --link repeats the first's).
+    // unitText: the compiled procs' text instead of the program's (#577)
+    auto build = [&](const SymbolTable& syms, bool quiet = false, const std::string* unitText = nullptr) -> Build {
         Build b;
-        std::string text = syms.empty() ? programText : syms.substitute(programText);
-        if (opts.minify) {
+        std::string text = unitText ? *unitText : syms.empty() ? programText : syms.substitute(programText);
+        if (opts.minify && !unitText) {
             BasicMinifier minifier;
             text = minifier.minify(text);
             b.minOrigin = minifier.origins();
@@ -1105,7 +1112,7 @@ int main(int argc, char* argv[]) {
         {
             const auto& refs = b.validator->getParser().getReferencedLabels();
             std::set<std::string> procNames;
-            for (const auto& [name, line] : lowered.procs) {
+            for (const auto& [name, line] : unitText ? decltype(lowered.procs){} : lowered.procs) {
                 procNames.insert(LabelBasedSourceParser::upper(name));
                 if (!refs.count(LabelBasedSourceParser::upper(name))) {
                     auto o = preprocessor.getLineOrigin(line);
@@ -1161,12 +1168,58 @@ int main(int argc, char* argv[]) {
         return placeholder;
     };
 
+    // The compiled procs (#577): their text built (tokenized) and compiled
+    // with --compile's compiler as one program (BasicChainOptions::mixed):
+    // its assembly, linked after the interpreted program
+    auto compileProcs = [&](std::string& asmOut) -> bool {
+        buildOrigin = &lowered.compiledOrigin;
+        struct Restore { const std::vector<int>*& o; const std::vector<int>* v; ~Restore() { o = v; } } restore{buildOrigin, &lowered.origin};
+        Build u = build(symbols, false, &lowered.compiledText);
+        if (!u.ok) return false;
+        std::map<int, int> sourceOf;   // BASIC line -> parsed text line
+        for (const auto& el : u.emitter->getEmittedLines()) sourceOf[el.lineNumber] = el.sourceLine;
+        auto where = [&](int line) {
+            auto it = sourceOf.find(line);
+            if (it == sourceOf.end() || !it->second) return opts.inputFile + ": line " + std::to_string(line);
+            auto o = originOf(u, it->second);
+            return (o.first.empty() ? opts.inputFile : o.first) + ":" + std::to_string(o.second ? o.second : 1) + ":1";
+        };
+        std::string name = fs::path(opts.inputFile).filename().string();
+        BasicChainOptions chain;
+        chain.sourceDir = fs::path(opts.inputFile).parent_path().string();
+        chain.lineNumbers = opts.lineNumbers;
+        chain.checks = opts.checks;
+        chain.bank = opts.bank;
+        chain.mixed = true;
+        auto ir = compileBasicToIR(u.binary, name, opts.speed, &chain);
+        for (const auto& [line, msg] : ir.warnings) std::cerr << where(line) << ": warning: " << msg << std::endl;
+        if (!ir.ok) {
+            for (const auto& [line, msg] : ir.errors) std::cerr << where(line) << ": error: " << msg << std::endl;
+            std::cerr << "Compilation failed: " << ir.errors.size() << " error(s) in the compiled procs" << std::endl;
+            return false;
+        }
+        try {
+            asmOut = basicIRToAssembly(ir.module, opts.optLevel, name);
+        } catch (const std::exception& e) {
+            std::cerr << "basic45: the compiled procs: the code generator failed: " << e.what() << std::endl;
+            return false;
+        }
+        if (!opts.asmFile.empty()) {
+            std::ofstream a(opts.asmFile);
+            if (!a) { std::cerr << "Error: Could not write " << opts.asmFile << std::endl; return false; }
+            a << asmOut;
+        }
+        return true;
+    };
+
     if (opts.validateOnly) {
         // the program's own checks (labels, blocks, statements) also with
         // --link or asm / incbin blocks: their symbols stand in as $FFFF
         // (only what needs the link is left out; #636)
         Build b = linking && !compileLink ? build(placeholderSymbols()) : build(symbols);
         if (!b.ok) return 1;
+        std::string procsAsm;
+        if (!lowered.compiledProcs.empty() && !compileProcs(procsAsm)) return 1;
         if (opts.verbose) Logger::stream(LogLevel::INFO) << "Validation successful" << std::endl;
         return 0;
     }
@@ -1203,9 +1256,33 @@ int main(int argc, char* argv[]) {
             std::ofstream th(tmp / "thunks.s45");
             th << "; basic45 --link: a thunk per SYS {name} target\n";
             th << ".extern __basic_call\n.extern ___bc_target\n";
-            th << "; main is not needed (the program is BASIC); a C main overrides this\n";
-            th << ".weak _main\n";
-            th << ".segment \"code\"\n_main:\n    rts\n";
+            // (the compiled procs' program has its own: __bas_mixed calls it)
+            if (lowered.compiledProcs.empty()) {
+                th << "; main is not needed (the program is BASIC); a C main overrides this\n";
+                th << ".weak _main\n";
+                th << ".segment \"code\"\n_main:\n    rts\n";
+            } else {
+                th << ".extern _main\n.segment \"code\"\n";
+            }
+            if (!lowered.compiledProcs.empty()) {
+                // the compiled procs (#577): their entry (the compiled
+                // program's main) and the block a CALL writes: the proc's
+                // number and the result's kind, the result's POINTER, the
+                // parameters' (data: written before the first call fills BSS)
+                th << "; the compiled procs: " << lowered.compiledProcs.size() << "\n"
+                   << ".global __bas_mixed, __bas_psel, __bas_pkind, __bas_pres, __bas_parg\n"
+                   // (a run-time error in the proc: its message, then its number
+                   // the exit status at $FD, which comes back in A for the
+                   // CALL's RREG: the program ends)
+                   << ".global __bas_mixon\n"
+                   << "__bas_mixed:\n    pha\n    lda #<_main\n    sta ___bc_target\n"
+                   << "    lda #>_main\n    sta ___bc_target + 1\n    pla\n    jsr __basic_call\n"
+                   << "    lda $FE\n    bne @ok\n    lda $FD\n    rts\n@ok:\n    lda #0\n    rts\n"
+                   << ".segment \"data\"\n__bas_mixon: .byte 1\n"
+                   << "__bas_psel: .byte 0\n__bas_pkind: .byte 0\n__bas_pres: .word 0\n__bas_parg:";
+                for (size_t k = 0; k < std::max<size_t>(lowered.compiledArgs, 1); k++) th << (k ? ", 0" : " .word 0");
+                th << "\n.segment \"code\"\n";
+            }
             for (const auto& n : sysTargets) {
                 std::string target = n[0] == '_' ? n : "_" + n;
                 th << ".extern " << target << "\n.global __bas_" << n << "\n__bas_" << n << ":\n"
@@ -1227,6 +1304,17 @@ int main(int argc, char* argv[]) {
                   " -o " + shellQuote((tmp / "thunks.o45").string()), "assembling the thunks"))
             return 1;
         objects.push_back((tmp / "thunks.o45").string());
+        if (!lowered.compiledProcs.empty()) {
+            std::string procsAsm;
+            if (!compileProcs(procsAsm)) return 1;
+            std::ofstream ps(tmp / "procs.s45");
+            ps << procsAsm;
+            ps.close();
+            if (!step(shellQuote(tools + "/ca45") + " -c " + shellQuote((tmp / "procs.s45").string()) +
+                      " -o " + shellQuote((tmp / "procs.o45").string()), "assembling the compiled procs"))
+                return 1;
+            objects.push_back((tmp / "procs.o45").string());
+        }
         if (!lowered.asmText.empty()) {
             // asm blocks and incbin data
             std::ofstream as(tmp / "inline.s45");

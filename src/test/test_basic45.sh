@@ -641,5 +641,27 @@ else
     fail "--compile --link {name+1}: $(cat "$D/se.log")"
 fi
 
+# #577: compiled procs' misuse is an error at its source line
+mp_ok=1
+mp_case() {   # file text, expected message
+    printf "$1" > "$D/mp.bas"
+    out=$($B "$D/mp.bas" -o "$D/mp.prg" 2>&1)
+    { [ $? = 1 ] && grep -qF "$2" <<< "$out"; } || { mp_ok=0; echo "  $2: $out"; }
+}
+mp_case 'call f(1) to a$\nend\nproc f(x) compiled\n  return x\nendproc\n' "mp.bas:1:1: error: call f to a\$: a compiled proc's result is a number"
+mp_case 'call f("a")\nend\nproc f(x$) compiled\n  print x$\nendproc\n' "mp.bas:3:1: error: proc f compiled: a parameter is a float or % variable, not x\$"
+mp_case 'call f(1)\nend\nproc f(x) compiled\n  call g\nendproc\nproc g\nendproc\n' "mp.bas:4:1: error: call g: a compiled proc cannot call a proc"
+mp_case 'return 5\n' "mp.bas:1:1: error: return 5: a value is returned only from a proc"
+mp_case 'call g to v\nend\n' "mp.bas:1:1: error: call g to v: no proc g"
+mp_case 'call f(1) to v\nend\nproc f(x) compiled\n  return "a"\nendproc\n' "error: a compiled proc returns a number, not a string"
+# the call: one WPOKE of the block, the SYS, the error exit
+printf 'call f(2, 3) to v%%\nprint v%%\nend\nproc f(x, y%%) compiled\n  return x * y%%\nendproc\n' > "$D/mq.bas"
+if $B -v "$D/mq.bas" -o "$D/mq.prg" > "$D/mq.log" 2>&1; then :; else mp_ok=0; cat "$D/mq.log"; fi
+if [ $mp_ok = 1 ]; then
+    pass "compiled procs: misuse reported at its line (#577)"
+else
+    fail "compiled procs' errors (#577)"
+fi
+
 echo "basic45 tests: $passed passed, $failed failed"
 [ $failed -eq 0 ]

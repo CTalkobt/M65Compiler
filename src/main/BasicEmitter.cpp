@@ -443,8 +443,9 @@ void BasicEmitter::checkVariables(const std::vector<std::vector<BasicToken>>& li
                     t[k + 1].value == "(" && !otherKeywordHint(up(t[k].value)).empty())
                     diagnostics.push_back({sourceOf[li], "'" + t[k].value + "' is not a BASIC 65 function" +
                                            otherKeywordHint(up(t[k].value)) + ": it is read as an array", false});
+            // (IMPORT: a compiled proc's parameters, basic45 #577)
             bool listAssign = kw == "INPUT" || kw == "INPUT#" || kw == "READ" || kw == "GET" || kw == "RREG" || kw == "RMOUSE" ||
-                              kw == "RCURSOR" ||
+                              kw == "RCURSOR" || kw == "IMPORT" ||
                               (kw == "LINE" && s + 1 < end && t[s + 1].type == BasicToken::KEYWORD &&
                                (t[s + 1].value == "INPUT" || t[s + 1].value == "INPUT#"));   // LINE INPUT[#]
             bool sprsav = kw == "SPRSAV";   // SPRSAV source, a$: a$ assigned
@@ -501,6 +502,11 @@ void BasicEmitter::checkVariables(const std::vector<std::vector<BasicToken>>& li
                         continue;
                     }
                 }
+                // POINTER(v): v can be read and written through its address
+                // (a compiled proc's parameters and result, basic45 #577)
+                if (k >= 2 && t[k - 1].type == BasicToken::OPERATOR && t[k - 1].value == "(" &&
+                    t[k - 2].type == BasicToken::KEYWORD && t[k - 2].value == "POINTER")
+                    u.assigned = true;
                 u.read = true;
             }
             i = end;

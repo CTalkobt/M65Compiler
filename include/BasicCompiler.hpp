@@ -41,6 +41,15 @@ struct BasicChainOptions {
         bool cfunc = false;
     };
     std::vector<LinkSym> linkSyms;
+    // basic45's compiled procs in an interpreted program (#577): the
+    // program is their bodies, each starting with a line IMPORT p, q, ...
+    // (its parameters). main runs the one __bas_psel names (1, 2, ... in
+    // the order of the IMPORT lines), its parameters read first from the
+    // interpreter's variables whose POINTERs are in __bas_parg; RETURN expr
+    // writes the result to the one in __bas_pres (__bas_pkind: 0 none, 1 a
+    // float, 2 an integer) and returns, as does END. RETURN alone is a
+    // GOSUB's
+    bool mixed = false;
 };
 
 struct BasicCompileResult {

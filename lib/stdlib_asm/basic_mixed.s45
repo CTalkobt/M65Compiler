@@ -1,0 +1,89 @@
+; basic_mixed.s45 — basic45's compiled procs in an interpreted program
+; (#577): the interpreted CALL writes the variables' POINTERs into
+; ___bas_pp (basic45's thunk file: in the data segment, written before the
+; first call fills BSS) and SYSes the compiled program, which reads its
+; parameters and writes its result through them.
+;
+;   __bas_vget    __bas_n: a POINTER; __bas_m: 0 a float, 1 an integer
+;                 -> __float_a (5 bytes) / __bas_n (the integer, low first)
+;   __bas_vputf   __bas_n: a POINTER; __float_a written there (5 bytes)
+;   __bas_vputi   __bas_n: a POINTER; __bas_m written there (2 bytes)
+;
+; BASIC 65's variables (b65.src: ptrget): a scalar's value in bank 0 at
+; $F700-$FEFF, an array's in bank 1 (POINTER's rule: an address from $F700
+; up is bank 0's, any other bank 1's); a float as the library's (exponent,
+; 4 bytes of mantissa, its top bit the sign), an integer high byte first.
+
+.weak cc45.icallinfo
+cc45.icallinfo = 1
+
+.global __bas_vget, __bas_vputf, __bas_vputi
+.extern __bas_n, __bas_m, __float_a
+
+FP = $08                ; the variable (a 32-bit pointer)
+
+.segment "code"
+
+; FP := the 28-bit address of POINTER __bas_n
+proc __bas_vaddr
+    lda __bas_n
+    sta FP
+    lda __bas_n+1
+    sta FP+1
+    ldx #1
+    cmp #$F7
+    bcc @b1
+    ldx #0
+@b1:
+    stx FP+2
+    lda #0
+    sta FP+3
+    rts
+endproc
+
+proc __bas_vget
+    jsr __bas_vaddr
+    ldz #0
+    lda __bas_m
+    bne @int
+    ldx #0
+@f: lda [FP],z
+    sta __float_a,x
+    inz
+    inx
+    cpx #5
+    bne @f
+    rts
+@int:
+    lda [FP],z              ; high
+    tax
+    inz
+    lda [FP],z              ; low
+    sta __bas_n
+    stx __bas_n+1
+    rts
+endproc
+
+proc __bas_vputf
+    jsr __bas_vaddr
+    ldz #0
+    ldx #0
+@f: lda __float_a,x
+    sta [FP],z
+    inz
+    inx
+    cpx #5
+    bne @f
+    rts
+endproc
+
+proc __bas_vputi
+    jsr __bas_vaddr
+    ldz #0
+    lda __bas_m+1           ; high first
+    sta [FP],z
+    inz
+    lda __bas_m
+    sta [FP],z
+    rts
+endproc

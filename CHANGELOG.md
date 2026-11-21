@@ -4,6 +4,24 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### basic45: compiled procs in an interpreted program (#577)
+
+- **`proc name(a, b%) compiled`** … `endproc`: the proc is machine code (`--compile`'s code generator), the rest of
+  the program stays BASIC 65 for the interpreter. `call name(x, y) to v` calls it: the arguments assigned to the
+  parameters, then one `WPOKE` of the result's and the parameters' `POINTER`s and the proc's number, and a `SYS`;
+  the compiled proc reads its parameters through those addresses (floats, `%` integers; copies) and writes its
+  result (`return <expr>`; `endproc`: 0) into `v` (a float, `%` or array element). The compiled procs are one
+  program, linked after the BASIC program as `--link` links C (`-O`, `--speed`, `--checks`, `--asm` apply).
+- A run-time error in a compiled proc prints BASIC's message and ends the program (`TRAP` does not catch it:
+  BASIC 65 cannot raise an error by number). Not yet: strings, calls from a compiled proc, jumps out of it.
+- **`return <expr>` and `call ... to v` in any proc**: an interpreted proc's result through `ZRET` (0 when it
+  ends without one). With `--compile`, a compiled proc is an ordinary one.
+- Library: `stdlib_asm/basic_mixed.s45` (`__bas_vget`, `__bas_vputf`, `__bas_vputi`: a variable by its
+  `POINTER`); `__bas_error` leaves out ` IN line` in a compiled proc (`__bas_mixon`, weak, 1 in its thunk file).
+- The validator counts `IMPORT`'s names and `POINTER(v)` as assigning (no "read but never assigned" for them);
+  `IMPORT` without a file name takes no disk parameters.
+- Tests: `test_basic45_mixed_xemu.bas` (as is, `--minify`, `--compile`), `test_basic45.sh` (the errors).
+
 ### basic45: --link-align=N, where the linked C code starts
 
 - `--link-align=N` (a power of 2 from 1 to 32768): the `--link` code is linked at the first multiple of `N` after the
