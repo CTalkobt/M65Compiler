@@ -1,8 +1,8 @@
 ; font.s45 — <font.h> (#466): font45's fonts read, measured and drawn (was
 ; stdlib/font.c). The font data is anywhere in the 28-bit space, read with
 ; [ptr],z; a glyph's visible rows in a linear buffer are font_glyph.s45's
-; (__font_glyph), the clipping here. font_load stays C (stdlib/font_load.c:
-; <load.h>, <unpack.h>).
+; (__font_glyph), the clipping here; FCM / NCM characters' a span at a time
+; here (#670). font_load stays C (stdlib/font_load.c: <load.h>, <unpack.h>).
 ;
 ;   const font_t *font_from(font_t *f, unsigned long data)    f $10, data $12-$15
 ;   void font_install(unsigned long charset, unsigned int bytes, unsigned long lin)
@@ -80,12 +80,23 @@ __fd_sp:    .res 2
 __fd_sn:    .res 1
 __fd_a0:    .res 1      ;   the first visible and the one after
 __fd_a1:    .res 1
-__fd_row:   .res 1      ; the characters' drawing: row, column, pixel
-__fd_col:   .res 1
-__fd_py:    .res 2
-__fd_px:    .res 2
-__fd_bit:   .res 2      ;   col * bpp
-__fd_v:     .res 1
+__fd_row:   .res 1      ; the characters' drawing (#670): the row,
+__fd_py:    .res 2      ;   y + row,
+__fd_bpp:   .res 1      ;   bits a pixel, pixels a byte (8 / bpp),
+__fd_ppb:   .res 1
+__fd_bi0:   .res 1      ;   column c0's byte, bit, pixels left in its byte,
+__fd_bo:    .res 1
+__fd_pl0:   .res 1
+__fd_nb:    .res 1      ;   the next byte's index, z saved,
+__fd_zs:    .res 1
+__fd_cpx:   .res 1      ;   pixels a cell (8 / 16), the first's pixel,
+__fd_k:     .res 1
+__fd_cnt:   .res 1      ;   pixels drawn in the cell,
+__fd_cn:    .res 2      ;   the cell's character, the next one's step,
+__fd_step:  .res 2
+__fd_cn0:   .res 2      ;   the row's first cell's, the step a row of characters down,
+__fd_stepq: .res 2
+__fd_k0:    .res 1      ;   the row's first pixel in its cell
 __fd_shr:   .res 1      ;   3 (FCM: 8 pixels a character) or 4 (NCM: 16)
 __fd_pos:   .res 1      ;   1: numbered down the columns (pitch > 0)
 __fd_mp:    .res 2      ;   |pitch|
@@ -636,6 +647,66 @@ proc __font_draw
     sec
     sbc #1
     sta __fd_ink0
+    ; pixels a byte of a glyph row: 8 / bpp
+    ldy #F_BPP
+    lda (FP),y
+    sta __fd_bpp
+    sta __fd_tmp
+    lda #8
+@pb:
+    lsr __fd_tmp
+    beq @pbd
+    lsr
+    bra @pb
+@pbd:
+    sta __fd_ppb
+    ; characters: 8 pixels a cell (FCM) or 16 (NCM); |pitch|, and the next
+    ; cell's character number: + pitch (numbered down the columns, pitch > 0)
+    ; or + 1 (along the rows)
+    lda __fd_kind
+    beq @konst
+    ldx #3
+    lda #8
+    ldy __fd_kind           ; (1 FCM, 2 NCM)
+    cpy #1
+    beq @shr
+    ldx #4
+    lda #16
+@shr:
+    stx __fd_shr
+    sta __fd_cpx
+    lda __fd_pitch+1
+    bmi @neg
+    ora __fd_pitch
+    beq @neg
+    lda #1
+    sta __fd_pos
+    sta __fd_stepq
+    lda #0
+    sta __fd_stepq+1
+    lda __fd_pitch
+    sta __fd_mp
+    sta __fd_step
+    lda __fd_pitch+1
+    sta __fd_mp+1
+    sta __fd_step+1
+    bra @konst
+@neg:
+    lda #0
+    sta __fd_pos
+    sta __fd_step+1
+    sec
+    sbc __fd_pitch
+    sta __fd_mp
+    lda #0
+    sbc __fd_pitch+1
+    sta __fd_mp+1
+    sta __fd_stepq+1
+    lda __fd_mp
+    sta __fd_stepq
+    lda #1
+    sta __fd_step
+@konst:
 
 @char:
     ldy #0
@@ -691,12 +762,8 @@ proc __font_draw
     lda $D77B
     adc (FP),y
     sta __fd_g+3
-    lda __fd_kind
-    beq @bitmap
-    jmp @pixels
-
-@bitmap:
-    ; a linear buffer: the glyph's visible columns and rows, drawn by __font_glyph
+    ; the glyph's visible columns c0..c1 - 1 and rows r0..r1 - 1 (as longs:
+    ; the default clip, 32767, minus x overflows an int)
     lda __font_clipv
     sta __fd_sl
     lda __font_clipv+1
@@ -743,6 +810,11 @@ proc __font_draw
     sta __fd_r0
     lda __fd_a1
     sta __fd_r1
+    lda __fd_kind
+    beq @lin
+    jmp @pixels
+@lin:
+    ; a linear buffer: drawn by __font_glyph
     ; dst = lin + (y + r0) * pitch + x (as longs)
     lda __fd_y
     ldx __fd_y+1
@@ -823,77 +895,79 @@ proc __font_draw
     jmp @adv
 
 @pixels:
-    ; characters, a pixel at a time: 8 (FCM) or 16 (NCM) pixels a character
-    ; across; numbered down the columns (pitch > 0) or along the rows
-    lda #3
-    ldx __fd_kind
+    ; characters, a span at a time (#670): in each visible row, the
+    ; character's address once per cell the span crosses, the cell's pixels
+    ; walked with z (FCM: a byte each; NCM: a nibble each, the left one the
+    ; low nibble, a byte every second pixel); the pixel values shifted out of
+    ; the row's bytes in turn ($14: the byte, $15: its pixels left,
+    ; __fd_nb: the next byte's index). First the bits of column c0: byte c0 * bpp >> 3,
+    ; after c0 & (ppb - 1) pixels of it
+    lda __fd_c0
+    sta __fd_t
+    lda #0
+    sta __fd_t+1
+    ldx __fd_bpp
+@cb:
     cpx #1
-    beq @shr
-    lda #4
-@shr:
-    sta __fd_shr
-    lda __fd_pitch+1
-    bmi @neg
-    ora __fd_pitch
-    beq @neg
-    lda #1
-    sta __fd_pos
-    lda __fd_pitch
-    sta __fd_mp
-    lda __fd_pitch+1
-    sta __fd_mp+1
-    bra @start
-@neg:
-    lda #0
-    sta __fd_pos
+    beq @cbd
+    asl __fd_t
+    rol __fd_t+1
+    txa
+    lsr
+    tax
+    bra @cb
+@cbd:
+    lda __fd_t
+    and #7
+    sta __fd_bo
+    lsr __fd_t+1
+    ror __fd_t
+    lsr __fd_t+1
+    ror __fd_t
+    lsr __fd_t+1
+    ror __fd_t
+    lda __fd_t
+    sta __fd_bi0
+    lda __fd_ppb
     sec
-    sbc __fd_pitch
-    sta __fd_mp
-    lda #0
-    sbc __fd_pitch+1
-    sta __fd_mp+1
-@start:
-    ldq __fd_g              ; $10-$13: the row's bytes
-    stq $10
-    lda #0
+    sbc #1
+    and __fd_c0
+    sta __fd_tmp
+    lda __fd_ppb
+    sec
+    sbc __fd_tmp
+    sta __fd_pl0
+    ; $10-$13: row r0's bytes, the glyph + r0 * rowbytes
+    lda __fd_r0
     sta __fd_row
-@prow:
-    ldy #F_HEIGHT
-    lda __fd_row
-    cmp (FP),y
-    bcc @rowgo
-    jmp @adv
-@rowgo:
+    sta $D770
+    lda #0
+    sta $D771
+    sta $D772
+    sta $D773
+    sta $D775
+    sta $D776
+    sta $D777
+    ldy #F_ROWBYTES
+    lda (FP),y
+    sta $D774
+@busy4:
+    bit $D70F
+    bvs @busy4
+    ldq $D778
+    clc
+    adcq __fd_g
+    stq $10
+    ; row r0's py = y + r0 (inside the clip: no overflow) and py >> 3
+    ; (signed); px = x + c0, its cell px >> shr (signed) and pixel in it
+    ; px & (cpx - 1): the same in every row
     clc
     lda __fd_y
-    adc __fd_row
+    adc __fd_r0
     sta __fd_py
     lda __fd_y+1
     adc #0
     sta __fd_py+1
-    ; py < clip_y0 or py > clip_y1: not drawn
-    lda __fd_py
-    cmp __font_clipv+2
-    lda __fd_py+1
-    sbc __font_clipv+3
-    bvc @y0
-    eor #$80
-@y0:
-    bpl @y0ok
-    jmp @rownext
-@y0ok:
-    lda __font_clipv+6
-    cmp __fd_py
-    lda __font_clipv+7
-    sbc __fd_py+1
-    bvc @y1
-    eor #$80
-@y1:
-    bpl @y1ok
-    jmp @rownext
-@y1ok:
-    ; py >> 3 (signed)
-    lda __fd_py+1
     sta __fd_qq+1
     lda __fd_py
     ldx #3
@@ -908,85 +982,21 @@ proc __font_draw
     dex
     bne @q
     sta __fd_qq
-    lda #0
-    sta __fd_col
-    sta __fd_bit
-    sta __fd_bit+1
-@pcol:
-    ldy #F_CELLW
-    lda __fd_col
-    cmp (FP),y
-    bcc @colgo
-    jmp @rownext
-@colgo:
-    ; v = (r[bit >> 3] >> (8 - bpp - (bit & 7))) & mask
-    lda __fd_bit+1
-    sta __fd_tmp
-    lda __fd_bit
-    lsr __fd_tmp
-    ror
-    lsr __fd_tmp
-    ror
-    lsr __fd_tmp
-    ror
-    taz
-    lda [$10],z
-    sta __fd_v
-    lda __fd_bit
-    and #7
-    clc
-    ldy #F_BPP
-    adc (FP),y
-    sta __fd_tmp
-    lda #8
-    sec
-    sbc __fd_tmp
-    tax
-    lda __fd_v
-@vs:
-    cpx #0
-    beq @vm
-    lsr
-    dex
-    bra @vs
-@vm:
-    and __fd_mask
-    bne @lit
-    jmp @colnext
-@lit:
-    sta __fd_v
-    ; px = x + col: px < clip_x0 or px > clip_x1, not drawn
     clc
     lda __fd_x
-    adc __fd_col
-    sta __fd_px
+    adc __fd_c0
+    tax
     lda __fd_x+1
     adc #0
-    sta __fd_px+1
-    lda __fd_px
-    cmp __font_clipv
-    lda __fd_px+1
-    sbc __font_clipv+1
-    bvc @x0
-    eor #$80
-@x0:
-    bpl @x0ok
-    jmp @colnext
-@x0ok:
-    lda __font_clipv+4
-    cmp __fd_px
-    lda __font_clipv+5
-    sbc __fd_px+1
-    bvc @x1
-    eor #$80
-@x1:
-    bpl @x1ok
-    jmp @colnext
-@x1ok:
-    ; px >> shr (signed)
-    lda __fd_px+1
     sta __fd_pp+1
-    lda __fd_px
+    lda __fd_cpx
+    sec
+    sbc #1
+    sta __fd_tmp
+    txa
+    and __fd_tmp
+    sta __fd_k0
+    txa
     ldx __fd_shr
 @p:
     pha
@@ -999,7 +1009,9 @@ proc __font_draw
     dex
     bne @p
     sta __fd_pp
-    ; the character: (px >> shr) * pitch + (py >> 3), or (py >> 3) * -pitch + (px >> shr)
+    ; the first cell's character: (px >> shr) * pitch + (py >> 3), or
+    ; (py >> 3) * -pitch + (px >> shr), 16 bits (as the C's unsigned int);
+    ; a row of characters further down: + 1, or + -pitch
     lda __fd_pos
     beq @along
     lda __fd_pp
@@ -1030,103 +1042,258 @@ proc __font_draw
     sta $D774
     lda __fd_mp+1
     sta $D775
-@busy4:
+@busy5:
     bit $D70F
-    bvs @busy4
-    ; its 64 bytes: (ch << 8) >> 2
-    lda #0
-    sta WP
-    sta WP+3
+    bvs @busy5
     clc
     lda $D778
     adc __fd_ad
-    sta WP+1
+    sta __fd_cn0
     lda $D779
     adc __fd_ad+1
+    sta __fd_cn0+1
+@prow:
+    lda __fd_row
+    cmp __fd_r1
+    bcc @rowgo
+    jmp @adv
+@rowgo:
+    lda __fd_cn0
+    sta __fd_cn
+    lda __fd_cn0+1
+    sta __fd_cn+1
+    lda __fd_k0
+    sta __fd_k
+    ; the row's first byte, shifted to column c0's bits
+    ldz __fd_bi0
+    lda [$10],z
+    sta $14
+    inz
+    stz __fd_nb
+    ldx __fd_bo
+    beq @bs0
+@bs:
+    asl $14
+    dex
+    bne @bs
+@bs0:
+    lda __fd_pl0
+    sta $15
+    lda __fd_c1
+    sec
+    sbc __fd_c0
+    sta $17                 ; the span's pixels left
+@cell:
+    ; WP = lin + cn * 64 + (py & 7) * 8
+    lda #0
+    sta WP+3
+    lda __fd_cn
+    sta WP+1
+    lda __fd_cn+1
     sta WP+2
+    lda #0
     lsr WP+2
     ror WP+1
-    ror WP
+    ror
     lsr WP+2
     ror WP+1
-    ror WP
-    ; + (py & 7) * 8 + the pixel's byte: px & 7 (FCM), (px & 15) >> 1 (NCM)
+    ror
+    sta WP
     lda __fd_py
     and #7
     asl
     asl
     asl
-    sta __fd_tmp
+    ora WP
+    sta WP
+    ldq WP
+    clc
+    adcq __fd_lin
+    stq WP
+    ; the cell's pixels: min(cpx - k, the span's left)
+    lda __fd_cpx
+    sec
+    sbc __fd_k
+    cmp $17
+    bcc @nmin
+    lda $17
+@nmin:
+    sta $18
+    sta __fd_cnt
     lda __fd_kind
     cmp #1
-    bne @nb
-    lda __fd_px
-    and #7
-    bra @ob
-@nb:
-    lda __fd_px
-    and #15
-    lsr
-@ob:
-    ora __fd_tmp
-    ora WP
+    beq @fcm
+    jmp @ncm
+@fcm:
+    ldz __fd_k
+@fpix:
+    lda $15
+    bne @fhave
+    stz __fd_zs             ; the row's next byte
+    ldz __fd_nb
+    lda [$10],z
+    sta $14
+    inz
+    stz __fd_nb
+    ldz __fd_zs
+    lda __fd_ppb
+    sta $15
+@fhave:
+    lda $14
+    bne @fbits
+    ; the byte's other pixels are blank: n = min(its pixels left, the cell's)
+    ; skipped at once
+    lda $15
+    cmp $18
+    bcc @fn
+    lda $18
+@fn:
+    sta __fd_tmp
+    tza
     clc
-    adc __fd_lin
-    sta WP
-    lda WP+1
-    adc __fd_lin+1
-    sta WP+1
-    lda WP+2
-    adc __fd_lin+2
-    sta WP+2
-    lda WP+3
-    adc __fd_lin+3
-    sta WP+3
-    ; the ink: ramp first + v - 1
-    lda __fd_v
+    adc __fd_tmp
+    taz
+    lda $15
+    sec
+    sbc __fd_tmp
+    sta $15
+    lda $18
+    sec
+    sbc __fd_tmp
+    sta $18
+    bne @fpix
+    bra @celldone
+@fbits:
+    dec $15
+    lda #0
+    ldx __fd_bpp
+@fx:
+    asl $14
+    rol
+    dex
+    bne @fx
+    tax
+    beq @fskip              ; coverage 0: not drawn
     clc
     adc __fd_ink0
-    ldz #0
-    ldx __fd_kind
-    cpx #1
-    bne @nib
     sta [WP],z
-    bra @colnext
-@nib:
-    sta __fd_v
-    lda __fd_px
+@fskip:
+    inz
+    dec $18
+    bne @fpix
+    bra @celldone
+@ncm:
+    lda __fd_k
     and #1
-    bne @odd
-    lda __fd_v              ; the left pixel: the low nibble
-    and #$0F
+    sta $1A                 ; 1: the right pixel of its byte
+    lda __fd_k
+    lsr
+    taz
+@npix:
+    lda $15
+    bne @nhave
+    stz __fd_zs
+    ldz __fd_nb
+    lda [$10],z
+    sta $14
+    inz
+    stz __fd_nb
+    ldz __fd_zs
+    lda __fd_ppb
+    sta $15
+@nhave:
+    lda $14
+    bne @nbits
+    ; blank: n pixels skipped (z += (nibble + n) >> 1, the nibble (nibble + n) & 1)
+    lda $15
+    cmp $18
+    bcc @nn
+    lda $18
+@nn:
     sta __fd_tmp
+    lda $15
+    sec
+    sbc __fd_tmp
+    sta $15
+    lda $18
+    sec
+    sbc __fd_tmp
+    sta $18
+    lda __fd_tmp
+    clc
+    adc $1A
+    tax
+    and #1
+    sta $1A
+    txa
+    lsr
+    sta __fd_tmp
+    tza
+    clc
+    adc __fd_tmp
+    taz
+    lda $18
+    bne @npix
+    jmp @celldone
+@nbits:
+    dec $15
+    lda #0
+    ldx __fd_bpp
+@nxb:
+    asl $14
+    rol
+    dex
+    bne @nxb
+    tax
+    beq @nskip
+    clc
+    adc __fd_ink0
+    ldx $1A
+    bne @nhi
+    and #$0F                ; the left pixel: the low nibble
+    sta $1E
     lda [WP],z
     and #$F0
-    ora __fd_tmp
+    ora $1E
     sta [WP],z
-    bra @colnext
-@odd:
-    lda __fd_v
+    bra @nskip
+@nhi:
     asl
     asl
     asl
     asl
-    sta __fd_tmp
+    sta $1E
     lda [WP],z
     and #$0F
-    ora __fd_tmp
+    ora $1E
     sta [WP],z
-@colnext:
-    clc
-    lda __fd_bit
-    ldy #F_BPP
-    adc (FP),y
-    sta __fd_bit
-    bcc @cn
-    inc __fd_bit+1
-@cn:
-    inc __fd_col
-    jmp @pcol
+@nskip:
+    lda $1A
+    eor #1
+    sta $1A
+    bne @nsame
+    inz
+@nsame:
+    dec $18
+    bne @npix
+@celldone:
+    lda $17
+    sec
+    sbc __fd_cnt
+    sta $17
+    bne @nextcell
+    jmp @rownext
+@nextcell:
+    lda #0
+    sta __fd_k
+    clc                     ; the next cell's character
+    lda __fd_cn
+    adc __fd_step
+    sta __fd_cn
+    lda __fd_cn+1
+    adc __fd_step+1
+    sta __fd_cn+1
+    jmp @cell
 @rownext:
     ldy #F_ROWBYTES
     clc
@@ -1143,6 +1310,21 @@ proc __font_draw
     adc #0
     sta $13
     inc __fd_row
+    inc __fd_py
+    bne @pyl
+    inc __fd_py+1
+@pyl:
+    lda __fd_py
+    and #7
+    bne @samech
+    clc                     ; the next row of characters
+    lda __fd_cn0
+    adc __fd_stepq
+    sta __fd_cn0
+    lda __fd_cn0+1
+    adc __fd_stepq+1
+    sta __fd_cn0+1
+@samech:
     jmp @prow
 
 @adv:

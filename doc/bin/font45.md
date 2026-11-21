@@ -184,5 +184,4 @@ font_select(0x40000UL);
 ## Known problems
 
 - TrueType is not hinted: small sizes are softer than a hinted rasterizer makes them. 2 bpp keeps them readable.
-- `font_draw_fcm` and `font_draw_ncm` are C, a pixel at a time (`font_draw_bitmap` draws each glyph in assembly).
 - PSF's Unicode table is ignored: glyphs keep their position as their code.
