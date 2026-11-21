@@ -9,6 +9,7 @@
 #include "AssemblyStage.hpp"
 #include "LinkingStage.hpp"
 #include "CLint.hpp"
+#include "UnpackFormats.hpp"
 #include "OptimizationCatalog.hpp"
 #include "O45Reader.hpp"
 #include "O45Archive.hpp"
@@ -197,6 +198,10 @@ CompilationResult CompilationPipeline::compile() {
         }
         auto ast = parseStage.getAST();
         if (config_.lint && ast) clint::runAST(*config_.lint, *ast);   // (before folding: casts are still casts)
+        // the pack45 streams it unpacks where they are visible (#666): beside
+        // the source or in an include directory
+        std::vector<unpackfmt::Site> unpackSites;
+        if (ast) unpackSites = unpackfmt::find(*ast, config_.includePaths);
 
         // Phase 102: Extract typedef information for IR generation
         // Build typedef mappings for struct/union types from parseStage
@@ -245,6 +250,7 @@ CompilationResult CompilationPipeline::compile() {
         codegenStage.setMaxUnrollBytes(config_.maxUnrollBytes);
         codegenStage.setSourceFile(config_.inputFile);
         codegenStage.setStackTop(config_.stackTop);
+        codegenStage.setUnpackSites(unpackSites);
         codegenStage.setFunctionSections(config_.functionSections);
         codegenStage.setBssFill(config_.bssFill);
         codegenStage.setFastFloat(config_.fastFloat == 1);

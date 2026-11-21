@@ -1,5 +1,6 @@
 #pragma once
 #include "Stage.hpp"
+#include "UnpackFormats.hpp"
 #include <memory>
 #include <cstdint>
 #include <string>
@@ -63,6 +64,8 @@ public:
 
     void setSourceFile(const std::string& f) { sourceFile_ = f; }
     void setStackTop(int top) { stackTop_ = top; }
+    // the pack45 streams the file unpacks (#666): put in the IR module
+    void setUnpackSites(std::vector<unpackfmt::Site> s) { unpackSites_ = std::move(s); }
     void setFunctionSections(bool on) { functionSections_ = on; }
     bool errorsPrinted() const { return errorsPrinted_; }
     void setBssFill(int v) { bssFill_ = v; }
@@ -94,6 +97,7 @@ private:
     int maxInlineIRSize_ = 11;
     int maxUnrollBytes_ = 128;
     int stackTop_ = -1;
+    std::vector<unpackfmt::Site> unpackSites_;
     bool functionSections_ = false;
     bool errorsPrinted_ = false;
     int bssFill_ = -1;

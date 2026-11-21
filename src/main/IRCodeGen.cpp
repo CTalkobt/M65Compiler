@@ -2,6 +2,7 @@
 #include "IRCodeGen.hpp"
 #include "OpEffect.hpp"
 #include "IROptimizer.hpp"
+#include "UnpackFormats.hpp"
 #include <cmath>
 #include <cstring>
 #include <iomanip>
@@ -2853,6 +2854,23 @@ void IRCodeGen::generate(const ir::Module& mod, uint32_t zpStart, bool relocMode
         // of them do
         emit(".weak cc45.icallinfo");
         emit("cc45.icallinfo = 1");
+        // the pack45 streams this file unpacks (#666): ln45 warns when the
+        // program links no decoder of their format
+        // (cc45.unpackfmt.<format>.<line>.<the file's name in hex>)
+        {
+            std::set<std::string> recs;
+            for (const auto& s : mod.unpackSites) {
+                unpackfmt::Site u;
+                u.format = s.format;
+                u.file = s.file;
+                u.line = s.line;
+                recs.insert(unpackfmt::recordName(u));
+            }
+            for (const auto& r : recs) {
+                emit(".weak " + r);
+                emit(r + " = 1");
+            }
+        }
         // A stack-mode module's ZP-convention calls (to __fastcall__
         // functions): cc45.zpcall.<callee> tells the linker those calls
         // already follow the callee's convention

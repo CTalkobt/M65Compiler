@@ -180,5 +180,24 @@ err "not an image" ./bin/pack45 --image -d 0x40000 Makefile "$d/x.pak"
 printf '\x00\x00\x02\x00\x00\x04\x00\xC8\x01\x00\x02\x00' > "$d/bad.pak"
 err "-x of a width over 256" ./bin/pack45 -x "$d/bad.pak" "$d/x.out"
 
+# ln45: a format 2 stream unpacked in one file, the program linking no format
+# 2 decoder: a warning naming the file and line; UNPACK_FORMAT2 in the other
+# file: none
+if [ -f lib/build/c45.lib ]; then
+    printf '#include <unpack.h>\nextern unsigned long show(void);\nint main(void) { return (int)show(); }\n' > "$d/lmain.c"
+    printf '#include <unpack.h>\nUNPACK_FORMAT2;\nextern unsigned long show(void);\nint main(void) { return (int)show(); }\n' > "$d/lmain2.c"
+    printf '#include <unpack.h>\nstatic const unsigned char tiles[] = {2, 0, 0, 4, 0, 1, 1, 0, 1, 0, 0, 1, 0, 0};\nunsigned long show(void) {\n    return unpack((unsigned long)(unsigned int)tiles);\n}\n' > "$d/lshow.c"
+    if ./bin/cc45 -O2 -c "$d/lmain.c" -o "$d/lmain.o45" && ./bin/cc45 -O2 -c "$d/lmain2.c" -o "$d/lmain2.o45" &&
+       ./bin/cc45 -O2 -c "$d/lshow.c" -o "$d/lshow.o45"; then
+        ./bin/ln45 -basic -o "$d/l1.prg" "$d/lmain.o45" "$d/lshow.o45" lib/build/c45.lib > "$d/l1.out" 2>&1
+        grep -q "ln45: warning: format 2 stream unpacked at $d/lshow.c:4, but the program links no format 2 decoder (UNPACK_FORMAT2" "$d/l1.out" &&
+            ok || bad "ln45: no warning for a format 2 stream without its decoder ($(cat "$d/l1.out"))"
+        ./bin/ln45 -basic -o "$d/l2.prg" "$d/lmain2.o45" "$d/lshow.o45" lib/build/c45.lib > "$d/l2.out" 2>&1
+        ! grep -q "unpacked at" "$d/l2.out" && [ -f "$d/l2.prg" ] && ok || bad "ln45: a warning with UNPACK_FORMAT2 linked ($(cat "$d/l2.out"))"
+    else
+        bad "ln45 unpack format: cc45 failed"
+    fi
+fi
+
 echo "pack45 image tests: $pass passed, $fail failed"
 [ "$fail" -eq 0 ]

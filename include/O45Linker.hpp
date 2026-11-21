@@ -412,6 +412,9 @@ public:
     };
 
 private:
+    // pack45 streams unpacked with no decoder of their format linked (#666)
+    void checkUnpackFormats();
+    bool unpackChecked_ = false;
     struct InputObject {
         std::string filename;
         O45File obj;

@@ -4,6 +4,21 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### cl45 / ln45: a pack45 stream unpacked without its format's decoder (#666)
+
+- **cl45 `mega65-unpack-format`** (warning, cc45 profile): in the file with `main()`, a stream whose format byte is
+  visible unpacked with no decoder of that format named: format 2 without `UNPACK_FORMAT2;`, format 1 without
+  `UNPACK_FORMAT1;` under `UNPACK_EXPLICIT_FORMATS`. Visible: an array initialized in the file (`#embed` too) given
+  to `unpack()` / `unpack_to()`, or `load_unpack()` of a literal name whose file is beside the source or in an `-I`
+  directory (its format byte after the load address). A stream of no known format is not guessed. Files without
+  `main()` are left to ln45, since the decoder may be named in any one file.
+- **ln45**: cc45 records those streams in the object (`cc45.unpackfmt.<format>.<line>.<file in hex>`); ln45 warns
+  for each whose decoder no linked object defines: `ln45: warning: format 2 stream unpacked at foo.c:12, but the
+  program links no format 2 decoder (UNPACK_FORMAT2; ...)`. A decoder linked that no stream needs is not reported
+  (`load_unpack`'s names are often known only at run time).
+- Tests: three cl45 fixtures (warnings, a NOLINT, `#embed`, a literal file name, a file without `main()`), and two
+  two-file links in `test_pack45_image.sh` (a warning without `UNPACK_FORMAT2`, none with it).
+
 ### pack45 / unpack(): format 2, images in up to 16 colours (#666)
 
 - **`pack45 --image`** codes an image as format 2: each pixel's rank (its colour's place in an order of the colours,

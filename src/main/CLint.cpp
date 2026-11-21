@@ -9,6 +9,7 @@
 
 #include "AST.hpp"
 #include "IR.hpp"
+#include "UnpackFormats.hpp"
 
 namespace clint {
 
@@ -109,6 +110,15 @@ void registerRules(lint::Engine& e) {
     e.add({"mega65-implicit-narrowing", L::Info, "all",
            "A wider integer assigned to a narrower one without a cast",
            "The upper bytes are dropped silently. When that is meant, a cast says so: c = (char)n."});
+    e.add({"mega65-unpack-format", L::Warning, "cc45",
+           "A pack45 stream unpacked whose format's decoder the program does not link",
+           "Each pack45 format's decoder is linked only when the program names it at file scope:\n"
+           "UNPACK_FORMAT1; or UNPACK_FORMAT2; (<unpack.h>; UNPACK_IMAGES; is UNPACK_FORMAT2). <unpack.h>\n"
+           "names format 1 itself unless UNPACK_EXPLICIT_FORMATS is defined. Without the decoder, unpack(),\n"
+           "unpack_to() and load_unpack() return 0 for such a stream and write nothing. The rule reads the\n"
+           "format of streams it can see (an array initialized in the file, #embed too; load_unpack of a\n"
+           "name whose file is beside the source or in an include directory) and checks the file with\n"
+           "main(): another file may name the decoder, so ln45 checks the whole program as well."});
 }
 
 // ---------------------------------------------------------------------------
@@ -541,7 +551,27 @@ private:
 
 }  // namespace
 
+// pack45 streams unpacked whose format's decoder the file does not link
+// (#666): in the file with main() only (UNPACK_FORMATn may be in any one file
+// of the program; ln45 checks the whole program)
+void unpackFormats(Context& c, const ir::Module& m) {
+    if (m.unpackSites.empty()) return;
+    bool hasMain = false;
+    for (const auto& f : m.functions)
+        if (f.name == "_main" && !f.blocks.empty()) hasMain = true;
+    if (!hasMain) return;
+    std::set<int> linked = unpackfmt::declared(m.fileAsm);
+    for (const auto& s : m.unpackSites) {
+        if (linked.count(s.format)) continue;
+        std::string n = std::to_string(s.format);
+        c.report("mega65-unpack-format", s.file, s.line, s.column,
+                 "a format " + n + " stream (" + s.what + ") is unpacked here, but this file does not link its decoder: "
+                 "put UNPACK_FORMAT" + n + "; at file scope (unless another file of the program does, unpack() returns 0 for it)");
+    }
+}
+
 void runIR(Context& c, const ir::Module& m, TranslationUnit& unit) {
+    unpackFormats(c, m);
     dmaAndKnock(c, m);
     callGraphRules(c, m);
     if (c.engine->levelOf("mega65-wide-arith") != lint::Level::Off)

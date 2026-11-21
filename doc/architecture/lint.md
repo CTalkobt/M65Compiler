@@ -196,6 +196,7 @@ The "Needs" column is where the rule is checked, as built (above).
 | `mega65-wide-arith` | info | IR pattern | `long` arithmetic whose operands and result fit 16 bits |
 | `mega65-signedness` | warning | IRBuilder, constant folder | a plain (unsigned) `int`/`char` compared with a negative constant or assigned one (`char c = -1` is 255), a division or `>>` whose result differs from standard C's |
 | `mega65-implicit-narrowing` | info | IRBuilder | a wider value assigned to a narrower integer without a cast |
+| `mega65-unpack-format` | warning (cc45) | AST (`UnpackFormats.cpp`), the file's `asm` | in the file with `main()`, a pack45 stream whose format byte is visible (an array initialized in the file, `#embed` too; `load_unpack` of a name whose file is beside the source or in a `-I` directory) unpacked with no decoder of that format named (`UNPACK_FORMAT1` / `UNPACK_FORMAT2`, #666). cc45 records the same streams in the object (`cc45.unpackfmt.*`) and ln45 checks the whole program |
 
 ### Not planned
 - Calling-convention mismatches: ln45 checks every cross-object `JSR` and
