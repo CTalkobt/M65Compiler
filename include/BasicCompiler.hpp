@@ -4,7 +4,7 @@
 // The program's statements become the function main; its variables globals
 // (floats, 16-bit integers, strings); BASIC's arithmetic the float runtime of
 // the library (the BASIC 65 ROM's routines); PRINT, the strings and the
-// errors lib/stdlib_asm/basic_rt.s45 and lib/stdlib/basic_str.c.
+// errors lib/stdlib_asm/basic_rt.s45 and lib/stdlib_asm/basic_str.s45.
 // See doc/bin/basic45.md (Compiling).
 
 #include <cstdint>

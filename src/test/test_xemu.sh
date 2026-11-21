@@ -824,6 +824,26 @@ else
     echo "FAIL: test_basic_compile_import_xemu.bas (basic45 or basic45 --compile failed)"
     failed=$((failed + 1))
 fi
+# test_basic_compile_str_xemu.bas: the string and stack run time's edges
+# (basic_str.s45): a string assigned to itself, a concatenation into either
+# operand's buffer, LEFT$ / RIGHT$ / MID$ out of range, comparisons of
+# prefixes, 255 characters and ?STRING TOO LONG, FOR of a variable already
+# looping, DO / EXIT, CLR of string arrays, RETURN out of a FOR loop;
+# interpreted, compiled with --checks (-O2, -O0) and without
+BCSTR_EXP="01 01 01 01 01 01 01 01 01 01 01 AA"
+echo "Testing test_basic_compile_str_xemu.bas (basic45 --compile)..."
+if ./bin/basic45 src/test-resources/test_basic_compile_str_xemu.bas -o build/test/test_basic_compile_str_i.prg >/dev/null 2>&1 &&
+   ./bin/basic45 --compile --checks src/test-resources/test_basic_compile_str_xemu.bas -o build/test/test_basic_compile_str.prg >/dev/null 2>&1 &&
+   ./bin/basic45 --compile --checks -O0 src/test-resources/test_basic_compile_str_xemu.bas -o build/test/test_basic_compile_str_O0.prg >/dev/null 2>&1 &&
+   ./bin/basic45 --compile src/test-resources/test_basic_compile_str_xemu.bas -o build/test/test_basic_compile_str_nochk.prg >/dev/null 2>&1; then
+    run_xemu_test "test_basic_compile_str_interpreted" "build/test/test_basic_compile_str_i.prg" "C0C0" 12 "$BCSTR_EXP"
+    run_xemu_test "test_basic_compile_str" "build/test/test_basic_compile_str.prg" "C0C0" 12 "$BCSTR_EXP"
+    run_xemu_test "test_basic_compile_str_O0" "build/test/test_basic_compile_str_O0.prg" "C0C0" 12 "$BCSTR_EXP"
+    run_xemu_test "test_basic_compile_str_nochk" "build/test/test_basic_compile_str_nochk.prg" "C0C0" 12 "$BCSTR_EXP"
+else
+    echo "FAIL: test_basic_compile_str_xemu.bas (basic45 or basic45 --compile failed)"
+    failed=$((failed + 1))
+fi
 # test_basic_compile_tron_xemu.bas: TRON / TROFF's "[line]" before each
 # statement (and the one after THEN / ELSE), MEM (#369): the screen's bytes
 BCT_EXP="1B 32 30 1D 1B 32 30 1D 1B 32 30 1D 1B 33 30 1D 1B 33 30 1D 1B 33 30 1D 1B 33 30 1D 1B 34 30 1D 1B 31 30 30 35 1D 1B 31 30 30 35 1D 1B 34 30 1D 20 20 20 20 20 20 20 20 20 20 20 20 AA"

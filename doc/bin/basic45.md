@@ -681,7 +681,7 @@ array exists and the subscript is in range; anything else (making the array, mor
 name are different variables; array elements are not narrowed (a float array holds floats).
 
 The run-time support is `lib/stdlib_asm/basic_rt.s45` (PRINT, the errors, BASIC's checks on numbers) and
-`lib/stdlib/basic_str.c` (strings on the heap, arrays, the stack of `GOSUB` and `FOR`).
+`lib/stdlib_asm/basic_str.s45` (strings on the heap, arrays, the stack of `GOSUB` and `FOR`).
 
 **Differences from the interpreter**:
 
