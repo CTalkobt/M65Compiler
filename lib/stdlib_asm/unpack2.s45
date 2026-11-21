@@ -15,14 +15,15 @@
 ; is written after its codes are read.
 ;
 ; A member of its own (BSS 0.9 KB): a program that unpacks format 2 streams
-; names ___unpack_images (<unpack.h>'s UNPACK_IMAGES), which links it; its
-; ___unpack2 then takes the place of unpack.s45's weak one (which returns 0).
+; names ___unpack_format2 (<unpack.h>'s UNPACK_FORMAT2, or UNPACK_IMAGES),
+; which links it; its ___unpack2 then takes the place of unpack.s45's weak
+; one (which returns 0).
 
 ; no calls through pointers here (ln45's call graph)
 .weak cc45.icallinfo
 cc45.icallinfo = 1
 
-.global ___unpack2, ___unpack_images
+.global ___unpack2, ___unpack_format2
 .extern ___dma_copy_far
 
 P = $08                 ; the stream (32 bits)
@@ -55,8 +56,8 @@ __u2_th:    .res 1
 
 .segment "code"
 
-; (linking this member: <unpack.h>'s UNPACK_IMAGES names it; it does nothing)
-proc ___unpack_images
+; (linking this member: <unpack.h>'s UNPACK_FORMAT2 names it; it does nothing)
+proc ___unpack_format2
     rts
     .func_flags zp_call
 endproc

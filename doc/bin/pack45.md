@@ -74,7 +74,7 @@ The format is told by the file's first bytes (an MP3 also by its name), any numb
 
 ## On the MEGA65
 
-`<unpack.h>` has two functions, both assembly (`lib/stdlib_asm/unpack.s45`), linked only when called:
+`<unpack.h>` has two functions, both assembly (`lib/stdlib_asm/unpack.s45`, the dispatch on the stream's format), linked only when called:
 
 | Function | Unpacks |
 |----------|---------|
@@ -82,6 +82,17 @@ The format is told by the file's first bytes (an MP3 also by its name), any numb
 | `unsigned long unpack_to(unsigned long src, unsigned long dst)` | the same to `dst`, the header's destination ignored |
 
 Both return the number of bytes written, 0 for a stream of another format (nothing is written). Literals up to 16 bytes are copied by the CPU; longer ones, fills and repeats are each one DMA job.
+
+**The decoders are chosen** (#666): each format's decoder is a library member of its own, linked only when the program names it, at file scope in any one of its files: `UNPACK_FORMAT1;` (`lib/stdlib_asm/unpack1.s45`, 315 bytes) and `UNPACK_FORMAT2;` (`unpack2.s45`, [below](#format-2); `UNPACK_IMAGES;` is the same). `unpack()` returns 0 for a stream whose decoder is not linked (the weak defaults in `unpack.s45`). A program that names none gets format 1, as before: `<unpack.h>` (and `<load.h>`, which includes it) names it itself, unless the program defines `UNPACK_EXPLICIT_FORMATS` first, in every file that includes them (or `cc45 -DUNPACK_EXPLICIT_FORMATS`). A program of format 2 streams alone then links no format 1 decoder (315 bytes of code and 5 of BSS fewer):
+
+```c
+#define UNPACK_EXPLICIT_FORMATS
+#include <unpack.h>
+
+UNPACK_FORMAT2;             /* format 2 only: a format 1 stream gives 0 */
+```
+
+The library's own users take what they need: `font_load` (fonts are packed in format 1) and the overlay loader of `ln45 --pack-overlays` (`ovl_unpack.s45`) link format 1 themselves; `load_unpack` unpacks whatever formats the program linked.
 
 ### A file on the disk, unpacked in place
 
@@ -131,10 +142,11 @@ ln45 -basic -o game.prg crt0_zp.o45 game.o45 levels.o45 c45.lib    # (the librar
 
 ### From assembly
 
-The routines use the ZP convention in either library: the stream's address in `$10`-`$13` (for `___unpack_to` the destination in `$14`-`$17`), then `jsr ___unpack` / `jsr ___unpack_to`. The count comes back in Q (A, X, Y, Z: bits 0-7 … 24-31); `$08`-`$19` and the registers are changed. These are base-page addresses: in a cc45 program, the program's own base page.
+Assembly names the decoders it needs itself, `.extern ___unpack_format1` / `___unpack_format2` (without one `___unpack` returns 0 for that format). The routines use the ZP convention in either library: the stream's address in `$10`-`$13` (for `___unpack_to` the destination in `$14`-`$17`), then `jsr ___unpack` / `jsr ___unpack_to`. The count comes back in Q (A, X, Y, Z: bits 0-7 … 24-31); `$08`-`$19` and the registers are changed. These are base-page addresses: in a cc45 program, the program's own base page.
 
 ```asm
 .extern ___unpack_to
+.extern ___unpack_format1   ; (format 1's decoder: in C <unpack.h> names it)
 
 proc _unpack_level1
     lda #<_level1_packed
@@ -197,22 +209,23 @@ A pixel's *rank* is its colour's place in the order (pack45 puts the colours dar
 
 The decoder decodes a row into a buffer and then copies it to its place by DMA, reading the stream forwards. **In place**, a row must not reach the bytes still to be read: pack45 computes the least offset from the destination for that (the most a row's end gets ahead of the reading) and checks the stream unpacks there, as for format 1. The decoder holds up to two bytes ahead, so the stream ends with the zero bytes it reads ahead.
 
-**On the MEGA65**, the decoder (`lib/stdlib_asm/unpack2.s45`, 581 bytes) is a member of its own, with 0.9 KB of BSS (the two lookup tables, a row of ranks, a row of bytes): a program that unpacks format 2 streams says so once, at file scope in any one of its files, and `unpack()`, `unpack_to()` and `load_unpack()` then take both formats:
+**On the MEGA65**, the decoder (`lib/stdlib_asm/unpack2.s45`, 581 bytes) is a member of its own, with 0.9 KB of BSS (the two lookup tables, a row of ranks, a row of bytes), linked when the program says `UNPACK_FORMAT2;` (or `UNPACK_IMAGES;`) at file scope in one of its files; `unpack()`, `unpack_to()` and `load_unpack()` then take format 2 as well as format 1 (by default), or format 2 alone with `UNPACK_EXPLICIT_FORMATS` ([above](#on-the-mega65)):
 
 ```c
 #include <unpack.h>
 
-UNPACK_IMAGES;              /* links the format 2 decoder */
+UNPACK_FORMAT2;             /* links the format 2 decoder */
 
 unpack(0x41234UL);          /* a format 1 or a format 2 stream */
 ```
 
-Without `UNPACK_IMAGES` they return 0 for a format 2 stream (nothing is written). ln45 `--pack-overlays` writes format 1 only; nm45 and objdump45 read either in an overlay file.
+Without `UNPACK_FORMAT2` they return 0 for a format 2 stream (nothing is written); pack45 `--image` prints the reminder. ln45 `--pack-overlays` writes format 1 only; nm45 and objdump45 read either in an overlay file.
 
 ```
 $ pack45 --image -d 0x40000 --palette-out brick.pal brick.png BRICK
 pack45: brick.png: 128x128, 16 colours, from the left: 8192 -> 5789 bytes (70%; format 1: 7639), unpacks to $40000; in place: load it at $40963 (offset 2403)
 pack45: its colours, entry 0 up: #… (16 of them)
+pack45: the program unpacks it with UNPACK_FORMAT2; at file scope (<unpack.h>; with UNPACK_EXPLICIT_FORMATS, UNPACK_FORMAT1; too if it unpacks format 1 streams)
 ```
 
 **What it gains** is on images with texture and noise, where LZ finds few repeats; on flat art with long repeats format 1 is smaller, and pack45 prints both sizes. texture_demo's photographs (128x128, quantised to 16 colours, no dithering):
@@ -226,4 +239,4 @@ pack45: its colours, entry 0 up: #… (16 of them)
 
 Decoding takes about 5 frames for a 128x128 image (a tenth of a second; format 1 about 0.6 frames, its work mostly DMA): a code a pixel, by table, and a DMA copy a row.
 
-Source: `include/Pack45.hpp`, `src/main/Pack45.cpp` (also used by ln45 and nm45/objdump45), `src/main/pack45_main.cpp`, `include/PackAudio.hpp` and `src/main/PackAudio.cpp` (`--suggest-rate`, `--sound`; minimp3 in `third_party/minimp3`); the decoders `lib/stdlib_asm/unpack.s45` and `unpack2.s45`. Tests: `test_pack45_image.sh` (format 2: round trips through the model and an independent decoder, PNG with and without a palette, the errors), `test_compiler.sh` (round trips; `--suggest-rate` and `--sound` on the WAV, AU and MP3 files in `src/test-resources/pack45/`), `src/test-resources/test_unpack_xemu.c` (chip RAM, in place, attic RAM, `unpack_to`, another format), `test_unpack2_xemu.c` (format 2: the same).
+Source: `include/Pack45.hpp`, `src/main/Pack45.cpp` (also used by ln45 and nm45/objdump45), `src/main/pack45_main.cpp`, `include/PackAudio.hpp` and `src/main/PackAudio.cpp` (`--suggest-rate`, `--sound`; minimp3 in `third_party/minimp3`); the dispatch `lib/stdlib_asm/unpack.s45` and the decoders `unpack1.s45` and `unpack2.s45`. Tests: `test_pack45_image.sh` (format 2: round trips through the model and an independent decoder, PNG with and without a palette, the errors), `test_compiler.sh` (round trips; `--suggest-rate` and `--sound` on the WAV, AU and MP3 files in `src/test-resources/pack45/`), `src/test-resources/test_unpack_xemu.c` (chip RAM, in place, attic RAM, `unpack_to`, another format), `test_unpack2_xemu.c` (format 2: the same, and both formats in one program), `test_unpack2only_xemu.c` (format 2 alone: a format 1 stream gives 0, no format 1 decoder in the map).

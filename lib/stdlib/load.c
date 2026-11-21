@@ -2,6 +2,9 @@
  * first written for the Midwinter demo). See <load.h>. */
 #include <cbm.h>
 #include <dma.h>
+/* (load_unpack unpacks the formats the program links, #666: this member
+   links none of their decoders itself) */
+#define UNPACK_EXPLICIT_FORMATS
 #include <unpack.h>
 #include <load.h>
 

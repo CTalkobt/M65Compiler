@@ -10,7 +10,10 @@
  *   +3 b (256x3, 2 colours, from above) to $40000
  *   +4 c (10x5, 1 colour) with unpack_to to $50000 (its header's $40000 ignored)
  *   +5 a stream of format 3: 0, nothing written
- *   +6 $AA
+ *   +6 a's bytes as a format 1 stream: both formats in one program (format 1
+ *      by <unpack.h>'s default, format 2 by UNPACK_IMAGES)
+ *   +7 $AA
+ * (test_unpack2only_xemu.c: format 2 alone)
  */
 #include <unpack.h>
 #include <dma.h>
@@ -54,6 +57,9 @@ int main(void) {
     dma_fill_far(0x40000UL, 16, 0x77);
     OUT[5] = unpack(ADDR(bad)) == 0 && *(unsigned char __far *)0x40000UL == 0x77;
 
-    OUT[6] = 0xAA;
+    dma_fill_far(0x40000UL, 2000, 0xEE);
+    OUT[6] = unpack(ADDR(a1_chip)) == sizeof a_img && same(0x40000UL, a_img, sizeof a_img);
+
+    OUT[7] = 0xAA;
     return 0;
 }

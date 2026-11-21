@@ -3,7 +3,7 @@
  * own: only a program that loads fonts links load.c. */
 #include <font.h>
 #include <load.h>
-#include <unpack.h>
+#include <unpack.h>      /* (packed fonts are format 1: its decoder linked) */
 
 static font_t loaded;
 

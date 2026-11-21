@@ -17,17 +17,27 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
   nibble, each the pixel's palette entry. Header: format 2, the destination, `w / 2`, `h`, `N`, the prediction, the
   order, the `N` code lengths (`include/Pack45.hpp`, `doc/bin/pack45.md`). It unpacks in place (a row is written once
   its codes are read).
-- **`unpack()` / `unpack_to()` / `load_unpack()`** take format 2 when a program says `UNPACK_IMAGES;` (at file scope,
-  once): it links the decoder, `lib/stdlib_asm/unpack2.s45` (581 bytes, 952 of BSS: two 256-entry lookup tables, a
-  row of ranks and one of bytes), a code a pixel by one lookup, a row at a time by DMA. Without it they return 0 for
-  a format 2 stream, as before; `unpack.s45` is 25 bytes larger.
+- **Each format's decoder is chosen**: `lib/stdlib_asm/unpack.s45` (104 bytes) is now the dispatch on the format
+  byte, and each decoder a member of its own, linked when the program names it at file scope, once:
+  `UNPACK_FORMAT1;` (`unpack1.s45`, 315 bytes and 5 of BSS: the format 1 decoder as it was) and `UNPACK_FORMAT2;`
+  (`unpack2.s45`, 581 bytes and 952 of BSS: two 256-entry lookup tables, a row of ranks and one of bytes; a code a
+  pixel by one lookup, a row at a time by DMA; `UNPACK_IMAGES;` is the same). Without its decoder `unpack()` /
+  `unpack_to()` / `load_unpack()` return 0 for a stream (weak defaults). A program that names none gets format 1 as
+  before: `<unpack.h>` names it, and `<load.h>` now includes `<unpack.h>`, unless the program defines
+  `UNPACK_EXPLICIT_FORMATS` first (in every file, or `-DUNPACK_EXPLICIT_FORMATS`). A program of format 2 streams
+  alone is then 315 bytes smaller than with both decoders; one of format 1 alone carries 419 bytes of unpacking, 20
+  more than before. `font_load` and the overlay loader of `ln45 --pack-overlays` (`ovl_unpack.s45`) link format 1
+  themselves; `load.c` links none. pack45 `--image` prints the reminder. Assembly that calls `___unpack` names
+  the decoders it needs (`.extern ___unpack_format1`).
 - **Sizes**: on texture_demo's photographs at 128x128 in 16 colours, a red brick wall 5789 bytes (format 1: 7639),
   cobblestones 6774 (8112), a rocky trail 8093 (8318), from 8192. Flat art with long repeats stays smaller in format 1
   (bands of 16 colours: 132 against 363). A 128x128 image decodes in about 5 frames.
 - nm45 / objdump45 read a format 2 stream in a packed overlay file too (ln45 `--pack-overlays` writes format 1).
 - Tests: `test_pack45_image.sh` (`make test`: round trips through pack45's model of the decoder and an independent
-  decoder, 1, 2, 3, 5 and 16 colours, widths 6 to 256, odd heights, PNG with and without a palette, the errors) and
-  `test_unpack2_xemu.c` (chip RAM, in place, attic RAM, `unpack_to`; both conventions).
+  decoder, 1, 2, 3, 5 and 16 colours, widths 6 to 256, odd heights, PNG with and without a palette, the errors),
+  `test_unpack2_xemu.c` (chip RAM, in place, attic RAM, `unpack_to`, both formats in one program) and
+  `test_unpack2only_xemu.c` (format 2 alone: a format 1 stream gives 0, and its map has no format 1 decoder); both
+  conventions.
 
 ### font: FCM / NCM glyphs drawn a span at a time (#670)
 

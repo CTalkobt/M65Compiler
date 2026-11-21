@@ -36,8 +36,12 @@
 #ifndef LOAD_H
 #define LOAD_H
 
+/* load_unpack unpacks the formats the program links: <unpack.h>'s default
+   (format 1) unless it defines UNPACK_EXPLICIT_FORMATS and names them */
+#include <unpack.h>
+
 #define LOAD_TOO_BIG    0x80    /* a file for attic RAM larger than the stage */
-#define LOAD_NOT_PACKED 0x81    /* load_unpack: not a pack45 stream */
+#define LOAD_NOT_PACKED 0x81    /* load_unpack: not a pack45 stream (or one of a format not linked) */
 
 extern unsigned char load_error;
 

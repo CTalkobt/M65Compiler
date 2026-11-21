@@ -340,6 +340,9 @@ int main(int argc, char** argv) {
             }
             std::cout << m << std::endl;
         }
+        // (its decoder is linked only when the program asks for it, #666)
+        std::cout << "pack45: the program unpacks it with UNPACK_FORMAT2; at file scope (<unpack.h>; with "
+                     "UNPACK_EXPLICIT_FORMATS, UNPACK_FORMAT1; too if it unpacks format 1 streams)" << std::endl;
         return 0;
     }
 

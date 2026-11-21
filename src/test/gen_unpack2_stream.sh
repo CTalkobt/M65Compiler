@@ -5,6 +5,8 @@
 #   a  64x40, 16 colours, smooth along the rows (coded from the left)
 #   b  256x3, 2 colours, the same in every row (coded from above)
 #   c  10x5, 1 colour (a row of 5 bytes: an odd number)
+# and a's bytes as a format 1 stream (a1_chip: test_unpack2_xemu.c unpacks
+# both formats, test_unpack2only_xemu.c only format 2)
 set -e
 d=${1:?}
 python3 - "$d" <<'PY'
@@ -29,6 +31,7 @@ la=$(pk a 64 0x40000 chip)
 lb=$(pk b 256 0x40000 chip)
 lc=$(pk c 10 0x40000 chip)
 pk a 64 0x8000000 attic >/dev/null
+./bin/pack45 --raw -d 0x40000 "$d/unpack2_a.raw" "$d/unpack2_a1_chip.pak" >/dev/null
 case "$la" in *"from the left"*) ;; *) echo "gen_unpack2_stream.sh: image a not coded from the left: $la" >&2; exit 1 ;; esac
 case "$lb" in *"from above"*) ;; *) echo "gen_unpack2_stream.sh: image b not coded from above: $lb" >&2; exit 1 ;; esac
 inplace=$(echo "$la" | sed -n 's/.*(offset \([0-9]*\)).*/\1/p')
@@ -40,6 +43,7 @@ arr() { echo "static const unsigned char $1[] = {"; od -An -v -tu1 "$2" | sed 's
     arr a_attic "$d/unpack2_a_attic.pak"
     arr b_chip "$d/unpack2_b_chip.pak"
     arr c_chip "$d/unpack2_c_chip.pak"
+    arr a1_chip "$d/unpack2_a1_chip.pak"
     arr a_img "$d/unpack2_a.raw"
     arr b_img "$d/unpack2_b.raw"
     arr c_img "$d/unpack2_c.raw"

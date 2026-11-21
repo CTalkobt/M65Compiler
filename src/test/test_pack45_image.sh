@@ -157,6 +157,8 @@ if ./bin/pack45 --image -d 0x40000 --palette "$d/pal16.rgb" "$d/five.png" "$d/fi
 # the order in the stream: dark to light by the palette (entries 7 2 11 5 14 are
 # white black red blue grey: 2 5 11 14 7)
 python3 -c "import sys; s=open('$d/fivep.pak','rb').read()[2:]; sys.exit(0 if list(s[10:15]) == [2, 5, 11, 14, 7] else 1)" && ok || bad "the order by the palette"
+# the reminder: the program links format 2's decoder itself (#666)
+grep -q "UNPACK_FORMAT2;" "$d/fivep.out" && ok || bad "no UNPACK_FORMAT2 reminder"
 
 # errors (exit status 1, a message)
 err() {   # what, then the command
