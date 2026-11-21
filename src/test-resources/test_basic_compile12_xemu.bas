@@ -18,11 +18,11 @@
 130 print "value";i;v(i);x:goto 190
 140 if v(0)=1 and v(1)=1 and v(2)=0 then poke 49344,1
 150 if v(3)=2 and v(4)=2 and v(5)=0 then poke 49345,1
-160 if v(6)=3 and v(7)=3 and v(8)=0 and v(9)=3 then poke 49346,1
+160 if v(6)=3 and v(7)=0 and v(8)=0 and v(9)=3 then poke 49346,1
 165 if v(10)=1 and v(11)=0 then poke 49347,1
 170 if v(12)=2 and v(13)=0 then poke 49348,1
 175 if v(14)=3 and v(15)=3 and v(16)=137 and v(17)=7 then poke 49349,1
-180 if v(18)=121 and v(19)=253 and v(20)=0 then poke 49350,1
+180 if v(18)=121 and v(19)=237 and v(20)=0 then poke 49350,1
 190 poke 49351,170:end
-200 data 1,1,0,2,2,0,3,3,0,3,1,0,2,0,3,3,137,7,121,253,0
+200 data 1,1,0,2,2,0,3,0,0,3,1,0,2,0,3,3,137,7,121,237,0
 900 e=e+1:resume next

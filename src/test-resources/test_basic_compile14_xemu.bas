@@ -17,7 +17,7 @@
 110 loadiff "nofile":v(n)=ee:n=n+1:v(n)=e:n=n+1
 120 screen close 0:loadiff "big":v(n)=ee:n=n+1
 130 if v(0)=1 and v(1)=2 and v(2)=0 and v(3)=159 then poke 49344,1
-135 if v(4)=7200 then poke 49345,1
+135 if v(4)=7180 then poke 49345,1
 140 if v(5)=5 and v(6)=9 and v(7)=9 then poke 49346,1
 145 if v(8)=72 then poke 49347,1
 150 if v(9)=2 and v(10)=76 then poke 49348,1
