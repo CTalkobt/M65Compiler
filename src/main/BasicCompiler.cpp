@@ -248,7 +248,7 @@ struct Val {
     int slot = -1;           // S: the temporary buffer it is in (-1: a variable or literal)
 };
 
-constexpr int STACK_ENTRIES = 128;   // __bas_stk (basic_rt.c)
+constexpr int STACK_ENTRIES = 128;   // __bas_stk (stdlib_asm/basic_str.s45)
 constexpr int MAX_SLOTS = 8;         // string temporaries in a statement
 
 // Integer narrowing: what a compile saw of a float variable's values
