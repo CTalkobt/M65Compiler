@@ -3046,6 +3046,26 @@ else
     failed=$((failed + 1))
 fi
 
+# Test: <font.h> in assembly (font.s45) against the C it replaced: font_from,
+# widths, the three ways of drawing (each edge of the clip, ramps), font_put_cells
+FR=build/test/fontr
+mkdir -p $FR
+if ./bin/font45 convert src/test-resources/font45/tiny.txt --bpp 1 --proportional -o $FR/tiny.c >/dev/null 2>&1 &&
+   ./bin/font45 convert --segments 7 --size 16 --bpp 2 --range 48-57 -o $FR/seg2.c >/dev/null 2>&1 &&
+   ./bin/font45 convert --segments 7 --size 16 --bpp 4 --range 48-57 -o $FR/seg4.c >/dev/null 2>&1 &&
+   ./bin/font45 convert --segments 7 --size 16 --bpp 2 --fcm --palette 16,3 --range 48-57 -o $FR/segf.c >/dev/null 2>&1 &&
+   ./bin/font45 convert src/test-resources/font45/tiny.txt --proportional --fcm --range 193-201 -o $FR/tinyf.c >/dev/null 2>&1 &&
+   ./bin/font45 convert src/test-resources/font45/tiny.txt --proportional --ncm --palette 3,1 --range 193-201 -o $FR/tinyn.c >/dev/null 2>&1; then
+    for frmode in "zp|" "stack|-fno-zpcall"; do
+        IFS='|' read -r frname frflags <<< "$frmode"
+        echo "Testing test_font_ref_xemu.c ($frname)..."
+        xemu_case "FAIL: test_font_ref_xemu.c $frname (compilation/linking failed)" "src/test-resources/test_font_ref_xemu.c" "build/test/test_font_ref_${frname}_xemu.prg" "$frflags -I$FR" "$FR/tiny.c $FR/seg2.c $FR/seg4.c $FR/segf.c $FR/tinyf.c $FR/tinyn.c" -- "test_font_ref_$frname" "build/test/test_font_ref_${frname}_xemu.prg" "C0C0" 7 "01 01 01 01 01 01 AA"
+    done
+else
+    echo "FAIL: test_font_ref_xemu.c: font45 failed"
+    failed=$((failed + 1))
+fi
+
 # Test: basic45 --compile's number reader in assembly (basic_fin.s45, #369)
 # against the C library's strtof: the same bytes and end for 50 texts
 for bfmode in "zp|" "stack|-fno-zpcall"; do
