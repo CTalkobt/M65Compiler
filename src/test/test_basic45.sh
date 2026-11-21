@@ -557,10 +557,11 @@ else
 fi
 # #595: --map writes ln45's -M map of a --link and of a --compile build, with
 # the calls through pointers and the base-page blocks the -vv log has; a
-# warning when nothing is linked
+# warning when nothing is linked (PRINT USING: basic_using.c, a C module with
+# base-page blocks; the string run time is in assembly)
 printf 'unsigned char g;\nstatic void a(void){g++;}\nstatic void b(void){g--;}\nvoid (*tab[2])(void)={a,b};\nunsigned int twice(unsigned int x){ unsigned char *p=&g; tab[x&1](); return x*2+*p; }\n' > "$D/mapf.c"
 printf 'sys {twice}, 5\nprint 1\n' > "$D/mapl.bas"
-printf 'a = 3\nprint a*2\n' > "$D/mapc.bas"
+printf 'a = 3\nprint using "##.#"; a*2\n' > "$D/mapc.bas"
 ok=1
 $B "$D/mapl.bas" --link "$D/mapf.c" --map "$D/mapl.map" -o "$D/mapl.prg" > "$D/mapl.log" 2>&1 || ok=0
 grep -q '^Symbols (by address)' "$D/mapl.map" 2>/dev/null && grep -q ' _twice ' "$D/mapl.map" &&

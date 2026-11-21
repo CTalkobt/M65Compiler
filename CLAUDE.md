@@ -38,7 +38,7 @@ FUSE, both optional, only for disk45):
 - **basic45** — BASIC 65 program generator (label-based source, PETSCII tokenizer, preprocessor,
   long variable names, block IF / proc, `--link` C functions, `--decompile`, `--disk`, `--emulator`;
   `--compile`: the program to machine code through cc45's IR and code generator, BASIC 65 but for the statements on the program's text (`MERGE`, `SAVE`, `LIST`…),
-  `src/main/BasicCompiler.cpp`, run time `lib/stdlib_asm/basic_rt.s45` / `lib/stdlib/basic_str.c`, #369;
+  `src/main/BasicCompiler.cpp`, run time `lib/stdlib_asm/basic_rt.s45` / `basic_str.s45`, #369;
   integer narrowing of whole-number float variables; `--speed`: the RAM float routines;
   `--bank=N`: arrays and string variables in bank 1, 4 or 5, `lib/stdlib/basic_bank.c` / `stdlib_asm/basic_bankx.s45`, #580)
 - **disk45** — CBM disk/tape/archive image utility (25 formats, FUSE mount, SQLite catalog)

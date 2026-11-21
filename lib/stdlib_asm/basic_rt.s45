@@ -5,7 +5,7 @@
 ;   __bas_n, __bas_m      16-bit integers (a count, a column, an error number)
 ;   __bas_sa, __bas_sb    strings: a pointer to a length byte and the characters
 ;   __bas_sr              where a string result goes (a buffer), or the
-;                         variable a string is assigned to (basic_str.c)
+;                         variable a string is assigned to (basic_str.s45)
 ;   __bas_line            the BASIC line running (for the error message)
 ;
 ; Output goes through the KERNAL's BSOUT ($FFD2), as BASIC's PRINT does.

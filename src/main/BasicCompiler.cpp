@@ -15,10 +15,10 @@
 // narrowed float variables (see compileBasicToIR),
 // % variables, whole literals, their + - *), the 0/1 results of comparisons,
 // strings (a pointer to a length byte and the characters), arrays (a pointer
-// to a heap block: __bas_aref, basic_str.c). The arithmetic of
+// to a heap block: __bas_aref, basic_str.s45). The arithmetic of
 // floats is the library's float runtime (the BASIC 65 ROM's routines, as the
 // interpreter computes); BASIC's checks (division by zero, ranges) and
-// messages are the runtime's (basic_rt.s45, basic_str.c).
+// messages are the runtime's (basic_rt.s45, basic_str.s45).
 
 #include "BasicCompiler.hpp"
 #include "IR.hpp"
