@@ -1,0 +1,466 @@
+; seam.s45 — VIC-IV screens of two-byte cells (<seam.h>)
+;
+; A cell is two bytes of screen RAM (a 13-bit character number, low byte
+; first) and two of colour RAM (0, the colour). seam_put writes its four
+; bytes through a 32-bit pointer; the runs (seam_clear, seam_text,
+; seam_row) are four DMA jobs with a step of two (dma_step.s45): one
+; byte's values or a fill to every other byte; seam_cells is one copy
+; (dma_far.s45). A cell's offset, (y * cols + x) * 2, comes from the
+; hardware multiplier.
+;
+; seam_screen_t: +0 screen (4), +4 colour (2: from $FF80000), +6 cols,
+; +7 rows, +8 shown, +9 saved[10]
+;
+;   unsigned long seam_cell(s $10, x $12, y $14)          Q
+;   unsigned long seam_colour(s $10, x $12, y $14)        Q
+;   void seam_clear(s $10, colour $12)
+;   void seam_init(s $10, screen $12-$15, colour $16, cols $18, rows $1A)
+;   void seam_show(s $10)       void seam_hide(s $10)
+;   void seam_put(s $10, x $12, y $14, ch $16, colour $18)
+;   void seam_text(s $10, x $12, y $14, codes $16, n $18, colour $1A)
+;   void seam_row(s $10, x $12, y $14, n $16, codes $18, colours $1A)
+;   void seam_cells(s $10, x $12, y $14, numbers $16-$19, n $1A)
+
+    .cpu 45gs02
+
+; no calls through pointers here (ln45's call graph)
+.weak cc45.icallinfo
+cc45.icallinfo = 1
+
+fp      = $08       ; a cell's address (seam_put; scratch)
+
+.global _seam_cell, _seam_colour, _seam_clear, _seam_init, _seam_show, _seam_hide
+.global _seam_put, _seam_text, _seam_row, _seam_cells
+.extern ___dma_copy_far_step, ___dma_fill_far_step, ___dma_copy_far
+
+.segment "bss"
+__seam_a:   .res 4      ; the cell's screen bytes
+__seam_c:   .res 4      ; its colour RAM bytes
+__seam_n:   .res 2      ; the offset; the run's length (cells)
+__seam_s:   .res 2      ; the run's codes (bank 0)
+__seam_s2:  .res 2      ; its colours (bank 0)
+__seam_v:   .res 1      ; or its colour
+__seam_m:   .res 1      ; bit 0: colours copied from __seam_s2; bit 7: the
+                        ; codes are spaces (seam_clear)
+
+.segment "code"
+__seam_one:     .dword 1
+; the registers seam_show changes, in the order they are saved
+__seam_regs:    .byte $54, $58, $59, $5E, $60, $61, $62, $63, $64, $65
+
+; __seam_a / __seam_c := cell x ($12), y ($14) of s ($10)
+proc __seam_at
+    .zp_uses $10, $11, $12, $14
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    lda #0
+    tax
+    tay
+    taz
+    stq $D770
+    stq $D774
+    lda $14
+    sta $D770
+    ldy #6
+    lda ($10),y         ; cols
+    sta $D774
+@busy:
+    bit $D70F           ; bit 6: the multiplier is busy
+    bvs @busy
+    lda $D778           ; (y * cols + x) * 2: 17 bits
+    clc
+    adc $12
+    sta __seam_n
+    lda $D779
+    adc #0
+    asl __seam_n
+    rol a
+    sta __seam_n+1
+    lda #0
+    rol a
+    sta __seam_c+2      ; (bits 16-23)
+    ldy #0              ; screen + offset
+    clc
+    lda ($10),y
+    adc __seam_n
+    sta __seam_a
+    iny
+    lda ($10),y
+    adc __seam_n+1
+    sta __seam_a+1
+    iny
+    lda ($10),y
+    adc __seam_c+2
+    sta __seam_a+2
+    iny
+    lda ($10),y
+    adc #0
+    sta __seam_a+3
+    iny                 ; $FF80000 + colour + offset
+    clc
+    lda ($10),y
+    adc __seam_n
+    sta __seam_c
+    iny
+    lda ($10),y
+    adc __seam_n+1
+    sta __seam_c+1
+    lda __seam_c+2
+    adc #$F8
+    sta __seam_c+2
+    lda #$0F
+    adc #0
+    sta __seam_c+3
+    rts
+endproc
+
+proc _seam_cell
+    .zp_uses $10, $11, $12, $14
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    jsr __seam_at
+    ldq __seam_a
+    rts
+    .func_flags zp_call
+endproc
+
+proc _seam_colour
+    .zp_uses $10, $11, $12, $14
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    jsr __seam_at
+    ldq __seam_c
+    rts
+    .func_flags zp_call
+endproc
+
+; a cell: ch ($16/$17), colour ($18), written through fp
+proc _seam_put
+    .zp_uses $08, $09, $0A, $0B, $10, $11, $12, $14, $16, $17, $18
+    .zp_clobbers $08, $09, $0A, $0B
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    jsr __seam_at
+    ldq __seam_a
+    stq fp
+    ldz #0
+    lda $16
+    sta [fp],z
+    inz
+    lda $17
+    sta [fp],z
+    ldq __seam_c
+    stq fp
+    ldz #0
+    tza
+    sta [fp],z
+    inz
+    lda $18
+    sta [fp],z
+    rts
+    .func_flags zp_call
+endproc
+
+; the runs of __seam_n cells from __seam_a / __seam_c: the codes to the
+; screen's even bytes, 0 to its odd ones and to the colour RAM's even ones,
+; the colours to its odd ones (__seam_m)
+proc __seam_run
+    .zp_uses $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $1A, $1B, $1C, $1D
+    .zp_clobbers $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $1A, $1B, $1C, $1D
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    ldq __seam_a
+    stq $10
+    bit __seam_m
+    bpl @codes
+    lda #$20
+    jsr @fill
+    bra @hi
+@codes:
+    lda __seam_s
+    ldx __seam_s+1
+    jsr @copy
+@hi:
+    ldq __seam_a
+    clc
+    adcq __seam_one
+    stq $10
+    lda #0
+    jsr @fill
+    ldq __seam_c
+    stq $10
+    lda #0
+    jsr @fill
+    ldq __seam_c
+    clc
+    adcq __seam_one
+    stq $10
+    lda __seam_m
+    lsr a
+    bcs @cc
+    lda __seam_v
+@fill:                  ; A to every other byte from $10
+    sta $16
+    lda __seam_n
+    sta $14
+    lda __seam_n+1
+    sta $15
+    lda #2
+    sta $18
+    jmp ___dma_fill_far_step
+@cc:
+    lda __seam_s2
+    ldx __seam_s2+1
+@copy:                  ; from A/X (bank 0) to every other byte from $10
+    sta $14
+    stx $15
+    lda #0
+    sta $16
+    sta $17
+    lda __seam_n
+    sta $18
+    lda __seam_n+1
+    sta $19
+    lda #2
+    sta $1A
+    lda #1
+    sta $1C
+    jmp ___dma_copy_far_step
+endproc
+
+; A = n: the cells from x ($12), y ($14) of s ($10), then the runs
+proc __seam_go
+    .zp_uses $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $1A, $1B, $1C, $1D
+    .zp_clobbers $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $1A, $1B, $1C, $1D
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    pha
+    jsr __seam_at
+    pla
+    sta __seam_n
+    lda #0
+    sta __seam_n+1
+    jmp __seam_run
+endproc
+
+; codes ($16), n ($18), colour ($1A)
+proc _seam_text
+    .zp_uses $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $1A, $1B, $1C, $1D
+    .zp_clobbers $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $1A, $1B, $1C, $1D
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    lda $1A
+    sta __seam_v
+    lda $16
+    sta __seam_s
+    lda $17
+    sta __seam_s+1
+    lda #0
+    sta __seam_m
+    lda $18
+    jmp __seam_go
+    .func_flags zp_call
+endproc
+
+; n ($16), codes ($18), colours ($1A)
+proc _seam_row
+    .zp_uses $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $1A, $1B, $1C, $1D
+    .zp_clobbers $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $1A, $1B, $1C, $1D
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    lda $18
+    sta __seam_s
+    lda $19
+    sta __seam_s+1
+    lda $1A
+    sta __seam_s2
+    lda $1B
+    sta __seam_s2+1
+    lda #1
+    sta __seam_m
+    lda $16
+    jmp __seam_go
+    .func_flags zp_call
+endproc
+
+; colour ($12): every cell a space in that colour
+proc _seam_clear
+    .zp_uses $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $1A, $1B, $1C, $1D
+    .zp_clobbers $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $1A, $1B, $1C, $1D
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    lda $12
+    sta __seam_v
+    lda #$80
+    sta __seam_m
+    lda #0
+    sta $12             ; from cell 0, 0
+    sta $14
+    jsr __seam_at
+    ldy #7              ; n = cols * rows (the multiplier's other bytes 0)
+    lda ($10),y
+    sta $D770
+    dey
+    lda ($10),y
+    sta $D774
+@busy:
+    bit $D70F
+    bvs @busy
+    lda $D778
+    sta __seam_n
+    lda $D779
+    sta __seam_n+1
+    jmp __seam_run
+    .func_flags zp_call
+endproc
+
+; s ($10) := screen ($12-$15), colour ($16), cols ($18), rows ($1A), not
+; shown; cleared in colour 1
+proc _seam_init
+    .zp_uses $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $1A, $1B, $1C, $1D
+    .zp_clobbers $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $1A, $1B, $1C, $1D
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    ldy #0
+    lda $12
+    sta ($10),y
+    iny
+    lda $13
+    sta ($10),y
+    iny
+    lda $14
+    sta ($10),y
+    iny
+    lda $15
+    sta ($10),y
+    iny
+    lda $16
+    sta ($10),y
+    iny
+    lda $17
+    sta ($10),y
+    iny
+    lda $18
+    sta ($10),y
+    iny
+    lda $1A
+    sta ($10),y
+    iny
+    lda #0
+    sta ($10),y
+    lda #1
+    sta $12
+    jmp _seam_clear
+    .func_flags zp_call
+endproc
+
+; the VIC-IV shows s ($10): the registers it changes saved first
+proc _seam_show
+    .zp_uses $08, $10, $11
+    .zp_clobbers $08
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    ldy #8
+    lda ($10),y
+    bne @done
+    ldx #0
+    ldz #9
+@save:
+    ldy __seam_regs,x
+    lda $D000,y
+    sta ($10),z
+    inz
+    inx
+    cpx #10
+    bne @save
+    ldy #0
+    lda ($10),y
+    sta $D060
+    iny
+    lda ($10),y
+    sta $D061
+    iny
+    lda ($10),y
+    sta $D062
+    iny
+    lda ($10),y
+    and #$0F
+    sta $08
+    lda $D063
+    and #$F0
+    ora $08
+    sta $D063
+    iny
+    lda ($10),y
+    sta $D064
+    iny
+    lda ($10),y
+    sta $D065
+    iny
+    lda ($10),y         ; cols: the stride cols * 2
+    asl a
+    sta $D058
+    lda #0
+    rol a
+    sta $D059
+    lda ($10),y
+    sta $D05E
+    lda $D054
+    ora #$05            ; CHR16, FCLRHI
+    sta $D054
+    ldy #8
+    lda #1
+    sta ($10),y
+@done:
+    rts
+    .func_flags zp_call
+endproc
+
+; put back what the VIC-IV showed before seam_show
+proc _seam_hide
+    .zp_uses $10, $11
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    ldy #8
+    lda ($10),y
+    beq @done
+    lda #0
+    sta ($10),y
+    iny
+    lda ($10),y
+    sta $D054           ; (first: one byte a cell again)
+    ldx #1
+    ldz #10
+@put:
+    lda ($10),z
+    ldy __seam_regs,x
+    sta $D000,y
+    inz
+    inx
+    cpx #10
+    bne @put
+@done:
+    rts
+    .func_flags zp_call
+endproc
+
+; numbers ($16-$19), n ($1A): n * 2 bytes copied to the cells from x, y
+proc _seam_cells
+    .zp_uses $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $1A, $1B
+    .zp_clobbers $10, $11, $12, $13, $14, $15, $16, $17, $18, $19
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    jsr __seam_at
+    ldq $16             ; src
+    stq $14
+    lda $1A             ; len = n * 2
+    asl a
+    sta $18
+    lda $1B
+    rol a
+    sta $19
+    ldq __seam_a
+    stq $10
+    jmp ___dma_copy_far
+    .func_flags zp_call
+endproc

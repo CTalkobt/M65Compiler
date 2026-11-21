@@ -38,9 +38,9 @@ FUSE, both optional, only for disk45):
 - **basic45** — BASIC 65 program generator (label-based source, PETSCII tokenizer, preprocessor,
   long variable names, block IF / proc, `--link` C functions, `--decompile`, `--disk`, `--emulator`;
   `--compile`: the program to machine code through cc45's IR and code generator, BASIC 65 but for the statements on the program's text (`MERGE`, `SAVE`, `LIST`…),
-  `src/main/BasicCompiler.cpp`, run time `lib/stdlib_asm/basic_rt.s45` / `lib/stdlib/basic_str.c`, #369;
+  `src/main/BasicCompiler.cpp`, run time `lib/stdlib_asm/basic_rt.s45` / `basic_str.s45`, #369;
   integer narrowing of whole-number float variables; `--speed`: the RAM float routines;
-  `--bank=N`: arrays and string variables in bank 1, 4 or 5, `lib/stdlib/basic_bank.c` / `stdlib_asm/basic_bankx.s45`, #580)
+  `--bank=N`: arrays and string variables in bank 1, 4 or 5, `lib/stdlib_asm/basic_bank.s45` / `basic_bankx.s45`, #580)
 - **disk45** — CBM disk/tape/archive image utility (25 formats, FUSE mount, SQLite catalog)
 - **asmCvt45** — assembler source converter between 7 dialects
 - **pack45** — packs data into a stream the library's `unpack()` (`<unpack.h>`) unpacks by DMA to any 28-bit
@@ -50,7 +50,7 @@ FUSE, both optional, only for disk45):
   (`src/main/PackAudio.cpp`)
 - **font45** — fonts (#466): BDF, PSF, C64 charsets or hand-drawn glyphs → 8x8 text-mode charsets or
   `<font.h>` fonts (1/2/4 bpp, proportional; `font_draw_bitmap` into a bitmap anywhere), C / asm / binary
-  (`src/main/Font45.cpp`, `lib/stdlib/font.c`)
+  (`src/main/Font45.cpp`, `lib/stdlib_asm/font.s45`)
 - **tune45** — music for the tune player (`<audio_tune.h>`): text (pfest's format) or MIDI → data;
   plays on the PC (reSIDfp, `third_party/libresidfp`), in xemu or on a MEGA65; plays a C64 `.sid` as it is (`play tune.sid`: its player run, #393); composes (`create`); filter, wave
   tables, hard restart; digi voices (`d1:`, samples on the audio DMA, hits together mixed by tune45); plays

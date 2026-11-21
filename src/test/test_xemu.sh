@@ -824,6 +824,26 @@ else
     echo "FAIL: test_basic_compile_import_xemu.bas (basic45 or basic45 --compile failed)"
     failed=$((failed + 1))
 fi
+# test_basic_compile_str_xemu.bas: the string and stack run time's edges
+# (basic_str.s45): a string assigned to itself, a concatenation into either
+# operand's buffer, LEFT$ / RIGHT$ / MID$ out of range, comparisons of
+# prefixes, 255 characters and ?STRING TOO LONG, FOR of a variable already
+# looping, DO / EXIT, CLR of string arrays, RETURN out of a FOR loop;
+# interpreted, compiled with --checks (-O2, -O0) and without
+BCSTR_EXP="01 01 01 01 01 01 01 01 01 01 01 AA"
+echo "Testing test_basic_compile_str_xemu.bas (basic45 --compile)..."
+if ./bin/basic45 src/test-resources/test_basic_compile_str_xemu.bas -o build/test/test_basic_compile_str_i.prg >/dev/null 2>&1 &&
+   ./bin/basic45 --compile --checks src/test-resources/test_basic_compile_str_xemu.bas -o build/test/test_basic_compile_str.prg >/dev/null 2>&1 &&
+   ./bin/basic45 --compile --checks -O0 src/test-resources/test_basic_compile_str_xemu.bas -o build/test/test_basic_compile_str_O0.prg >/dev/null 2>&1 &&
+   ./bin/basic45 --compile src/test-resources/test_basic_compile_str_xemu.bas -o build/test/test_basic_compile_str_nochk.prg >/dev/null 2>&1; then
+    run_xemu_test "test_basic_compile_str_interpreted" "build/test/test_basic_compile_str_i.prg" "C0C0" 12 "$BCSTR_EXP"
+    run_xemu_test "test_basic_compile_str" "build/test/test_basic_compile_str.prg" "C0C0" 12 "$BCSTR_EXP"
+    run_xemu_test "test_basic_compile_str_O0" "build/test/test_basic_compile_str_O0.prg" "C0C0" 12 "$BCSTR_EXP"
+    run_xemu_test "test_basic_compile_str_nochk" "build/test/test_basic_compile_str_nochk.prg" "C0C0" 12 "$BCSTR_EXP"
+else
+    echo "FAIL: test_basic_compile_str_xemu.bas (basic45 or basic45 --compile failed)"
+    failed=$((failed + 1))
+fi
 # test_basic_compile_tron_xemu.bas: TRON / TROFF's "[line]" before each
 # statement (and the one after THEN / ELSE), MEM (#369): the screen's bytes
 BCT_EXP="1B 32 30 1D 1B 32 30 1D 1B 32 30 1D 1B 33 30 1D 1B 33 30 1D 1B 33 30 1D 1B 33 30 1D 1B 34 30 1D 1B 31 30 30 35 1D 1B 31 30 30 35 1D 1B 34 30 1D 20 20 20 20 20 20 20 20 20 20 20 20 AA"
@@ -1287,6 +1307,20 @@ if ./bin/basic45 src/test-resources/test_basic_compile28_xemu.bas -o build/test/
     done
 else
     echo "FAIL: test_basic_compile28_xemu.bas (basic45 or basic45 --compile --bank failed)"
+    failed=$((failed + 1))
+fi
+# test_basic_compile29_xemu.bas: --bank=N, the heap in the bank (basic_bank.s45):
+# strings of every length, blocks freed, split and merged, out of memory
+BC29_EXP="01 01 01 01 01 AA"
+if ./bin/basic45 src/test-resources/test_basic_compile29_xemu.bas -o build/test/test_basic_compile29_i.prg >/dev/null 2>&1 &&
+   ./bin/basic45 --compile --checks --bank=1 src/test-resources/test_basic_compile29_xemu.bas -o build/test/test_basic_compile29_b1.prg >/dev/null 2>&1 &&
+   ./bin/basic45 --compile --checks --bank=4 -O0 src/test-resources/test_basic_compile29_xemu.bas -o build/test/test_basic_compile29_b4.prg >/dev/null 2>&1 &&
+   ./bin/basic45 --compile --checks --bank=5 --speed src/test-resources/test_basic_compile29_xemu.bas -o build/test/test_basic_compile29_b5.prg >/dev/null 2>&1; then
+    for bc29 in i b1 b4 b5; do
+        run_xemu_test "test_basic_compile29_$bc29" "build/test/test_basic_compile29_$bc29.prg" "C0C0" 6 "$BC29_EXP"
+    done
+else
+    echo "FAIL: test_basic_compile29_xemu.bas (basic45 or basic45 --compile --bank failed)"
     failed=$((failed + 1))
 fi
 # test_header_id_xemu.bas: HEADER's disk ID with letters and reserved names
@@ -3046,6 +3080,26 @@ else
     failed=$((failed + 1))
 fi
 
+# Test: <font.h> in assembly (font.s45) against the C it replaced: font_from,
+# widths, the three ways of drawing (each edge of the clip, ramps), font_put_cells
+FR=build/test/fontr
+mkdir -p $FR
+if ./bin/font45 convert src/test-resources/font45/tiny.txt --bpp 1 --proportional -o $FR/tiny.c >/dev/null 2>&1 &&
+   ./bin/font45 convert --segments 7 --size 16 --bpp 2 --range 48-57 -o $FR/seg2.c >/dev/null 2>&1 &&
+   ./bin/font45 convert --segments 7 --size 16 --bpp 4 --range 48-57 -o $FR/seg4.c >/dev/null 2>&1 &&
+   ./bin/font45 convert --segments 7 --size 16 --bpp 2 --fcm --palette 16,3 --range 48-57 -o $FR/segf.c >/dev/null 2>&1 &&
+   ./bin/font45 convert src/test-resources/font45/tiny.txt --proportional --fcm --range 193-201 -o $FR/tinyf.c >/dev/null 2>&1 &&
+   ./bin/font45 convert src/test-resources/font45/tiny.txt --proportional --ncm --palette 3,1 --range 193-201 -o $FR/tinyn.c >/dev/null 2>&1; then
+    for frmode in "zp|" "stack|-fno-zpcall"; do
+        IFS='|' read -r frname frflags <<< "$frmode"
+        echo "Testing test_font_ref_xemu.c ($frname)..."
+        xemu_case "FAIL: test_font_ref_xemu.c $frname (compilation/linking failed)" "src/test-resources/test_font_ref_xemu.c" "build/test/test_font_ref_${frname}_xemu.prg" "$frflags -I$FR" "$FR/tiny.c $FR/seg2.c $FR/seg4.c $FR/segf.c $FR/tinyf.c $FR/tinyn.c" -- "test_font_ref_$frname" "build/test/test_font_ref_${frname}_xemu.prg" "C0C0" 7 "01 01 01 01 01 01 AA"
+    done
+else
+    echo "FAIL: test_font_ref_xemu.c: font45 failed"
+    failed=$((failed + 1))
+fi
+
 # Test: basic45 --compile's number reader in assembly (basic_fin.s45, #369)
 # against the C library's strtof: the same bytes and end for 50 texts
 for bfmode in "zp|" "stack|-fno-zpcall"; do
@@ -3231,6 +3285,14 @@ for fcmode in "zp|" "stack|-fno-zpcall"; do
     xemu_case "FAIL: test_conio_fcm_xemu.c $fcname (compilation/linking failed)" "src/test-resources/test_conio_fcm_xemu.c" "build/test/test_conio_fcm_${fcname}_xemu.prg" "$fcflags" -- "test_conio_fcm_$fcname" "build/test/test_conio_fcm_${fcname}_xemu.prg" "C0C0" 10 "01 01 01 01 01 01 01 01 01 AA"
 done
 
+# Test: <palette.h> (stdlib_asm/palette.s45) at its edges: entries 0 and 255,
+# indexes and counts out of range, the whole palette saved, rotation over 0-255
+for plmode in "zp|" "stack|-fno-zpcall"; do
+    IFS='|' read -r plname plflags <<< "$plmode"
+    echo "Testing test_palette_xemu.c ($plname)..."
+    xemu_case "FAIL: test_palette_xemu.c $plname (compilation/linking failed)" "src/test-resources/test_palette_xemu.c" "build/test/test_palette_${plname}_xemu.prg" "$plflags" -- "test_palette_$plname" "build/test/test_palette_${plname}_xemu.prg" "C0C0" 6 "01 01 01 01 01 AA"
+done
+
 # Test: <far_ptr.h>'s chip RAM heap (stdlib_asm/far_heap.s45): first fit,
 # splits and merges, the 32-record limit, far_reserve, bank_reset, the API's
 # C part, 1500 random operations against a model of the algorithm
@@ -3302,6 +3364,14 @@ for smode in "zp|" "stack|-fno-zpcall"; do
     IFS='|' read -r sname sflags <<< "$smode"
     echo "Testing test_seam_xemu.c ($sname)..."
     xemu_case "FAIL: test_seam_xemu.c $sname (compilation/linking failed)" "src/test-resources/test_seam_xemu.c" "build/test/test_seam_${sname}_xemu.prg" "$sflags" -- "test_seam_$sname" "build/test/test_seam_${sname}_xemu.prg" "C0C0" 8 "01 01 01 01 01 01 01 AA"
+done
+
+# Test: seam.h's edges (offsets over 16 bits, cells across a 64 KB boundary,
+# seam_show of 200 columns, shown / hidden twice)
+for smode in "zp|" "stack|-fno-zpcall"; do
+    IFS='|' read -r sname sflags <<< "$smode"
+    echo "Testing test_seam2_xemu.c ($sname)..."
+    xemu_case "FAIL: test_seam2_xemu.c $sname (compilation/linking failed)" "src/test-resources/test_seam2_xemu.c" "build/test/test_seam2_${sname}_xemu.prg" "$sflags" -- "test_seam2_$sname" "build/test/test_seam2_${sname}_xemu.prg" "C0C0" 8 "01 01 01 01 01 01 01 AA"
 done
 
 # Test: constant initializers of aggregate globals / local statics (struct

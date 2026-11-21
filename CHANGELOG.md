@@ -4,6 +4,24 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### lib: basic_str, basic_bank, seam, palette and font in assembly
+
+Five C modules of the library are now hand-written assembly (`lib/stdlib_asm/`), one object shared by both
+libraries; the public APIs, data layouts and error numbers are unchanged. Code bytes (C in the ZP / stack library →
+assembly):
+
+- **`basic_str.s45`** (basic45 `--compile`'s strings, FOR/NEXT, DO, GOSUB stack): 2043 / 2106 → 1063, no base-page
+  blocks; a string and loop benchmark 33% faster. `__bas_empty` is in DATA, so it stays empty with `-fbss-fill`. Test
+  `test_basic_compile_str_xemu.bas` (four modes).
+- **`basic_bank.s45`** (`--bank=N` arrays and strings, the bank's heap): 2578 / 2629 → 1546; a `--bank=4` program about
+  9% faster. Test `test_basic_compile29_xemu.bas` (strings of every length, heap reuse and merging, out of memory).
+- **`seam.s45`** (`<seam.h>`): 1551 / 1782 → 703; the cell offset from the hardware multiplier, `seam_put` written
+  through a 32-bit pointer (about 3× faster). Test `test_seam2_xemu.c` (64 KB boundaries, 200 columns).
+- **`palette.s45`** (`<palette.h>`): 874 / 1126 → 412; `palette_rotate` about 6× faster. Test `test_palette_xemu.c`.
+- **`font.s45`** (`<font.h>` but `font_load`, which stays C): 4756 / 5090 → 2376; `font_draw_fcm` / `font_draw_ncm`
+  about a third faster. Test `test_font_ref_xemu.c` checks every function against the C it replaces.
+- Their functions are `__fastcall__` in `<seam.h>`, `<palette.h>` and `<font.h>`.
+
 ### cc45: an array reached through a pointer keeps its frame slot (#664)
 
 - **Fixed: an array or address-taken variable declared again under the same name** (in an inner scope, or by an

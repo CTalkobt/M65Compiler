@@ -4,7 +4,7 @@
 // The program's statements become the function main; its variables globals
 // (floats, 16-bit integers, strings); BASIC's arithmetic the float runtime of
 // the library (the BASIC 65 ROM's routines); PRINT, the strings and the
-// errors lib/stdlib_asm/basic_rt.s45 and lib/stdlib/basic_str.c.
+// errors lib/stdlib_asm/basic_rt.s45 and lib/stdlib_asm/basic_str.s45.
 // See doc/bin/basic45.md (Compiling).
 
 #include <cstdint>
@@ -29,7 +29,7 @@ struct BasicChainOptions {
     // ...); off: none, undefined behaviour instead (#489)
     bool checks = false;
     // --bank=N (#580): the arrays and the string variables in bank N (1, 4
-    // or 5; lib/stdlib/basic_bank.c), not on the program's heap; 0: there
+    // or 5; lib/stdlib_asm/basic_bank.s45), not on the program's heap; 0: there
     int bank = 0;
     // --link (#369): the program's {name} references, each written as the
     // number $1000000 + its index (BASIC 65 has no such number): the

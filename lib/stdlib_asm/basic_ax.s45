@@ -1,7 +1,7 @@
 ; basic_ax.s45 — run-time entries with their arguments in registers, for
 ; BASIC 65 programs compiled by basic45 --compile (#369, #486)
 ;
-; The routines of basic_str.c take their arguments in variables (__bas_sa,
+; The routines of basic_str.s45 take their arguments in variables (__bas_sa,
 ; __bas_sb, __bas_sr): 6 bytes a store at each call. These entries take the
 ; first in A/X and the second in $12/$13 (cc45's __regparm call in the ZP
 ; convention: the first argument's slot $10 left free), store them and go on.
@@ -117,7 +117,7 @@ __bas_stra:
 
 
 ; GOSUB's entry (#580): the return address A/X pushed on BASIC's stack
-; (basic_str.c: __bas_stk, 128 words). __bas_gosubc (--checks): a full
+; (basic_str.s45: __bas_stk, 128 words). __bas_gosubc (--checks): a full
 ; stack is ?OUT OF MEMORY
     .split "__bas_gosubc"
 .global __bas_gosubc

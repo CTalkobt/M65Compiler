@@ -15,10 +15,10 @@
 // narrowed float variables (see compileBasicToIR),
 // % variables, whole literals, their + - *), the 0/1 results of comparisons,
 // strings (a pointer to a length byte and the characters), arrays (a pointer
-// to a heap block: __bas_aref, basic_str.c). The arithmetic of
+// to a heap block: __bas_aref, basic_str.s45). The arithmetic of
 // floats is the library's float runtime (the BASIC 65 ROM's routines, as the
 // interpreter computes); BASIC's checks (division by zero, ranges) and
-// messages are the runtime's (basic_rt.s45, basic_str.c).
+// messages are the runtime's (basic_rt.s45, basic_str.s45).
 
 #include "BasicCompiler.hpp"
 #include "IR.hpp"
@@ -248,7 +248,7 @@ struct Val {
     int slot = -1;           // S: the temporary buffer it is in (-1: a variable or literal)
 };
 
-constexpr int STACK_ENTRIES = 128;   // __bas_stk (basic_rt.c)
+constexpr int STACK_ENTRIES = 128;   // __bas_stk (stdlib_asm/basic_str.s45)
 constexpr int MAX_SLOTS = 8;         // string temporaries in a statement
 
 // Integer narrowing: what a compile saw of a float variable's values
@@ -460,7 +460,7 @@ private:
     // it none is compiled (undefined behaviour: the program goes on)
     bool checks() const { return chainOpt_ && chainOpt_->checks; }
     // --bank=N (#580): the arrays and the string variables in bank N
-    // (basic_bank.c), each named by its 16-bit offset there; 0: on the heap
+    // (basic_bank.s45), each named by its 16-bit offset there; 0: on the heap
     int bank() const { return chainOpt_ ? chainOpt_->bank : 0; }
     // the element at the offset a to (put) / from __bas_ecell (es bytes;
     // basic_bankx.s45)
@@ -2484,7 +2484,7 @@ void Compiler::finish() {
         mod_->globals.push_back(gv);
     }
     if (bank()) {
-        // the bank and its range for basic_bank.c: bank 1 $2000-$F6FF (the
+        // the bank and its range for basic_bank.s45: bank 1 $2000-$F6FF (the
         // interpreter's variables' area), 4 and 5 $0100-$FFFE
         int first = bank() == 1 ? 0x2000 : 0x0100, end = bank() == 1 ? 0xF700 : 0xFFFF;
         auto data = [&](const char* nm, ir::Type t, int v) {

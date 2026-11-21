@@ -681,7 +681,7 @@ array exists and the subscript is in range; anything else (making the array, mor
 name are different variables; array elements are not narrowed (a float array holds floats).
 
 The run-time support is `lib/stdlib_asm/basic_rt.s45` (PRINT, the errors, BASIC's checks on numbers) and
-`lib/stdlib/basic_str.c` (strings on the heap, arrays, the stack of `GOSUB` and `FOR`).
+`lib/stdlib_asm/basic_str.s45` (strings on the heap, arrays, the stack of `GOSUB` and `FOR`).
 
 **Differences from the interpreter**:
 
@@ -700,7 +700,7 @@ The run-time support is `lib/stdlib_asm/basic_rt.s45` (PRINT, the errors, BASIC'
   `?OUT OF MEMORY`. With `--bank=1` (#580) the arrays and the string variables are in bank 1 as the interpreter's
   (`$2000`–`$F6FF`), with `--bank=4` or `--bank=5` in that bank (`$0100`–`$FFFE`; nothing else may use the bank:
   no `far_malloc`, no code overlays in bank 5, and no graphics `SCREEN`, whose bitplanes are in banks 4 and 5: basic45 warns), which leaves bank 1 to machine code or data of the program's
-  own. A variable then holds its array's or its string's offset in the bank (`lib/stdlib/basic_bank.c`: a heap of
+  own. A variable then holds its array's or its string's offset in the bank (`lib/stdlib_asm/basic_bank.s45`: a heap of
   blocks there); an element is copied through `__bas_ecell` (`stdlib_asm/basic_bankx.s45`, 32-bit indirect
   addressing) and a string variable's value to a buffer in bank 0 where it is used. `POINTER` of a string or an
   array element is then its offset in the bank. Measured (`src/bench/basic_compile_bench.bas`, frames): the sieve
@@ -810,7 +810,7 @@ Memory Layout
 
 Call Graph
 ----------
-  __bas_areff -> __bas_error __mul16 _falloc__basic_bank
+  __bas_areff -> __bas_raise
   __bas_error -> __bas_gtext __bas_msgptr __bas_out __bp_prog __bp_rom __exit __float_fout __float_utof
   __bas_fdiv -> __bas_raise __float_div
   ...
@@ -818,12 +818,11 @@ Call Graph
 Base Page
 ---------
   base-page block: __bas_afree at $4e len 8
-  base-page block: __bas_afreef at $4e len 8
-  base-page block: __bas_areff at $4e len 8
+  base-page block: __bas_chainprep at $4e len 8
   ...
 ```
 
-`__bas_areff` is the array access of a `--bank` program (it calls `_falloc__basic_bank`, the bank's allocator);
+`__bas_areff` is the array access of a `--bank` program (with the bank's allocator, `basic_bank.s45`);
 without `--bank` the map has `__bas_aref` in its place.
 
 

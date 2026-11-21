@@ -1,0 +1,705 @@
+; basic_str.s45 — the strings, arrays and stack of BASIC 65 programs compiled
+; by basic45 --compile (#369; in assembly, was stdlib/basic_str.c)
+;
+; A string is a pointer to a length byte (0..255) and its characters. A
+; variable points to a block of its own on the heap (malloc), or to
+; __bas_empty. A string expression's result goes to a buffer the compiled
+; code chooses (__bas_sr: 256 bytes). The arguments are in variables
+; (basic_rt.s45): __bas_sa, __bas_sb (strings), __bas_n, __bas_m (numbers);
+; basic_ax.s45 has the entries that take them in registers.
+;
+; BASIC's stack, __bas_stk (128 words, __bas_sp of them in use): a GOSUB's
+; return address (256 and up); a FOR loop's entry (its step code's address,
+; then its number 1..255); a DO loop's entry (its DO's address, then 0).
+; __bas_forvar[n]: loop n's variable (basic45 makes it).
+;
+; Errors go to __bas_raise (A: the error number), which does not return.
+
+    .cpu 45gs02
+
+; no calls through pointers here (ln45's call graph, see O45Linker)
+.weak cc45.icallinfo
+cc45.icallinfo = 1
+
+MULTINA = $D770
+MULTINB = $D774
+MULTOUT = $D778
+
+SRC     = $F6       ; library temps of the program's base page (malloc and
+DST     = $F8       ; free leave them alone)
+
+.extern __bas_sa
+.extern __bas_sb
+.extern __bas_sr
+.extern __bas_n
+.extern __bas_m
+.extern __bas_raise
+.extern __bas_forvar
+.extern __float_fout
+.extern __float_str
+.extern _malloc
+.extern _free
+
+; the empty string (in data: it stays empty whatever the BSS fill)
+.segment "data"
+.global __bas_empty
+__bas_empty: .byte 0
+
+.segment "bss"
+.global __bas_stk
+.global __bas_sp
+__bas_stk:  .res 256
+__bas_sp:   .res 1
+newp:   .res 2          ; __bas_sset's new block
+ln:     .res 1          ; a string's length
+ln2:    .res 1          ; another's (__bas_scmp), the result's (__bas_scat, part)
+pp:     .res 2          ; part's position (0-based)
+nn:     .res 2          ; part's count
+vv:     .res 1          ; a FOR loop's variable
+cnt:    .res 2          ; __bas_afree's elements
+
+.segment "code"
+
+; SRC := __bas_sa; DST := __bas_sr
+    .split "__bas_sasrc"
+.global __bas_sasrc
+__bas_sasrc:
+    lda __bas_sa
+    sta SRC
+    lda __bas_sa+1
+    sta SRC+1
+    rts
+
+    .split "__bas_srdst"
+.global __bas_srdst
+__bas_srdst:
+    lda __bas_sr
+    sta DST
+    lda __bas_sr+1
+    sta DST+1
+    rts
+
+; X bytes from (SRC) to (DST), the areas may overlap (memmove; X 0..255)
+    .split "__bas_smove"
+.global __bas_smove
+__bas_smove:
+    txa
+    beq @done
+    lda DST+1
+    cmp SRC+1
+    bne @cmp
+    lda DST
+    cmp SRC
+@cmp:
+    bcc @fwd            ; DST below SRC: from the first byte up
+    txa
+    tay
+@bwd:
+    dey
+    lda (SRC),y
+    sta (DST),y
+    tya
+    bne @bwd
+@done:
+    rts
+@fwd:
+    ldy #0
+@floop:
+    lda (SRC),y
+    sta (DST),y
+    iny
+    dex
+    bne @floop
+    rts
+
+; *__bas_sr (a variable) := a copy of __bas_sa; its old block freed (after
+; the copy: the string may be the variable's own). ?OUT OF MEMORY
+    .split "__bas_sset"
+.global __bas_sset
+__bas_sset:
+    jsr __bas_sasrc
+    lda #<__bas_empty
+    sta newp
+    lda #>__bas_empty
+    sta newp+1
+    ldy #0
+    lda (SRC),y
+    beq @set
+    clc                 ; malloc(the length + 1)
+    adc #1
+    sta $10
+    lda #0
+    rol a               ; (the carry: 256)
+    sta $11
+    jsr _malloc
+    sta DST
+    stx DST+1
+    sta newp
+    stx newp+1
+    ora DST+1
+    bne @copy
+    lda #16             ; ?OUT OF MEMORY
+    jmp __bas_raise
+@copy:
+    ldy #0
+    lda (SRC),y
+    sta (DST),y
+    tay
+@cloop:
+    lda (SRC),y
+    sta (DST),y
+    dey
+    bne @cloop
+@set:
+    lda __bas_sr        ; the variable's old block freed (not __bas_empty, not 0)
+    sta DST
+    lda __bas_sr+1
+    sta DST+1
+    ldy #0
+    lda (DST),y
+    sta $10
+    iny
+    lda (DST),y
+    sta $11
+    ora $10
+    beq @store
+    lda $10
+    cmp #<__bas_empty
+    bne @free
+    lda $11
+    cmp #>__bas_empty
+    beq @store
+@free:
+    jsr _free
+    jsr __bas_srdst
+@store:
+    ldy #0
+    lda newp
+    sta (DST),y
+    iny
+    lda newp+1
+    sta (DST),y
+    rts
+
+; __bas_sr := __bas_sa + __bas_sb (?STRING TOO LONG over 255). __bas_sr may
+; be either of them: b's characters go after a's first, then a's (memmove)
+    .split "__bas_scat"
+.global __bas_scat
+__bas_scat:
+    jsr __bas_sasrc
+    ldy #0
+    lda (SRC),y
+    sta ln
+    lda __bas_sb
+    sta SRC
+    lda __bas_sb+1
+    sta SRC+1
+    lda (SRC),y
+    tax                 ; b's length
+    clc
+    adc ln
+    bcc @fits
+    lda #23             ; ?STRING TOO LONG
+    jmp __bas_raise
+@fits:
+    sta ln2
+    inc SRC             ; b + 1
+    bne @s1
+    inc SRC+1
+@s1:
+    sec                 ; r + 1 + a's length
+    lda __bas_sr
+    adc ln
+    sta DST
+    lda __bas_sr+1
+    adc #0
+    sta DST+1
+    jsr __bas_smove
+    clc                 ; then a's characters to r + 1
+    lda __bas_sa
+    adc #1
+    sta SRC
+    lda __bas_sa+1
+    adc #0
+    sta SRC+1
+    clc
+    lda __bas_sr
+    adc #1
+    sta DST
+    lda __bas_sr+1
+    adc #0
+    sta DST+1
+    ldx ln
+    jsr __bas_smove
+    jmp __bas_rlen
+
+; __bas_n := -1, 0, 1 as __bas_sa is before, equal to, after __bas_sb
+    .split "__bas_scmp"
+.global __bas_scmp
+__bas_scmp:
+    jsr __bas_sasrc
+    lda __bas_sb
+    sta DST
+    lda __bas_sb+1
+    sta DST+1
+    ldy #0
+    lda (SRC),y
+    sta ln
+    lda (DST),y
+    sta ln2
+    ldx ln              ; X := the shorter length
+    cpx ln2
+    bcc @min
+    ldx ln2
+@min:
+    iny
+@loop:
+    txa
+    beq @lens
+    lda (SRC),y
+    cmp (DST),y
+    bne @diff
+    iny
+    dex
+    bra @loop
+@lens:
+    lda ln
+    cmp ln2
+    beq @eq
+@diff:
+    bcc @lt
+    lda #1
+    ldx #0
+    bra @st
+@lt:
+    lda #$FF
+    tax
+    bra @st
+@eq:
+    lda #0
+    tax
+@st:
+    sta __bas_n
+    stx __bas_n+1
+    rts
+
+; __bas_sr := the nn characters of __bas_sa from position pp (0-based), as
+; many as there are
+    .split "__bas_part"
+.global __bas_part
+__bas_part:
+    jsr __bas_sasrc
+    ldy #0
+    lda (SRC),y
+    ldx #0              ; (past the end: none)
+    ldy pp+1
+    bne @go
+    cmp pp
+    bcc @go
+    sec                 ; the characters after the position
+    sbc pp
+    ldy nn+1
+    bne @rest
+    cmp nn
+    bcc @rest
+    lda nn
+@rest:
+    tax
+@go:
+    stx ln2
+    sec                 ; a + 1 + the position
+    lda SRC
+    adc pp
+    sta SRC
+    lda SRC+1
+    adc #0
+    sta SRC+1
+    clc
+    lda __bas_sr
+    adc #1
+    sta DST
+    lda __bas_sr+1
+    adc #0
+    sta DST+1
+    jsr __bas_smove
+    ; (falls into __bas_rlen)
+
+; __bas_sr's length := ln2
+.global __bas_rlen
+__bas_rlen:
+    jsr __bas_srdst
+    lda ln2
+    ldy #0
+    sta (DST),y
+    rts
+
+; LEFT$(__bas_sa, __bas_n)
+    .split "__bas_left"
+.global __bas_left
+__bas_left:
+    lda #0
+    sta pp
+    sta pp+1
+    jmp __bas_partn
+
+; RIGHT$(__bas_sa, __bas_n): from the length - n (0 when n is not less)
+    .split "__bas_right"
+.global __bas_right
+__bas_right:
+    jsr __bas_sasrc
+    ldy #0
+    sty pp+1
+    lda (SRC),y
+    ldx __bas_n+1
+    bne @p0
+    cmp __bas_n
+    bcc @p0
+    beq @p0
+    sec
+    sbc __bas_n
+    bra @p
+@p0:
+    lda #0
+@p:
+    sta pp
+    ; (falls into __bas_partn)
+
+; part with the count __bas_n
+.global __bas_partn
+__bas_partn:
+    lda __bas_n
+    sta nn
+    lda __bas_n+1
+    sta nn+1
+    jmp __bas_part
+
+; MID$(__bas_sa, __bas_n [, __bas_m]): position 1..255 (0: ?ILLEGAL QUANTITY)
+    .split "__bas_mid"
+.global __bas_mid
+__bas_mid:
+    lda __bas_n
+    ora __bas_n+1
+    bne @ok
+    lda #14             ; ?ILLEGAL QUANTITY
+    jmp __bas_raise
+@ok:
+    sec
+    lda __bas_n
+    sbc #1
+    sta pp
+    lda __bas_n+1
+    sbc #0
+    sta pp+1
+    lda __bas_m
+    sta nn
+    lda __bas_m+1
+    sta nn+1
+    jmp __bas_part
+
+; CHR$(__bas_n)
+    .split "__bas_chr"
+.global __bas_chr
+__bas_chr:
+    jsr __bas_srdst
+    ldy #0
+    lda #1
+    sta (DST),y
+    iny
+    lda __bas_n
+    sta (DST),y
+    rts
+
+; STR$(__float_a): the number as PRINT shows it (without the cursor right)
+    .split "__bas_str"
+.global __bas_str
+__bas_str:
+    jsr __float_fout
+    jsr __bas_srdst
+    ldx #0
+    ldy #1
+@loop:
+    lda __float_str,x
+    beq @end
+    sta (DST),y
+    inx
+    iny
+    bne @loop
+@end:
+    txa
+    ldy #0
+    sta (DST),y
+    rts
+
+; A counted loop's FOR (no entry of its own) of the variable number __bas_n:
+; a loop of that variable on the stack (above the last GOSUB or DO) goes,
+; with the entries above it (as BASIC's FOR). __bas_fdrop: the variable in A
+    .split "__bas_fordrop"
+.global __bas_fordrop
+.global __bas_fdrop
+__bas_fordrop:
+    lda __bas_n
+__bas_fdrop:
+    sta vv
+    ldx __bas_sp
+@loop:
+    cpx #2
+    bcc @done
+    dex                 ; the entry's upper word, at 2 * (i - 1)
+    txa
+    asl a
+    tay
+    lda __bas_stk+1,y
+    bne @done           ; (a GOSUB's or a DO's: the search ends)
+    lda __bas_stk,y
+    beq @done
+    tay
+    lda __bas_forvar,y
+    dex
+    cmp vv
+    bne @loop
+    stx __bas_sp
+@done:
+    rts
+
+; FOR loop __bas_n (its step code at __bas_m): a loop of the same variable
+; goes (__bas_fdrop), then its entry is pushed. ?OUT OF MEMORY when full
+    .split "__bas_forpush"
+.global __bas_forpush
+__bas_forpush:
+    ldy __bas_n
+    lda __bas_forvar,y
+    jsr __bas_fdrop
+    ldx __bas_sp
+    cpx #127
+    bcc @push
+    lda #16             ; ?OUT OF MEMORY
+    jmp __bas_raise
+@push:
+    txa
+    asl a
+    tay
+    lda __bas_m
+    sta __bas_stk,y
+    lda __bas_m+1
+    sta __bas_stk+1,y
+    lda __bas_n
+    sta __bas_stk+2,y
+    lda #0
+    sta __bas_stk+3,y
+    inx
+    inx
+    stx __bas_sp
+    rts
+
+; NEXT of the variable number __bas_n (0: any): the loop on top of the stack
+; that is one of it (the FOR loops above it dropped); __bas_n := its step
+; code's address. A GOSUB's or a DO's entry first, or none: ?NEXT WITHOUT FOR
+    .split "__bas_next"
+.global __bas_next
+__bas_next:
+    lda __bas_n
+    sta vv
+@loop:
+    ldx __bas_sp
+    cpx #2
+    bcc @err
+    dex
+    txa
+    asl a
+    tay
+    lda __bas_stk+1,y
+    bne @err
+    lda __bas_stk,y
+    beq @err
+    ldx vv
+    beq @hit
+    tax
+    lda __bas_forvar,x
+    cmp vv
+    beq @hit
+    dec __bas_sp
+    dec __bas_sp
+    bra @loop
+@hit:
+    lda __bas_stk-2,y
+    sta __bas_n
+    lda __bas_stk-1,y
+    sta __bas_n+1
+    rts
+@err:
+    lda #10             ; ?NEXT WITHOUT FOR
+    jmp __bas_raise
+
+; DO: its entry (the DO's address __bas_n, then 0). ?OUT OF MEMORY when full
+    .split "__bas_dopush"
+.global __bas_dopush
+__bas_dopush:
+    ldx __bas_sp
+    cpx #127
+    bcc @push
+    lda #16
+    jmp __bas_raise
+@push:
+    txa
+    asl a
+    tay
+    lda __bas_n
+    sta __bas_stk,y
+    lda __bas_n+1
+    sta __bas_stk+1,y
+    lda #0
+    sta __bas_stk+2,y
+    sta __bas_stk+3,y
+    inx
+    inx
+    stx __bas_sp
+    rts
+
+; LOOP / EXIT: the topmost DO entry popped, with the FOR and GOSUB entries
+; above it (as BASIC 65's search: word by word); __bas_n := its DO's
+; address. ?LOOP WITHOUT DO without one.
+    .split "__bas_dopop"
+.global __bas_dopop
+__bas_dopop:
+    ldx __bas_sp
+@loop:
+    cpx #2
+    bcc @err
+    dex                 ; word i - 1
+    txa
+    asl a
+    tay
+    lda __bas_stk,y
+    ora __bas_stk+1,y
+    bne @loop
+    lda __bas_stk-2,y
+    sta __bas_n
+    lda __bas_stk-1,y
+    sta __bas_n+1
+    dex
+    stx __bas_sp
+    rts
+@err:
+    lda #33             ; ?LOOP WITHOUT DO
+    jmp __bas_raise
+
+; CLR's arrays: the array of the variable __bas_sa freed (a string array's
+; strings too: __bas_m 1) and undimensioned. An array: the number of
+; dimensions (1 byte), each one's size (2 bytes), then the elements.
+    .split "__bas_afree"
+.global __bas_afree
+__bas_afree:
+    lda __bas_sa
+    sta DST
+    lda __bas_sa+1
+    sta DST+1
+    ldy #0
+    lda (DST),y
+    sta SRC
+    iny
+    lda (DST),y
+    sta SRC+1
+    ora SRC
+    beq @done
+    lda __bas_m
+    ora __bas_m+1
+    beq @block
+    ; the elements: the product of the sizes (16 bits, by the multiplier)
+    lda #0
+    sta MULTINA+2
+    sta MULTINA+3
+    sta MULTINB+2
+    sta MULTINB+3
+    sta cnt+1
+    lda #1
+    sta cnt
+    ldy #0
+    lda (SRC),y
+    asl a
+    sta ln              ; 2 * the dimensions
+    ldy #1
+@dims:
+    cpy ln              ; (the sizes at 1 .. 2n)
+    bcs @counted
+    lda cnt
+    sta MULTINA
+    lda cnt+1
+    sta MULTINA+1
+    lda (SRC),y
+    sta MULTINB
+    iny
+    lda (SRC),y
+    sta MULTINB+1
+    iny
+    lda MULTOUT
+    sta cnt
+    lda MULTOUT+1
+    sta cnt+1
+    bra @dims
+@counted:
+    ; the elements' pointers from the array + 1 + 2 * the dimensions
+    tya                 ; (Y = 2n + 1)
+    clc
+    adc SRC
+    sta DST
+    lda SRC+1
+    adc #0
+    sta DST+1
+@elem:
+    lda cnt
+    ora cnt+1
+    beq @block
+    ldy #0
+    lda (DST),y
+    sta $10
+    iny
+    lda (DST),y
+    sta $11
+    ora $10
+    beq @next
+    lda $10
+    cmp #<__bas_empty
+    bne @free
+    lda $11
+    cmp #>__bas_empty
+    beq @next
+@free:
+    jsr _free
+@next:
+    clc
+    lda DST
+    adc #2
+    sta DST
+    bcc @dec
+    inc DST+1
+@dec:
+    lda cnt
+    bne @dlo
+    dec cnt+1
+@dlo:
+    dec cnt
+    bra @elem
+@block:
+    ; the block freed and the variable set to 0
+    lda __bas_sa
+    sta DST
+    lda __bas_sa+1
+    sta DST+1
+    ldy #0
+    lda (DST),y
+    sta $10
+    iny
+    lda (DST),y
+    sta $11
+    jsr _free
+    lda __bas_sa
+    sta DST
+    lda __bas_sa+1
+    sta DST+1
+    lda #0
+    tay
+    sta (DST),y
+    iny
+    sta (DST),y
+@done:
+    rts

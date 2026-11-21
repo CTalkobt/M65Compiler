@@ -1,0 +1,875 @@
+; basic_bank.s45 — basic45 --compile --bank=N (#580): the arrays and the
+; string variables of a compiled BASIC 65 program in bank N (1, 4 or 5), not
+; on the program's heap in bank 0 (basic_bankx.s45 has the elements' fast
+; path)
+;
+; The compiled program defines the bank and its range (__bas_fbank,
+; __bas_fstart, __bas_fend: the first byte, past the last). A value there is
+; named by its 16-bit offset in the bank; 0 is none (a string variable: the
+; empty string; an array variable: no array yet). The memory is a heap of
+; blocks, each a size word (the block's bytes, with the word) and its data;
+; a free block's data starts with the next free block's offset (the list in
+; address order, neighbours merged).
+;
+; An array's block: the number of dimensions (1 byte), each dimension's size
+; (its DIM + 1, 2 bytes), then the elements (floats 5 bytes, integers 2,
+; strings a 2-byte offset), the first subscript varying fastest: as in bank 0
+; (basic_aref.s45). A string's block: its length byte and characters.
+;
+; Arguments in the run time's variables (basic_rt.s45), as basic_str's:
+;   __bas_areff   the element of the array of the variable __bas_sa (__bas_n
+;                 subscripts in __bas_sub, __bas_m the element size | $80 (a
+;                 DIM statement's) | $40 (strings)): __bas_n := its offset;
+;                 DIM: the array made (one used before a DIM gets 11 elements
+;                 in each dimension). ?REDIMENSIONED ARRAY, ?BAD SUBSCRIPT,
+;                 ?OUT OF MEMORY as the ROM's
+;   __bas_sfetch  the buffer __bas_sr := the string at __bas_n (0: empty)
+;   __bas_sstore  __bas_n := a copy in the bank of the string __bas_sa (the
+;                 empty one: 0); the string at __bas_n (the old value) freed
+;   __bas_sfree   CLR: the string at __bas_n freed
+;   __bas_afreef  CLR: the array of the variable __bas_sa freed (a string
+;                 array's strings too: __bas_m not 0) and undimensioned
+; Sizes and offsets by the MEGA65's multiplier ($D770). Z is 0 on return.
+
+    .cpu 45gs02
+
+; no calls through pointers here (ln45's call graph, see O45Linker)
+.weak cc45.icallinfo
+cc45.icallinfo = 1
+
+MULTINA = $D770
+MULTINB = $D774
+MULTOUT = $D778
+
+fp      = $08       ; 32-bit address in the bank: offset, bank, 0
+cur     = $0C       ; the heap's block being looked at
+prev    = $0E       ; the one before it in the free list
+vp      = $0C       ; (outside the heap's routines) a variable in bank 0
+size    = $F6       ; (library temps of the program's base page)
+next    = $F8
+bb      = $F8       ; ffree: the block freed
+need    = $FA
+
+.extern __bas_sa
+.extern __bas_sr
+.extern __bas_n
+.extern __bas_m
+.extern __bas_sub
+.extern __bas_fbank
+.extern __bas_fstart
+.extern __bas_fend
+.extern __bas_raise
+
+.global __bas_areff
+.global __bas_sfetch
+.global __bas_sstore
+.global __bas_sfree
+.global __bas_afreef
+.global __bas_ecell
+
+; ---------------------------------------------------------------------------
+; The element (or DIM)
+; ---------------------------------------------------------------------------
+__bas_areff:
+    jsr bankp
+    lda __bas_n
+    sta nsub
+    asl a
+    sta dim2            ; 2 * the subscripts
+    inc a
+    sta hdr             ; the header's bytes: 1 + 2n
+    lda __bas_m
+    and #$3F
+    sta esz
+    lda #0              ; (the multiplier's upper input bytes)
+    sta MULTINA+2
+    sta MULTINA+3
+    sta MULTINB+2
+    sta MULTINB+3
+    lda __bas_sa
+    sta vp
+    lda __bas_sa+1
+    sta vp+1
+    ldy #0
+    lda (vp),y
+    sta arr
+    iny
+    lda (vp),y
+    sta arr+1
+    ora arr
+    beq ar_make
+    bit __bas_m
+    bpl ar_look
+    lda #19             ; ?REDIMENSIONED ARRAY
+    bra raise
+
+; the array made: bytes := the size * each dimension's, at most $FF00
+ar_make:
+    lda esz
+    sta cnt
+    lda #0
+    sta cnt+1
+    ldx #0
+ar_count:
+    cpx dim2
+    beq ar_counted
+    jsr dimk
+    sta MULTINB
+    ora tmp
+    beq oom             ; (DIM 65535)
+    lda tmp
+    sta MULTINB+1
+    lda cnt
+    sta MULTINA
+    lda cnt+1
+    sta MULTINA+1
+    lda MULTOUT+2
+    ora MULTOUT+3
+    bne oom
+    lda MULTOUT+1
+    cmp #$FF
+    bcc ar_fits
+    lda MULTOUT
+    bne oom
+ar_fits:
+    lda MULTOUT
+    sta cnt
+    lda MULTOUT+1
+    sta cnt+1
+    inx
+    inx
+    bra ar_count
+ar_counted:
+    clc                 ; falloc(the header + the elements)
+    lda cnt
+    adc hdr
+    pha
+    lda cnt+1
+    adc #0
+    tax
+    pla
+    jsr falloc
+    sta arr
+    stx arr+1
+    ora arr+1
+    bne ar_got
+oom:
+    lda #16             ; ?OUT OF MEMORY
+raise:
+    ldz #0
+    jmp __bas_raise
+ar_got:
+    lda arr             ; the header
+    sta fp
+    lda arr+1
+    sta fp+1
+    ldz #0
+    lda nsub
+    sta [fp],z
+    ldx #0
+ar_head:
+    cpx dim2
+    beq ar_headed
+    jsr dimk
+    inz
+    sta [fp],z
+    lda tmp
+    inz
+    sta [fp],z
+    inx
+    inx
+    bra ar_head
+ar_headed:
+    clc                 ; the elements := 0 (numbers 0, strings the empty one)
+    lda arr
+    adc hdr
+    sta fp
+    lda arr+1
+    adc #0
+    sta fp+1
+    lda #0
+    ldz #0
+    ldx cnt+1
+    beq ar_zrest
+ar_zpage:
+    sta [fp],z
+    inz
+    bne ar_zpage
+    inc fp+1
+    dex
+    bne ar_zpage
+ar_zrest:
+    ldx cnt
+    beq ar_zdone
+ar_zbyte:
+    sta [fp],z
+    inz
+    dex
+    bne ar_zbyte
+ar_zdone:
+    lda __bas_sa        ; the variable := the array (falloc used vp's bytes)
+    sta vp
+    lda __bas_sa+1
+    sta vp+1
+    ldy #0
+    lda arr
+    sta (vp),y
+    iny
+    lda arr+1
+    sta (vp),y
+    ldz #0
+    bit __bas_m         ; DIM: done
+    bpl ar_look
+    rts
+
+; the element: offset = ((sub[n-1]) * dim[n-2] + ...) + sub[0], each
+; subscript below its dimension's size
+ar_look:
+    lda arr
+    sta fp
+    lda arr+1
+    sta fp+1
+    ldz #0
+    lda [fp],z
+    cmp nsub
+    bne bad
+    lda #0
+    sta off
+    sta off+1
+    ldx dim2
+ar_dim:
+    cpx #0
+    beq ar_found
+    dex
+    dex
+    txa
+    taz
+    inz
+    lda [fp],z
+    sta MULTINB
+    sta dlo
+    inz
+    lda [fp],z
+    sta MULTINB+1
+    sta dhi
+    lda __bas_sub+1,x
+    cmp dhi
+    bcc ar_in
+    bne bad
+    lda __bas_sub,x
+    cmp dlo
+    bcs bad
+ar_in:
+    lda off
+    sta MULTINA
+    lda off+1
+    sta MULTINA+1
+    clc
+    lda MULTOUT
+    adc __bas_sub,x
+    sta off
+    lda MULTOUT+1
+    adc __bas_sub+1,x
+    sta off+1
+    bra ar_dim
+ar_found:
+    lda off             ; __bas_n := the array + the header + offset * size
+    sta MULTINA
+    lda off+1
+    sta MULTINA+1
+    lda esz
+    sta MULTINB
+    lda #0
+    sta MULTINB+1
+    clc
+    lda MULTOUT
+    adc hdr
+    tax
+    lda MULTOUT+1
+    adc #0
+    tay
+    clc
+    txa
+    adc arr
+    sta __bas_n
+    tya
+    adc arr+1
+    sta __bas_n+1
+    ldz #0
+    rts
+bad:
+    lda #18             ; ?BAD SUBSCRIPT
+    bra raise
+
+; X = 2k: A := dimension k's size, low byte (tmp the high one); Y, Z kept
+dimk:
+    bit __bas_m
+    bmi dimk_d
+    lda #0
+    sta tmp
+    lda #11
+    rts
+dimk_d:
+    lda __bas_sub+1,x
+    sta tmp
+    lda __bas_sub,x
+    clc
+    adc #1
+    bcc dimk_r
+    inc tmp
+dimk_r:
+    rts
+
+; fp's upper bytes: the bank
+bankp:
+    lda __bas_fbank
+    sta fp+2
+    lda #0
+    sta fp+3
+    rts
+
+; ---------------------------------------------------------------------------
+; Strings
+; ---------------------------------------------------------------------------
+__bas_sfetch:
+    lda __bas_sr
+    sta vp
+    lda __bas_sr+1
+    sta vp+1
+    ldy #0
+    lda __bas_n
+    ora __bas_n+1
+    bne sf_go
+    sta (vp),y          ; (the empty string)
+    ldz #0
+    rts
+sf_go:
+    jsr bankp
+    lda __bas_n
+    sta fp
+    lda __bas_n+1
+    sta fp+1
+    ldz #0
+    lda [fp],z          ; the length and the characters, from the last
+    tay
+    taz
+sf_copy:
+    lda [fp],z
+    sta (vp),y
+    dez
+    dey
+    cpy #$FF
+    bne sf_copy
+    ldz #0
+    rts
+
+__bas_sstore:
+    jsr bankp
+    lda __bas_n         ; (freed first: its room is the new one's, the
+    ldx __bas_n+1       ; string being in bank 0)
+    jsr ffree
+    lda __bas_sa
+    sta vp
+    lda __bas_sa+1
+    sta vp+1
+    ldy #0
+    lda (vp),y
+    bne ss_some
+    sta __bas_n         ; the empty string: 0
+    sta __bas_n+1
+    ldz #0
+    rts
+ss_some:
+    sta tmp
+    ldx #0              ; falloc(the length + 1)
+    inc a
+    bne ss_lo
+    inx                 ; (255 + 1)
+ss_lo:
+    jsr falloc
+    sta __bas_n
+    stx __bas_n+1
+    ora __bas_n+1
+    beq oom             ; (__bas_n 0)
+    lda __bas_n
+    sta fp
+    lda __bas_n+1
+    sta fp+1
+    lda __bas_sa        ; (falloc used vp's bytes)
+    sta vp
+    lda __bas_sa+1
+    sta vp+1
+    ldy tmp
+    tya
+    taz
+ss_copy:
+    lda (vp),y
+    sta [fp],z
+    dez
+    dey
+    cpy #$FF
+    bne ss_copy
+    ldz #0
+    rts
+
+__bas_sfree:
+    jsr bankp
+    lda __bas_n
+    ldx __bas_n+1
+    jsr ffree
+    ldz #0
+    rts
+
+; ---------------------------------------------------------------------------
+; CLR's arrays
+; ---------------------------------------------------------------------------
+__bas_afreef:
+    jsr bankp
+    lda __bas_sa
+    sta vp
+    lda __bas_sa+1
+    sta vp+1
+    ldy #0
+    lda (vp),y
+    sta arr
+    iny
+    lda (vp),y
+    sta arr+1
+    ora arr
+    bne af_some
+    ldz #0
+    rts
+af_some:
+    lda __bas_m
+    ora __bas_m+1
+    beq af_block
+    lda #0              ; strings: cnt := the elements (16 bits)
+    sta MULTINA+2
+    sta MULTINA+3
+    sta MULTINB+2
+    sta MULTINB+3
+    sta cnt+1
+    lda #1
+    sta cnt
+    lda arr
+    sta fp
+    lda arr+1
+    sta fp+1
+    ldz #0
+    lda [fp],z
+    asl a
+    sta dim2
+    tax
+af_count:
+    cpx #0
+    beq af_counted
+    txa                 ; (X = 2k + 2: dimension k's size at 2k + 1)
+    dec a
+    taz
+    lda [fp],z
+    sta MULTINB
+    inz
+    lda [fp],z
+    sta MULTINB+1
+    lda cnt
+    sta MULTINA
+    lda cnt+1
+    sta MULTINA+1
+    lda MULTOUT
+    sta cnt
+    lda MULTOUT+1
+    sta cnt+1
+    dex
+    dex
+    bra af_count
+af_counted:
+    sec                 ; e := the elements: the array + 1 + 2n
+    lda arr
+    adc dim2
+    sta off
+    lda arr+1
+    adc #0
+    sta off+1
+af_el:
+    lda cnt
+    ora cnt+1
+    beq af_block
+    lda off
+    sta fp
+    lda off+1
+    sta fp+1
+    ldz #0
+    lda [fp],z
+    pha
+    inz
+    lda [fp],z
+    tax
+    pla
+    jsr ffree
+    clc
+    lda off
+    adc #2
+    sta off
+    bcc af_dec
+    inc off+1
+af_dec:
+    lda cnt
+    bne af_dlo
+    dec cnt+1
+af_dlo:
+    dec cnt
+    bra af_el
+af_block:
+    lda arr
+    ldx arr+1
+    jsr ffree
+    lda __bas_sa        ; the variable := 0
+    sta vp
+    lda __bas_sa+1
+    sta vp+1
+    ldy #0
+    tya
+    sta (vp),y
+    iny
+    sta (vp),y
+    ldz #0
+    rts
+
+; ---------------------------------------------------------------------------
+; The heap (fp's upper bytes set: bankp)
+; ---------------------------------------------------------------------------
+
+; A/X = n bytes: A/X := their offset (0: no room). The first fitting block;
+; its end taken when the rest is a block (4 bytes or more), else the whole.
+falloc:
+    clc                 ; need := n + 2, at least 4
+    adc #2
+    sta need
+    txa
+    adc #0
+    sta need+1
+    bcs fa_none         ; (n > $FFFD)
+    bne fa_ready
+    lda need
+    cmp #4
+    bcs fa_ready
+    lda #4
+    sta need
+fa_ready:
+    bit ready
+    bmi fa_list
+    lda #$FF            ; the first: one free block, the whole range
+    sta ready
+    lda __bas_fstart
+    sta freep
+    sta fp
+    lda __bas_fstart+1
+    sta freep+1
+    sta fp+1
+    ldz #0
+    sec
+    lda __bas_fend
+    sbc __bas_fstart
+    sta [fp],z
+    inz
+    lda __bas_fend+1
+    sbc __bas_fstart+1
+    sta [fp],z
+    lda #0
+    inz
+    sta [fp],z
+    inz
+    sta [fp],z
+fa_list:
+    lda #0
+    sta prev
+    sta prev+1
+    lda freep
+    sta cur
+    lda freep+1
+    sta cur+1
+fa_loop:
+    lda cur
+    ora cur+1
+    beq fa_none
+    lda cur
+    sta fp
+    lda cur+1
+    sta fp+1
+    ldz #0              ; size, next
+    lda [fp],z
+    sta size
+    inz
+    lda [fp],z
+    sta size+1
+    inz
+    lda [fp],z
+    sta next
+    inz
+    lda [fp],z
+    sta next+1
+    sec                 ; size := the rest (size - need), if it fits
+    lda size
+    sbc need
+    sta size
+    lda size+1
+    sbc need+1
+    sta size+1
+    bcc fa_skip
+    bne fa_split
+    lda size
+    cmp #4
+    bcs fa_split
+    lda prev            ; the whole block: out of the list
+    ora prev+1
+    beq fa_head
+    lda prev
+    sta fp
+    lda prev+1
+    sta fp+1
+    ldz #2
+    lda next
+    sta [fp],z
+    inz
+    lda next+1
+    sta [fp],z
+    bra fa_ret
+fa_head:
+    lda next
+    sta freep
+    lda next+1
+    sta freep+1
+    bra fa_ret
+fa_split:               ; its end taken (the list stays as it is)
+    ldz #0
+    lda size
+    sta [fp],z
+    inz
+    lda size+1
+    sta [fp],z
+    clc
+    lda cur
+    adc size
+    sta cur
+    sta fp
+    lda cur+1
+    adc size+1
+    sta cur+1
+    sta fp+1
+    ldz #0
+    lda need
+    sta [fp],z
+    inz
+    lda need+1
+    sta [fp],z
+fa_ret:
+    ldz #0
+    clc                 ; the data: past the size word
+    lda cur
+    adc #2
+    pha
+    lda cur+1
+    adc #0
+    tax
+    pla
+    rts
+fa_skip:
+    lda cur
+    sta prev
+    lda cur+1
+    sta prev+1
+    lda next
+    sta cur
+    lda next+1
+    sta cur+1
+    bra fa_loop
+fa_none:
+    lda #0
+    tax
+    ldz #0
+    rts
+
+; A/X = the data's offset (0: none): the block back in the list, merged with
+; the free blocks next to it
+ffree:
+    sta bb
+    stx bb+1
+    ora bb+1
+    bne ff_go
+    rts
+ff_go:
+    sec                 ; bb := the block
+    lda bb
+    sbc #2
+    sta bb
+    bcs ff_b
+    dec bb+1
+ff_b:
+    lda #0
+    sta prev
+    sta prev+1
+    lda freep
+    sta cur
+    lda freep+1
+    sta cur+1
+ff_walk:                ; prev, cur: the free blocks around it
+    lda cur
+    ora cur+1
+    beq ff_end
+    lda cur+1
+    cmp bb+1
+    bcc ff_lt
+    bne ff_end
+    lda cur
+    cmp bb
+    bcs ff_end
+ff_lt:
+    lda cur
+    sta prev
+    sta fp
+    lda cur+1
+    sta prev+1
+    sta fp+1
+    ldz #2
+    lda [fp],z
+    sta cur
+    inz
+    lda [fp],z
+    sta cur+1
+    bra ff_walk
+ff_end:
+    lda bb
+    sta fp
+    lda bb+1
+    sta fp+1
+    ldz #0
+    lda [fp],z
+    sta size
+    inz
+    lda [fp],z
+    sta size+1
+    lda cur             ; cur just after it: merged
+    ora cur+1
+    beq ff_prev
+    clc
+    lda bb
+    adc size
+    tax
+    lda bb+1
+    adc size+1
+    cmp cur+1
+    bne ff_prev
+    cpx cur
+    bne ff_prev
+    lda cur
+    sta fp
+    lda cur+1
+    sta fp+1
+    ldz #0
+    clc
+    lda [fp],z
+    adc size
+    sta size
+    inz
+    lda [fp],z
+    adc size+1
+    sta size+1
+    inz
+    lda [fp],z
+    tax
+    inz
+    lda [fp],z
+    stx cur
+    sta cur+1
+ff_prev:
+    lda prev            ; prev just before it: it takes the block
+    ora prev+1
+    beq ff_link
+    lda prev
+    sta fp
+    lda prev+1
+    sta fp+1
+    ldz #0
+    clc
+    lda [fp],z
+    adc prev
+    tax
+    inz
+    lda [fp],z
+    adc prev+1
+    cmp bb+1
+    bne ff_link
+    cpx bb
+    bne ff_link
+    ldz #0
+    clc
+    lda [fp],z
+    adc size
+    sta [fp],z
+    inz
+    lda [fp],z
+    adc size+1
+    sta [fp],z
+    inz
+    lda cur
+    sta [fp],z
+    inz
+    lda cur+1
+    sta [fp],z
+    ldz #0
+    rts
+ff_link:                ; else a block of its own, between them
+    lda bb
+    sta fp
+    lda bb+1
+    sta fp+1
+    ldz #0
+    lda size
+    sta [fp],z
+    inz
+    lda size+1
+    sta [fp],z
+    inz
+    lda cur
+    sta [fp],z
+    inz
+    lda cur+1
+    sta [fp],z
+    lda prev
+    ora prev+1
+    beq ff_first
+    lda prev
+    sta fp
+    lda prev+1
+    sta fp+1
+    ldz #2
+    lda bb
+    sta [fp],z
+    inz
+    lda bb+1
+    sta [fp],z
+    ldz #0
+    rts
+ff_first:
+    lda bb
+    sta freep
+    lda bb+1
+    sta freep+1
+    ldz #0
+    rts
+
+.segment "bss"
+__bas_ecell: .res 5     ; an element between the bank and the program
+                        ; (basic_bankx.s45)
+freep:  .res 2          ; the first free block (0: none)
+ready:  .res 1          ; $FF: the heap set up
+arr:    .res 2
+cnt:    .res 2
+off:    .res 2
+nsub:   .res 1
+dim2:   .res 1
+hdr:    .res 1
+esz:    .res 1
+tmp:    .res 1
+dlo:    .res 1
+dhi:    .res 1

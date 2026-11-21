@@ -1,4 +1,4 @@
-/* palette.h — the VIC-IV's colour palette (lib/stdlib/palette.c)
+/* palette.h — the VIC-IV's colour palette (lib/stdlib_asm/palette.s45)
  *
  * The palette has 256 entries ($D100-$D3FF: red, green, blue), each
  * component 8 bits with its nibbles swapped in the register (the C65's
@@ -45,22 +45,22 @@ typedef struct {
 #define PAL_LIGHT_GRAY  15
 
 /* Set entry index (0-255) to r, g, b (0-255 each) */
-void palette_set_color(int index, uint8_t r, uint8_t g, uint8_t b);
-void palette_set_color_rgb(int index, rgb_color_t color);
+__fastcall__ void palette_set_color(int index, uint8_t r, uint8_t g, uint8_t b);
+__fastcall__ void palette_set_color_rgb(int index, rgb_color_t color);
 
 /* Entry index's colour into *out; 0 (-1 for an index out of 0-255) */
-int palette_get_color(int index, rgb_color_t *out);
+__fastcall__ int palette_get_color(int index, rgb_color_t *out);
 
 /* Set count entries from first: rgb holds r, g, b for each (3 x count bytes) */
-void palette_set_range(int first, int count, const uint8_t *rgb);
+__fastcall__ void palette_set_range(int first, int count, const uint8_t *rgb);
 
 /* Copy count entries from first into buf (3 x count bytes: the registers as
  * they are, all the reds, the greens, the blues) and put them back */
-void palette_save(int first, int count, uint8_t *buf);
-void palette_restore(int first, int count, const uint8_t *buf);
+__fastcall__ void palette_save(int first, int count, uint8_t *buf);
+__fastcall__ void palette_restore(int first, int count, const uint8_t *buf);
 
 /* Rotate entries start..end by one: direction > 0 moves each colour to the
  * next entry (end's to start), < 0 the other way (colour cycling) */
-void palette_rotate(int start, int end, int direction);
+__fastcall__ void palette_rotate(int start, int end, int direction);
 
 #endif /* PALETTE_H */

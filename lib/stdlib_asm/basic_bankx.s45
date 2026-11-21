@@ -1,10 +1,10 @@
 ; basic_bankx.s45 — basic45 --compile --bank=N (#580): the elements of the
-; arrays in bank N (basic_bank.c has the rest: the heap there, the arrays
+; arrays in bank N (basic_bank.s45 has the rest: the heap there, the arrays
 ; made, the strings)
 ;
 ; An array's variable holds its block's offset in the bank (0: no array
 ; yet); the block: the number of dimensions, each one's size (2 bytes), the
-; elements. An element goes through __bas_ecell (5 bytes, basic_bank.c).
+; elements. An element goes through __bas_ecell (5 bytes, basic_bank.s45).
 ;
 ;     (the subscript in A/X)
 ;     jsr __bas_felgf      ; __bas_ecell := the element of a float array (5
@@ -18,7 +18,7 @@
 ;     jsr __bas_felp5      ; the element := __bas_ecell's 5 bytes (__bas_felp2)
 ;
 ; The element is found here when the array exists with one dimension and
-; the subscript is in it; else by basic_bank.c's _bas_areff (which makes the
+; the subscript is in it; else by basic_bank.s45's __bas_areff (which makes the
 ; array, 11 elements, or raises the error).
 
     .cpu 45gs02
@@ -177,7 +177,7 @@ bas_fel_go:
     lda #0
     sta __bas_n+1
     sta __bas_m+1
-    lda get             ; (the C code uses the base page's temporaries)
+    lda get             ; (__bas_areff uses the base page's temporaries)
     pha
     lda esz
     pha

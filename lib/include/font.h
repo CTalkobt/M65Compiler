@@ -58,22 +58,22 @@ typedef struct {
     unsigned long glyphs;                   /* the first glyph */
 } font_t;
 
-const font_t *font_from(font_t *f, unsigned long data);
+__fastcall__ const font_t *font_from(font_t *f, unsigned long data);
 
-void font_install(unsigned long charset, unsigned int bytes, unsigned long lin);
-void font_select(unsigned long lin);
+__fastcall__ void font_install(unsigned long charset, unsigned int bytes, unsigned long lin);
+__fastcall__ void font_select(unsigned long lin);
 
-unsigned char font_glyph_width(const font_t *f, unsigned char c);
-unsigned int font_width(const font_t *f, const char *s);
+__fastcall__ unsigned char font_glyph_width(const font_t *f, unsigned char c);
+__fastcall__ unsigned int font_width(const font_t *f, const char *s);
 
-void font_ramp(unsigned char first, unsigned char levels);
-void font_clip(signed int x0, signed int y0, signed int x1, signed int y1);
-signed int font_draw_bitmap(const font_t *f, unsigned long lin, unsigned int pitch, signed int x, signed int y, const char *s);
-signed int font_draw_fcm(const font_t *f, unsigned long chars, signed int strip, signed int x, signed int y, const char *s);
-signed int font_draw_ncm(const font_t *f, unsigned long chars, signed int strip, signed int x, signed int y, const char *s);
+__fastcall__ void font_ramp(unsigned char first, unsigned char levels);
+__fastcall__ void font_clip(signed int x0, signed int y0, signed int x1, signed int y1);
+__fastcall__ signed int font_draw_bitmap(const font_t *f, unsigned long lin, unsigned int pitch, signed int x, signed int y, const char *s);
+__fastcall__ signed int font_draw_fcm(const font_t *f, unsigned long chars, signed int strip, signed int x, signed int y, const char *s);
+__fastcall__ signed int font_draw_ncm(const font_t *f, unsigned long chars, signed int strip, signed int x, signed int y, const char *s);
 
-unsigned char font_put_cells(const font_t *f, unsigned long screen, unsigned int row_bytes, unsigned char col, unsigned char row,
-                             const char *s);
+__fastcall__ unsigned char font_put_cells(const font_t *f, unsigned long screen, unsigned int row_bytes, unsigned char col, unsigned char row,
+                                          const char *s);
 
 const font_t *font_load(const char *name, unsigned char len, unsigned long lin);
 

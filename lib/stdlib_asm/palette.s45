@@ -1,0 +1,323 @@
+; palette.s45 — the VIC-IV's colour palette (<palette.h>)
+;
+; 256 entries: red at $D100 + n, green $D200 + n, blue $D300 + n, each
+; register the component with its nibbles swapped (the C65's 4-bit values in
+; the low nibble). The functions take and return plain 0-255 values. All
+; __fastcall__ (the ZP convention in both libraries):
+;
+;   void palette_set_color(int index, uint8_t r, uint8_t g, uint8_t b)
+;                                   index $10/$11, r $12, g $14, b $16
+;   void palette_set_color_rgb(int index, rgb_color_t color)
+;                                   index $10/$11, $12/$13 points to color
+;                                   (the caller's copy: a struct by value)
+;   int  palette_get_color(int index, rgb_color_t *out)
+;                                   index $10/$11, out $12/$13; 0, -1 for an
+;                                   index out of 0-255
+;   void palette_set_range(int first, int count, const uint8_t *rgb)
+;   void palette_save(int first, int count, uint8_t *buf)
+;   void palette_restore(int first, int count, const uint8_t *buf)
+;                                   first $10/$11, count $12/$13, buf $14/$15
+;   void palette_rotate(int start, int end, int direction)
+;                                   start $10/$11, end $12/$13, dir $14/$15
+;
+; set_color, set_color_rgb and set_range skip an entry out of 0-255; save
+; and restore use the entry's low byte (the registers wrap at 256), the
+; registers as they are: all the reds, the greens, the blues. A count of 0 or
+; less does nothing.
+
+; no calls through pointers here (ln45's call graph)
+.weak cc45.icallinfo
+cc45.icallinfo = 1
+
+.global _palette_set_color, _palette_set_color_rgb, _palette_get_color
+.global _palette_set_range, _palette_save, _palette_restore, _palette_rotate
+
+PAL_PTR = $08           ; ($08),y: a component's registers (__zp_scratch)
+PAL_CNT = $0A           ; entries left
+
+.segment "code"
+
+; A with its nibbles swapped (C, N, Z changed)
+proc __pal_swap
+    .reg_clobbers A
+    .flag_clobbers C, N, Z, V
+    asl
+    adc #$80
+    rol
+    asl
+    adc #$80
+    rol
+    rts
+    .func_flags zp_call
+endproc
+
+proc _palette_set_color
+    .zp_uses $10, $11, $12, $14, $16
+    .reg_clobbers A, X
+    .flag_clobbers C, N, Z, V
+    lda $11
+    bne @out
+    ldx $10
+    lda $12
+    jsr __pal_swap
+    sta $D100,x
+    lda $14
+    jsr __pal_swap
+    sta $D200,x
+    lda $16
+    jsr __pal_swap
+    sta $D300,x
+@out:
+    rts
+    .func_flags zp_call
+endproc
+
+proc _palette_set_color_rgb
+    .zp_uses $10, $11, $12, $13
+    .reg_clobbers A, X, Y
+    .flag_clobbers C, N, Z, V
+    lda $11
+    bne @out
+    ldx $10
+    ldy #0
+    lda ($12),y
+    jsr __pal_swap
+    sta $D100,x
+    iny
+    lda ($12),y
+    jsr __pal_swap
+    sta $D200,x
+    iny
+    lda ($12),y
+    jsr __pal_swap
+    sta $D300,x
+@out:
+    rts
+    .func_flags zp_call
+endproc
+
+proc _palette_get_color
+    .zp_uses $10, $11, $12, $13
+    .reg_clobbers A, X, Y
+    .flag_clobbers C, N, Z, V
+    lda $11
+    bne @bad
+    ldx $10
+    ldy #0
+    lda $D100,x
+    jsr __pal_swap
+    sta ($12),y
+    iny
+    lda $D200,x
+    jsr __pal_swap
+    sta ($12),y
+    iny
+    lda $D300,x
+    jsr __pal_swap
+    sta ($12),y
+    lda #0
+    tax
+    rts
+@bad:
+    lda #$FF
+    tax
+    rts
+    .func_flags zp_call
+endproc
+
+proc _palette_set_range
+    .zp_uses $10, $11, $12, $13, $14, $15
+    .reg_clobbers A, X, Y
+    .flag_clobbers C, N, Z, V
+@next:
+    lda $13             ; count > 0 (signed)
+    bmi @out
+    ora $12
+    beq @out
+    lda $11             ; an entry out of 0-255: skipped
+    bne @skip
+    ldx $10
+    ldy #0
+    lda ($14),y
+    jsr __pal_swap
+    sta $D100,x
+    iny
+    lda ($14),y
+    jsr __pal_swap
+    sta $D200,x
+    iny
+    lda ($14),y
+    jsr __pal_swap
+    sta $D300,x
+@skip:
+    inw $10
+    dew $12
+    clc
+    lda $14
+    adc #3
+    sta $14
+    bcc @next
+    inc $15
+    bra @next
+@out:
+    rts
+    .func_flags zp_call
+endproc
+
+; save and restore: Y the entry (wrapping at 256), PAL_PTR the component's
+; registers, Z = 0 for the buffer ($14),z, which moves on by one
+proc _palette_save
+    .zp_uses $10, $12, $13, $14, $15, $08, $09, $0A, $0B
+    .reg_clobbers A, Y, Z
+    .flag_clobbers C, N, Z, V
+    lda $13
+    bmi @out
+    ora $12
+    beq @out
+    ldz #0
+    stz PAL_PTR
+    lda #$D1
+    sta PAL_PTR+1
+@comp:
+    lda $12
+    sta PAL_CNT
+    lda $13
+    sta PAL_CNT+1
+    ldy $10
+@ent:
+    lda (PAL_PTR),y
+    sta ($14),z
+    inw $14
+    iny
+    dew PAL_CNT
+    bne @ent
+    inc PAL_PTR+1
+    lda PAL_PTR+1
+    cmp #$D4
+    bne @comp
+@out:
+    rts
+    .func_flags zp_call
+endproc
+
+proc _palette_restore
+    .zp_uses $10, $12, $13, $14, $15, $08, $09, $0A, $0B
+    .reg_clobbers A, Y, Z
+    .flag_clobbers C, N, Z, V
+    lda $13
+    bmi @out
+    ora $12
+    beq @out
+    ldz #0
+    stz PAL_PTR
+    lda #$D1
+    sta PAL_PTR+1
+@comp:
+    lda $12
+    sta PAL_CNT
+    lda $13
+    sta PAL_CNT+1
+    ldy $10
+@ent:
+    lda ($14),z
+    sta (PAL_PTR),y
+    inw $14
+    iny
+    dew PAL_CNT
+    bne @ent
+    inc PAL_PTR+1
+    lda PAL_PTR+1
+    cmp #$D4
+    bne @comp
+@out:
+    rts
+    .func_flags zp_call
+endproc
+
+; Entries start..end (0-255, start < end) by one: direction > 0 each colour
+; to the next entry (end's to start), < 0 the other way, 0 nothing. Each
+; component its own loop on absolute addresses (colour cycling every frame).
+proc _palette_rotate
+    .zp_uses $10, $11, $12, $13, $14, $15
+    .reg_clobbers A, X, Y
+    .flag_clobbers C, N, Z, V
+    lda $11             ; start and end in 0-255
+    ora $13
+    bne @out
+    lda $10             ; start < end
+    cmp $12
+    bcs @out
+    lda $15
+    bmi @back
+    ora $14
+    bne @fwd
+@out:
+    rts
+
+@fwd:
+    ldx $12             ; red
+    ldy $D100,x
+@f1:
+    dex
+    lda $D100,x
+    sta $D101,x
+    cpx $10
+    bne @f1
+    tya
+    sta $D100,x
+    ldx $12             ; green
+    ldy $D200,x
+@f2:
+    dex
+    lda $D200,x
+    sta $D201,x
+    cpx $10
+    bne @f2
+    tya
+    sta $D200,x
+    ldx $12             ; blue
+    ldy $D300,x
+@f3:
+    dex
+    lda $D300,x
+    sta $D301,x
+    cpx $10
+    bne @f3
+    tya
+    sta $D300,x
+    rts
+
+@back:
+    ldx $10             ; red
+    ldy $D100,x
+@b1:
+    lda $D101,x
+    sta $D100,x
+    inx
+    cpx $12
+    bne @b1
+    tya
+    sta $D100,x
+    ldx $10             ; green
+    ldy $D200,x
+@b2:
+    lda $D201,x
+    sta $D200,x
+    inx
+    cpx $12
+    bne @b2
+    tya
+    sta $D200,x
+    ldx $10             ; blue
+    ldy $D300,x
+@b3:
+    lda $D301,x
+    sta $D300,x
+    inx
+    cpx $12
+    bne @b3
+    tya
+    sta $D300,x
+    rts
+    .func_flags zp_call
+endproc
