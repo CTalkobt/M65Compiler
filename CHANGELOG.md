@@ -4,6 +4,16 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### cc45: (unsigned long)x << k lost the high byte (#676)
+
+- The byte-move shift (#550) puts the source's bytes at their byte offset in the destination. When the source was
+  staged at the destination's own low byte (an int loaded through a pointer index, `tab[s[3]]`), they were copied
+  upward lowest byte first: the high byte was overwritten before it was read (`-O2`:
+  `(unsigned long)tab[s[3]] * 64` gave `$0D0D00` for `$1234`). They are now copied highest byte first when the
+  source lies below where it goes, lowest first when above, as before.
+- Test: `test_shl_widen_xemu.c` (shifts 1-15 of an int and a byte through a pointer index, a parameter index, the
+  result added to a base).
+
 ### unpack(): UNPACK_ERROR for a stream no decoder takes (#666)
 
 - `unpack()` / `unpack_to()` return **`UNPACK_ERROR`** (`<unpack.h>`, `0xFFFFFFFFUL`, the same as `<limits.h>`'s

@@ -7514,7 +7514,15 @@ void IRCodeGen::emitInstBody(const ir::Inst& inst) {
                     int at = right ? q + 1 : q;           // where the source's byte 0 goes
                     std::string why = irDesc("a widened value shifted: its bytes");
                     bool any = false;
-                    for (int i = 0; i < 4; i++) {
+                    // the source can share the destination's bytes (#676: an
+                    // int at dst+0 moved up to dst+1): copied highest byte
+                    // first when it lies below where it goes, lowest first
+                    // when above, so no byte is overwritten before it is read
+                    std::string s0 = directByte(src, 0);
+                    bool down = !s0.empty() && s0[0] == '$' && s0.size() <= 3 &&
+                                std::stoi(s0.substr(1), nullptr, 16) < base + at;
+                    for (int j = 0; j < 4; j++) {
+                        int i = down ? 3 - j : j;
                         int sb = i - at;
                         if (sb >= 0 && sb < ns) {
                             emit("lda " + directByte(src, sb), any ? "" : why);
