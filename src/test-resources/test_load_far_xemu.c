@@ -9,7 +9,7 @@
  *   +2 load_unpack: LPACK loaded at $50000, unpacked to $48000
  *   +3 a file not on the disk: 0, load_error 4
  *   +4 a file larger than the stage: 0, LOAD_TOO_BIG
- *   +5 load_unpack of a file that is not packed: 0, LOAD_NOT_PACKED
+ *   +5 load_unpack of a file that is not packed: UNPACK_ERROR, LOAD_NOT_PACKED
  *   +6 $AA
  */
 #include <load.h>
@@ -52,7 +52,7 @@ int main(void) {
     OUT[4] = load_far("ldata", 5, 0, 0x8000100UL) == 0 && load_error == LOAD_TOO_BIG;
     load_stage(0x40000UL, 0);
 
-    OUT[5] = load_unpack("ldata", 5, 0, 0x40000UL) == 0 && load_error == LOAD_NOT_PACKED;
+    OUT[5] = load_unpack("ldata", 5, 0, 0x40000UL) == UNPACK_ERROR && load_error == LOAD_NOT_PACKED;
 
     OUT[6] = 0xAA;
     return 0;

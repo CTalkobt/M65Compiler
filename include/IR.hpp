@@ -343,6 +343,11 @@ struct Module {
     // asm("...") statements at file scope, in source order: passed to the
     // assembler at module level
     std::vector<std::string> fileAsm;
+    // pack45 streams the file unpacks where the stream is visible (#666,
+    // UnpackFormats.hpp): the format, where. cc45 records them for ln45
+    // (cc45.unpackfmt.*); cl45's mega65-unpack-format
+    struct UnpackSite { int format = 0; std::string file; int line = 0, column = 0; std::string what; };
+    std::vector<UnpackSite> unpackSites;
     int setBP = -1;  // -1 = don't emit; 0-255 = emit LDA #N; TAB in startup
     // CPU stack: -1 = crt0 default (16-bit stack topped at $BFFF), 0 = keep
     // the ROM's 8-bit page-1 stack (-fno-stack16), else the stack's top byte

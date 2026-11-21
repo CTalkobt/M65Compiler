@@ -1,5 +1,6 @@
 #include "O45Linker.hpp"
 #include "Pack45.hpp"
+#include "UnpackFormats.hpp"
 #include "O45OverlayFile.hpp"
 #include <algorithm>
 #include <fstream>
@@ -1348,7 +1349,36 @@ bool O45Linker::resolveSymbols(std::string& errorMsg) {
         }
     }
 
+    checkUnpackFormats();
     return true;
+}
+
+// pack45 streams cc45 saw unpacked (cc45.unpackfmt.<format>.<line>.<file>,
+// #666) whose format's decoder the program does not link (unpack1.s45's
+// ___unpack_format1, unpack2.s45's ___unpack_format2): unpack() returns
+// UNPACK_ERROR
+// for them. (Once a link; the other way round, a decoder no stream needs,
+// is not reported: load_unpack's names are often not known)
+void O45Linker::checkUnpackFormats() {
+    if (unpackChecked_ || !warnStream_) return;
+    unpackChecked_ = true;
+    std::set<int> linked;
+    std::vector<unpackfmt::Site> sites;
+    std::set<std::string> seen;
+    for (const auto& input : objects_)
+        for (const auto& exp : input.obj.exports) {
+            if (exp.name == "___unpack_format1") linked.insert(1);
+            else if (exp.name == "___unpack_format2") linked.insert(2);
+            unpackfmt::Site s;
+            if (unpackfmt::parseRecord(exp.name, s) && seen.insert(exp.name).second) sites.push_back(s);
+        }
+    for (const auto& s : sites) {
+        if (linked.count(s.format)) continue;
+        std::string n = std::to_string(s.format);
+        *warnStream_ << "ln45: warning: format " << n << " stream unpacked at " << s.file << ":" << s.line
+                     << ", but the program links no format " << n << " decoder (UNPACK_FORMAT" << n
+                     << "; at file scope, <unpack.h>): unpack() returns UNPACK_ERROR for it" << std::endl;
+    }
 }
 
 // --- Step 3: Apply relocations ---

@@ -6,9 +6,11 @@
  *   +0 unpacked to bank 4 from bank 0, the bytes and the count
  *   +1 in place: the stream copied into bank 4 at its in-place offset
  *   +2 to attic RAM ($8000000)
- *   +3 a stream of another format: 0, nothing written
+ *   +3 a stream of another format (2, its decoder not linked): UNPACK_ERROR,
+ *      nothing written
  *   +4 unpack_to: the chip stream to $50000 (its header's $40000 ignored)
- *   +5 unpack_to of another format: 0                        +6 $AA
+ *   +5 unpack_to of another format: UNPACK_ERROR            +6 $AA
+ * (+0, +2: a real stream's count is never UNPACK_ERROR)
  */
 #include <unpack.h>
 #include <dma.h>
@@ -35,21 +37,24 @@ static unsigned char check(unsigned long at) {
 
 int main(void) {
     static unsigned char bad[8] = {2, 0, 0, 4, 0, 0xC0, 0, 0};
-    OUT[0] = unpack((unsigned long)(unsigned int)stream_chip) == N && check(0x40000UL);
+    unsigned long n;
+    n = unpack((unsigned long)(unsigned int)stream_chip);
+    OUT[0] = n == N && n != UNPACK_ERROR && check(0x40000UL);
 
     dma_fill_far(0x40000UL, N, 0);
     dma_copy_far(0x40000UL + STREAM_CHIP_INPLACE, (unsigned long)(unsigned int)stream_chip, sizeof stream_chip);
     OUT[1] = unpack(0x40000UL + STREAM_CHIP_INPLACE) == N && check(0x40000UL);
 
-    OUT[2] = unpack((unsigned long)(unsigned int)stream_attic) == N && check(0x8000000UL);
+    n = unpack((unsigned long)(unsigned int)stream_attic);
+    OUT[2] = n == N && n != UNPACK_ERROR && check(0x8000000UL);
 
     dma_fill_far(0x40000UL, 16, 0x77);
-    OUT[3] = unpack((unsigned long)(unsigned int)bad) == 0 && *(unsigned char __far *)0x40000UL == 0x77;
+    OUT[3] = unpack((unsigned long)(unsigned int)bad) == UNPACK_ERROR && *(unsigned char __far *)0x40000UL == 0x77;
 
     dma_fill_far(0x40000UL, N, 0);
     OUT[4] = unpack_to((unsigned long)(unsigned int)stream_chip, 0x50000UL) == N && check(0x50000UL)
              && *(unsigned char __far *)0x40000UL == 0;
-    OUT[5] = unpack_to((unsigned long)(unsigned int)bad, 0x50000UL) == 0;
+    OUT[5] = unpack_to((unsigned long)(unsigned int)bad, 0x50000UL) == UNPACK_ERROR;
 
     OUT[6] = 0xAA;
     return 0;

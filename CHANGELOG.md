@@ -4,6 +4,68 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### unpack(): UNPACK_ERROR for a stream no decoder takes (#666)
+
+- `unpack()` / `unpack_to()` return **`UNPACK_ERROR`** (`<unpack.h>`, `0xFFFFFFFFUL`, the same as `<limits.h>`'s
+  `ULONG_MAX`) instead of 0 for a stream no linked decoder takes: an unknown format byte, a format whose decoder is
+  not linked, a format 2 header the decoder cannot take. 0 was not distinctive: a stream of no bytes writes 0.
+  Nothing is written, as before.
+- `load_unpack()` returns `UNPACK_ERROR` for such a stream (`load_error` `LOAD_NOT_PACKED`, as before), 0 when the
+  load fails (`load_error` says why). `font_load` takes `UNPACK_ERROR` (and 0) as a failure; the overlay loader's
+  streams are always format 1, whose decoder it links.
+- Tests: `test_unpack_xemu.c`, `test_unpack2_xemu.c`, `test_unpack2only_xemu.c` and `test_load_far_xemu.c` expect
+  `UNPACK_ERROR` where they expected 0, and check that a real stream's count is not it.
+
+### cl45 / ln45: a pack45 stream unpacked without its format's decoder (#666)
+
+- **cl45 `mega65-unpack-format`** (warning, cc45 profile): in the file with `main()`, a stream whose format byte is
+  visible unpacked with no decoder of that format named: format 2 without `UNPACK_FORMAT2;`, format 1 without
+  `UNPACK_FORMAT1;` under `UNPACK_EXPLICIT_FORMATS`. Visible: an array initialized in the file (`#embed` too) given
+  to `unpack()` / `unpack_to()`, or `load_unpack()` of a literal name whose file is beside the source or in an `-I`
+  directory (its format byte after the load address). A stream of no known format is not guessed. Files without
+  `main()` are left to ln45, since the decoder may be named in any one file.
+- **ln45**: cc45 records those streams in the object (`cc45.unpackfmt.<format>.<line>.<file in hex>`); ln45 warns
+  for each whose decoder no linked object defines: `ln45: warning: format 2 stream unpacked at foo.c:12, but the
+  program links no format 2 decoder (UNPACK_FORMAT2; ...)`. A decoder linked that no stream needs is not reported
+  (`load_unpack`'s names are often known only at run time).
+- Tests: three cl45 fixtures (warnings, a NOLINT, `#embed`, a literal file name, a file without `main()`), and two
+  two-file links in `test_pack45_image.sh` (a warning without `UNPACK_FORMAT2`, none with it).
+
+### pack45 / unpack(): format 2, images in up to 16 colours (#666)
+
+- **`pack45 --image`** codes an image as format 2: each pixel's rank (its colour's place in an order of the colours,
+  dark to light) minus a prediction (the pixel above, or the one to its left; both are tried and the smaller kept,
+  `--predict` to choose), in a canonical Huffman code of at most 8 bits. texture_demo's delta coding, with the order
+  table in the stream. It reads a PNG (or BMP, GIF, …: font45's stb_image) or raw 4-bit pixels (`--width W`); with
+  `--palette FILE` an image's colours are found in the palette and ordered by it, without one they are numbered 0 up
+  dark to light (printed, and written by `--palette-out`). It prints the stream's size beside format 1's, and the
+  in-place offset as for format 1.
+- **The stream** unpacks to `h` rows of `w / 2` bytes (`w` even, at most 256), 4 bits a pixel, the left one the low
+  nibble, each the pixel's palette entry. Header: format 2, the destination, `w / 2`, `h`, `N`, the prediction, the
+  order, the `N` code lengths (`include/Pack45.hpp`, `doc/bin/pack45.md`). It unpacks in place (a row is written once
+  its codes are read).
+- **Each format's decoder is chosen**: `lib/stdlib_asm/unpack.s45` (104 bytes) is now the dispatch on the format
+  byte, and each decoder a member of its own, linked when the program names it at file scope, once:
+  `UNPACK_FORMAT1;` (`unpack1.s45`, 315 bytes and 5 of BSS: the format 1 decoder as it was) and `UNPACK_FORMAT2;`
+  (`unpack2.s45`, 581 bytes and 952 of BSS: two 256-entry lookup tables, a row of ranks and one of bytes; a code a
+  pixel by one lookup, a row at a time by DMA; `UNPACK_IMAGES;` is the same). Without its decoder `unpack()` /
+  `unpack_to()` / `load_unpack()` return `UNPACK_ERROR` for a stream (weak defaults; see above). A program that names none gets format 1 as
+  before: `<unpack.h>` names it, and `<load.h>` now includes `<unpack.h>`, unless the program defines
+  `UNPACK_EXPLICIT_FORMATS` first (in every file, or `-DUNPACK_EXPLICIT_FORMATS`). A program of format 2 streams
+  alone is then 315 bytes smaller than with both decoders; one of format 1 alone carries 419 bytes of unpacking, 20
+  more than before. `font_load` and the overlay loader of `ln45 --pack-overlays` (`ovl_unpack.s45`) link format 1
+  themselves; `load.c` links none. pack45 `--image` prints the reminder. Assembly that calls `___unpack` names
+  the decoders it needs (`.extern ___unpack_format1`).
+- **Sizes**: on texture_demo's photographs at 128x128 in 16 colours, a red brick wall 5789 bytes (format 1: 7639),
+  cobblestones 6774 (8112), a rocky trail 8093 (8318), from 8192. Flat art with long repeats stays smaller in format 1
+  (bands of 16 colours: 132 against 363). A 128x128 image decodes in about 5 frames.
+- nm45 / objdump45 read a format 2 stream in a packed overlay file too (ln45 `--pack-overlays` writes format 1).
+- Tests: `test_pack45_image.sh` (`make test`: round trips through pack45's model of the decoder and an independent
+  decoder, 1, 2, 3, 5 and 16 colours, widths 6 to 256, odd heights, PNG with and without a palette, the errors),
+  `test_unpack2_xemu.c` (chip RAM, in place, attic RAM, `unpack_to`, both formats in one program) and
+  `test_unpack2only_xemu.c` (format 2 alone: a format 1 stream gives `UNPACK_ERROR`, its map no format 1 decoder); both
+  conventions.
+
 ### font: FCM / NCM glyphs drawn a span at a time (#670)
 
 - `font_draw_fcm` / `font_draw_ncm` no longer clip, shift, multiply and add a 32-bit address for every pixel. The

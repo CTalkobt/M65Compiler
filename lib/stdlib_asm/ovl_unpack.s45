@@ -2,12 +2,14 @@
 ; --pack-overlays links it and points __ovl_unpacker at it. Q: the 28-bit
 ; address the packed file was loaded at; unpack() (<unpack.h>, the ZP
 ; convention in either library) unpacks it to the address in its header.
-; (__unpack: a program's own unpack() cannot take the call, #346)
+; (__unpack: a program's own unpack() cannot take the call, #346). ln45
+; writes the files in format 1: this member names ___unpack_format1, which
+; links its decoder (unpack1.s45, #666) whatever formats the program chose.
 ; ln45's call graph: no calls through pointers
 .weak cc45.icallinfo
 cc45.icallinfo = 1
 .global __ovl_unpack
-.extern ___unpack
+.extern ___unpack, ___unpack_format1
 
 proc __ovl_unpack
     stq $10

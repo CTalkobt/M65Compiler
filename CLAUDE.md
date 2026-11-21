@@ -44,7 +44,8 @@ FUSE, both optional, only for disk45):
 - **disk45** — CBM disk/tape/archive image utility (25 formats, FUSE mount, SQLite catalog)
 - **asmCvt45** — assembler source converter between 7 dialects
 - **pack45** — packs data into a stream the library's `unpack()` (`<unpack.h>`) unpacks by DMA to any 28-bit
-  address, in place if loaded inside the area (`include/Pack45.hpp`, format 1); `ln45 --pack-overlays` packs the
+  address, in place if loaded inside the area (`include/Pack45.hpp`, format 1; `--image`: format 2, an image in up to
+  16 colours, delta + Huffman coded, decoded by `stdlib_asm/unpack2.s45`; each format's decoder linked only when the program names it, `UNPACK_FORMAT1;` / `UNPACK_FORMAT2;`, format 1 by default unless `UNPACK_EXPLICIT_FORMATS`, #666); `ln45 --pack-overlays` packs the
   overlay files with it (#345); `--best` an optimal parse; `--suggest-rate` / `--sound` turn WAV, AU, MP3
   (minimp3, `third_party/minimp3`) or MP4 (ffmpeg) into 8-bit samples at the lowest rate that keeps them
   (`src/main/PackAudio.cpp`)

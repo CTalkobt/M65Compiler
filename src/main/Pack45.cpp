@@ -223,11 +223,10 @@ Packed pack(const std::vector<uint8_t>& data, uint32_t dest, bool best) {
     return p;
 }
 
-bool unpack(const std::vector<uint8_t>& s, std::vector<uint8_t>& out, uint32_t* dest, std::string* err) {
+static bool unpack1(const std::vector<uint8_t>& s, std::vector<uint8_t>& out, uint32_t* dest, std::string* err) {
     auto fail = [&](const std::string& m) { if (err) *err = m; return false; };
     out.clear();
     if (s.size() < kHeader + 3) return fail("too short");
-    if (s[0] != kFormat) return fail("format " + std::to_string(s[0]) + " (not 1)");
     if (dest) *dest = s[1] | (s[2] << 8) | (s[3] << 16) | ((uint32_t)s[4] << 24);
     size_t k = kHeader;
     for (;;) {
@@ -260,7 +259,7 @@ bool unpack(const std::vector<uint8_t>& s, std::vector<uint8_t>& out, uint32_t* 
     }
 }
 
-bool checkInPlace(const std::vector<uint8_t>& data, const Packed& p, uint32_t offset) {
+static bool checkInPlace1(const std::vector<uint8_t>& data, const Packed& p, uint32_t offset) {
     // memory: the unpacked area and what the stream needs past it
     size_t size = std::max(data.size(), (size_t)offset + p.stream.size()) + 1;
     std::vector<uint8_t> mem(size, 0xEE);
@@ -287,6 +286,254 @@ bool checkInPlace(const std::vector<uint8_t>& data, const Packed& p, uint32_t of
         if (w > r) return false;   // the writing overtook the reading
     }
     return w == data.size() && std::equal(data.begin(), data.end(), mem.begin());
+}
+
+// ---------------------------------------------------------------------------
+// Format 2 (#666): an image's ranks minus a prediction, Huffman-coded
+// ---------------------------------------------------------------------------
+
+namespace {
+
+constexpr int kMaxCode = 8;     // the decoder looks a code up on the next 8 bits
+
+// Huffman code lengths (0: a symbol that does not occur), the counts halved
+// (each kept at least 1) until none is longer than kMaxCode; ties broken as
+// texture_demo's tools/tcode.py does (by count, then an id: the symbol, then
+// the order the pairs were made in)
+std::vector<int> huffmanLengths(std::vector<uint64_t> counts) {
+    for (;;) {
+        std::vector<int> len(counts.size(), 0);
+        struct Node { uint64_t c; size_t tie; std::vector<int> syms; };
+        auto cmp = [](const Node& a, const Node& b) { return a.c != b.c ? a.c > b.c : a.tie > b.tie; };
+        std::vector<Node> heap;
+        for (size_t s = 0; s < counts.size(); s++)
+            if (counts[s]) heap.push_back({counts[s], s, {(int)s}});
+        if (heap.size() == 1) {
+            len[heap[0].syms[0]] = 1;
+            return len;
+        }
+        std::make_heap(heap.begin(), heap.end(), cmp);
+        size_t tie = counts.size();
+        while (heap.size() > 1) {
+            std::pop_heap(heap.begin(), heap.end(), cmp);
+            Node a = heap.back();
+            heap.pop_back();
+            std::pop_heap(heap.begin(), heap.end(), cmp);
+            Node b = heap.back();
+            heap.pop_back();
+            for (int s : a.syms) len[s]++;
+            for (int s : b.syms) len[s]++;
+            Node m{a.c + b.c, tie++, a.syms};
+            m.syms.insert(m.syms.end(), b.syms.begin(), b.syms.end());
+            heap.push_back(m);
+            std::push_heap(heap.begin(), heap.end(), cmp);
+        }
+        if (*std::max_element(len.begin(), len.end()) <= kMaxCode) return len;
+        for (auto& c : counts)
+            if (c) c = std::max<uint64_t>(1, c / 2);
+    }
+}
+
+// The decoder, as unpack2.s45 has it: the 256-entry tables (every entry
+// length 8, symbol 0, then each symbol of length n given the next 2^(8 - n)
+// entries, by length then symbol), a byte taken while 8 bits or fewer are
+// held. rd(i): the stream's byte i (avail of them); row(y, bytes, taken): row
+// y decoded (its w / 2 bytes), the stream's bytes read so far (false: stop).
+// false: not valid
+template <class Rd, class Row>
+bool decodeImage(Rd rd, size_t avail, Row row, uint32_t* dest, std::string* err) {
+    auto fail = [&](const std::string& m) { if (err) *err = m; return false; };
+    if (avail < (size_t)kImageHeader) return fail("too short");
+    if (dest) *dest = rd(1) | (rd(2) << 8) | (rd(3) << 16) | ((uint32_t)rd(4) << 24);
+    int pitch = rd(5), h = rd(6) | (rd(7) << 8), n = rd(8), left = rd(9);
+    if (pitch < 1 || pitch > 128) return fail("width " + std::to_string(2 * pitch) + " (2-256)");
+    if (n < 1 || n > 16) return fail(std::to_string(n) + " colours (1-16)");
+    if (left > 1) return fail("prediction " + std::to_string(left) + " (0 above, 1 left)");
+    if (avail < (size_t)kImageHeader + 2 * n) return fail("too short");
+    uint8_t entry[16];
+    for (int r = 0; r < n; r++) entry[r] = rd(kImageHeader + r) & 15;
+    uint8_t sym[256], len[256];
+    std::fill(sym, sym + 256, 0);
+    std::fill(len, len + 256, kMaxCode);
+    int at = 0;
+    for (int l = 1; l <= kMaxCode; l++)
+        for (int s = 0; s < n; s++)
+            if (rd(kImageHeader + n + s) == l) {
+                int k = 1 << (kMaxCode - l);
+                if (at + k > 256) return fail("code lengths that are not a code");
+                for (int i = 0; i < k; i++) { sym[at + i] = (uint8_t)s; len[at + i] = (uint8_t)l; }
+                at += k;
+            }
+    size_t pos = kImageHeader + 2 * n;
+    int w = 2 * pitch;
+    std::vector<uint8_t> rank(256, 0), bytes(pitch);
+    unsigned hbuf = 0, hbits = 0;
+    for (int y = 0; y < h; y++) {
+        int cur = rank[0];
+        for (int x = 0; x < w; x++) {
+            if (hbits <= 8) {
+                if (pos >= avail) return fail("the codes past the end");
+                hbuf |= (unsigned)rd(pos++) << (8 - hbits);
+                hbits += 8;
+            }
+            unsigned e = (hbuf >> 8) & 255;
+            hbuf = (hbuf << len[e]) & 0xFFFF;
+            hbits -= len[e];
+            if (!left) cur = rank[x];
+            cur += sym[e];
+            if (cur >= n) cur -= n;
+            rank[x] = (uint8_t)cur;
+        }
+        for (int i = 0; i < pitch; i++) bytes[i] = (uint8_t)(entry[rank[2 * i]] | entry[rank[2 * i + 1]] << 4);
+        if (!row(y, bytes, pos)) return fail("in place: a row written over what is still to be read");
+    }
+    return true;
+}
+
+}  // namespace
+
+std::vector<uint8_t> imageBytes(const Image& img) {
+    std::vector<uint8_t> out;
+    for (int y = 0; y < img.h; y++)
+        for (int x = 0; x < img.w; x += 2) {
+            uint8_t a = img.px[(size_t)y * img.w + x] & 15;
+            uint8_t b = x + 1 < img.w ? img.px[(size_t)y * img.w + x + 1] & 15 : 0;
+            out.push_back((uint8_t)(a | b << 4));
+        }
+    return out;
+}
+
+bool packImage(const Image& img, uint32_t dest, int predict, Packed& out, int* chosen, std::string* err) {
+    auto fail = [&](const std::string& m) { if (err) *err = m; return false; };
+    if (img.w < 2 || img.w > 256 || (img.w & 1))
+        return fail("the width is " + std::to_string(img.w) + ": format 2 takes an even width of 2-256");
+    if (img.h < 1 || img.h > 65535) return fail("the height is " + std::to_string(img.h) + " (1-65535)");
+    if (img.px.size() != (size_t)img.w * img.h) return fail("the pixels are not w x h");
+    bool used[16] = {};
+    for (uint8_t p : img.px) {
+        if (p > 15) return fail("a pixel of colour " + std::to_string(p) + " (0-15)");
+        used[p] = true;
+    }
+    std::vector<uint8_t> order = img.order;
+    if (order.empty())
+        for (int c = 0; c < 16; c++)
+            if (used[c]) order.push_back((uint8_t)c);
+    if (order.size() > 16) return fail("more than 16 colours");
+    int rankOf[16];
+    std::fill(rankOf, rankOf + 16, -1);
+    for (size_t r = 0; r < order.size(); r++) {
+        if (order[r] > 15) return fail("an order entry over 15");
+        if (rankOf[order[r]] < 0) rankOf[order[r]] = (int)r;
+    }
+    for (int c = 0; c < 16; c++)
+        if (used[c] && rankOf[c] < 0) return fail("colour " + std::to_string(c) + " is not in the order");
+    int n = (int)order.size(), w = img.w, h = img.h;
+    std::vector<int> ranks(img.px.size());
+    for (size_t i = 0; i < img.px.size(); i++) ranks[i] = rankOf[img.px[i]];
+
+    auto code = [&](int left) {
+        std::vector<uint8_t> d(ranks.size());
+        std::vector<uint64_t> counts(n, 0);
+        for (int y = 0; y < h; y++)
+            for (int x = 0; x < w; x++) {
+                int above = y ? ranks[(size_t)(y - 1) * w + x] : 0;
+                int p = left && x ? ranks[(size_t)y * w + x - 1] : above;
+                int s = ((ranks[(size_t)y * w + x] - p) % n + n) % n;
+                d[(size_t)y * w + x] = (uint8_t)s;
+                counts[s]++;
+            }
+        std::vector<int> len = huffmanLengths(counts);
+        // canonical codes: by length, then symbol
+        std::vector<unsigned> cw(n, 0);
+        unsigned c = 0;
+        for (int l = 1; l <= kMaxCode; l++) {
+            for (int s = 0; s < n; s++)
+                if (len[s] == l) cw[s] = c++;
+            c <<= 1;
+        }
+        std::vector<uint8_t> s;
+        s.push_back(kFormatImage);
+        for (int k = 0; k < 4; k++) s.push_back((uint8_t)(dest >> (8 * k)));
+        s.push_back((uint8_t)(w / 2));
+        s.push_back((uint8_t)h);
+        s.push_back((uint8_t)(h >> 8));
+        s.push_back((uint8_t)n);
+        s.push_back((uint8_t)left);
+        s.insert(s.end(), order.begin(), order.end());
+        for (int l : len) s.push_back((uint8_t)l);
+        uint32_t acc = 0;
+        int nbits = 0;
+        for (uint8_t v : d) {
+            acc = (acc << len[v]) | cw[v];
+            nbits += len[v];
+            while (nbits >= 8) {
+                nbits -= 8;
+                s.push_back((uint8_t)(acc >> nbits));
+            }
+            acc &= (1u << nbits) - 1;
+        }
+        if (nbits) s.push_back((uint8_t)(acc << (8 - nbits)));
+        // the decoder's read-ahead: zero bytes up to the last one it takes,
+        // and the in-place offset (a row's end against the bytes read)
+        size_t need = s.size();
+        long ahead = 0;
+        auto rd = [&](size_t i) -> uint8_t { return i < s.size() ? s[i] : 0; };
+        decodeImage(rd, (size_t)-1, [&](int y, const std::vector<uint8_t>&, size_t taken) {
+            need = std::max(need, taken);
+            ahead = std::max(ahead, (long)(y + 1) * (w / 2) - (long)taken);
+            return true;
+        }, nullptr, nullptr);
+        s.resize(need, 0);
+        Packed p;
+        p.stream = s;
+        p.inPlace = (uint32_t)std::max(0L, ahead);
+        return p;
+    };
+    if (predict == 0 || predict == 1) {
+        out = code(predict);
+        if (chosen) *chosen = predict;
+    } else {
+        Packed a = code(0), l = code(1);
+        bool useLeft = l.stream.size() < a.stream.size();
+        out = useLeft ? l : a;
+        if (chosen) *chosen = useLeft ? 1 : 0;
+    }
+    return true;
+}
+
+bool unpack(const std::vector<uint8_t>& s, std::vector<uint8_t>& out, uint32_t* dest, std::string* err) {
+    out.clear();
+    if (s.empty()) {
+        if (err) *err = "too short";
+        return false;
+    }
+    if (s[0] == kFormat) return unpack1(s, out, dest, err);
+    if (s[0] == kFormatImage)
+        return decodeImage([&](size_t i) { return s[i]; }, s.size(),
+                           [&](int, const std::vector<uint8_t>& b, size_t) {
+                               out.insert(out.end(), b.begin(), b.end());
+                               return true;
+                           }, dest, err);
+    if (err) *err = "format " + std::to_string(s[0]) + " (not 1 or 2)";
+    return false;
+}
+
+bool checkInPlace(const std::vector<uint8_t>& data, const Packed& p, uint32_t offset) {
+    if (p.stream.empty()) return false;
+    if (p.stream[0] == kFormat) return checkInPlace1(data, p, offset);
+    // memory: the stream at offset, each row written as the decoder writes
+    // it; a row must not reach a byte still to be read
+    size_t size = std::max(data.size(), (size_t)offset + p.stream.size()) + 1;
+    std::vector<uint8_t> mem(size, 0xEE);
+    std::memcpy(mem.data() + offset, p.stream.data(), p.stream.size());
+    size_t w = 0;
+    bool ok = decodeImage([&](size_t i) { return mem[offset + i]; }, p.stream.size(),
+                          [&](int, const std::vector<uint8_t>& b, size_t taken) {
+                              if (w + b.size() > offset + taken) return false;
+                              for (uint8_t v : b) mem[w++] = v;
+                              return true;
+                          }, nullptr, nullptr);
+    return ok && w == data.size() && std::equal(data.begin(), data.end(), mem.begin());
 }
 
 }  // namespace pack45

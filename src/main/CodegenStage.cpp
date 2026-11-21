@@ -126,6 +126,7 @@ void CodegenStage::generateIR() {
     if (fastFloat_) irModule_->fastFloat = true;
     if (irModule_->stackSize < 0) irModule_->stackSize = stackSize_;
     if (irModule_->overlay.empty()) irModule_->overlay = overlay_;
+    for (const auto& s : unpackSites_) irModule_->unpackSites.push_back({s.format, s.file, s.line, s.column, s.what});
     // cl45: the rules on the IR as written (before any pass)
     if (lint_) {
         lint_->staticAlloc = staticAlloc_;

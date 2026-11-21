@@ -1,0 +1,374 @@
+; unpack2.s45 — the decoder of packed streams, format 2: an image in up to 16
+; colours, each pixel's rank (its colour's place in the stream's order)
+; minus a prediction (the pixel above, or the one to its left), in a
+; canonical Huffman code of at most 8 bits (#666, include/Pack45.hpp; from
+; texture_demo's tcode.c). unpack.s45's __unpack / __unpack_to jump here
+; with the stream in P ($08) and the destination in D ($0C); the count
+; comes back in Q as theirs does.
+;
+; A code is found by one lookup on the next 8 bits (__u2_sym / __u2_len:
+; every 8-bit value starting with a code), the bits held MSB first in
+; __u2_hb (__u2_bits of them; a byte taken while 8 or fewer are held). A
+; row is decoded into __u2_rank (the ranks, the row above as they are
+; replaced), packed two pixels a byte (the left one the low nibble, each
+; its palette entry) into __u2_row and copied to D by DMA. In place: a row
+; is written after its codes are read.
+;
+; A member of its own (BSS 0.9 KB): a program that unpacks format 2 streams
+; names ___unpack_format2 (<unpack.h>'s UNPACK_FORMAT2, or UNPACK_IMAGES),
+; which links it; its ___unpack2 then takes the place of unpack.s45's weak
+; one (which returns UNPACK_ERROR). A header it cannot take (w over 256, N
+; over 16, an unknown prediction, lengths that are no code) gives
+; UNPACK_ERROR as well, nothing written.
+
+; no calls through pointers here (ln45's call graph)
+.weak cc45.icallinfo
+cc45.icallinfo = 1
+
+.global ___unpack2, ___unpack_format2
+.extern ___dma_copy_far
+
+P = $08                 ; the stream (32 bits)
+D = $0C                 ; where it writes (32 bits)
+
+.segment "bss"
+__u2_sym:   .res 256    ; the lookup: an 8-bit value's symbol
+__u2_len:   .res 256    ;   and its code's length
+__u2_rank:  .res 256    ; the row's ranks
+__u2_row:   .res 128    ; the row's bytes
+__u2_lo:    .res 16     ; rank -> its palette entry
+__u2_hi:    .res 16     ;   << 4
+__u2_start: .res 4      ; the first byte written
+__u2_pitch: .res 1      ; bytes a row (w / 2)
+__u2_w:     .res 1      ; w (0: 256)
+__u2_h:     .res 2      ; rows still to do
+__u2_n:     .res 1      ; colours
+__u2_left:  .res 1      ; 1: predicted from the left
+__u2_hb:    .res 2      ; the bits held (MSB first: high byte first)
+__u2_bits:  .res 1
+__u2_cur:   .res 1      ; the last rank
+__u2_s:     .res 1      ; a code's symbol
+__u2_ln:    .res 1      ; the table's: the length
+__u2_k:     .res 1      ;   its entries a code (2^(8 - length))
+__u2_at:    .res 2      ;   the next entry
+__u2_t:     .res 2
+__u2_c:     .res 1
+__u2_tl:    .res 1      ; a byte taken, shifted into place
+__u2_th:    .res 1
+
+.segment "code"
+
+; (linking this member: <unpack.h>'s UNPACK_FORMAT2 names it; it does nothing)
+proc ___unpack_format2
+    rts
+    .func_flags zp_call
+endproc
+
+proc ___unpack2
+    .zp_uses $08, $09, $0A, $0B, $0C, $0D, $0E, $0F, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19
+    .zp_clobbers $08, $09, $0A, $0B, $0C, $0D, $0E, $0F, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    ldz #5
+    lda [P],z               ; w / 2: 1-128
+    beq @bad
+    cmp #129
+    bcs @bad
+    sta __u2_pitch
+    asl
+    sta __u2_w
+    inz
+    lda [P],z
+    sta __u2_h
+    inz
+    lda [P],z
+    sta __u2_h+1
+    inz
+    lda [P],z               ; N: 1-16
+    beq @bad
+    cmp #17
+    bcs @bad
+    sta __u2_n
+    inz
+    lda [P],z               ; the prediction: 0 or 1
+    cmp #2
+    bcs @bad
+    sta __u2_left
+    ldx #0                  ; the order: rank -> entry, and << 4
+@ord:
+    inz
+    lda [P],z
+    and #$0F
+    sta __u2_lo,x
+    asl
+    asl
+    asl
+    asl
+    sta __u2_hi,x
+    inx
+    cpx __u2_n
+    bne @ord
+    lda __u2_n              ; P: the code lengths
+    clc
+    adc #10
+    jsr __u2_skip
+    jmp __u2_table
+@bad:                       ; (not a format 2 header: UNPACK_ERROR)
+    lda #$FF
+    tax
+    tay
+    taz
+    rts
+    .func_flags zp_call
+endproc
+
+; The lookup: every entry length 8, symbol 0 (and the row above row 0:
+; ranks 0); then for n = 1..8 each symbol of length n takes the next
+; 2^(8 - n) entries (by length, then symbol: the canonical code)
+proc __u2_table
+    ldx #0
+@clr:
+    lda #8
+    sta __u2_len,x
+    lda #0
+    sta __u2_sym,x
+    sta __u2_rank,x
+    inx
+    bne @clr
+    stx __u2_at             ; (0)
+    stx __u2_at+1
+    lda #1
+    sta __u2_ln
+@len:
+    ldx __u2_ln             ; k = $80 >> (n - 1)
+    lda #$80
+@k:
+    dex
+    beq @kk
+    lsr
+    bra @k
+@kk:
+    sta __u2_k
+    ldy #0                  ; each symbol
+@sym:
+    tya
+    taz
+    lda [P],z
+    cmp __u2_ln
+    bne @next
+    clc                     ; at + k: at most 256
+    lda __u2_at
+    adc __u2_k
+    sta __u2_t
+    lda __u2_at+1
+    adc #0
+    sta __u2_t+1
+    beq @fit
+    cmp #1
+    bne @bad
+    lda __u2_t
+    bne @bad
+@fit:
+    ldx __u2_at
+    lda __u2_k
+    sta __u2_c
+@fill:
+    tya
+    sta __u2_sym,x
+    lda __u2_ln
+    sta __u2_len,x
+    inx
+    dec __u2_c
+    bne @fill
+    lda __u2_t
+    sta __u2_at
+    lda __u2_t+1
+    sta __u2_at+1
+@next:
+    iny
+    cpy __u2_n
+    bne @sym
+    inc __u2_ln
+    lda __u2_ln
+    cmp #9
+    bne @len
+    lda __u2_n              ; P: the codes
+    jsr __u2_skip
+    jmp __u2_rows
+@bad:                       ; not a code: UNPACK_ERROR
+    lda #$FF
+    tax
+    tay
+    taz
+    rts
+endproc
+
+; The rows
+proc __u2_rows
+    ldq D
+    stq __u2_start
+    lda #0
+    sta __u2_hb
+    sta __u2_hb+1
+    sta __u2_bits
+@row:
+    lda __u2_h
+    ora __u2_h+1
+    bne @rgo
+    jmp @done
+@rgo:
+    lda __u2_rank           ; column 0: from above
+    sta __u2_cur
+    ldx #0
+@px:
+    lda __u2_bits           ; 8 bits or fewer held: a byte more
+    cmp #9
+    bcs @have
+    ldz #0
+    lda [P],z
+    sta __u2_th             ; the byte >> bits, as 16 bits
+    lda #0
+    sta __u2_tl
+    ldy __u2_bits
+    beq @or
+@sh:
+    lsr __u2_th
+    ror __u2_tl
+    dey
+    bne @sh
+@or:
+    lda __u2_th
+    ora __u2_hb+1
+    sta __u2_hb+1
+    lda __u2_tl
+    ora __u2_hb
+    sta __u2_hb
+    lda __u2_bits
+    clc
+    adc #8
+    sta __u2_bits
+    inc P
+    bne @have
+    jsr __u2_pc
+@have:
+    ldy __u2_hb+1           ; the next 8 bits: the symbol, its length
+    lda __u2_sym,y
+    sta __u2_s
+    lda __u2_bits
+    sec
+    sbc __u2_len,y
+    sta __u2_bits
+    lda __u2_len,y
+    tay
+@use:
+    asl __u2_hb
+    rol __u2_hb+1
+    dey
+    bne @use
+    lda __u2_left           ; the prediction: above (else the last)
+    bne @l
+    lda __u2_rank,x
+    sta __u2_cur
+@l:
+    lda __u2_cur
+    clc
+    adc __u2_s
+    cmp __u2_n
+    bcc @in
+    sbc __u2_n
+@in:
+    sta __u2_cur
+    sta __u2_rank,x
+    inx
+    cpx __u2_w
+    bne @px
+    ; two pixels a byte, each its palette entry
+    ldx #0
+    ldy #0
+@pk:
+    phx
+    lda __u2_rank,y
+    tax
+    lda __u2_lo,x
+    sta __u2_tl
+    iny
+    lda __u2_rank,y
+    tax
+    lda __u2_hi,x
+    ora __u2_tl
+    plx
+    sta __u2_row,x
+    iny
+    inx
+    cpx __u2_pitch
+    bne @pk
+    ; the row to D by DMA
+    ldq D
+    stq $10
+    lda #<__u2_row
+    sta $14
+    lda #>__u2_row
+    sta $15
+    lda #0
+    sta $16
+    sta $17
+    sta $19
+    lda __u2_pitch
+    sta $18
+    jsr ___dma_copy_far
+    clc                     ; D + w / 2
+    lda D
+    adc __u2_pitch
+    sta D
+    bcc @dn
+    inc D+1
+    bne @dn
+    inc D+2
+    bne @dn
+    inc D+3
+@dn:
+    lda __u2_h              ; a row fewer
+    bne @hl
+    dec __u2_h+1
+@hl:
+    dec __u2_h
+    jmp @row
+@done:
+    sec                     ; the count: D - the start
+    lda D
+    sbc __u2_start
+    pha
+    lda D+1
+    sbc __u2_start+1
+    tax
+    lda D+2
+    sbc __u2_start+2
+    tay
+    lda D+3
+    sbc __u2_start+3
+    taz
+    pla
+    rts
+endproc
+
+; P + A
+proc __u2_skip
+    clc
+    adc P
+    sta P
+    bcc @out
+    jmp __u2_pc
+@out:
+    rts
+endproc
+
+; the carry out of P's low byte into the others
+proc __u2_pc
+    inc P+1
+    bne @out
+    inc P+2
+    bne @out
+    inc P+3
+@out:
+    rts
+endproc

@@ -53,6 +53,9 @@ struct ImageOptions {
     bool columns = false, marker = false, proportional = false, invert = false;   // invert: the commonest colour is the ink
 };
 bool readImage(const std::vector<uint8_t>& data, const ImageOptions& o, Font& f, std::string& err);
+// an image (PNG, BMP, GIF, ... : stb_image) as it is: w x h pixels of R, G, B, A
+// (pack45 --image, #666)
+bool decodeRgba(const std::vector<uint8_t>& data, int& w, int& h, std::vector<uint8_t>& rgba, std::string& err);
 // a MEGA65 ROM image (128 KB): its character set at $29800 (lower / upper
 // case; upper: $29000, upper case / graphics), 256 characters in screen-code
 // order, as readCharset reads one

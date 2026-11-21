@@ -107,6 +107,15 @@ bool readTrueType(const std::vector<uint8_t>& data, int pixelSize, Font& f, std:
 
 // --- images --------------------------------------------------------------------
 
+bool decodeRgba(const std::vector<uint8_t>& data, int& w, int& h, std::vector<uint8_t>& rgba, std::string& err) {
+    int n;
+    unsigned char* img = stbi_load_from_memory(data.data(), (int)data.size(), &w, &h, &n, 4);
+    if (!img) { err = std::string("not an image stb_image reads (") + stbi_failure_reason() + ")"; return false; }
+    rgba.assign(img, img + (size_t)w * h * 4);
+    stbi_image_free(img);
+    return true;
+}
+
 bool readImage(const std::vector<uint8_t>& data, const ImageOptions& o, Font& f, std::string& err) {
     int w, h, n;
     unsigned char* img = stbi_load_from_memory(data.data(), (int)data.size(), &w, &h, &n, 4);

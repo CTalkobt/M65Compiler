@@ -2,6 +2,9 @@
  * first written for the Midwinter demo). See <load.h>. */
 #include <cbm.h>
 #include <dma.h>
+/* (load_unpack unpacks the formats the program links, #666: this member
+   links none of their decoders itself) */
+#define UNPACK_EXPLICIT_FORMATS
 #include <unpack.h>
 #include <load.h>
 
@@ -56,6 +59,6 @@ unsigned long load_unpack(const char *name, unsigned char len, unsigned char dev
     unsigned long n;
     if (!load_far(name, len, device, at)) return 0;
     n = unpack(at);
-    if (!n) load_error = LOAD_NOT_PACKED;
+    if (n == UNPACK_ERROR) load_error = LOAD_NOT_PACKED;   /* (no decoder takes it) */
     return n;
 }
