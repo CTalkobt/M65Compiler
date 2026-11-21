@@ -3149,6 +3149,13 @@ for ndmode in "zp|" "stack|-fno-zpcall"; do
     xemu_case "FAIL: test_narrow_demand_xemu.c $ndname (compilation/linking failed)" "src/test-resources/test_narrow_demand_xemu.c" "build/test/test_narrow_demand_${ndname}_xemu.prg" "$ndflags" -- "test_narrow_demand_$ndname" "build/test/test_narrow_demand_${ndname}_xemu.prg" "C0C0" 11 "00 00 00 00 00 00 00 00 00 00 AA"
 done
 
+# Test: #676 (unsigned long)x << k, x staged where the destination starts
+for swmode in "zp|" "stack|-fno-zpcall"; do
+    IFS='|' read -r swname swflags <<< "$swmode"
+    echo "Testing test_shl_widen_xemu.c ($swname)..."
+    xemu_case "FAIL: test_shl_widen_xemu.c $swname (compilation/linking failed)" "src/test-resources/test_shl_widen_xemu.c" "build/test/test_shl_widen_${swname}_xemu.prg" "$swflags" -- "test_shl_widen_$swname" "build/test/test_shl_widen_${swname}_xemu.prg" "C0C0" 12 "01 01 01 01 01 01 01 01 01 01 01 AA"
+done
+
 # Test: the code #542-#545 made smaller (dead loads, cmp #0, array + offset,
 # p[-k] through p - 256) computes the same
 for cwmode in "zp|" "stack|-fno-zpcall"; do
