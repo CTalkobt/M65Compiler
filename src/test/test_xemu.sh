@@ -3265,6 +3265,14 @@ for fcmode in "zp|" "stack|-fno-zpcall"; do
     xemu_case "FAIL: test_conio_fcm_xemu.c $fcname (compilation/linking failed)" "src/test-resources/test_conio_fcm_xemu.c" "build/test/test_conio_fcm_${fcname}_xemu.prg" "$fcflags" -- "test_conio_fcm_$fcname" "build/test/test_conio_fcm_${fcname}_xemu.prg" "C0C0" 10 "01 01 01 01 01 01 01 01 01 AA"
 done
 
+# Test: <palette.h> (stdlib_asm/palette.s45) at its edges: entries 0 and 255,
+# indexes and counts out of range, the whole palette saved, rotation over 0-255
+for plmode in "zp|" "stack|-fno-zpcall"; do
+    IFS='|' read -r plname plflags <<< "$plmode"
+    echo "Testing test_palette_xemu.c ($plname)..."
+    xemu_case "FAIL: test_palette_xemu.c $plname (compilation/linking failed)" "src/test-resources/test_palette_xemu.c" "build/test/test_palette_${plname}_xemu.prg" "$plflags" -- "test_palette_$plname" "build/test/test_palette_${plname}_xemu.prg" "C0C0" 6 "01 01 01 01 01 AA"
+done
+
 # Test: <far_ptr.h>'s chip RAM heap (stdlib_asm/far_heap.s45): first fit,
 # splits and merges, the 32-record limit, far_reserve, bank_reset, the API's
 # C part, 1500 random operations against a model of the algorithm
