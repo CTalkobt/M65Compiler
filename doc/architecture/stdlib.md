@@ -75,7 +75,7 @@ The C99 prototypes take `restrict` where the standard has it (`<string.h>`: `mem
 | `tgi.h`, `tgi/tgi-error.h`, `tgi/tgi-kernel.h`, `tgi/tgi-vectorfont.h` | cc65's TGI graphics: 320x200, 256 colours, one or two pages ([§12a](#12a-graphics-tgih)) | library (`stdlib/tgi*.c`) |
 | `input.h` | see [§11a](#11a-keyboard-and-joysticks-inputh) | library |
 | `sprites.h` | the VIC-IV's 8 hardware sprites ([§13](#hardware-sprites-spritesh)) | library (`stdlib_asm/sprites.s45`) |
-| `font.h` | font45's fonts: measured, drawn into bitmaps and full-colour characters, 8x8 charsets ([§13](#fonts-fonth)) | library (`stdlib/font.c`, `font_load.c`, `stdlib_asm/font_glyph.s45`) |
+| `font.h` | font45's fonts: measured, drawn into bitmaps and full-colour characters, 8x8 charsets ([§13](#fonts-fonth)) | library (`stdlib_asm/font.s45`, `font_glyph.s45`; `stdlib/font_load.c`) |
 | `load.h` | a file loaded to any 28-bit address ([§13](#loading-files-anywhere-loadh)) | library (`stdlib/load.c`) |
 | `unpack.h` | pack45's streams unpacked by DMA ([§13](#packed-data-unpackh)) | library (`stdlib_asm/unpack.s45`) |
 | `rom_ram.h` | the unused C64 ROM space as RAM ([§13](#rom_ramh)) | library (`stdlib_asm/rom_ram.s45`) |
@@ -579,7 +579,7 @@ Test: `test_sprites_xemu.c` (the registers, the pointer table, positions with th
 
 ### Fonts (`font.h`)
 
-Fonts made by [font45](../bin/font45.md) (#466, `lib/stdlib/font.c`): a font at 1, 2 or 4 bits a pixel, fixed or proportional, measured and drawn into an 8-bit-a-pixel bitmap; and 8x8 charsets for the VIC-IV's text mode. The font data can be anywhere in the 28-bit space and is read through far pointers. A font's codes are those of the program's strings: PETSCII unless font45 was given `--encoding ascii`.
+Fonts made by [font45](../bin/font45.md) (#466, `lib/stdlib_asm/font.s45`; `font_load` in `lib/stdlib/font_load.c`): a font at 1, 2 or 4 bits a pixel, fixed or proportional, measured and drawn into an 8-bit-a-pixel bitmap; and 8x8 charsets for the VIC-IV's text mode. The font data can be anywhere in the 28-bit space and is read through far pointers. A font's codes are those of the program's strings: PETSCII unless font45 was given `--encoding ascii`.
 
 | Name | Description |
 |------|-------------|
@@ -597,7 +597,7 @@ Fonts made by [font45](../bin/font45.md) (#466, `lib/stdlib/font.c`): a font at 
 | `void font_install(unsigned long charset, unsigned int bytes, unsigned long lin)` | Copies a charset to chip RAM at `lin` (DMA) |
 | `void font_select(unsigned long lin)` | Makes the VIC-IV's character set the one at `lin` (`$D068`-`$D06A`) |
 
-`font_draw_bitmap` clips in C and draws each glyph's visible rows in assembly (`stdlib_asm/font_glyph.s45`, `[ptr],z` far reads and stores): about 4 times the C loop's speed (an 11-pixel 2 bpp font, 1040 glyphs: 18 frames against 72). `font_draw_fcm` / `font_draw_ncm` are C, a pixel at a time. Example: `examples/c/fonts`. Tests: `test_font_cells_xemu.c` (glyph sets, `font_draw_fcm` / `_ncm`, `font_load`), `test_font_xemu.c`, with fonts font45 makes from `src/test-resources/font45/tiny.txt`.
+Everything but `font_load` is assembly (`stdlib_asm/font.s45`, `__fastcall__`: 2.4 KB of code, 81 bytes of BSS; the C version was 5.1 KB in the stack library, 4.8 KB in the ZP one). `font_draw_bitmap` clips each glyph's cell (as longs) and draws its visible rows with `stdlib_asm/font_glyph.s45` (`[ptr],z` far reads and stores): about 4 times the C loop's speed (an 11-pixel 2 bpp font, 1040 glyphs: 18 frames against 72). `font_draw_fcm` / `font_draw_ncm` go a pixel at a time, the character's number by the hardware multiplier: about 1.5 times the C version's speed (a 16-row 2 bpp font, 100 glyphs: 9 frames against 14); `font_width` 3 times. Example: `examples/c/fonts`. Tests: `test_font_cells_xemu.c` (glyph sets, `font_draw_fcm` / `_ncm`, `font_load`), `test_font_xemu.c`, `test_font_ref_xemu.c` (each function against the C it replaced: every edge of the clip, ramps, both strips, made-up width tables), with fonts font45 makes from `src/test-resources/font45/tiny.txt`.
 
 ### Loading files anywhere (`load.h`)
 

@@ -50,7 +50,7 @@ FUSE, both optional, only for disk45):
   (`src/main/PackAudio.cpp`)
 - **font45** — fonts (#466): BDF, PSF, C64 charsets or hand-drawn glyphs → 8x8 text-mode charsets or
   `<font.h>` fonts (1/2/4 bpp, proportional; `font_draw_bitmap` into a bitmap anywhere), C / asm / binary
-  (`src/main/Font45.cpp`, `lib/stdlib/font.c`)
+  (`src/main/Font45.cpp`, `lib/stdlib_asm/font.s45`)
 - **tune45** — music for the tune player (`<audio_tune.h>`): text (pfest's format) or MIDI → data;
   plays on the PC (reSIDfp, `third_party/libresidfp`), in xemu or on a MEGA65; plays a C64 `.sid` as it is (`play tune.sid`: its player run, #393); composes (`create`); filter, wave
   tables, hard restart; digi voices (`d1:`, samples on the audio DMA, hits together mixed by tune45); plays

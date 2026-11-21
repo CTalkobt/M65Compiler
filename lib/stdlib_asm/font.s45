@@ -1,0 +1,1378 @@
+; font.s45 — <font.h> (#466): font45's fonts read, measured and drawn (was
+; stdlib/font.c). The font data is anywhere in the 28-bit space, read with
+; [ptr],z; a glyph's visible rows in a linear buffer are font_glyph.s45's
+; (__font_glyph), the clipping here. font_load stays C (stdlib/font_load.c:
+; <load.h>, <unpack.h>).
+;
+;   const font_t *font_from(font_t *f, unsigned long data)    f $10, data $12-$15
+;   void font_install(unsigned long charset, unsigned int bytes, unsigned long lin)
+;   void font_select(unsigned long lin)
+;   unsigned char font_glyph_width(const font_t *f, unsigned char c)
+;   unsigned int font_width(const font_t *f, const char *s)
+;   void font_ramp(unsigned char first, unsigned char levels)
+;   void font_clip(signed int x0, signed int y0, signed int x1, signed int y1)
+;   signed int font_draw_bitmap / font_draw_fcm / font_draw_ncm
+;       (const font_t *f, unsigned long lin, int pitch, signed int x, signed int y, const char *s)
+;       f $10, lin $12-$15, pitch $16, x $18, y $1A, s $1C
+;   unsigned char font_put_cells(const font_t *f, unsigned long screen, unsigned int row_bytes,
+;       unsigned char col, unsigned char row, const char *s)
+;       f $10, screen $12-$15, row_bytes $16, col $18, row $1A, s $1C
+;
+; The ZP convention in either library (__fastcall__ in <font.h>). Products
+; on the hardware multiplier ($D770: 32 x 32 bits).
+
+; no calls through pointers here (ln45's call graph)
+.weak cc45.icallinfo
+cc45.icallinfo = 1
+
+.global _font_from, _font_install, _font_select, _font_glyph_width, _font_width
+.global _font_ramp, _font_clip, _font_draw_bitmap, _font_draw_fcm, _font_draw_ncm
+.global _font_put_cells
+.extern ___font_glyph, ___dma_copy_far
+
+FP = $08                ; the font_t (2 bytes)
+SP = $0A                ; the string; font_width's sum; font_put_cells' number
+WP = $0C                ; a far pointer (4 bytes)
+
+; font_t's members
+F_HEIGHT = 0
+F_FIRST = 2
+F_LAST = 3
+F_BPP = 4
+F_FLAGS = 5
+F_CELLW = 6
+F_ROWBYTES = 7
+F_COLS = 8
+F_ROWS = 9
+F_WIDTHS = 10
+F_GLYPHS = 14
+
+.segment "data"
+__font_rampv:   .byte 1         ; font_ramp's first entry
+__font_clipv:                   ; font_clip's x0, y0, x1, y1 (nothing left of or above the buffer)
+    .word 0
+    .word 0
+    .word 32767
+    .word 32767
+
+.segment "bss"
+__fd_kind:  .res 1      ; 0 a linear buffer, 1 FCM characters, 2 NCM ones
+__fd_f:     .res 2      ; the font_t
+__fd_lin:   .res 4
+__fd_pitch: .res 2
+__fd_x:     .res 2
+__fd_y:     .res 2
+__fd_gb:    .res 2      ; a glyph's bytes: height * rowbytes
+__fd_mask:  .res 1      ; (1 << bpp) - 1
+__fd_ink0:  .res 1      ; ramp first - 1
+__fd_ch:    .res 1      ; the code
+__fd_w:     .res 1      ; its advance
+__fd_g:     .res 4      ; its glyph's address
+__fd_t:     .res 4      ; 32-bit temporaries
+__fd_p:     .res 4
+__fd_c0:    .res 1      ; the visible columns c0..c1 - 1, rows r0..r1 - 1
+__fd_c1:    .res 1
+__fd_r0:    .res 1
+__fd_r1:    .res 1
+__fd_sl:    .res 2      ; __font_span: the clip's low and high ends,
+__fd_sh:    .res 2      ;   the position, the cell's size;
+__fd_sp:    .res 2
+__fd_sn:    .res 1
+__fd_a0:    .res 1      ;   the first visible and the one after
+__fd_a1:    .res 1
+__fd_row:   .res 1      ; the characters' drawing: row, column, pixel
+__fd_col:   .res 1
+__fd_py:    .res 2
+__fd_px:    .res 2
+__fd_bit:   .res 2      ;   col * bpp
+__fd_v:     .res 1
+__fd_shr:   .res 1      ;   3 (FCM: 8 pixels a character) or 4 (NCM: 16)
+__fd_pos:   .res 1      ;   1: numbered down the columns (pitch > 0)
+__fd_mp:    .res 2      ;   |pitch|
+__fd_pp:    .res 2      ;   px >> shr, py >> 3
+__fd_qq:    .res 2
+__fd_ad:    .res 2
+__fd_tmp:   .res 1
+__fc_e0:    .res 4      ; font_put_cells: screen + row * row_bytes
+__fc_shr:   .res 1      ;   3 (FCM) or 4 (NCM)
+__fc_base:  .res 2      ;   glyphs >> 6
+__fc_per:   .res 2      ;   cols * rows
+__fc_w:     .res 1
+__fc_c:     .res 1      ;   the code
+__fc_ac:    .res 1      ;   the characters across
+__fc_cx:    .res 1
+__fc_cy:    .res 1
+__fc_t:     .res 3
+
+.segment "code"
+
+; const font_t *font_from(font_t *f, unsigned long data): f filled from
+; font45's header ("F4", version 1); NULL if it is not one
+proc _font_from
+    .zp_uses $10, $11, $12, $13, $14, $15, $16, $17
+    .zp_clobbers $16, $17
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    ldz #0
+    lda [$12],z
+    cmp #$46
+    bne @no
+    inz
+    lda [$12],z
+    cmp #$34
+    bne @no
+    inz
+    lda [$12],z
+    cmp #1
+    bne @no
+    ; bytes 3-10: height, baseline, first, last, bpp, flags, cellw, rowbytes
+    ldy #0
+    ldz #3
+@copy:
+    lda [$12],z
+    sta ($10),y
+    inz
+    iny
+    cpy #8
+    bne @copy
+    lda #0
+    sta ($10),y             ; cols, rows
+    iny
+    sta ($10),y
+    ldy #F_LAST
+    lda ($10),y
+    ldy #F_FIRST
+    cmp ($10),y
+    bcc @no                 ; last < first
+    ldy #F_HEIGHT
+    lda ($10),y
+    beq @no
+    ldx #0                  ; X = 1: a glyph set
+    ldy #F_FLAGS
+    lda ($10),y
+    and #6                  ; FONT_FCM | FONT_NCM
+    beq @bitmap
+    ; a glyph set: FCM 8 bits a pixel, NCM 4; 64-byte aligned
+    and #2
+    beq @ncm
+    lda #8
+    bra @want
+@ncm:
+    lda #4
+@want:
+    ldy #F_BPP
+    cmp ($10),y
+    bne @no
+    lda $12
+    and #63
+    bne @no
+    ldz #10
+    lda [$12],z
+    ldy #F_COLS
+    sta ($10),y
+    inz
+    lda [$12],z
+    iny
+    sta ($10),y
+    ldx #1
+    bra @head
+@no:
+    lda #0
+    tax
+    rts
+@bitmap:
+    ldy #F_BPP
+    lda ($10),y
+    cmp #1
+    beq @head
+    cmp #2
+    beq @head
+    cmp #4
+    bne @no
+@head:
+    ; head = 12, + last - first + 1 widths when proportional
+    lda #12
+    sta $16
+    lda #0
+    sta $17
+    ldy #F_FLAGS
+    lda ($10),y
+    and #1                  ; FONT_PROPORTIONAL
+    beq @fixed
+    ldy #F_LAST
+    lda ($10),y
+    ldy #F_FIRST
+    sec
+    sbc ($10),y
+    sec                     ; (+ 1)
+    adc $16
+    sta $16
+    lda #0
+    adc $17
+    sta $17
+    ; widths = data + 12
+    ldy #F_WIDTHS
+    clc
+    lda $12
+    adc #12
+    sta ($10),y
+    iny
+    lda $13
+    adc #0
+    sta ($10),y
+    iny
+    lda $14
+    adc #0
+    sta ($10),y
+    iny
+    lda $15
+    adc #0
+    sta ($10),y
+    bra @glyphs
+@fixed:
+    ldy #F_WIDTHS
+    lda #0
+    sta ($10),y
+    iny
+    sta ($10),y
+    iny
+    sta ($10),y
+    iny
+    sta ($10),y
+@glyphs:
+    ; glyphs = data + head (a glyph set's from the next multiple of 64)
+    cpx #0
+    beq @add
+    clc
+    lda $16
+    adc #63
+    and #$C0
+    sta $16
+    lda $17
+    adc #0
+    sta $17
+@add:
+    ldy #F_GLYPHS
+    clc
+    lda $12
+    adc $16
+    sta ($10),y
+    iny
+    lda $13
+    adc $17
+    sta ($10),y
+    iny
+    lda $14
+    adc #0
+    sta ($10),y
+    iny
+    lda $15
+    adc #0
+    sta ($10),y
+    lda $10
+    ldx $11
+    rts
+    .func_flags zp_call
+endproc
+
+; void font_install(unsigned long charset, unsigned int bytes, unsigned long lin):
+; __dma_copy_far(lin, charset, bytes)
+proc _font_install
+    .zp_uses $08, $09, $0A, $0B, $0C, $0D, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19
+    .zp_clobbers $08, $09, $0A, $0B, $0C, $0D, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z
+    ldq $10                 ; charset
+    stq $08
+    lda $14                 ; bytes
+    sta $0C
+    lda $15
+    sta $0D
+    ldq $16                 ; lin: the destination
+    stq $10
+    ldq $08
+    stq $14
+    lda $0C
+    sta $18
+    lda $0D
+    sta $19
+    jmp ___dma_copy_far
+    .func_flags zp_call
+endproc
+
+; void font_select(unsigned long lin): the VIC-IV's character set
+proc _font_select
+    .zp_uses $10, $11, $12
+    .reg_clobbers A
+    .flag_clobbers N, Z
+    lda $10
+    sta $D068
+    lda $11
+    sta $D069
+    lda $12
+    sta $D06A
+    rts
+    .func_flags zp_call
+endproc
+
+; A = a code, FP the font: A = its advance (0 outside the font), C = 1 when
+; the font has it. Y, Z and WP changed.
+proc __font_gw
+    .zp_uses $08, $09, $0C, $0D, $0E, $0F
+    .zp_clobbers $0C, $0D, $0E, $0F
+    .reg_clobbers A, Y, Z
+    .flag_clobbers C, N, Z, V
+    sta WP
+    ldy #F_LAST
+    lda (FP),y
+    cmp WP
+    bcc @out                ; last < c
+    ldy #F_FIRST
+    lda WP
+    sec
+    sbc (FP),y
+    bcc @out                ; c < first
+    sta WP                  ; the index
+    ldy #F_WIDTHS
+    lda (FP),y
+    iny
+    ora (FP),y
+    iny
+    ora (FP),y
+    iny
+    ora (FP),y
+    bne @tab
+    ldy #F_CELLW            ; fixed: the cell's width
+    lda (FP),y
+    sec
+    rts
+@tab:
+    ldy #F_WIDTHS
+    clc
+    lda WP
+    adc (FP),y
+    sta WP
+    iny
+    lda (FP),y
+    adc #0
+    sta WP+1
+    iny
+    lda (FP),y
+    adc #0
+    sta WP+2
+    iny
+    lda (FP),y
+    adc #0
+    sta WP+3
+    ldz #0
+    lda [WP],z
+    sec
+    rts
+@out:
+    lda #0
+    clc
+    rts
+endproc
+
+; unsigned char font_glyph_width(const font_t *f, unsigned char c)
+proc _font_glyph_width
+    .zp_uses $08, $09, $0C, $0D, $0E, $0F, $10, $11, $12
+    .zp_clobbers $08, $09, $0C, $0D, $0E, $0F
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    lda $10
+    sta FP
+    lda $11
+    sta FP+1
+    lda $12
+    jsr __font_gw
+    ldx #0
+    rts
+    .func_flags zp_call
+endproc
+
+; unsigned int font_width(const font_t *f, const char *s)
+proc _font_width
+    .zp_uses $08, $09, $0A, $0B, $0C, $0D, $0E, $0F, $10, $11, $12, $13
+    .zp_clobbers $08, $09, $0A, $0B, $0C, $0D, $0E, $0F, $12, $13
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    lda $10
+    sta FP
+    lda $11
+    sta FP+1
+    lda #0
+    sta SP
+    sta SP+1
+@loop:
+    ldy #0
+    lda ($12),y
+    beq @done
+    jsr __font_gw
+    clc
+    adc SP
+    sta SP
+    bcc @next
+    inc SP+1
+@next:
+    inw $12
+    bra @loop
+@done:
+    lda SP
+    ldx SP+1
+    rts
+    .func_flags zp_call
+endproc
+
+; void font_ramp(unsigned char first, unsigned char levels): level n is
+; first + n - 1 (the count is the font's)
+proc _font_ramp
+    .zp_uses $10
+    .reg_clobbers A
+    .flag_clobbers N, Z
+    lda $10
+    sta __font_rampv
+    rts
+    .func_flags zp_call
+endproc
+
+; void font_clip(signed int x0, signed int y0, signed int x1, signed int y1)
+proc _font_clip
+    .zp_uses $10, $11, $12, $13, $14, $15, $16, $17
+    .reg_clobbers A, X
+    .flag_clobbers N, Z
+    ldx #7
+@copy:
+    lda $10,x
+    sta __font_clipv,x
+    dex
+    bpl @copy
+    rts
+    .func_flags zp_call
+endproc
+
+; signed int font_draw_bitmap(f, lin, pitch, x, y, s): into a linear buffer
+proc _font_draw_bitmap
+    .zp_uses $08, $09, $0A, $0B, $0C, $0D, $0E, $0F, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $1A, $1B, $1C, $1D, $1E, $20, $22, $24, $25
+    .zp_clobbers $08, $09, $0A, $0B, $0C, $0D, $0E, $0F, $10, $11, $12, $13, $14, $15, $16, $17, $18, $1A, $1C, $1E, $20, $22, $24, $25
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    ldx #0
+    jmp __font_draw
+    .func_flags zp_call
+endproc
+
+; signed int font_draw_fcm(f, chars, strip, x, y, s): full-colour characters
+proc _font_draw_fcm
+    .zp_uses $08, $09, $0A, $0B, $0C, $0D, $0E, $0F, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $1A, $1B, $1C, $1D, $1E, $20, $22, $24, $25
+    .zp_clobbers $08, $09, $0A, $0B, $0C, $0D, $0E, $0F, $10, $11, $12, $13, $14, $15, $16, $17, $18, $1A, $1C, $1E, $20, $22, $24, $25
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    ldx #1
+    jmp __font_draw
+    .func_flags zp_call
+endproc
+
+; signed int font_draw_ncm(f, chars, strip, x, y, s): nibble-colour characters
+proc _font_draw_ncm
+    .zp_uses $08, $09, $0A, $0B, $0C, $0D, $0E, $0F, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $1A, $1B, $1C, $1D, $1E, $20, $22, $24, $25
+    .zp_clobbers $08, $09, $0A, $0B, $0C, $0D, $0E, $0F, $10, $11, $12, $13, $14, $15, $16, $17, $18, $1A, $1C, $1E, $20, $22, $24, $25
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    ldx #2
+    jmp __font_draw
+    .func_flags zp_call
+endproc
+
+; A/X a signed int: Q the same as a long
+proc __font_sx
+    .reg_clobbers A, Y, Z
+    .flag_clobbers C, N, Z
+    ldy #0
+    cpx #$80
+    bcc @pos
+    dey
+@pos:
+    pha
+    tya
+    taz
+    pla
+    rts
+endproc
+
+; The span of a glyph's cell (columns or rows) inside the clip: a0 = lo - p
+; (0 if less), a1 = hi - p + 1 (n if more), as longs (the default clip,
+; 32767, minus p overflows an int). C = 1 when a0 < a1.
+proc __font_span
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    lda __fd_sp
+    ldx __fd_sp+1
+    jsr __font_sx
+    stq __fd_p
+    lda __fd_sl
+    ldx __fd_sl+1
+    jsr __font_sx
+    sec
+    sbcq __fd_p
+    stq __fd_t
+    lda __fd_t+3
+    bmi @zero
+    ora __fd_t+2
+    ora __fd_t+1
+    bne @no                 ; a0 > 255: past the cell
+    lda __fd_t
+    bra @a0
+@zero:
+    lda #0
+@a0:
+    sta __fd_a0
+    lda __fd_sh
+    ldx __fd_sh+1
+    jsr __font_sx
+    sec
+    sbcq __fd_p
+    stq __fd_t              ; a1 - 1
+    lda __fd_t+3
+    bmi @no                 ; a1 <= 0
+    ora __fd_t+2
+    ora __fd_t+1
+    bne @big
+    lda __fd_t
+    cmp __fd_sn
+    bcs @big                ; a1 > n
+    clc
+    adc #1
+    bra @a1
+@big:
+    lda __fd_sn
+@a1:
+    sta __fd_a1
+    lda __fd_a0
+    cmp __fd_a1
+    bcs @no
+    sec
+    rts
+@no:
+    clc
+    rts
+endproc
+
+; The drawing: X = the kind; the parameters as font_draw_bitmap's. Returns
+; the x after the last glyph.
+proc __font_draw
+    .zp_uses $08, $09, $0A, $0B, $0C, $0D, $0E, $0F, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $1A, $1B, $1C, $1D, $1E, $20, $22, $24, $25
+    .zp_clobbers $08, $09, $0A, $0B, $0C, $0D, $0E, $0F, $10, $11, $12, $13, $14, $15, $16, $17, $18, $1A, $1C, $1E, $20, $22, $24, $25
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    stx __fd_kind
+    lda $10
+    sta __fd_f
+    sta FP
+    lda $11
+    sta __fd_f+1
+    sta FP+1
+    ldq $12
+    stq __fd_lin
+    lda $16
+    sta __fd_pitch
+    lda $17
+    sta __fd_pitch+1
+    lda $18
+    sta __fd_x
+    lda $19
+    sta __fd_x+1
+    lda $1A
+    sta __fd_y
+    lda $1B
+    sta __fd_y+1
+    lda $1C
+    sta SP
+    lda $1D
+    sta SP+1
+    ldy #F_FLAGS
+    lda (FP),y
+    and #6                  ; a glyph set: font_put_cells
+    beq @go
+    jmp @ret
+@go:
+    ; a glyph's bytes: height * rowbytes
+    ldy #F_HEIGHT
+    lda (FP),y
+    sta $D770
+    ldy #F_ROWBYTES
+    lda (FP),y
+    sta $D774
+    lda #0
+    sta $D771
+    sta $D772
+    sta $D773
+    sta $D775
+    sta $D776
+    sta $D777
+@busy0:
+    bit $D70F
+    bvs @busy0
+    lda $D778
+    sta __fd_gb
+    lda $D779
+    sta __fd_gb+1
+    ; mask = (1 << bpp) - 1
+    ldy #F_BPP
+    lda (FP),y
+    tax
+    lda #1
+    cpx #0
+    beq @mk
+@sh:
+    asl
+    dex
+    bne @sh
+@mk:
+    sec
+    sbc #1
+    sta __fd_mask
+    lda __font_rampv
+    sec
+    sbc #1
+    sta __fd_ink0
+
+@char:
+    ldy #0
+    lda (SP),y
+    bne @have
+    jmp @ret
+@have:
+    sta __fd_ch
+    inw SP
+    lda __fd_f              ; (__font_glyph changes $08-$09)
+    sta FP
+    lda __fd_f+1
+    sta FP+1
+    lda __fd_ch
+    jsr __font_gw
+    sta __fd_w
+    bcs @in
+    jmp @adv
+@in:
+    ; the glyph: glyphs + (c - first) * glyph bytes
+    ldy #F_FIRST
+    lda __fd_ch
+    sec
+    sbc (FP),y
+    sta $D770
+    lda #0
+    sta $D771
+    sta $D772
+    sta $D773
+    sta $D776
+    sta $D777
+    lda __fd_gb
+    sta $D774
+    lda __fd_gb+1
+    sta $D775
+@busy1:
+    bit $D70F
+    bvs @busy1
+    ldy #F_GLYPHS
+    clc
+    lda $D778
+    adc (FP),y
+    sta __fd_g
+    iny
+    lda $D779
+    adc (FP),y
+    sta __fd_g+1
+    iny
+    lda $D77A
+    adc (FP),y
+    sta __fd_g+2
+    iny
+    lda $D77B
+    adc (FP),y
+    sta __fd_g+3
+    lda __fd_kind
+    beq @bitmap
+    jmp @pixels
+
+@bitmap:
+    ; a linear buffer: the glyph's visible columns and rows, drawn by __font_glyph
+    lda __font_clipv
+    sta __fd_sl
+    lda __font_clipv+1
+    sta __fd_sl+1
+    lda __font_clipv+4
+    sta __fd_sh
+    lda __font_clipv+5
+    sta __fd_sh+1
+    lda __fd_x
+    sta __fd_sp
+    lda __fd_x+1
+    sta __fd_sp+1
+    ldy #F_CELLW
+    lda (FP),y
+    sta __fd_sn
+    jsr __font_span
+    bcs @cols
+    jmp @adv
+@cols:
+    lda __fd_a0
+    sta __fd_c0
+    lda __fd_a1
+    sta __fd_c1
+    lda __font_clipv+2
+    sta __fd_sl
+    lda __font_clipv+3
+    sta __fd_sl+1
+    lda __font_clipv+6
+    sta __fd_sh
+    lda __font_clipv+7
+    sta __fd_sh+1
+    lda __fd_y
+    sta __fd_sp
+    lda __fd_y+1
+    sta __fd_sp+1
+    ldy #F_HEIGHT
+    lda (FP),y
+    sta __fd_sn
+    jsr __font_span
+    bcs @rows
+    jmp @adv
+@rows:
+    lda __fd_a0
+    sta __fd_r0
+    lda __fd_a1
+    sta __fd_r1
+    ; dst = lin + (y + r0) * pitch + x (as longs)
+    lda __fd_y
+    ldx __fd_y+1
+    jsr __font_sx
+    stq __fd_t
+    clc
+    lda __fd_t
+    adc __fd_r0
+    sta $D770
+    lda __fd_t+1
+    adc #0
+    sta $D771
+    lda __fd_t+2
+    adc #0
+    sta $D772
+    lda __fd_t+3
+    adc #0
+    sta $D773
+    lda __fd_pitch
+    sta $D774
+    lda __fd_pitch+1
+    sta $D775
+    lda #0
+    sta $D776
+    sta $D777
+@busy2:
+    bit $D70F
+    bvs @busy2
+    lda __fd_x
+    ldx __fd_x+1
+    jsr __font_sx
+    stq __fd_t
+    ldq $D778
+    clc
+    adcq __fd_t
+    clc
+    adcq __fd_lin
+    stq $14
+    ; src = the glyph + r0 * rowbytes
+    lda __fd_r0
+    sta $D770
+    lda #0
+    sta $D771
+    sta $D772
+    sta $D773
+    sta $D775
+    ldy #F_ROWBYTES
+    lda (FP),y
+    sta $D774
+@busy3:
+    bit $D70F
+    bvs @busy3
+    ldq $D778
+    clc
+    adcq __fd_g
+    stq $10
+    lda __fd_c0
+    sta $18
+    lda __fd_c1
+    sta $1A
+    ldy #F_BPP
+    lda (FP),y
+    sta $1C
+    lda __fd_ink0
+    sta $1E
+    lda __fd_r1
+    sec
+    sbc __fd_r0
+    sta $20
+    ldy #F_ROWBYTES
+    lda (FP),y
+    sta $22
+    lda __fd_pitch
+    sta $24
+    lda __fd_pitch+1
+    sta $25
+    jsr ___font_glyph
+    jmp @adv
+
+@pixels:
+    ; characters, a pixel at a time: 8 (FCM) or 16 (NCM) pixels a character
+    ; across; numbered down the columns (pitch > 0) or along the rows
+    lda #3
+    ldx __fd_kind
+    cpx #1
+    beq @shr
+    lda #4
+@shr:
+    sta __fd_shr
+    lda __fd_pitch+1
+    bmi @neg
+    ora __fd_pitch
+    beq @neg
+    lda #1
+    sta __fd_pos
+    lda __fd_pitch
+    sta __fd_mp
+    lda __fd_pitch+1
+    sta __fd_mp+1
+    bra @start
+@neg:
+    lda #0
+    sta __fd_pos
+    sec
+    sbc __fd_pitch
+    sta __fd_mp
+    lda #0
+    sbc __fd_pitch+1
+    sta __fd_mp+1
+@start:
+    ldq __fd_g              ; $10-$13: the row's bytes
+    stq $10
+    lda #0
+    sta __fd_row
+@prow:
+    ldy #F_HEIGHT
+    lda __fd_row
+    cmp (FP),y
+    bcc @rowgo
+    jmp @adv
+@rowgo:
+    clc
+    lda __fd_y
+    adc __fd_row
+    sta __fd_py
+    lda __fd_y+1
+    adc #0
+    sta __fd_py+1
+    ; py < clip_y0 or py > clip_y1: not drawn
+    lda __fd_py
+    cmp __font_clipv+2
+    lda __fd_py+1
+    sbc __font_clipv+3
+    bvc @y0
+    eor #$80
+@y0:
+    bpl @y0ok
+    jmp @rownext
+@y0ok:
+    lda __font_clipv+6
+    cmp __fd_py
+    lda __font_clipv+7
+    sbc __fd_py+1
+    bvc @y1
+    eor #$80
+@y1:
+    bpl @y1ok
+    jmp @rownext
+@y1ok:
+    ; py >> 3 (signed)
+    lda __fd_py+1
+    sta __fd_qq+1
+    lda __fd_py
+    ldx #3
+@q:
+    pha
+    lda __fd_qq+1
+    cmp #$80
+    ror
+    sta __fd_qq+1
+    pla
+    ror
+    dex
+    bne @q
+    sta __fd_qq
+    lda #0
+    sta __fd_col
+    sta __fd_bit
+    sta __fd_bit+1
+@pcol:
+    ldy #F_CELLW
+    lda __fd_col
+    cmp (FP),y
+    bcc @colgo
+    jmp @rownext
+@colgo:
+    ; v = (r[bit >> 3] >> (8 - bpp - (bit & 7))) & mask
+    lda __fd_bit+1
+    sta __fd_tmp
+    lda __fd_bit
+    lsr __fd_tmp
+    ror
+    lsr __fd_tmp
+    ror
+    lsr __fd_tmp
+    ror
+    taz
+    lda [$10],z
+    sta __fd_v
+    lda __fd_bit
+    and #7
+    clc
+    ldy #F_BPP
+    adc (FP),y
+    sta __fd_tmp
+    lda #8
+    sec
+    sbc __fd_tmp
+    tax
+    lda __fd_v
+@vs:
+    cpx #0
+    beq @vm
+    lsr
+    dex
+    bra @vs
+@vm:
+    and __fd_mask
+    bne @lit
+    jmp @colnext
+@lit:
+    sta __fd_v
+    ; px = x + col: px < clip_x0 or px > clip_x1, not drawn
+    clc
+    lda __fd_x
+    adc __fd_col
+    sta __fd_px
+    lda __fd_x+1
+    adc #0
+    sta __fd_px+1
+    lda __fd_px
+    cmp __font_clipv
+    lda __fd_px+1
+    sbc __font_clipv+1
+    bvc @x0
+    eor #$80
+@x0:
+    bpl @x0ok
+    jmp @colnext
+@x0ok:
+    lda __font_clipv+4
+    cmp __fd_px
+    lda __font_clipv+5
+    sbc __fd_px+1
+    bvc @x1
+    eor #$80
+@x1:
+    bpl @x1ok
+    jmp @colnext
+@x1ok:
+    ; px >> shr (signed)
+    lda __fd_px+1
+    sta __fd_pp+1
+    lda __fd_px
+    ldx __fd_shr
+@p:
+    pha
+    lda __fd_pp+1
+    cmp #$80
+    ror
+    sta __fd_pp+1
+    pla
+    ror
+    dex
+    bne @p
+    sta __fd_pp
+    ; the character: (px >> shr) * pitch + (py >> 3), or (py >> 3) * -pitch + (px >> shr)
+    lda __fd_pos
+    beq @along
+    lda __fd_pp
+    sta $D770
+    lda __fd_pp+1
+    sta $D771
+    lda __fd_qq
+    sta __fd_ad
+    lda __fd_qq+1
+    sta __fd_ad+1
+    bra @mul
+@along:
+    lda __fd_qq
+    sta $D770
+    lda __fd_qq+1
+    sta $D771
+    lda __fd_pp
+    sta __fd_ad
+    lda __fd_pp+1
+    sta __fd_ad+1
+@mul:
+    lda #0
+    sta $D772
+    sta $D773
+    sta $D776
+    sta $D777
+    lda __fd_mp
+    sta $D774
+    lda __fd_mp+1
+    sta $D775
+@busy4:
+    bit $D70F
+    bvs @busy4
+    ; its 64 bytes: (ch << 8) >> 2
+    lda #0
+    sta WP
+    sta WP+3
+    clc
+    lda $D778
+    adc __fd_ad
+    sta WP+1
+    lda $D779
+    adc __fd_ad+1
+    sta WP+2
+    lsr WP+2
+    ror WP+1
+    ror WP
+    lsr WP+2
+    ror WP+1
+    ror WP
+    ; + (py & 7) * 8 + the pixel's byte: px & 7 (FCM), (px & 15) >> 1 (NCM)
+    lda __fd_py
+    and #7
+    asl
+    asl
+    asl
+    sta __fd_tmp
+    lda __fd_kind
+    cmp #1
+    bne @nb
+    lda __fd_px
+    and #7
+    bra @ob
+@nb:
+    lda __fd_px
+    and #15
+    lsr
+@ob:
+    ora __fd_tmp
+    ora WP
+    clc
+    adc __fd_lin
+    sta WP
+    lda WP+1
+    adc __fd_lin+1
+    sta WP+1
+    lda WP+2
+    adc __fd_lin+2
+    sta WP+2
+    lda WP+3
+    adc __fd_lin+3
+    sta WP+3
+    ; the ink: ramp first + v - 1
+    lda __fd_v
+    clc
+    adc __fd_ink0
+    ldz #0
+    ldx __fd_kind
+    cpx #1
+    bne @nib
+    sta [WP],z
+    bra @colnext
+@nib:
+    sta __fd_v
+    lda __fd_px
+    and #1
+    bne @odd
+    lda __fd_v              ; the left pixel: the low nibble
+    and #$0F
+    sta __fd_tmp
+    lda [WP],z
+    and #$F0
+    ora __fd_tmp
+    sta [WP],z
+    bra @colnext
+@odd:
+    lda __fd_v
+    asl
+    asl
+    asl
+    asl
+    sta __fd_tmp
+    lda [WP],z
+    and #$0F
+    ora __fd_tmp
+    sta [WP],z
+@colnext:
+    clc
+    lda __fd_bit
+    ldy #F_BPP
+    adc (FP),y
+    sta __fd_bit
+    bcc @cn
+    inc __fd_bit+1
+@cn:
+    inc __fd_col
+    jmp @pcol
+@rownext:
+    ldy #F_ROWBYTES
+    clc
+    lda $10
+    adc (FP),y
+    sta $10
+    lda $11
+    adc #0
+    sta $11
+    lda $12
+    adc #0
+    sta $12
+    lda $13
+    adc #0
+    sta $13
+    inc __fd_row
+    jmp @prow
+
+@adv:
+    clc
+    lda __fd_x
+    adc __fd_w
+    sta __fd_x
+    bcc @nx
+    inc __fd_x+1
+@nx:
+    jmp @char
+@ret:
+    lda __fd_x
+    ldx __fd_x+1
+    rts
+endproc
+
+; unsigned char font_put_cells(f, screen, row_bytes, col, row, s): a glyph
+; set's characters on a 16-bit character screen; the column after
+proc _font_put_cells
+    .zp_uses $08, $09, $0A, $0B, $0C, $0D, $0E, $0F, $10, $11, $12, $13, $14, $15, $16, $17, $18, $1A, $1C, $1D
+    .zp_clobbers $08, $09, $0A, $0B, $0C, $0D, $0E, $0F, $18, $1C, $1D
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    lda $10
+    sta FP
+    lda $11
+    sta FP+1
+    ldy #F_FLAGS
+    lda (FP),y
+    and #6                  ; FONT_FCM | FONT_NCM
+    bne @set
+    lda $18
+    rts
+@set:
+    ldx #3                  ; a character 8 pixels across (FCM), 16 (NCM)
+    and #4
+    beq @cw
+    inx
+@cw:
+    stx __fc_shr
+    ; screen + row * row_bytes
+    lda $1A
+    sta $D770
+    lda #0
+    sta $D771
+    sta $D772
+    sta $D773
+    sta $D776
+    sta $D777
+    lda $16
+    sta $D774
+    lda $17
+    sta $D775
+@busy0:
+    bit $D70F
+    bvs @busy0
+    ldq $D778
+    clc
+    adcq $12
+    stq __fc_e0
+    ; the set's first character: glyphs >> 6 (16 bits)
+    ldy #F_GLYPHS
+    lda (FP),y
+    sta __fc_t
+    iny
+    lda (FP),y
+    sta __fc_t+1
+    iny
+    lda (FP),y
+    sta __fc_t+2
+    asl __fc_t
+    rol __fc_t+1
+    rol __fc_t+2
+    asl __fc_t
+    rol __fc_t+1
+    rol __fc_t+2
+    lda __fc_t+1
+    sta __fc_base
+    lda __fc_t+2
+    sta __fc_base+1
+    ; a glyph's characters: cols * rows
+    ldy #F_COLS
+    lda (FP),y
+    sta $D770
+    iny
+    lda (FP),y
+    sta $D774
+    lda #0
+    sta $D775
+@busy1:
+    bit $D70F
+    bvs @busy1
+    lda $D778
+    sta __fc_per
+    lda $D779
+    sta __fc_per+1
+@loop:
+    ldy #0
+    lda ($1C),y
+    bne @c
+    lda $18
+    rts
+@c:
+    sta __fc_c
+    inw $1C
+    jsr __font_gw           ; (its width, from the table when there is one)
+    bcc @loop               ; not in the font
+    sta __fc_w
+    ; its first character: base + (c - first) * per
+    lda __fc_c
+    ldy #F_FIRST
+    sec
+    sbc (FP),y
+    sta $D770
+    lda #0
+    sta $D771
+    lda __fc_per
+    sta $D774
+    lda __fc_per+1
+    sta $D775
+@busy2:
+    bit $D70F
+    bvs @busy2
+    clc
+    lda $D778
+    adc __fc_base
+    sta SP
+    lda $D779
+    adc __fc_base+1
+    sta SP+1
+    ; across: cols, or (w + cw - 1) / cw with a width table (at most cols)
+    ldy #F_COLS
+    lda (FP),y
+    sta __fc_ac
+    ldy #F_WIDTHS
+    lda (FP),y
+    iny
+    ora (FP),y
+    iny
+    ora (FP),y
+    iny
+    ora (FP),y
+    beq @across             ; fixed: cols
+    lda __fc_w
+    ldx __fc_shr
+    cpx #3
+    clc
+    bne @c16
+    adc #7
+    bra @div
+@c16:
+    adc #15
+@div:
+    ror                     ; (the sum's 9th bit in)
+    dex
+@dv:
+    lsr
+    dex
+    bne @dv
+    cmp __fc_ac
+    bcs @across
+    sta __fc_ac
+@across:
+    lda #0
+    sta __fc_cx
+@cx:
+    lda __fc_cx
+    cmp __fc_ac
+    bcs @next
+    ; screen + row * row_bytes + (col + cx) * 2
+    clc
+    lda $18
+    adc __fc_cx
+    sta __fc_t
+    lda #0
+    adc #0
+    sta __fc_t+1
+    asl __fc_t
+    rol __fc_t+1
+    clc
+    lda __fc_e0
+    adc __fc_t
+    sta WP
+    lda __fc_e0+1
+    adc __fc_t+1
+    sta WP+1
+    lda __fc_e0+2
+    adc #0
+    sta WP+2
+    lda __fc_e0+3
+    adc #0
+    sta WP+3
+    lda #0
+    sta __fc_cy
+@cy:
+    ldy #F_ROWS
+    lda __fc_cy
+    cmp (FP),y
+    bcs @cxn
+    ldz #0
+    lda SP
+    sta [WP],z
+    inz
+    lda SP+1
+    sta [WP],z
+    inw SP
+    clc
+    lda WP
+    adc $16
+    sta WP
+    lda WP+1
+    adc $17
+    sta WP+1
+    lda WP+2
+    adc #0
+    sta WP+2
+    lda WP+3
+    adc #0
+    sta WP+3
+    inc __fc_cy
+    bra @cy
+@cxn:
+    inc __fc_cx
+    bra @cx
+@next:
+    clc
+    lda $18
+    adc __fc_ac
+    sta $18
+    jmp @loop
+    .func_flags zp_call
+endproc

@@ -1,5 +1,5 @@
 ; font_glyph.s45 — <font.h>'s inner loops (#466): a glyph's visible rows drawn
-; into a linear 8-bit-a-pixel buffer at a 28-bit address (font.c's
+; into a linear 8-bit-a-pixel buffer at a 28-bit address (font.s45's
 ; font_draw_bitmap: the clipping and the string there, a glyph's pixels here).
 ;
 ; void __font_glyph(unsigned long src, unsigned long dst, unsigned char c0,
