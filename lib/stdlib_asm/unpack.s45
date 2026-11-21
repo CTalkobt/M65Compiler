@@ -12,12 +12,17 @@
 ; __unpack from assembly); from assembly:
 ;   src in $10-$13 (and dst in $14-$17), jsr ___unpack (___unpack_to): the
 ;   count in Q (A, X, Y, Z: bits 0-7 ... 24-31); $08-$19 changed
+;
+; Format 2 (images, #666) is unpack2.s45's ___unpack2, a member of its own
+; that a program links by naming ___unpack_images (<unpack.h>'s
+; UNPACK_IMAGES); without it the weak ___unpack2 below returns 0.
 
 ; no calls through pointers here (ln45's call graph)
 .weak cc45.icallinfo
 cc45.icallinfo = 1
 
-.global ___unpack, ___unpack_to
+.global ___unpack, ___unpack_to, ___unpack2
+.weak ___unpack2
 .extern ___dma_copy_far, ___dma_fill_far
 
 P = $08                 ; the stream (32 bits)
@@ -40,8 +45,12 @@ proc ___unpack
     stq P
     ldz #0
     lda [P],z
-    cmp #1
+    cmp #1                  ; the format: 1, or 2 (an image)
+    beq @hdr
+    cmp #2
     bne @none
+@hdr:
+    tax
     ldz #1                  ; the header's destination
     lda [P],z
     sta D
@@ -54,8 +63,12 @@ proc ___unpack
     inz
     lda [P],z
     sta D+3
+    cpx #2
+    bne @f1
+    jmp ___unpack2          ; (an image)
+@f1:
     jmp __u_go
-@none:                      ; not format 1: 0
+@none:                      ; not format 1 or 2: 0
     lda #0
     tax
     tay
@@ -72,14 +85,30 @@ proc ___unpack_to
     .flag_clobbers C, N, Z, V
     ldq $10
     stq P
+    ldq $14
+    stq D
     ldz #0
     lda [P],z
     cmp #1
+    beq @f1
+    cmp #2
     bne @none
-    ldq $14
-    stq D
+    jmp ___unpack2          ; (an image)
+@f1:
     jmp __u_go
 @none:
+    lda #0
+    tax
+    tay
+    taz
+    rts
+    .func_flags zp_call
+endproc
+
+; format 2 without unpack2.s45: nothing written, 0 (P, D set)
+proc ___unpack2
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
     lda #0
     tax
     tay

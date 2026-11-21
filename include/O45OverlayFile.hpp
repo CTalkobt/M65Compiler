@@ -130,7 +130,8 @@ struct O45OverlayFile {
             else readFile(base + ".ov" + std::to_string(i), code);
             // (a packed one: its load address and the image it unpacks to,
             // starting with that address's low 16 bits)
-            if (out.packed && code.size() > 2 + pack45::kHeader && code[2] == pack45::kFormat) {
+            // (ln45 writes format 1; format 2, an image, is read as well)
+            if (out.packed && code.size() > 2 + pack45::kHeader && pack45::isFormat(code[2])) {
                 std::vector<uint8_t> img;
                 uint32_t dest = 0;
                 if (pack45::unpack(std::vector<uint8_t>(code.begin() + 2, code.end()), img, &dest)) {

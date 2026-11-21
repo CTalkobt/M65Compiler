@@ -438,11 +438,12 @@ $(DEPLOY_TARGET): $(OBJ_DIR)/deploy45_main.o $(OBJ_DIR)/Logger.o
 	@mkdir -p $(BIN_DIR)
 	$(CXX) $(CXXFLAGS) -o $@ $(OBJ_DIR)/deploy45_main.o $(OBJ_DIR)/Logger.o
 
-# Packer (pack45, #345) - uses common
-$(PACK_TARGET): $(OBJ_DIR)/pack45_main.o $(OBJ_DIR)/PackAudio.o | $(LIB_DIR)
+# Packer (pack45, #345) - uses common; --image reads images with font45's
+# stb_image (Font45Stb.o, #666)
+$(PACK_TARGET): $(OBJ_DIR)/pack45_main.o $(OBJ_DIR)/PackAudio.o $(OBJ_DIR)/Font45Stb.o $(OBJ_DIR)/Font45.o | $(LIB_DIR)
 $(PACK_TARGET): $(LIB_DIR)/lib45-common.a
 	@mkdir -p $(BIN_DIR)
-	$(CXX) $(CXXFLAGS) -o $@ $(OBJ_DIR)/pack45_main.o $(OBJ_DIR)/PackAudio.o $(LIB_DIR)/lib45-common.a
+	$(CXX) $(CXXFLAGS) -o $@ $(OBJ_DIR)/pack45_main.o $(OBJ_DIR)/PackAudio.o $(OBJ_DIR)/Font45Stb.o $(OBJ_DIR)/Font45.o $(LIB_DIR)/lib45-common.a
 
 # Fonts (font45, #466) - uses common
 $(FONT_TARGET): $(OBJ_DIR)/font45_main.o $(OBJ_DIR)/Font45.o $(OBJ_DIR)/Font45Stb.o $(OBJ_DIR)/Font45Cells.o $(LIB_DIR)/lib45-common.a | $(LIB_DIR)

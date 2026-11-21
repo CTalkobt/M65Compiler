@@ -4,6 +4,31 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### pack45 / unpack(): format 2, images in up to 16 colours (#666)
+
+- **`pack45 --image`** codes an image as format 2: each pixel's rank (its colour's place in an order of the colours,
+  dark to light) minus a prediction (the pixel above, or the one to its left; both are tried and the smaller kept,
+  `--predict` to choose), in a canonical Huffman code of at most 8 bits. texture_demo's delta coding, with the order
+  table in the stream. It reads a PNG (or BMP, GIF, …: font45's stb_image) or raw 4-bit pixels (`--width W`); with
+  `--palette FILE` an image's colours are found in the palette and ordered by it, without one they are numbered 0 up
+  dark to light (printed, and written by `--palette-out`). It prints the stream's size beside format 1's, and the
+  in-place offset as for format 1.
+- **The stream** unpacks to `h` rows of `w / 2` bytes (`w` even, at most 256), 4 bits a pixel, the left one the low
+  nibble, each the pixel's palette entry. Header: format 2, the destination, `w / 2`, `h`, `N`, the prediction, the
+  order, the `N` code lengths (`include/Pack45.hpp`, `doc/bin/pack45.md`). It unpacks in place (a row is written once
+  its codes are read).
+- **`unpack()` / `unpack_to()` / `load_unpack()`** take format 2 when a program says `UNPACK_IMAGES;` (at file scope,
+  once): it links the decoder, `lib/stdlib_asm/unpack2.s45` (581 bytes, 952 of BSS: two 256-entry lookup tables, a
+  row of ranks and one of bytes), a code a pixel by one lookup, a row at a time by DMA. Without it they return 0 for
+  a format 2 stream, as before; `unpack.s45` is 25 bytes larger.
+- **Sizes**: on texture_demo's photographs at 128x128 in 16 colours, a red brick wall 5789 bytes (format 1: 7639),
+  cobblestones 6774 (8112), a rocky trail 8093 (8318), from 8192. Flat art with long repeats stays smaller in format 1
+  (bands of 16 colours: 132 against 363). A 128x128 image decodes in about 5 frames.
+- nm45 / objdump45 read a format 2 stream in a packed overlay file too (ln45 `--pack-overlays` writes format 1).
+- Tests: `test_pack45_image.sh` (`make test`: round trips through pack45's model of the decoder and an independent
+  decoder, 1, 2, 3, 5 and 16 colours, widths 6 to 256, odd heights, PNG with and without a palette, the errors) and
+  `test_unpack2_xemu.c` (chip RAM, in place, attic RAM, `unpack_to`; both conventions).
+
 ### font: FCM / NCM glyphs drawn a span at a time (#670)
 
 - `font_draw_fcm` / `font_draw_ncm` no longer clip, shift, multiply and add a 32-bit address for every pixel. The

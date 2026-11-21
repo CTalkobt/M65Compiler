@@ -2536,6 +2536,17 @@ for upmode in "stack|-fno-zpcall" "zp|"; do
     IFS='|' read -r upname upflags <<< "$upmode"
     xemu_case "FAIL: test_unpack_xemu.c $upname (compilation/linking failed)" "src/test-resources/test_unpack_xemu.c" "build/test/test_unpack_${upname}_xemu.prg" "$upflags -Ibuild/test" -- "test_unpack_$upname" "build/test/test_unpack_${upname}_xemu.prg" "C0C0" 7 "01 01 01 01 01 01 AA"
 done
+# <unpack.h>'s format 2 (#666): images pack45 --image coded, unpacked into
+# chip RAM, in place and into attic RAM
+if bash src/test/gen_unpack2_stream.sh build/test; then
+    for u2mode in "zp|" "stack|-fno-zpcall"; do
+        IFS='|' read -r u2name u2flags <<< "$u2mode"
+        xemu_case "FAIL: test_unpack2_xemu.c $u2name (compilation/linking failed)" "src/test-resources/test_unpack2_xemu.c" "build/test/test_unpack2_${u2name}_xemu.prg" "$u2flags -Ibuild/test" -- "test_unpack2_$u2name" "build/test/test_unpack2_${u2name}_xemu.prg" "C0C0" 7 "01 01 01 01 01 01 AA"
+    done
+else
+    echo "FAIL: test_unpack2_xemu.c (gen_unpack2_stream.sh failed)"
+    failed=$((failed + 2))
+fi
 
 # <load.h> (#444): files from a D81 to chip RAM, to attic RAM through the
 # stage, unpacked; a missing file, one larger than the stage, one not packed
