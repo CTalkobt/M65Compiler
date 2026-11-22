@@ -31,6 +31,14 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 - **Fixed: `list` near the end of a file printed lines past its last one** (lines 18 and 19 of a 17-line `sum.c`,
   blank): the listing ends at the file's last line; a source file dbg45 cannot read is now `error: cannot read the
   source file` instead of empty lines. Test: `test_dbg45.sh` lists near the end of `t.c`.
+### cc45: typeof keeps a global's signedness, and is taken wherever a type is (#707)
+
+- `typeof(g)` of a file-scope `signed char g` was unsigned: the `signed` taken before the declaration was parsed was
+  not in the type `typeof` reads (a local, or a `signed int` global by chance, kept it). Every file-scope variable's
+  type is now recorded with its signedness.
+- `typeof` is taken at file scope, in a cast, in a `for` statement's declaration and as a function's result, as well
+  as in a declaration inside a function; `typeof(T *)` keeps the pointer; `typeof(&x)`, `typeof(*p)`, `typeof(p[i])`
+  and `typeof((T)e)` give their types (other expressions are still `int`). Runtime test `test_typeof_xemu.c`.
 
 ### Documentation: what the audit found missing (#644)
 
