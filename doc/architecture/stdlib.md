@@ -293,6 +293,30 @@ Behaviour on the MEGA65:
 - **`tmpnam(s)`**: `"TMP0000"` to `"TMP9999"`, the next one no file on device 8 has (checked by opening it), in `s` or a static buffer; NULL when all are taken.
 - `test_stdio3_xemu.c` covers the scanf family on files, `setvbuf`, `setbuf`, `tmpfile`, `tmpnam` and `freopen`.
 
+```c
+#include <stdio.h>
+#include <string.h>
+
+int main(void) {
+    char line[40];
+    FILE *f = fopen("scores", "w");              /* @0:SCORES,S,W on drive 8 */
+    if (!f) return 1;
+    fprintf(f, "ada %d\n", 1200);
+    fputs("bob 900\n", f);
+    fclose(f);
+
+    f = fopen("scores", "r");
+    if (!f) return 2;                            /* e.g. no disk: the drive's error */
+    if (!fgets(line, sizeof line, f) || strcmp(line, "ada 1200\n") != 0) return 3;
+    fclose(f);
+
+    f = fopen("scores", "a");                    /* appended to */
+    fputs("cy 50\n", f);
+    fclose(f);
+    return 0;
+}
+```
+
 ### CBM file API
 
 Declared in `stdio.h`, implemented in `stdio_cbm.c`, `stdio_kernal.c`, `stdio_directory.c`, `stdio_rel.c`:
@@ -360,8 +384,8 @@ Where keys arrive on the MEGA65: the keyboard's hardware scanner puts each key p
 | `unistd.h` | **`unsigned int sleep(unsigned int seconds)`** (assembly, `stdlib_asm/sleep.s45`): `seconds * CLOCKS_PER_SEC` frames of `clock()` (the product by the hardware multiplier); 0. **`int getopt(int argc, char *const argv[], const char *optstring)`** (`stdlib/getopt.c`), POSIX's: letters grouped in a word, an argument attached or the next word (`x:`), `-` alone, a non-option or `--` ends them (`--` taken); `'?'` with `optopt` for an unknown letter or a missing argument (`':'` for the latter with a leading `':'`), a message on `stderr` unless `opterr` is 0 or `optstring` starts with `':'`; `optarg`, `optind` (set it to 1 to start again) |
 | `serial.h` | cc65's serial API (assembly, `stdlib_asm/serial.s45`) on the MEGA65's buffered UART (`$D0E0`–`$D0E6`: `$D0E1` status, bit 3 transmit buffer full, bit 6 receive buffer empty; `$D0E2` the received byte, a write takes it off; `$D0E3` the byte to send; `$D0E4`–`$D0E6` the divisor, 80 MHz / (divisor + 1); xemu connects it to a TCP socket with `-serialtcp HOST:PORT`). The driver is built in: `ser_install(ser_static_stddrv)` or `ser_load_driver(any name)` installs it (`SER_ERR_INSTALLED` twice), `ser_uninstall`/`ser_unload` remove it. `ser_open` takes every `SER_BAUD_` rate and only 8N1 without handshake (else `SER_ERR_INIT_FAILED`; `SER_ERR_BAUD_UNAVAIL` for an unknown rate) and empties the receive buffer; `ser_get` gives `SER_ERR_NO_DATA` when nothing came, `ser_put` `SER_ERR_OVERFLOW` while the transmit buffer is full (both `SER_ERR_NOT_OPEN` before `ser_open`); `ser_close` empties the receive buffer and leaves the driver installed (`SER_ERR_NOT_OPEN` when the port is not open); `ser_status` 0; `ser_ioctl(SER_IOCTL_DIVISOR, &divisor)` sets any other rate (an `unsigned long`). Test: `test_serial_xemu.c` (an echo over `-serialtcp`, `src/test/serial_echo.py`) |
 | `far_ptr.h` | 24-bit far pointers (`far_ptr_t`: a bank byte and a 16-bit offset; `bank_t`; `static inline` in the header: `far_make(bank, offset)`, `far_bank`, `far_offset`, `far_is_null`, `far_to_linear(p)` / `far_of_linear(a)` to and from a 28-bit address, a bank from `$80` attic RAM), bank selection (`bank_set`, `bank_get`, `bank_available`, `bank_reset`, `bank_reset_all`) and a far heap (`far_malloc`, `far_calloc`, `far_realloc`, `far_free`, `far_malloc_current`, `far_calloc_current`, `far_size`, `far_alloc_bank`, `far_is_valid`, `far_policy_*`, `far_reserve`; attic RAM: `far_attic_init`, `far_attic_enable`, `far_attic_hook`, `far_attic_available`, `far_attic_malloc`, `far_attic_free`, `far_attic_size`, `far_malloc_long`, `far_size_long`). The chip RAM heap (`far_malloc`, `far_free`, `far_size_long`, `far_reserve`, `bank_reset`, `bank_reset_all`) is assembly, `stdlib_asm/far_heap.s45` (`__fastcall__` in both libraries): a bank's heap ($0100-$FFFF of bank 4 or 5) is up to 32 records in address order (offset, size, a state: allocated, free, kept), arrays of bytes for the two banks reached with X/Y (412 bytes of BSS); first fit, a bigger block split (the rest a free record after it; no record left: refused), `far_free` merging free neighbours; `far_reserve`'s ranges (up to 8) and the code overlays' store carved out at a bank's first use. Attic RAM goes through `far_attic_hook.c`'s routes (linked with `far_attic_hook` / `far_attic_enable`; `far_heap.s45`'s weak ones give nothing), which call `far_attic.c` through the hooks' pointers; the rest of the API is `stdlib/far_malloc.c`. About 1.1 KB of code for `far_malloc` + `far_free` (the C version: 3.9 KB, and 1.9 KB of BSS). Test: `test_far_malloc_xemu.c` (splits, merges, the record limit, `far_reserve`, `bank_reset`, the C part, 1500 random operations against a model of the algorithm). |
-| `far_ops.h` | far element access (`far_read_*`/`far_write_*` for 8/16/32-bit, float, double), arrays (`far_array_*`), bulk copies (`far_memcpy*`, `far_memset`, `far_memzero`, `far_strcpy_*`, `far_strlen`, `far_strcmp`) and pointer arithmetic/comparison (`far_add`, `far_sub`, `far_inc`, `far_dec`, `far_diff`, `far_eq`, `far_lt`, `far_gt`, `far_cmp`) |
-| `far_string.h` | `memcpy`/`memset`/`strlen`/`strcpy`/`strcmp`/`strcat`/`memcmp` for every mix of local and far pointers (`memcpy__fpvst` …) and typed far array elements; included by `far_ops.h` |
+| `far_ops.h` | far element access (`far_read_*`/`far_write_*` for 8/16/32-bit, float, double), arrays (`far_array_*`), bulk copies (`far_memcpy*`, `far_memset`, `far_memzero`, `far_strcpy_*`, `far_strlen`, `far_strcmp`) and pointer arithmetic/comparison (`far_add`, `far_sub`, `far_inc`, `far_dec`, `far_diff`, `far_eq`, `far_lt`, `far_gt`, `far_cmp`): each function in [§12c](#12c-far-memory-far_opsh-far_stringh) |
+| `far_string.h` | `memcpy`/`memset`/`strlen`/`strcpy`/`strcmp`/`strcat`/`memcmp` for every mix of local and far pointers (`memcpy__fpvst` …) and typed far array elements; included by `far_ops.h` ([§12c](#12c-far-memory-far_opsh-far_stringh)) |
 | `dma_controller.h` | F018B DMA request API: `dma_execute`, `dma_transfer_smart`, `dma_fill`, `dma_available`, `dma_is_busy`, `dma_wait`, `dma_enable`, `dma_disable`, `dma_set_interrupt_enable`, `dma_get_status`, `dma_print_status`, `dma_speed_bytes_per_us`. Its `dma_fill` collides with the `dma_fill` macro of `dma.h`. |
 | `audio_sid.h` | The four SID chips as 12 voices (voice v: SID v/3, voice v%3): `sid_init`, `sid_note_on`/`sid_note_off`/`sid_play` (MIDI notes), `sid_set_freq` (Hz) / `sid_set_freq_reg` / `sid_set_note`, `sid_set_waveform` (the gate kept apart), `sid_set_pulse`, `sid_set_adsr`, `sid_set_instrument` (`sid_instrument_t`: waveform, AD, SR, pulse width), `sid_gate`, `sid_all_off`, `sid_set_volume`, `sid_set_filter`, `sid_write`/`sid_write_chip`. Every write is kept in a shadow (`sid_get_reg`; the chips are write-only). `sid_set_mirror(1)` repeats voices 0-5 on 6-11 (SIDs 3-4, the right side). Frequencies use the PAL or NTSC SID clock (`$D06F`). The register write itself (the shadow, the mirror) is `stdlib_asm/sid_core.s45`'s `___sid_put`, shared with the tune player; `sid_hz_to_reg(hz)` (up to about 3800 Hz) and `sid_note_to_reg(note)` (a MIDI note, 0-106; 69 is A4, 440 Hz) give the frequency register value `sid_set_freq_reg` takes; the registers are at `___sid_regs` (`sid_regs.s45`, weak: a test points it at RAM). Used by the `invaders` and `musicgen` examples. |
 | `audio_tune.h` | A tune (song) player (`stdlib_asm/tune.s45`, #314): pre-composed music as data (`tune45 convert` makes it), played once a frame by `tune_update` on a range of SID voices (`tune_voices(first)`, up to 12). `tune_play(tune)` / `tune_play_far(addr)` (a 28-bit address: tunes in banks 4-5 are read where they are, flat addressing), `tune_stop`, `tune_playing`, `tune_ticks`, `tune_note(voice)` (the note it sounds, `$FF` silent), `tune_seek(ticks)` (on that many ticks at once and silently, after `tune_play`: back where a tune was; tune45's `TUNE_<NAME>_TICKS` is a time through). Coded data (`tune45 convert --coded`: each field Huffman-coded, repeats as patterns nested two deep) is read as it plays, nothing unpacked, by a reader of its own (`stdlib_asm/tune_code.s45`, 1438 bytes and 306 of RAM) that `tune_codec()` links and sets up: tune45's `music.h` has `tune_play`, `tune_play_far` and `tune_queue` call it first for a coded tune (one started without it plays nothing); a program with plain tunes alone has none of it. A tune: a header (loops, voices, frames per tick as 8.8, the instrument table), 17-byte instruments (waveform, AD, SR, pulse width, vibrato depth, staccato gap, pulse-width sweep bouncing between $200 and $E00, vibrato delay, pitch slide, hard restart, filter, cutoff and its sweep, the wave table; 10 bytes in older data, still played) and the wave tables they use, and a byte stream a voice (notes for d ticks, rests, instrument changes, ties, arpeggios, glides, tempo changes, pattern calls and returns, loop, end). A glide starts the next note s semitones off its pitch and from its second frame moves (distance + 2^k - 1) >> k a frame towards it. A note restarts the envelope; the gap releases it that many ticks before the next event; hard restart turns the gate off and AD/SR to 0 a few frames before the next note; a wave table sets the waveform and pitch a frame; a filtered instrument's note sets its chip's cutoff (with a sweep a frame), resonance and mode and routes the voice (the volume kept, from the shadow); vibrato is a triangle over 8 frames, `(f >> 8) * depth * tri / 2`. Run-time controls: `tune_tempo` (8.8 scale), `tune_vibrato` (depth added), `tune_transpose` / `tune_detune` (per voice; detune adds amount/64 of the frequency). For a game: `tune_volume(0-15)` (the four SIDs' $D418 volume, the rest of it kept, and the digi voices', 17 a step), `tune_fade(frames, volume)` / `tune_fading` (a step a frame from `tune_update`), `tune_borrow(voice, frames)` / `tune_return` (a voice lent to the program's sound effects: the music goes on but writes none of its registers or its filter routing; back, it sounds from its next note), `tune_queue(tune, bar)` / `tune_queue_far` / `tune_queued` (the next tune started at the playing one's bar line: its ticks a multiple of `bar`, tune45's `TUNE_<NAME>_BAR`), `tune_filter(chip, cutoff, resonance, mode)` (a chip's filter at once, its routing and volume kept: BASIC's `FILTER`), `tune_voice_play(voice, offset)` / `tune_voice_stop(voice)` / `tune_voice_busy(voice)` (one voice of the tune playing started on a stream of its data, ended, asked: the others going on; BASIC's `PLAY` and `RPLAY`, #478). BASIC 65's `PLAY` events (#474-#477): a chip's volume, a voice's filter routing alone, BASIC's modulation and portamento. Digi voices (up to 4) play samples on the audio DMA, a channel each from `tune_digi_channels(first)` (the rest stay the program's): a hit sets the channel up as `digi_play` does (8-bit unsigned, once or looping from its loop's start, at its pitch's rate, the volume `tune_digi_volume` times the voice's `vol:` on both sides) from the samples at `tune_samples(addr)` (chip RAM, one bank of at most 64 KB: tune45's `tune_sample_bank` or `--samples` file); the next hit cuts it short, a stop ends it; the registers go to `___digi_regs` (`$D710`, weak: a test points it at RAM). NTSC frames count 213/256 of a PAL one and the notes use the NTSC clock, so a tune sounds the same. Assembly with no static allocation and no hardware multiplier: callable from an `__interrupt` handler (state changes hold interrupts off). Tests: `test_tune_xemu.c` (its SID writes in a RAM buffer); `test_xemu.sh` compares tune45's model with the player frame by frame (every effect; glides after a `tune_seek`; the filter, wave tables, hard restart and patterns; BASIC's `PLAY` events; digi voices, pitched, looping, their volume and stops, the audio DMA's registers too); `api_xemu.c` the controls for a game. |
@@ -370,6 +394,84 @@ Where keys arrive on the MEGA65: the keyboard's hardware scanner puts each key p
 | `intwide.h` | `struct __int64`, `struct __int128` with operators, and the width-parameterized runtime `__intN_add`, `__intN_sub`, `__intN_mul`, `__intN_cmp_u`, `__intN_cmp_s`, `__intN_neg`, `__intN_not`, `__intN_and`, `__intN_or`, `__intN_xor`, `__intN_shl`, `__intN_shr_u`, `__intN_shr_s` (arithmetic), `__intN_divmod_u` (shift and subtract), `__intN_divmod_s` (truncating) (used by `__int(N)`/`__uint(N)`) |
 | `complex.h` | marker only: the `_Complex` types and operators are built into cc45 |
 | (no header) | The run time of `basic45 --compile` (#369, [basic45.md](../bin/basic45.md#compiling-compile)): `stdlib_asm/basic_rt.s45` (PRINT of strings, numbers by the ROM's FOUT, `,` `TAB(` `SPC(` as BASIC 65's cursor rights; BASIC's error messages and the exit; division with `?DIVISION BY ZERO`, `INT` / `^` by the ROM, `SQR` / `LOG` / `EXP` / `^` checked; AYINT, GETADR, GETBYT's ranges) and `stdlib_asm/basic_str.s45` (strings: a length byte and the characters, a variable's on the heap; `+`, comparison, `LEFT$` `RIGHT$` `MID$` `CHR$` `STR$`; BASIC's stack of `GOSUB` return addresses and `FOR` loops, 128 entries; arrays: `stdlib_asm/basic_aref.s45`'s `__bas_aref` makes them (`DIM`, or 11 elements a dimension), checks the subscripts and gives an element's address, `stdlib_asm/basic_ael.s45` reaches one-dimensional ones; `stdlib/basic_fn.c`: `VAL`, `DEC`, `HEX$`, `STRBIN$`, `INSTR`, `RPT$`, AND / OR / NOT's integers; and `stdlib/basic_in.c`: `INPUT` / `GET` (KERNAL BASIN / GETIN), `READ` from the program's `DATA` text, `INPUT#` / `GET#`; `stdlib_asm/basic_ti.s45`: `TI`, `CLR TI`, `TI$`, `SLEEP`; `stdlib_asm/basic_mixed.s45`: an interpreted program's variable by its `POINTER` (bank 0 from `$F700`, else 1), for basic45's compiled procs (#577); `stdlib/basic_innum.c`: their numbers, by `strtof`; `stdlib/basic_io.c`: `OPEN`, `CLOSE`, `ST`, `DOPEN` / `APPEND` / `DCLOSE`, `DS` / `DS$`, `DLOAD` / `LOAD` chaining (with `__bas_chain`) and the `REM PRAGMA EXPORT` / `IMPORT` block; basic_rt.s45's `__bas_chkout` / `__bas_chkin` / `__bas_clrch` for `PRINT#`, `CMD`, `INPUT#`, `GET#`; `stdlib/basic_gfx.c` (with `stdlib_asm/basic_gfxa.s45`: the dot, lines, BOX, triangles, ellipses, PAINT; `LOADIFF` / `SAVEIFF` through `basic_io.c`'s DOS commands 17-19): the graphics statements, BASIC 65's graphics kernel written again over its own variables at `$1F00`; `stdlib/basic_scr.c`: `FOREGROUND`, `BACKGROUND`, `BORDER`, `HIGHLIGHT`, `RCOLOR`, `CURSOR`, `RCURSOR`, `WINDOW`, `RWINDOW`, `SPEED`, `RSPEED`, `PALETTE COLOR` / `RESTORE`, `VSYNC`; `stdlib/basic_using.c`: `PRINT USING`; `stdlib/basic_key.c`: `KEY`, `FONT`, `CHAR DEF`, `DECBIN`; `stdlib/basic_snd.c`: `SOUND`, `PLAY` (its strings read when it runs into the tune player's streams by `stdlib_asm/basic_play.s45`, `<audio_tune.h>`), `RPLAY`, `TEMPO`, `VOL`, `ENVELOPE`, `FILTER`; `stdlib/basic_dev.c`: `JOY`, `POT`, `LPEN`, `MOUSE`, `RMOUSE`; `stdlib/basic_sys.c` and `stdlib_asm/basic_usr.s45`: `SYS`, `RREG`, `USR`, `DMA`, `EDMA`, `FRE`, CLR's helpers; `stdlib/basic_sprite.c`: `SPRITE`, `SPRCOLOR`, `MOVSPR`, `SPRSAV`, `COLLISION`, `RSPRITE`, `RSPCOLOR`, `RSPPOS`, `BUMP` on the VIC-IV's registers, and `stdlib_asm/basic_spr.s45`: the interrupt hook that moves the sprites and keeps their collisions (in the KERNAL's IRQ vector through a stub at `$0500`; crt0's `__exit` calls `__irqhook_exit`, weak, to put the vector back)). The arguments are variables (`__bas_n`, `__bas_sa`, … and the float runtime's `__float_a` / `__float_b`), not parameters |
+
+### Examples
+
+conio's full-colour mode (`conio.h`):
+
+```c
+#include <conio.h>
+
+int main(void) {
+    clrscr();
+    if (!fcm_enable()) return 1;                     /* no room in banks 4-5 */
+    fcm_fill_rect(0, 0, 79, 0, ' ', WHITE, BLUE);   /* a title bar */
+    fcm_cputs(2, 0, "file  edit  view", WHITE, BLUE);
+    fcm_putch(10, 5, 'x', YELLOW, RED);
+    fcm_cprintf(0, 2, BLACK, CYAN, "score %d", 1200);
+    if (fcm_getattr_xy(10, 5) != ((RED << 4) | YELLOW)) return 2;
+    fcm_disable();                                   /* one byte a cell again, text kept */
+    return 0;
+}
+```
+
+A tune (`audio_tune.h`) played to its end, `tune_update` once a frame from the main loop (a game calls it from a raster `__interrupt` handler: `examples/c/tunes`); `jingle.txt`:
+
+```
+instrument lead pulse 09 a6 0600 1 1
+tune jingle 5 once
+v1: @lead c4:2 e4:2 g4:4
+v2: @lead c3:8
+```
+
+```bash
+tune45 convert jingle.txt -o music.c                 # music.c, music.h: tune_jingle
+cc45 -O2 -c tune.c -o tune.o45
+cc45 -O2 -c music.c -o music.o45
+ln45 -basic -o tune.prg tune.o45 music.o45 -l c45.lib
+```
+
+```c
+#include <audio_tune.h>
+#include "music.h"                               /* tune45 convert jingle.txt -o music.c */
+
+#define RASTER (*(volatile unsigned char *)0xD012)
+
+int main(void) {
+    tune_play(tune_jingle);
+    while (tune_playing()) {
+        while (RASTER != 0xF8) ;                 /* once a frame */
+        while (RASTER == 0xF8) ;
+        tune_update();
+    }
+    return 0;
+}
+```
+
+The serial port (`serial.h`; in xemu `-serialtcp HOST:PORT` connects it to a TCP peer):
+
+```c
+#include <serial.h>
+
+static const struct ser_params p = {
+    SER_BAUD_9600, SER_BITS_8, SER_STOP_1, SER_PAR_NONE, SER_HS_NONE
+};
+
+int main(void) {
+    const char *s = "hi";
+    char c;
+    unsigned int wait = 0;
+    if (ser_install(ser_static_stddrv) != SER_ERR_OK) return 1;
+    if (ser_open(&p) != SER_ERR_OK) return 2;    /* 8N1 only */
+    while (*s)
+        if (ser_put(*s) == SER_ERR_OK) s++;      /* SER_ERR_OVERFLOW: buffer full, again */
+    while (ser_get(&c) == SER_ERR_NO_DATA)
+        if (++wait == 50000) return 3;           /* nothing came back */
+    ser_close();
+    ser_uninstall();
+    return 0;
+}
+```
 
 ## 12a. Graphics (`tgi.h`)
 
@@ -397,6 +499,61 @@ The first two are 320x200 with 256 colours (`tgi_getcolorcount` returns 0, cc65'
 **Fill patterns** (a cc45 extension; `stdlib_asm/tgi_pattern.s45`, linked only by a program that sets one): `tgi_setpattern(pattern, transparent)` (64 colours, 8x8 row by row; the 640x200 drivers use their low nibbles; `transparent` a colour left as it is, or `TGI_TRANSPARENT`), `tgi_setpattern_mono(bits, fg, bg)` (8 bytes, bit 7 the left pixel; `bg` `TGI_TRANSPARENT`: clear bits left as they are) and `tgi_setsolid()` (`tgi_setpattern(NULL, …)` too) choose what `tgi_bar` fills with. The pattern is anchored to the screen (pixel (x, y) takes the pattern's (x & 7, y & 7)), so bars side by side meet. The drivers keep a character column's pixel rows as 8 bytes each (a byte a pixel at 320x200, two at 640x200: pixel x at `__tgi_addr(x >> 1, y)`), so the pattern repeated down 200 rows (a 1600-byte strip, built when the pattern or the mode changes) has the screen's layout: a whole character column of the bar is one DMA copy from the strip's row y1, a column of single pixels (or 640x200's pixel pairs) a copy of every 8th byte (the DMA's source and destination steps, options `$83`/`$85`), and a transparent colour the DMA's transparency (`$07`, `$86`: a byte equal to it not written). At 640x200 a byte holds two pixels, so a transparent pattern there, and a bar's single-pixel columns, are plotted a pixel at a time (`tgi_setpixel` in the pattern's colours). `tgi_bar` asks `__tgi_pbar` first (`tgi.c`'s weak one does nothing); 1.7 KB of BSS and 0.9 KB of code. Test: `test_tgi_pattern_xemu.c` (ragged edges and whole columns, transparency, mono patterns, both drivers).
 
 Not as cc65: no loadable driver files; `tgi_geterrormsg(TGI_ERR_INSTALLED)` is "A driver is already installed" (cc65's table gives "Unknown error"); `tgi_gettextheight` of the bitmap font is the scaled height's whole pixels (cc65's returns the 8.8 value's low byte); `tgi_install` while a driver is installed returns `TGI_ERR_INSTALLED`; circles, ellipses and arcs are the curve's pixels (midpoint), not cc65's polygons, so they differ from cc65's by a pixel here and there. Tests: `test_tgi_xemu.c` (the driver's numbers, the page layout, clipping, lines, bars, arcs, bitmap and vector text, errors, the palette, text mode back, the memory freed, two pages) and `test_tgi_vfn_xemu.c` (`.vfn` files on a D81), both conventions; `examples/c/tgi_demo`. Speed: `src/test/bench_tgi.sh` (not in `make test`) runs `benchmark_tgi.c` in xemu and prints the frames each workload takes (pixels, long and short lines, circles, text at 1x and 2x, bars) with a checksum of the page it drew, so a faster version must give the same checksums.
+
+**The functions** (an error is kept in `tgi_error` for `tgi_geterror`; a function that needs a driver does nothing without one):
+
+| Function | Description |
+|----------|-------------|
+| `unsigned char tgi_install(const void *driver)` | Checks the driver (`"tgi"`, API version 5, 1 or 2 pages: else `TGI_ERR_INV_DRIVER`), takes its memory (`TGI_ERR_NO_RES`), clears the pages. Returns the error; `TGI_ERR_INSTALLED` while one is installed |
+| `void tgi_load_driver(const char *name)` | `tgi_install` of the linked driver named `name` (any case; `tgi_stddrv` too): `TGI_ERR_CANNOT_LOAD` for another name. Links all four drivers |
+| `void tgi_uninstall(void)`, `void tgi_unload(void)` | `tgi_done`, the memory freed, no driver; `tgi_unload` without a driver: `TGI_ERR_NO_DRIVER` |
+| `void tgi_init(void)` | Graphics on (the VIC registers saved), draw page 0, the palette saved at install back if it was changed, colour 1 (white), the bitmap font at 1x horizontal; the page is not cleared. `TGI_ERR_NO_DRIVER` without a driver |
+| `void tgi_done(void)` | Text mode back (the saved registers, `$D031` first; the palette); nothing when graphics are off |
+| `unsigned char tgi_geterror(void)` | The last error, and `tgi_error` back to `TGI_ERR_OK` |
+| `const char *tgi_geterrormsg(unsigned char code)` | The code's message (above `TGI_ERR_INSTALLED`: "Unknown error") |
+| `unsigned tgi_ioctl(unsigned char code, void *data)` | `TGI_IOCTL_DRAWPAGE_ADDR` / `TGI_IOCTL_VIEWPAGE_ADDR` (an `unsigned long` stored), `TGI_IOCTL_LAYOUT` (a `tgi_layout_t`): `TGI_ERR_OK`; another code, or no driver: `TGI_ERR_INV_FUNC` (also in `tgi_error`) |
+| `void tgi_clear(void)` | The draw page filled with colour 0 (one DMA job) |
+| `unsigned tgi_getpagecount(void)` | 1 or 2 |
+| `void tgi_setviewpage(unsigned char page)`, `void tgi_setdrawpage(unsigned char page)` | The page shown / drawn on; a page ≥ the count: `TGI_ERR_INV_ARG`, nothing changed |
+| `unsigned char tgi_getcolorcount(void)`, `unsigned char tgi_getmaxcolor(void)` | 0 (cc65's 256) and 255; 16 and 15 with the 640x200 drivers |
+| `void tgi_setcolor(unsigned char c)`, `unsigned char tgi_getcolor(void)` | The drawing colour; a colour ≥ a 16-colour driver's count: `TGI_ERR_INV_ARG`, kept |
+| `void tgi_setpalette(const unsigned char *p)`, `const unsigned char *tgi_getpalette(void)`, `const unsigned char *tgi_getdefpalette(void)` | See **The palette** above (`tgi_setpalette` reads 256 entries, 16 at 640x200) |
+| `unsigned tgi_getxres(void)`, `tgi_getyres`, `tgi_getmaxx`, `tgi_getmaxy` | 320 (640) and 200; 319 (639) and 199 |
+| `unsigned tgi_getaspectratio(void)`, `void tgi_setaspectratio(unsigned r)` | The 8.8 ratio (`$00D4`, `$006A`); stored only (nothing applies it) |
+| `void tgi_gotoxy(int x, int y)` | The cursor (`tgi_curx`, `tgi_cury`): any value, off the screen too |
+| `void tgi_setpixel(int x, int y)`, `unsigned char tgi_getpixel(int x, int y)` | A pixel in the colour; its colour, 0 off the screen |
+| `void tgi_line(int x1, int y1, int x2, int y2)`, `void tgi_lineto(int x2, int y2)` | A clipped line; the cursor moves to (x2, y2); `tgi_lineto` from the cursor |
+| `void tgi_circle(int x, int y, unsigned char r)`, `void tgi_ellipse(int x, int y, unsigned char rx, unsigned char ry)` | The outline (radii 0-255; a 0 radius: a line) |
+| `void tgi_arc(int x, int y, unsigned char rx, unsigned char ry, unsigned sa, unsigned ea)`, `void tgi_pieslice(...)` | The ellipse from angle `sa` to `ea` (degrees, anticlockwise from 3 o'clock); `tgi_pieslice` adds the two radii |
+| `void tgi_bar(int x1, int y1, int x2, int y2)` | A filled rectangle, corners in any order, clipped; in the colour or the fill pattern |
+| `void tgi_setpattern(const unsigned char *pattern, int transparent)`, `void tgi_setpattern_mono(const unsigned char *bits, unsigned char fg, int bg)`, `void tgi_setsolid(void)` | `tgi_bar`'s fill (see **Fill patterns**) |
+| `void tgi_settextdir(unsigned char dir)`, `void tgi_settextscale(unsigned w, unsigned h)`, `void tgi_settextstyle(unsigned w, unsigned h, unsigned char dir, unsigned char font)` | `TGI_TEXT_HORIZONTAL` / `_VERTICAL`; the 8.8 scales (`0x100` 1x); both and `TGI_FONT_BITMAP` / `TGI_FONT_VECTOR` |
+| `unsigned tgi_gettextwidth(const char *s)`, `unsigned tgi_gettextheight(const char *s)` | The string's size at the scales in pixels |
+| `void tgi_outtext(const char *s)`, `void tgi_outtextxy(int x, int y, const char *s)` | The string at the cursor, which moves past it; at (x, y) (the cursor set there first) |
+| `const tgi_vectorfont *tgi_load_vectorfont(const char *name)`, `void tgi_install_vectorfont(const tgi_vectorfont *f)`, `void tgi_free_vectorfont(const tgi_vectorfont *f)` | A `.vfn` file read into `malloc`'d memory (NULL and `TGI_ERR_CANNOT_LOAD` / `_INV_FONT` / `_NO_RES`); the font `TGI_FONT_VECTOR` draws with (NULL: none); freed (uninstalled first if installed) |
+| `int tgi_imulround(int a, int b)` | `a · b / 256`, signed, rounded half away from 0: a value times an 8.8 factor |
+
+```c
+#include <tgi.h>
+
+int main(void) {
+    unsigned char ok;
+    if (tgi_install(tgi_static_stddrv) != TGI_ERR_OK) return 1;   /* 320x200, 256 colours */
+    tgi_init();                                  /* graphics on, colour white */
+    tgi_clear();
+    tgi_setcolor(TGI_COLOR_RED);
+    tgi_line(0, 0, tgi_getmaxx(), tgi_getmaxy());
+    tgi_setcolor(TGI_COLOR_YELLOW);
+    tgi_circle(160, 100, 50);
+    tgi_bar(10, 150, 60, 190);
+    tgi_setcolor(TGI_COLOR_WHITE);
+    tgi_outtextxy(100, 20, "hello, tgi");
+    ok = tgi_getpixel(30, 170) == TGI_COLOR_YELLOW;
+    tgi_done();                                  /* text mode back */
+    tgi_uninstall();                             /* the memory freed */
+    return ok ? 0 : 2;
+}
+```
 
 ## 12b. Containers
 
@@ -453,6 +610,20 @@ Over all of it, given the number of bits: `bs_set_all`, `bs_clear_all`, `bs_not`
 kind skipped), `bs_and` / `bs_or` / `bs_xor(dst, src, nbits)`. The bits past `nbits` in the last byte stay 0
 (start with `bs_clear_all` or a zeroed array); up to 32767 bits. Zero page only, no multiplier. Sizes: the bit
 operations 105 bytes with `__bs_at`, all of it 772.
+
+| Name | Description |
+|------|-------------|
+| `BITSET(name, nbits)`, `BS_BYTES(nbits)` | Declares `unsigned char name[(nbits + 7) >> 3]`; that byte count |
+| `bs_set(b, i)`, `bs_clear(b, i)`, `bs_toggle(b, i)` | Bit `i` set, cleared, inverted (macros: `__bs_set(unsigned char *b, unsigned int i)` … for an index not constant). No bounds check |
+| `bs_test(b, i)` | 1 when bit `i` is set, else 0 (`__bs_test` returns an `int` 0 / 1) |
+| `bs_assign(b, i, v)` | `bs_set` when `v` is non-zero, else `bs_clear` |
+| `void bs_set_all(unsigned char *b, unsigned int nbits)`, `void bs_clear_all(b, nbits)` | Every bit below `nbits` set / cleared; the last byte's bits past `nbits` cleared |
+| `void bs_not(unsigned char *b, unsigned int nbits)` | Every bit below `nbits` inverted; those past it stay 0 |
+| `void bs_set_range(unsigned char *b, unsigned int from, unsigned int n)`, `void bs_clear_range(b, from, n)` | Bits `from` … `from + n − 1` (nothing for `n` 0); not checked against the array's size |
+| `unsigned int bs_count(const unsigned char *b, unsigned int nbits)` | The bits set (over the bytes `nbits` covers: bits past it must be 0) |
+| `int bs_any(const unsigned char *b, unsigned int nbits)`, `bs_none(b, nbits)` | 1 when a bit is set / none is (the macro `!bs_any`) |
+| `signed int bs_find_first_set(const unsigned char *b, unsigned int nbits, unsigned int from)`, `bs_find_first_clear(b, nbits, from)` | The first set / clear bit at `from` or above and below `nbits`, or −1 (also for `from` ≥ `nbits`) |
+| `void bs_and(unsigned char *dst, const unsigned char *src, unsigned int nbits)`, `bs_or`, `bs_xor` | `dst` op= `src`, byte by byte over the bytes `nbits` covers (the last whole: `src`'s bits past `nbits` must be 0 for `bs_or` / `bs_xor`) |
 
 **`<list.h>`** (#406; `stdlib_asm/list.s45`): intrusive linked lists — the links are members of the program's
 structs (`container_of(ptr, type, member)` gets the struct back), nothing is allocated. `dlist`: circular with a
@@ -518,6 +689,122 @@ for each map; replacing in place; struct values, `cmp` NULL; running out of memo
 random puts / erases / gets against a table, with the built-in hash and with a program's 4-valued one; string keys;
 a set of 5-byte keys, `rehash`, `clear`, reuse after `free`; running out of memory).
 
+```c
+#include <ringbuf.h>
+#include <vector.h>
+#include <bitset.h>
+#include <hashmap.h>
+
+struct enemy { int x, y; unsigned char hp; };
+
+int main(void) {
+    static int keys[16];                 /* a queue of 16 ints in the program's array */
+    ringbuf_t q;
+    int k = 42, out;
+    rb_init(&q, keys, sizeof(int), 16);
+    rb_push_back(&q, &k);
+    if (rb_pop_front(&q, &out) != 0 || out != 42) return 1;
+
+    vec_t v;                             /* a growable array of structs */
+    struct enemy e = { 10, 20, 3 };
+    vec_init(&v, sizeof(struct enemy));
+    vec_push(&v, &e);
+    e.x = 30;
+    vec_push(&v, &e);
+    if (v.size != 2 || ((struct enemy *)vec_at(&v, 1))->x != 30) return 2;
+    vec_erase_unordered(&v, 0);          /* the last element into the hole */
+    vec_free(&v);
+
+    BITSET(used, 200);                   /* 200 slots, a bit each */
+    bs_clear_all(used, 200);
+    bs_set_range(used, 0, 10);
+    bs_set(used, 12);
+    if (bs_find_first_clear(used, 200, 0) != 10 || bs_count(used, 200) != 11) return 3;
+
+    struct hashmap ages;                 /* C string keys (ksize 0) to ints */
+    int age = 7, *p;
+    char probe[4] = "ada";
+    ages.init(0, sizeof(int), 16, NULL, NULL);
+    ages.put("ada", &age);               /* the table keeps the pointer */
+    p = ages.get(probe);                 /* equal text in another buffer */
+    if (!p || *p != 7) return 4;
+    ages.free();
+    return 0;
+}
+```
+
+## 12c. Far Memory (`far_ops.h`, `far_string.h`)
+
+`stdlib/far_ops.c` and `stdlib/stdlib_overloads.c` (C, a section per function). A `far_ptr_t` (`<far_ptr.h>`) is 3 bytes, a bank and a 16-bit offset; every access is a `dma_copy_far` / `dma_fill_far` job on its linear address (`far_to_linear`: banks `$00`-`$7F` chip RAM, `(bank << 16) | offset`; `$80`-`$FF` attic RAM), so it is done when the call returns, and an offset carries into the next bank (the header's "stays in same bank" is not what the code does). A local pointer is a bank 0 address. The `int` offsets and indexes are signed in the library (−32768 … 32767; a larger value from cc45's unsigned `int` goes backwards) except the typed `far_array_*` of `far_string.h` (0 … 65535). The results declared `int` (`far_cmp`, `far_diff`, the `strcmp`/`memcmp` forms) are signed values, but plain `int` is unsigned in cc45's default mode: test them with `== 0` / `!= 0`, or cast to `signed int` before `< 0`.
+
+**`far_ops.h`** (includes `far_string.h`):
+
+| Function | Description |
+|----------|-------------|
+| `uint8_t far_read_uint8(far_ptr_t p, int offset)`, `int8_t far_read_int8(...)`, `uint16_t far_read_uint16`, `int16_t far_read_int16`, `uint32_t far_read_uint32`, `int32_t far_read_int32`, `float far_read_float`, `double far_read_double` | The value at `p + offset`: 1, 2, 4 or 5 bytes (low byte first; `float` and `double` are the same 5-byte CBM format) copied by DMA |
+| `void far_write_uint8(far_ptr_t p, int offset, uint8_t v)`, `far_write_int8`, `far_write_uint16`, `far_write_int16`, `far_write_uint32`, `far_write_int32`, `far_write_float`, `far_write_double` | Stores `v` at `p + offset` |
+| `void far_memcpy(far_ptr_t dst, far_ptr_t src, size_t len)` | One DMA copy, forwards (an overlap with `dst` above `src` is not handled); `len` 0 does nothing |
+| `void far_memcpy_smart(...)`, `void far_memcpy_stream(...)` | The same as `far_memcpy` |
+| `void far_memcpy_to_local(void *dst, far_ptr_t src, size_t len)`, `void far_memcpy_from_local(far_ptr_t dst, const void *src, size_t len)` | Far to bank 0, bank 0 to far |
+| `void far_memset(far_ptr_t p, int val, size_t len)`, `void far_memzero(far_ptr_t p, size_t len)` | A DMA fill with `val`'s low byte (0) |
+| `far_ptr_t far_add(far_ptr_t p, int offset)`, `far_sub`, `far_inc(p)`, `far_dec(p)` | `p` ± `offset` (± 1) on the linear address, across banks |
+| `int far_diff(far_ptr_t a, far_ptr_t b)` | The linear `a − b`, cut to 16 bits (any banks; meaningful within ±32767) |
+| `int far_cmp(far_ptr_t a, far_ptr_t b)`; `int far_eq`, `far_lt`, `far_gt` | −1, 0, 1 by linear address; 1 / 0 |
+| `far_ptr_t far_array_element(far_ptr_t base, int index, size_t esize)` | `base + index · esize` (a 32-bit product: past 64 KB too) |
+| `void far_array_read(far_ptr_t base, int index, size_t esize, void *dst, size_t dst_size)`, `void far_array_write(far_ptr_t base, int index, size_t esize, const void *src, size_t src_size)` | Element `index`'s `esize` bytes to `dst` / from `src`; nothing when `dst_size` / `src_size` < `esize` |
+| `size_t far_strlen(far_ptr_t s)` | The length, reading 32-byte chunks (up to 31 bytes past the NUL are read) |
+| `void far_strcpy_to_local(char *dst, far_ptr_t src, size_t max)`, `void far_strcpy_from_local(far_ptr_t dst, const char *src, size_t max)` | At most `max − 1` characters and a NUL (longer strings cut); nothing for `max` 0 |
+| `int far_strcmp(far_ptr_t a, const char *b)` | The difference of the first differing bytes (unsigned, −255 … 255), 0 when equal |
+
+**`far_string.h`**: the `<string.h>` functions for each mix of local and far arguments, a function per combination (cc45 has no overloading by type). The suffix names the parameters in order: `pv` `void *`, `pc` `char *`, `fp` `far_ptr_t`, `i` `int`, `st` / `z` `size_t` (in `memcmp`'s, `f` is a far one). The all-local forms (`memcpy__pvpvst`, `memset__pvist`, `strlen__pc`, `strcpy__pcpc`, `strcmp__pcpc`, `strcat__pcpc`, `memcmp__pvpvz`) call the `<string.h>` function. A function whose destination is far returns its far pointer, one whose destination is local that pointer. Strings have no length limit.
+
+| Function | Description |
+|----------|-------------|
+| `void *memcpy__fpvst(void *dst, far_ptr_t src, size_t len)`, `far_ptr_t memcpy__pvfpst(far_ptr_t dst, const void *src, size_t len)`, `far_ptr_t memcpy__fpfpst(far_ptr_t dst, far_ptr_t src, size_t len)` | `far_memcpy_to_local`, `far_memcpy_from_local`, `far_memcpy` |
+| `far_ptr_t memset__fpist(far_ptr_t p, int val, size_t len)` | `far_memset` |
+| `size_t strlen__fp(far_ptr_t s)` | `far_strlen` |
+| `char *strcpy__pcfp(char *dst, far_ptr_t src)`, `far_ptr_t strcpy__fppc(far_ptr_t dst, const char *src)`, `far_ptr_t strcpy__fpfp(far_ptr_t dst, far_ptr_t src)` | The string and its NUL, measured first, then one copy (no bound on the destination) |
+| `char *strcat__pcfp(char *dst, far_ptr_t src)`, `far_ptr_t strcat__fppc(far_ptr_t dst, const char *src)`, `far_ptr_t strcat__fpfp(far_ptr_t dst, far_ptr_t src)` | Appended at `dst`'s NUL |
+| `int strcmp__fppc(far_ptr_t a, const char *b)`, `int strcmp__pcfp(const char *a, far_ptr_t b)`, `int strcmp__fpfp(far_ptr_t a, far_ptr_t b)` | <0, 0, >0 by the first differing unsigned byte (the difference); far strings read 32 bytes at a time |
+| `int memcmp__fpvz(far_ptr_t a, const void *b, size_t len)`, `int memcmp__pvfz(const void *a, far_ptr_t b, size_t len)`, `int memcmp__fpfz(far_ptr_t a, far_ptr_t b, size_t len)` | The same over `len` bytes (0 for `len` 0) |
+| `int16_t far_array_read_int16(far_ptr_t base, int index)`, `uint8_t far_array_read_uint8`, `uint32_t far_array_read_uint32`; `void far_array_write_int16(far_ptr_t base, int index, int16_t v)`, `far_array_write_uint8`, `far_array_write_uint32` | Element `index` (unsigned, 0 … 65535; the address in 32 bits) of an array of 2-, 1- or 4-byte elements |
+
+Allocation, banks and attic RAM are `<far_ptr.h>`'s ([§12](#12-other-library-backed-headers), [§13](#13-mega65-hardware-mega65h-and-dma-dmah)). Tests: `test_far_ops_xemu.c`, `test_far2_xemu.c`, `test_far_string_xemu.c`, `test_far_attic_xemu.c`.
+
+```c
+#include <far_ptr.h>
+#include <far_ops.h>
+
+int main(void) {
+    char buf[16];
+    unsigned int i;
+    far_ptr_t a = far_malloc(2000, BANK4);       /* 1000 ints in bank 4 */
+    if (far_is_null(a)) return 1;
+    for (i = 0; i < 1000; i++) far_array_write_int16(a, i, (int16_t)(i * 3));
+    if (far_array_read_int16(a, 999) != 2997) return 2;
+    far_write_uint8(a, 0, 0x55);                 /* a byte at an offset */
+    if (far_read_uint8(a, 0) != 0x55) return 3;
+
+    far_ptr_t s = far_add(a, 1000);              /* strings in far memory */
+    strcpy__fppc(s, "hello");                    /* local -> far */
+    strcat__fppc(s, " world");
+    if (strlen__fp(s) != 11 || strcmp__fppc(s, "hello world") != 0) return 4;
+    far_strcpy_to_local(buf, s, sizeof buf);     /* far -> local, bounded */
+    far_free(a);
+
+    /* attic RAM (the 8 MB HyperRAM), when the machine has it */
+    if (far_attic_enable(0x8000000UL, 0x80FFFFFUL)) {
+        far_ptr_t big = far_malloc_long(100000UL, BANK_ATTIC);   /* over 64 KB */
+        if (far_is_null(big)) return 5;
+        far_memset(big, 0xAA, 1000);
+        far_write_uint32(big, 512, 0x12345678UL);
+        if (far_read_uint32(big, 512) != 0x12345678UL) return 6;
+        far_free(big);
+    }
+    return 0;
+}
+```
+
 ## 13. MEGA65 Hardware (`mega65.h`) and DMA (`dma.h`)
 
 `dma.h`: `dma_copy(dst, src, len)` / `dma_fill(dst, len, val)` are compiler builtins with 16-bit bank-0 addresses. `dma_copy_far(dst, src, len)` / `dma_fill_far(dst, len, val)` (`__dma_copy_far`/`__dma_fill_far` in `lib/stdlib_asm/dma_far.s45`, 121 bytes and the shared job: the C was 643, #319; `__fastcall__`, so stack-convention callers need no thunk) take 28-bit linear addresses (`unsigned long`): chip RAM ($0000000–$005FFFF; $0020000–$003FFFF holds the ROM), colour RAM at $FF80000 (all of it, beyond the $D800–$DBFF window), …. They run an enhanced F018B job (megabyte options $80/$81) while the CPU waits; `len` 0 does nothing; the copy runs forwards. Test: `test_dma_far_xemu.c`. `dma_copy_far_step(dst, dst_step, src, src_step, len)` / `dma_fill_far_step(dst, dst_step, len, val)` (`lib/stdlib_asm/dma_step.s45`, its own job with the F018B skip-rate options `$83`/`$85` in front) take a step for each side in whole bytes: 2 writes every other byte (a two-byte cell screen's characters or colours), 1 is the plain copy, a source step of 0 repeats one byte; `len` counts the bytes written. Test: `test_seam_xemu.c`.
@@ -525,6 +812,27 @@ a set of 5-byte keys, `rehash`, `clear`, reuse after `free`; running out of memo
 `palette.h` (`lib/stdlib_asm/palette.s45`, assembly): the 256 palette entries ($D100-$D3FF, each component's nibbles swapped in the register) as plain 0-255 values: `palette_set_color(index, r, g, b)`, `palette_set_color_rgb(index, rgb_color_t)`, `palette_get_color(index, &out)` (-1 for an index outside 0-255), `palette_set_range(first, count, rgb)` (r, g, b triples), `palette_save(first, count, buf)` / `palette_restore(first, count, buf)` (3 × count bytes, the registers as they are: the reds, the greens, the blues, so data prepared that way can be restored straight in), `palette_rotate(start, end, direction)` (colour cycling). They work on the palette bank mapped at $D100. The earlier `palette.h` declared fades, interpolation, banks and names that no library implemented (its `lib/src/palette.c` wrote the wrong registers); those are gone. Tests: `test_palette_xemu.c` (the edges: entries 0 and 255, out-of-range indexes and counts, the whole palette saved, rotation over 0-255), `test_seam_xemu.c`.
 
 `seam.h` (`lib/stdlib_asm/seam.s45`, `__fastcall__`): a screen in Super-Extended Attribute Mode (two bytes of screen RAM a cell, a 13-bit character number; two of colour RAM, byte 1 the colour) with FCLRHI, so characters above $FF are full-colour (64 bytes at number × 64, a byte a pixel from the 256-colour palette; pixel $00 shows $D021, $FF the cell's colour) and those up to $FF the character set's text, on one screen. A `seam_screen_t` describes one anywhere in chip RAM with its colour RAM at an offset from $FF80000: `seam_init(&s, screen, colour, cols, rows)` (clears it), `seam_clear`, `seam_show` (saves and sets $D054 bits 0 and 2, $D058/$D059 the stride, $D05E, $D060-$D065), `seam_hide` (puts them back, $D054 first), `seam_put(&s, x, y, ch, colour)`, `seam_text(&s, x, y, codes, n, colour)` (screen codes), `seam_row(&s, x, y, n, codes, colours)` (a row of a one-byte screen's buffers), `seam_cells(&s, x, y, numbers, n)` (character numbers from a linear address: a picture's cells), `seam_cell`/`seam_colour` (the addresses). `seam_put` writes its cell's four bytes through a 32-bit pointer; the runs (`seam_clear`, `seam_text`, `seam_row`) are stepped DMA jobs, `seam_cells` one copy; a cell's offset comes from the hardware multiplier. `examples/c/glamlambs` shows its salon this way. Tests: `test_seam_xemu.c`, `test_seam2_xemu.c` (offsets over 16 bits, cells across a 64 KB boundary, 200 columns). (conio's full-colour mode, §12, keeps its own screen of this kind for text with backgrounds.)
+
+```c
+#include <seam.h>
+#include <dma.h>
+
+static seam_screen_t s;
+
+int main(void) {
+    unsigned char i;
+    for (i = 0; i < 64; i++)                     /* character $1000 ($40000): a palette ramp */
+        dma_fill_far(0x40000UL + i, 1, 16 + i);
+    seam_init(&s, 0x58000UL, 0x1000, 80, 25);    /* bank 5; colour RAM from $1000 */
+    seam_text(&s, 0, 0, s"score", 5, 1);         /* screen codes, white */
+    for (i = 0; i < 8; i++)
+        seam_put(&s, 10 + i, 5, 0x1000, 0);      /* full-colour cells among the text */
+    seam_show(&s);
+    /* ... */
+    seam_hide(&s);                               /* the screen shown before */
+    return 0;
+}
+```
 
 The bank-based APIs are built on them: a bank and a 16-bit address (or a `far_ptr_t`) are the linear address `(bank << 16) | addr`. `dma_controller.h`: `dma_execute`, `dma_transfer_smart`, `dma_fill` copy/fill through DMA; the CPU waits for each job, so `dma_is_busy` is 0 and `dma_wait` returns at once. `far_ops.h`: `far_read_*`/`far_write_*` (float/double are the 5-byte CBM format), `far_memcpy*`, `far_memset`, the string functions and `far_array_*` are DMA jobs; `far_add`/`far_sub`/`far_diff`/`far_cmp` work on the linear address (an offset carries into the next bank). `far_ptr.h`'s allocator (`far_malloc`, `far_calloc`, `far_realloc`, `far_free`) hands out banks 4 and 5 only ($40000–$5FFFF): bank 0 is the program, bank 1 BASIC 65's variables, banks 2–3 the ROM, and 6–7 are not chip RAM; other banks give the null far pointer. **Attic RAM** (Issues #305, #306) is off by default: `far_attic_enable(first, last)` (28-bit addresses in `$8000000`–`$87FFFFF`, clipped to it) writes and reads back both ends and returns the bytes it adds to the far heap (0 when the memory is not there); then `far_malloc(n, BANK_ATTIC)` and `far_malloc_long(n, BANK_ATTIC)` (over 64 KB, up to the whole range; `far_size_long` gives its size, `far_size` at most 65535) allocate from it, and `far_malloc_current`/`far_calloc_current` use it when banks 4 and 5 are full; `far_attic_available()` gives the free bytes, `far_free`/`far_size`/`far_realloc` take attic pointers. It is a buddy allocator: a block is a power of two, at least a granule, aligned to its size (one of 64 KB or less never crosses an attic bank, so a program can address inside it as base + offset), and a freed block merges with its buddy (two free neighbours that are not buddies stay apart). There is no limit on the number of blocks: the table is two bitmaps over the 8 MB, a bit per block of each size. `far_attic_enable` uses 4 KB granules and a 1 KB table of its own and connects attic RAM to `far_malloc`/`far_free` (`far_attic_hook()`); `far_attic_init(first, last, order, meta, size)` sets up only the allocator (`far_attic_malloc` & co.; call `far_attic_hook()` for `far_malloc`) and takes the granule's order (9: 512 bytes, to 20: 1 MB) and the program's memory for the table, `FAR_ATTIC_META_SIZE(order)` bytes (128 for 32 KB granules). A request is rounded up to a power of two (33 KB takes 64 KB): attic RAM suits large blocks a program divides itself, such as an editor's text in 32 KB slabs. The attic code is reached through hooks `far_attic_init` sets, so a program that never enables attic RAM does not link it; a program that uses only attic RAM calls `far_attic_malloc(size)`, `far_attic_free(p)` and `far_attic_size(p)` and does not link the chip RAM heap either (3.2 KB for the allocator, 1.3 KB for `far_attic_init`, separate library members: a program short of bank 0 can compile `lib/stdlib/far_attic.c` and `far_attic_init.c` into overlays of its own with `-foverlay=name`). A `far_ptr_t` bank `$80`–`$FF` is attic RAM, `$8000000 + (bank − $80) × 64 KB + offset`, so `far_add` (a signed 16-bit offset) and the `far_ops.h` DMA functions work across its banks; attic RAM is reachable only by DMA and is slower than chip RAM. Code overlays can be kept there too (ln45 `--overlay-store`, [Overlays in attic RAM](../bin/ln45.md#overlays-in-attic-ram)): `far_attic_init`/`far_attic_enable` leave their span out (`__ovl_attic_bank`/`_first`/`_last_bank`/`_last`), cutting the range given to its larger side of it. In a program with code overlays (or `__far` functions) the part of their bank the overlay file takes (bank 5 from `$50000` by default; ln45 `__ovl_store_bank`/`_first`/`_last`, and `__ovl_store2_*`, for the files in banks 4 and 5) is never handed out, nor the ranges a program keeps with `far_reserve(first, last)` (linear addresses in banks 4–5, up to 8 ranges, called before the first allocation there; `bank_reset` keeps them), such as its own buffers at fixed addresses. `far_malloc_current`/`far_calloc_current` choose their bank by a policy: the bank `bank_set` (or `far_policy_fixed_bank`) selected, bank 4 at first; `far_policy_first_fit()` (bank 4, then 5 when it is full) or `far_policy_round_robin()` (alternating, the other bank when one is full). `dma_disable` makes `dma_execute`/`dma_transfer_smart`/`dma_fill` do nothing until `dma_enable`. `far_string.h` (included by `far_ops.h`, `stdlib_overloads.c`): `memcpy`, `memset`, `strlen`, `strcpy`, `strcmp`, `strcat` and `memcmp` for every mix of local and far pointers, one function per combination since cc45 has no overloading by type — the suffix names the parameters (`pv` `void *`, `pc` `char *`, `fp` `far_ptr_t`, `i` `int`, `st`/`z` `size_t`: `memcpy__fpvst(buf, far, n)` copies far to local, `strcpy__fppc(far, "text")` local to far); far-destination ones return the far pointer; strings have no length limit; plus `far_array_read/write_int16/uint8/uint32(base, index)`. Tests: `test_far_ops_xemu.c`, `test_far2_xemu.c`, `test_far_string_xemu.c`, `test_far_attic_xemu.c`.
 
@@ -573,6 +881,28 @@ The VIC-IV's 8 sprites (`lib/stdlib_asm/sprites.s45`: every function assembly, `
 
 Test: `test_sprites_xemu.c` (the registers, the pointer table, positions with their MSBs, the boxes, a real sprite-sprite collision, the registers back). Examples: `examples/c/sprite_demo` (a short movie using every function), `examples/c/invaders` (16-colour, wide sprites in bank 4), `examples/c/text_scroller` (a sprite in front of and behind text).
 
+```c
+#include <sprites.h>
+#include <dma.h>
+
+int main(void) {
+    unsigned char i;
+    sprite_init();
+    dma_fill_far(0x40000UL, 63, 0xFF);           /* a solid 24x21 image in bank 4 */
+    for (i = 0; i < 2; i++) {
+        sprite_image(i, 0x40000UL);
+        sprite_color(i, 1 + i);
+        sprite_pos(i, SPRITE_X0 + 100 + i * 10, SPRITE_Y0 + 80);
+        sprite_show(i);
+    }
+    sprite_size(1, SPRITE_EXPAND_X | SPRITE_EXPAND_Y);
+    sprite_move(0, 4, 0);                        /* 4 pixels right */
+    if (sprite_x(0) != SPRITE_X0 + 104 || !sprite_overlap(0, 1)) return 1;
+    sprite_done();                               /* the registers as they were */
+    return 0;
+}
+```
+
 ### Packed data (`unpack.h`)
 
 `unsigned long unpack(unsigned long src)` (#345, `lib/stdlib_asm/unpack.s45`, `__fastcall__`: the ZP convention in either library; a macro for the library's `__unpack`, #346, so a program's own function named `unpack`, written without `<unpack.h>`, is a separate function and the overlay loader keeps calling the library's) unpacks the stream at the 28-bit address `src` to the address in its header (chip or attic RAM) and returns the number of bytes written, or `UNPACK_ERROR` (`0xFFFFFFFFUL`, `<limits.h>`'s `ULONG_MAX`; nothing written) for a stream no linked decoder takes: an unknown format byte, a format whose decoder is not linked, a format 2 header the decoder cannot take (0 is a stream of no bytes). The streams are made by [pack45](../bin/pack45.md) (format 1: literals, fills and repeats, each one DMA job) and by `ln45 --pack-overlays`. A stream can be loaded inside the area it unpacks into, as far in as pack45 reports, and unpacked there. `unsigned long unpack_to(unsigned long src, unsigned long dst)` (`__unpack_to`) unpacks to `dst` instead of the header's destination (a stream used in more than one place). Both are assembly (about 30% faster than the earlier C on the test stream, and 214 bytes smaller): literals up to 16 bytes copied by the CPU, longer ones, fills and repeats one DMA job each; from assembly, the addresses in `$10`-`$13` / `$14`-`$17` and `jsr ___unpack` / `___unpack_to`, the count in Q (pack45.md: examples with `.incbin` and from assembly). Test: `src/test-resources/test_unpack_xemu.c`.
@@ -604,6 +934,45 @@ Everything but `font_load` is assembly (`stdlib_asm/font.s45`, `__fastcall__`: 2
 ### Loading files anywhere (`load.h`)
 
 `unsigned int load_far(const char *name, unsigned char len, unsigned char device, unsigned long lin)` (#444, `lib/stdlib/load.c`) loads a file (a PRG: its two-byte load address skipped) to a 28-bit address: chip RAM (below `$8000000`) by the KERNAL's `LOAD` into that bank, attic RAM through a stage in chip RAM and a DMA copy. It returns the bytes loaded, which `cbm_load_far` does not (`LOAD`'s end address less the start), and 0 on an error. `unsigned long load_unpack(name, len, device, at)` loads a pack45 stream to `at` (as `load_far`) and unpacks it to the destination in its header (`unpack`). It returns the bytes unpacked (`load_error` 0); 0 when the load failed (`load_error` the KERNAL's error or `LOAD_TOO_BIG`; a stream of no bytes also gives 0, with `load_error` 0); `UNPACK_ERROR` when no linked decoder takes the stream (an unknown format, a decoder not linked: `load_error` `LOAD_NOT_PACKED`, #666). `void load_stage(unsigned long lin, unsigned int size)` sets the stage: `$40000`, all of bank 4, by default; a file for attic RAM larger than `size` is `LOAD_TOO_BIG`. `device` 0 is the drive the program came from (`$BA`), or 8. `unsigned char load_error`: 0, the KERNAL's error (4 file not found, 5 device not present...), `LOAD_TOO_BIG` or `LOAD_NOT_PACKED`; a variable of its own rather than `_oserror`, since two of its values are not the KERNAL's. The KERNAL runs the load, so a program that has taken over the machine hands it back around the call. File names are PETSCII: with cc45's default encoding, `"level1"` for the directory's `LEVEL1`. Test: `src/test-resources/test_load_far_xemu.c` (from a D81: chip RAM, attic RAM, a packed file, the three errors).
+
+A font compiled into the program, and a packed file loaded and unpacked (`<load.h>` includes `<unpack.h>`):
+
+```bash
+font45 convert tiny.txt --bpp 1 --proportional -o tiny.c   # tiny.c, tiny.h
+pack45 -d 0x50000 tiles.bin tiles.pak
+disk45 create game.d81 && disk45 add game.d81 tiles.pak TILES
+cc45 -O2 -c fontload.c -o fontload.o45
+cc45 -O2 -c tiny.c -o tiny.o45
+ln45 -basic -o fontload.prg fontload.o45 tiny.o45 -l c45.lib
+```
+
+```c
+#include <font.h>
+#include <load.h>
+#include <dma.h>
+#include "tiny.h"                    /* font45 convert tiny.txt --bpp 1 --proportional -o tiny.c */
+
+#define BITMAP 0x40000UL             /* 320 x 8 pixels, a byte each, in bank 4 */
+
+int main(void) {
+    font_t f;
+    unsigned long n;
+    unsigned char px;
+
+    /* a font compiled into the program, drawn into a bitmap */
+    if (!font_from(&f, (unsigned long)(unsigned int)tiny)) return 1;
+    dma_fill_far(BITMAP, 320 * 8, 0);
+    font_draw_bitmap(&f, BITMAP, 320, 0, 0, "AB");   /* set pixels: palette entry 1 */
+    dma_copy_far((unsigned long)(unsigned int)&px, BITMAP + 1, 1);
+    if (px != 1 || font_width(&f, "AB") == 0) return 2;
+
+    /* a packed file from the drive the program came from:
+       pack45 -d 0x50000 tiles.bin tiles.pak, on the disk as TILES */
+    n = load_unpack("tiles", 5, 0, 0x48000UL);   /* loaded at $48000, unpacked to $50000 */
+    if (n == 0 || n == UNPACK_ERROR) return 3;   /* load_error says why */
+    return 0;
+}
+```
 
 ### rom_ram.h
 
