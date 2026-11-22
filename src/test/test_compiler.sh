@@ -574,13 +574,16 @@ else
 fi
 
 # pack45 (#345): round trips (with the in-place check pack45 makes itself)
-# of random, zero, text and code inputs, unpacked again with -x
+# of random, zero, text, code and literal-heavy inputs, unpacked again with -x
 pk_ok=1
 head -c 3000 /dev/urandom > build/test/pack_rand.bin
 head -c 9000 /dev/zero > build/test/pack_zero.bin
 head -c 40000 doc/bin/cc45.md > build/test/pack_text.bin
 head -c 30000 bin/ca45 > build/test/pack_code.bin
-for f in rand zero text code; do
+# (random bytes on which --best's old parse, a literal block's 64-byte limit
+# counted once a run, came out a byte longer than the greedy one)
+cp src/test-resources/pack45/best_literals.bin build/test/pack_lits.bin
+for f in rand zero text code lits; do
     ./bin/pack45 -d 0x40000 build/test/pack_$f.bin build/test/pack_$f.pak >/dev/null 2>&1 &&
     ./bin/pack45 -x build/test/pack_$f.pak build/test/pack_$f.out >/dev/null 2>&1 &&
     cmp -s build/test/pack_$f.bin build/test/pack_$f.out || pk_ok=0

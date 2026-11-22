@@ -165,10 +165,12 @@ void packGreedy(const std::vector<uint8_t>& data, Writer& out) {
 }
 
 // the best parse: from the end, each place's cheapest way on (a fill, a
-// repeat of any length up to the longest found, or literals). a[i]: the
-// least bytes for data[i..] starting at a token; b[i]: inside a literal
-// block, data[i] one of its bytes (a block's byte of header counted at its
-// first byte only: blocks over 64 cost one more each, a little off)
+// repeat of any length up to the longest found, or a block of 1..64
+// literals: its header byte and its bytes). a[i]: the least bytes for
+// data[i..]. Exact for the format's costs, so never larger than the greedy
+// parse, which is one of the parses it weighs (a literal block's 64-byte
+// limit was counted once a run before: on literal-heavy data --best came
+// out a byte or so larger)
 void packBest(const std::vector<uint8_t>& data, Writer& out) {
     int n = (int)data.size();
     std::vector<int> nearLen(n), nearOff(n), farLen(n), farOff(n), run(n);
@@ -181,11 +183,14 @@ void packBest(const std::vector<uint8_t>& data, Writer& out) {
         run[i] = r >= kMinRun ? r : 0;
     }
     constexpr int kInf = 1 << 30;
-    std::vector<int> a(n + 1, kInf), b(n + 1, kInf), len(n + 1, 0), off(n + 1, 0);
+    // len[i]: the token's length (0: a literal block of lit[i] bytes);
+    // off[i]: its offset (0: a fill)
+    std::vector<int> a(n + 1, kInf), len(n + 1, 0), off(n + 1, 0), lit(n + 1, 0);
     a[n] = 0;
     for (int i = n - 1; i >= 0; i--) {
-        b[i] = 1 + std::min(b[i + 1], a[i + 1]);
-        int best = 1 + b[i];
+        int best = kInf;
+        for (int l = 1; l <= kMaxLit && i + l <= n; l++)
+            if (1 + l + a[i + l] < best) { best = 1 + l + a[i + l]; lit[i] = l; }
         for (int l = kMinRun; l <= run[i]; l++)
             if (2 + a[i + l] < best) { best = 2 + a[i + l]; len[i] = l; off[i] = 0; }
         for (int l = kMinRun; l <= nearLen[i]; l++)
@@ -196,11 +201,8 @@ void packBest(const std::vector<uint8_t>& data, Writer& out) {
     }
     for (int i = 0; i < n;) {
         if (!len[i]) {
-            // literals: on while staying in the block is the cheaper way
-            int j = i + 1;
-            while (j < n && b[j] <= a[j]) j++;
-            out.literals(data.data() + i, j - i);
-            i = j;
+            out.literals(data.data() + i, lit[i]);
+            i += lit[i];
             continue;
         }
         if (off[i]) out.repeat(len[i], off[i]);
