@@ -271,43 +271,7 @@ bool optionsFrom(const lint::Config& c, Options& o, std::string& err) {
            re("mega65-style-local-name", o.localName) && re("mega65-style-constant-name", o.constName);
 }
 
-void registerRules(lint::Engine& e) {
-    using L = lint::Level;
-    e.add({"mega65-style-whitespace", L::Off, "all",
-           "Style: a tab, trailing spaces, or no newline at the end of the file",
-           "Spaces only (a tab outside a string or character literal; af45 expands it to 8-column stops),\n"
-           "no spaces at the end of a line, and a newline after the last line."});
-    e.add({"mega65-style-label", L::Off, "all",
-           "Style: a label (or a constant's definition) not at column 1",
-           "Labels (name:, @name:) and constants (NAME = value) start at the beginning of the line; what\n"
-           "follows a label on its line is left where it is."});
-    e.add({"mega65-style-indent", L::Off, "all",
-           "Style: an instruction not at the instruction column, or a directive neither there nor at column 1",
-           "An instruction (or a macro's name used as one) starts after mega65-style-instruction-column spaces\n"
-           "(default 4). A directive, proc or endproc starts at column 1 or at the instruction column. Lines\n"
-           "with a label are not checked."});
-    e.add({"mega65-style-operand", L::Off, "all",
-           "Style: an instruction's operand not one space after the mnemonic (or at the operand column)",
-           "One space between a mnemonic and its operand, or, with mega65-style-operand-column set, the operand\n"
-           "at that column (one space when the mnemonic reaches it). Directives' operands are not checked."});
-    e.add({"mega65-style-comment", L::Off, "all",
-           "Style: a trailing comment not at the comment column, too close to the code, or a // comment",
-           "Comments start with ';'. A trailing comment starts at mega65-style-comment-column (default 28: after\n"
-           "28 characters, column 29), or at least two spaces after code that reaches past it. Comments on a\n"
-           "line of their own are not checked."});
-    e.add({"mega65-style-label-name", L::Off, "all",
-           "Style: a global label's or proc's name does not match mega65-style-label-name",
-           "Global labels (name:) and proc names are matched against the regular expression\n"
-           "mega65-style-label-name (default ^[A-Za-z_.][A-Za-z0-9_.]*$: any)."});
-    e.add({"mega65-style-local-name", L::Off, "all",
-           "Style: a local label's name does not match mega65-style-local-name",
-           "Local labels (@name:) are matched against mega65-style-local-name (default ^@[A-Za-z0-9_]+$)."});
-    e.add({"mega65-style-constant-name", L::Off, "all",
-           "Style: a constant's name does not match mega65-style-constant-name",
-           "Constants (NAME = value) are matched against mega65-style-constant-name (default: any name; for\n"
-           "UPPER_SNAKE_CASE, ^[A-Z][A-Z0-9_]*$). A name the file exports or imports (.global, .weak, .extern)\n"
-           "is a symbol, not a constant, and is not checked."});
-}
+// (registerRules: LintRules.cpp, #708)
 
 void check(lint::Engine& e, const std::string& file, const std::string& text) {
     Options o;
@@ -540,11 +504,19 @@ int formatterMain(int argc, char** argv) {
         std::cerr << "af45: several files: -w (rewrite them) or --check" << std::endl;
         return 2;
     }
+    for (const auto& [k, v] : setOpts) {
+        bool known = false;
+        for (const auto& o : lint::knownOptions()) known = known || k == o.id;
+        if (!known) std::cerr << "af45: warning: --option: unknown option '" << k << "' ignored" << std::endl;
+    }
     int status = 0;
+    std::set<std::string> warned;   // (a configuration's warnings once, not once per file)
     for (const auto& f : files) {
         lint::Config cfg;
         std::string err;
         bool ok = configFile.empty() ? cfg.loadDefaults(dirOf(f), err) : cfg.loadFile(configFile, err);
+        for (const auto& w : cfg.warnings)
+            if (warned.insert(w).second) std::cerr << "af45: warning: " << w << std::endl;
         for (const auto& [k, v] : setOpts) cfg.options[k] = v;
         Options o;
         if (!ok || !optionsFrom(cfg, o, err)) {

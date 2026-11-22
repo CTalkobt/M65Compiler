@@ -19,52 +19,7 @@ namespace asmlint {
 
 using ST = AssemblerParser::Statement;
 
-void registerRules(lint::Engine& e) {
-    using L = lint::Level;
-    e.add({"mega65-unreachable", L::Warning, "all",
-           "Code after an unconditional jmp/bra/rts/rti/rtn with no label: nothing reaches it",
-           "An instruction that follows jmp, bra, lbra, rts, rti or rtn with no label in between can only be\n"
-           "reached through a computed address. Data after a return is a .byte/.word directive, not code,\n"
-           "and is not reported."});
-    e.add({"mega65-unused-label", L::Info, "all",
-           "A local label (@name) that nothing refers to",
-           "Local labels (@name) exist for branches inside a routine; one no instruction or expression\n"
-           "names is left over from an edit. Global labels are not reported (another file may use them)."});
-    e.add({"mega65-no-bp-mode", L::Warning, "all",
-           "A base-page operand on an instruction with no base-page mode: assembled as absolute $00xx",
-           "ldz $xx, lda/sta $xx,y, jmp ($xx) and phw $00xx have no base-page form: ca45 assembles them as\n"
-           "absolute $00xx, which ignores the base page register B. Under cc45's relocated base page that\n"
-           "reaches the ROM's page 0, not the program's. Use ldq, lda+taz, ($xx),y or an absolute address\n"
-           "on purpose."});
-    e.add({"mega65-page1-stack", L::Warning, "all",
-           "Stack read as $0100,x: wrong under the 16-bit stack",
-           "With the 16-bit stack (cc45's default: crt0 clears E and puts SP at $BFFF) the stack is not in\n"
-           "page 1. Read it through a pointer: tsx; tsy; stx $08; sty $09; lda ($08),y. Reported in the cc45\n"
-           "profile, or when the file itself selects the 16-bit stack (cle)."});
-    e.add({"mega65-dma-trigger-order", L::Warning, "all",
-           "A DMA list address byte written after the trigger register",
-           "Writing $D700 (or $D705, the enhanced list's low byte) starts the DMA job with the list address\n"
-           "in $D701/$D702 (and $D704) as they are then; one of those written after the trigger, in the\n"
-           "same straight-line code, belongs to the next job, not this one."});
-    e.add({"mega65-io-personality", L::Info, "standalone",
-           "VIC-III/IV registers written with no $47 $53 knock to $D02F",
-           "The MEGA65's own I/O ($D030-$D07F and above) is visible only after the knock: $47 then $53\n"
-           "written to $D02F. Programs linked with cc45's crt0 have it done at startup; a standalone file\n"
-           "should do it itself, with interrupts masked (php; sei; ...; plp): between the two\n"
-           "writes the KERNAL's keyboard scan reads $D611 as $FF and turns its Ctrl-S pause on."});
-    e.add({"mega65-rom-call-bp", L::Warning, "cc45",
-           "A ROM call ($E000 and up) not bracketed by __bp_rom / __bp_prog",
-           "The ROM expects the base page at 0; cc45 programs run with their own (crt0 moves B). Call the ROM\n"
-           "between jsr __bp_rom and jsr __bp_prog, or through __rom_call / __rom_calli (which also switch\n"
-           "the stack, as the KERNAL's disk code needs). A routine that sets B itself (tab) and a call whose\n"
-           "address a store patches (sta label+1) are not reported."});
-    e.add({"mega65-unnamed-proc-attrs", L::Warning, "all",
-           "Function attributes (.func_flags) in an unnamed proc: ignored",
-           ".func_flags attaches to the global symbol 'proc <name>' names; in a bare 'proc' it is dropped.\n"
-           "Name the function: proc <name> (and .global <name>)."});
-    registerFlowRules(e);
-    asmstyle::registerRules(e);   // (mega65-style-*, off until enabled: #611)
-}
+// (registerRules, with the flow and style rules': LintRules.cpp, #708)
 
 namespace {
 

@@ -205,60 +205,7 @@ AM assembledMode(const ST& s, const std::string& m) {
 
 }  // namespace
 
-void registerFlowRules(lint::Engine& e) {
-    using L = lint::Level;
-    e.add({"mega65-flag-stale", L::Warning, "all",
-           "A comparison whose flags are overwritten before anything tests them",
-           "cmp / cpx / cpy / cpz set N, Z and C for a branch that follows. An instruction between the two\n"
-           "that sets the same flags (a load, a transfer, a pull, inx, a call) leaves the branch testing\n"
-           "that instruction's result: 'cmp #5 / ldx #0 / beq' branches on X, always. Reported where the\n"
-           "branch reads a flag the comparison set and something else has set since, with nothing having\n"
-           "read the comparison; and where every flag of a comparison is set again unread. Save the flags\n"
-           "(php / plp), or compare after the load."});
-    e.add({"mega65-stack-balance", L::Warning, "all",
-           "A return with bytes still pushed",
-           "rts and rti take the return address from the top of the stack: a byte pushed and not pulled on\n"
-           "the way there is taken for it. Followed from each routine's entry (a proc, a jsr's target, an\n"
-           "exported label) along every path. Two bytes pushed before rts are a jump through the stack\n"
-           "(lda #>addr / pha / lda #<addr / pha / rts) and are not reported; nor is a routine that pulls\n"
-           "its own return address, sets the stack pointer (txs), or reaches a place with two different\n"
-           "depths."});
-    e.add({"mega65-dead-reg-write", L::Info, "all",
-           "A register loaded with a value nothing uses",
-           "A load or transfer whose register is written again on every path before anything reads it,\n"
-           "and whose N and Z nothing tests. Calls, returns, jumps out of the file and writes to the\n"
-           "hypervisor's trap registers ($D640-$D67F) count as reading every register. A load from an I/O\n"
-           "register ($D000-$DFFF), where the read itself matters, is not reported."});
-    e.add({"mega65-redundant-load", L::Info, "all",
-           "A register loaded with the value it already holds",
-           "The same constant or the same memory byte loaded again with the register untouched and the\n"
-           "byte not written in between, in straight-line code (a label or a call ends what al45 knows),\n"
-           "and with nothing needing the N and Z the load sets. A register just stored to a byte holds\n"
-           "that byte's value. I/O registers are never the same twice."});
-    e.add({"mega65-dead-store", L::Info, "all",
-           "A base-page byte stored twice with no read between",
-           "Two stores to the same base-page byte in straight-line code with nothing reading it between\n"
-           "them: the first value is lost. An indexed or indirect read, a call, a branch or a label ends\n"
-           "what al45 knows. $00 and $01 (the CPU port) are not judged."});
-    e.add({"mega65-zp-param-block", L::Warning, "cc45",
-           "A parameter-block byte ($10-$2F) read after a call that may have changed it",
-           "cc45's functions take their arguments in $10-$2F and use what is left of it as they like: after\n"
-           "a call of a C function (jsr _name) those bytes are not what they were. A routine that needs\n"
-           "its own arguments after such a call keeps them elsewhere (a register, the stack, its own\n"
-           "storage). Reported for a read of a byte no store has set since the call, in straight-line code.\n"
-           "A callee in the same file that declares what it changes (.zp_clobbers) is believed."});
-    e.add({"mega65-lib-temps", L::Warning, "cc45",
-           "A library temporary ($F6-$FC) read after a call that may have changed it",
-           "$F6-$FC are the library's temporaries: any library routine may use them. A value kept there\n"
-           "across a call of a C function (jsr _name) may be gone. As mega65-zp-param-block."});
-    e.add({"mega65-clobber-mismatch", L::Warning, "all",
-           "A proc changes a register or flag its .reg_clobbers / .flag_clobbers does not list",
-           "ca45's optimizer and ln45 believe a proc's attributes: a caller keeps a value in a register the\n"
-           "callee is declared not to change. A register the proc writes (and does not save and restore\n"
-           "with a push and pull) must be in .reg_clobbers, a flag in .flag_clobbers; a proc declared leaf\n"
-           "(.func_flags leaf) makes no calls. Calls of procs in the file count with what they declare;\n"
-           "other calls are not judged. al45 --suggest-clobbers prints the lists for every proc."});
-}
+// (registerFlowRules: LintRules.cpp, #708)
 
 void runFlow(lint::Engine& e, AssemblerParser& p, const std::string& mainFile,
              const std::set<const void*>& patchedStmts, bool suggestClobbers, std::ostream* suggestOut) {

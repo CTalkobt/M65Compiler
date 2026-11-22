@@ -50,7 +50,14 @@ cc45):
   entry's `options:`, all into one table keyed by option name (`Config::options`,
   read by `Engine::option`; the last read wins): cl45's `mega65-stack-frame-limit`
   and the style rules' six (`asmstyle::optionsFrom`, which checks them for al45 and af45; the list:
-  [al45](../bin/al45.md#configuration-cc45-lintyml)); an option name nothing reads is ignored. A key the reader does not know (at the top, in
+  [al45](../bin/al45.md#configuration-cc45-lintyml)). What the configuration names that nothing reads is a
+  warning naming the file and line, the rest applied (`Config::warnings`, printed by each tool as
+  `<tool>: warning: ...`; #708): an option name not in `lint::knownOptions()`, a value of a number option
+  (`mega65-stack-frame-limit`) that is not a whole number (dropped: the default is used), a rule id not in
+  `lint::knownRules()` (`overrides`, `asm_rules`, `--severity=`, `--disable=`), a glob matching no rule
+  (`c_checks.enabled`, `--checks=`, `--disable=`). Both lists are al45's and cl45's together
+  (`src/main/LintRules.cpp`, the rules' registration, in `lib45-common` with the core): one file serves
+  both linters. A key the reader does not know (at the top, in
   `c_checks`, in an `asm_rules` entry) is an error naming the file and line
   (`Config::apply`, `src/main/Lint.cpp`).
 - **Precedence**: inline suppression > command line (`--checks=LIST`,

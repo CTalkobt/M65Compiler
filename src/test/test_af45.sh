@@ -106,6 +106,20 @@ $AF $D/opt.s45 $D/names.s45 >/dev/null 2>$D/e3; r3=$?
 if [ $r3 = 2 ] && grep -q "several files" $D/e3; then pass "af45: several files need -w or --check"
 else fail "af45 several files: exit $r3"; fi
 
+# #708: an --option or a configuration option af45 does not know is a warning
+# (the file formatted all the same); a configuration's warnings once, not per file
+printf 'start:\n    rts\n' > $D/w1.s45
+cp $D/w1.s45 $D/w2.s45
+printf 'options:\n  mega65-style-coment-column: 30\n' > $D/.cc45-lint.yml
+$AF --check --option=mega65-style-comment-colum=30 $D/w1.s45 $D/w2.s45 > /dev/null 2>$D/w708.txt; r=$?
+rm -f $D/.cc45-lint.yml
+if [ $r = 0 ] && grep -qF "af45: warning: --option: unknown option 'mega65-style-comment-colum' ignored" $D/w708.txt &&
+   [ "$(grep -cF "af45: warning: $D/.cc45-lint.yml:2: options: unknown option 'mega65-style-coment-column' ignored" $D/w708.txt)" = 1 ]; then
+    pass "af45: unknown options (--option, the configuration): warnings, each once (#708)"
+else
+    fail "af45 #708 warnings: exit $r: $(head -3 $D/w708.txt)"
+fi
+
 echo ""
 echo "af45 tests: $passed passed, $failed failed"
 [ $failed = 0 ]

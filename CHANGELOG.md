@@ -4,6 +4,23 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### al45, cl45, af45: what is ignored is said (#708)
+
+- al45 warns about an option it does not know, as cl45 does, and goes on: *"al45: warning: unknown option '--foo'
+  ignored"* (it took the argument as the input file's name, so `--foo` or `--option=...` went unnoticed).
+- `.cc45-lint.yml` (the shared core, `Config::apply`): an option name no tool reads, a `mega65-stack-frame-limit`
+  that is not a whole number, a rule id neither linter has (`overrides`, `asm_rules`) and a glob matching no rule
+  (`c_checks.enabled`) are warnings naming the file, the line and the key, the rest of the file applied:
+  *"cl45: warning: ./.cc45-lint.yml:3: options: mega65-stack-frame-limit: '1k' is not a number; 256 is used"* (the
+  default is then used, where `1k` was read as 1 and `big` as 256 without a word). So are `--severity=` /
+  `--disable=` / `--checks=` naming no rule, and af45's `--option=` with an unknown option (a configuration's
+  warnings once, however many files af45 formats). The exit status does not change.
+- One file serves both linters, so the rule ids and options checked against are al45's and cl45's together: the
+  rules' registration (from `AsmLint.cpp`, `AsmLintFlow.cpp`, `AsmStyle.cpp`, `CLint.cpp`) is in
+  `src/main/LintRules.cpp`, in `lib45-common` with the core (`lint::knownRules()`, `lint::knownOptions()`).
+- Tests in `test_al45.sh`, `test_cl45.sh`, `test_af45.sh` and the `lint` validation category; al45.md, cl45.md,
+  af45.md and lint.md describe the warnings.
+
 ### Getting-started tutorials (#694, #695, #696)
 
 - `doc/guide/`: [C with cc45](doc/guide/getting-started-c.md) (a first program; xemu, a D81, a MEGA65; several

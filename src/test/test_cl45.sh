@@ -181,6 +181,33 @@ else
     fail "cc45 on the fixtures: rc $rc1 $rc2: $(head -3 $D/cc1.txt $D/cc2.txt)"
 fi
 
+# #708: what the configuration names that nothing reads is a warning naming the
+# file and the key (the run goes on): an unknown option, an unknown rule id, a
+# glob matching no rule, a stack frame limit that is not a number (256 used);
+# al45's rule ids are known too (one file serves both linters)
+C=$D/cfg708
+mkdir -p $C
+cp $F/frames.c $C/a.c
+printf 'options:\n  mega65-stack-frame-limt: 1000\n  mega65-stack-frame-limit: 1000x\noverrides:\n  mega65-unused-label: off\n  mega65-recursion-fram: error\nc_checks:\n  enabled: "mega65-*,-mega65-nosuch-*"\n' > $C/.cc45-lint.yml
+$CL -O2 $C/a.c > $D/w708.txt 2>&1; rc=$?
+$CL -O2 --severity=mega65-nope=error --disable=mega65-zz-* $C/a.c > $D/w708b.txt 2>&1; rc2=$?
+rm -f $C/.cc45-lint.yml
+$CL -O2 --foo $C/a.c > $D/w708c.txt 2>&1; rc3=$?
+if [ $rc = 0 ] && [ $rc2 = 0 ] && [ $rc3 = 0 ] &&
+   grep -qF "cl45: warning: $C/.cc45-lint.yml:2: options: unknown option 'mega65-stack-frame-limt' ignored" $D/w708.txt &&
+   grep -qF "cl45: warning: $C/.cc45-lint.yml:3: options: mega65-stack-frame-limit: '1000x' is not a number; 256 is used" $D/w708.txt &&
+   grep -q "stack frame of 608 bytes (limit 256)" $D/w708.txt &&
+   grep -qF "cl45: warning: $C/.cc45-lint.yml:6: overrides: unknown rule 'mega65-recursion-fram' ignored" $D/w708.txt &&
+   ! grep -q "mega65-unused-label" $D/w708.txt &&
+   grep -qF "cl45: warning: $C/.cc45-lint.yml:8: c_checks.enabled: 'mega65-nosuch-*' matches no rule" $D/w708.txt &&
+   grep -qF "cl45: warning: --severity: unknown rule 'mega65-nope' ignored" $D/w708b.txt &&
+   grep -qF "cl45: warning: --disable: 'mega65-zz-*' matches no rule" $D/w708b.txt &&
+   grep -qF "cl45: warning: unknown option '--foo' ignored" $D/w708c.txt; then
+    pass "cl45: unknown options, rule ids and globs, a frame limit not a number: warnings, the run goes on (#708)"
+else
+    fail "cl45 #708 warnings: rc $rc $rc2 $rc3: $(head -4 $D/w708.txt $D/w708b.txt $D/w708c.txt)"
+fi
+
 echo ""
 echo "cl45 tests: $passed passed, $failed failed"
 [ $failed = 0 ]

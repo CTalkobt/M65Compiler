@@ -54,8 +54,21 @@ void test_config() {
     CHECK(!c.apply(y, "f.yml", err) && err.find("f.yml:3") != std::string::npos, ("pattern: refused with its line: " + err).c_str());
     lint::parseYaml("profle: cc45\n", y, err);
     CHECK(!c.apply(y, "f.yml", err) && err.find("unknown key 'profle'") != std::string::npos, "an unknown key");
-    lint::parseYaml("profile: cc45\nc_checks:\n  enabled: \"-mega65-a\"\n  options:\n    mega65-x: 7\n", y, err);
-    CHECK(c.apply(y, "f.yml", err) && c.profile == "cc45" && c.cChecks.size() == 1 && c.options["mega65-x"] == "7", "applied");
+    lint::parseYaml("profile: cc45\nc_checks:\n  enabled: \"-mega65-a\"\n  options:\n    mega65-stack-frame-limit: 7\n", y, err);
+    CHECK(c.apply(y, "f.yml", err) && c.profile == "cc45" && c.cChecks.size() == 1 &&
+          c.options["mega65-stack-frame-limit"] == "7", "applied");
+    // #708: what nothing reads is a warning with the file and line, the rest applied
+    lint::Config w;
+    lint::parseYaml("options:\n  mega65-x: 7\n  mega65-stack-frame-limit: big\n"
+                    "overrides:\n  mega65-unreachable: off\n  mega65-nope: error\n", y, err);
+    CHECK(w.apply(y, "f.yml", err) && w.warnings.size() == 3 && !w.options.count("mega65-x") &&
+          !w.options.count("mega65-stack-frame-limit") && w.levels.count("mega65-unreachable"),
+          "unknown option, rule id, a value not a number: warnings");
+    CHECK(w.warnings.size() == 3 && w.warnings[0] == "f.yml:2: options: unknown option 'mega65-x' ignored" &&
+          w.warnings[1] == "f.yml:3: options: mega65-stack-frame-limit: 'big' is not a number; 256 is used" &&
+          w.warnings[2] == "f.yml:6: overrides: unknown rule 'mega65-nope' ignored", "the warnings' text");
+    CHECK(lint::knownRules().count("mega65-unreachable") && lint::knownRules().count("mega65-stack-frame-limit") &&
+          lint::knownRules().count("mega65-style-whitespace"), "knownRules: al45's, cl45's and the style rules");
     CHECK(c.applyOption("--disable=mega65-b,mega65-a", err) && c.cliChecks.size() == 2 && c.cliChecks[0] == "-mega65-b",
           "--disable");
     CHECK(!c.applyOption("--profile=nope", err), "a bad --profile");

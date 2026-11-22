@@ -238,12 +238,15 @@ bool Config::apply(const Yaml& y, const std::string& file, std::string& err) {
             for (const auto& [k2, v2] : v.map) {
                 if (k2 == "enabled") {
                     if (v2.kind != Yaml::Scalar) return bad(v2, "c_checks.enabled: a list of rule globs, \"mega65-*,-mega65-x\"");
-                    for (const auto& g : splitList(v2.value)) cChecks.push_back(g);
+                    for (const auto& g : splitList(v2.value)) {
+                        ruleGlob(file + ":" + std::to_string(v2.line) + ": c_checks.enabled", g);
+                        cChecks.push_back(g);
+                    }
                 } else if (k2 == "options") {
                     if (v2.kind != Yaml::Map) return bad(v2, "c_checks.options: a map");
                     for (const auto& [k3, v3] : v2.map) {
                         if (v3.kind != Yaml::Scalar) return bad(v3, "an option's value must be a scalar");
-                        options[k3] = v3.value;
+                        option(file + ":" + std::to_string(v3.line) + ": c_checks.options", k3, v3);
                     }
                 } else return bad(v2, "unknown key 'c_checks." + k2 + "'");
             }
@@ -252,6 +255,7 @@ bool Config::apply(const Yaml& y, const std::string& file, std::string& err) {
             for (const auto& r : v.list) {
                 if (r.kind != Yaml::Map || !r.get("id")) return bad(r, "an asm_rules entry needs an id");
                 std::string id = r.get("id")->value;
+                ruleId(file + ":" + std::to_string(r.get("id")->line) + ": asm_rules", id);
                 for (const auto& [k2, v2] : r.map) {
                     if (k2 == "id") continue;
                     if (k2 == "severity") {
@@ -264,7 +268,8 @@ bool Config::apply(const Yaml& y, const std::string& file, std::string& err) {
                         return bad(v2, "user-written rules (pattern:) are not supported yet");
                     } else if (k2 == "options") {
                         if (v2.kind != Yaml::Map) return bad(v2, "options: a map");
-                        for (const auto& [k3, v3] : v2.map) options[k3] = v3.value;
+                        for (const auto& [k3, v3] : v2.map)
+                            option(file + ":" + std::to_string(v3.line) + ": asm_rules options", k3, v3);
                     } else return bad(v2, "unknown key '" + k2 + "' in asm_rules");
                 }
             }
@@ -273,11 +278,12 @@ bool Config::apply(const Yaml& y, const std::string& file, std::string& err) {
             for (const auto& [id, lv] : v.map) {
                 Level l;
                 if (lv.kind != Yaml::Scalar || !parseLevel(lv.value, l)) return bad(lv, "overrides." + id + ": off, info, warning or error");
+                ruleId(file + ":" + std::to_string(lv.line) + ": overrides", id);
                 levels[id] = l;
             }
         } else if (key == "options") {
             if (v.kind != Yaml::Map) return bad(v, "options: a map");
-            for (const auto& [k3, v3] : v.map) options[k3] = v3.value;
+            for (const auto& [k3, v3] : v.map) option(file + ":" + std::to_string(v3.line) + ": options", k3, v3);
         } else {
             return bad(v, "unknown key '" + key + "' (profile, c_checks, asm_rules, overrides, options)");
         }
@@ -326,9 +332,15 @@ bool Config::loadDefaults(const std::string& dir, std::string& err) {
 bool Config::applyOption(const std::string& arg, std::string& err) {
     auto val = [&](const char* p) { return arg.substr(std::string(p).size()); };
     if (arg.rfind("--checks=", 0) == 0) {
-        for (const auto& g : splitList(val("--checks="))) cliChecks.push_back(g);
+        for (const auto& g : splitList(val("--checks="))) {
+            ruleGlob("--checks", g);
+            cliChecks.push_back(g);
+        }
     } else if (arg.rfind("--disable=", 0) == 0) {
-        for (const auto& g : splitList(val("--disable="))) cliChecks.push_back("-" + g);
+        for (const auto& g : splitList(val("--disable="))) {
+            ruleGlob("--disable", g);
+            cliChecks.push_back("-" + g);
+        }
     } else if (arg.rfind("--profile=", 0) == 0) {
         std::string p = val("--profile=");
         if (p != "cc45" && p != "standalone") { err = "--profile: cc45 or standalone"; return false; }
@@ -338,12 +350,50 @@ bool Config::applyOption(const std::string& arg, std::string& err) {
         size_t eq = s.find('=');
         Level l;
         if (eq == std::string::npos || !parseLevel(s.substr(eq + 1), l)) { err = "--severity=ID=off|info|warning|error"; return false; }
+        ruleId("--severity", s.substr(0, eq));
         levels[s.substr(0, eq)] = l;
     } else {
         err = "unknown option " + arg;
         return false;
     }
     return true;
+}
+
+// What the configuration names that nothing reads (#708): a warning, the rest
+// of the file applied. Rule ids and options are al45's and cl45's together
+// (LintRules.cpp): a file names both tools' rules.
+void Config::option(const std::string& where, const std::string& key, const Yaml& v) {
+    const OptionInfo* info = nullptr;
+    for (const auto& o : knownOptions())
+        if (key == o.id) info = &o;
+    if (!info) {
+        warnings.push_back(where + ": unknown option '" + key + "' ignored");
+        return;
+    }
+    if (info->number && (v.value.empty() || v.value.find_first_not_of("0123456789") != std::string::npos)) {
+        warnings.push_back(where + ": " + key + ": '" + v.value + "' is not a number; " + info->dflt + " is used");
+        options.erase(key);   // (the default, over what an earlier file set: as the warning says)
+        return;
+    }
+    options[key] = v.value;
+}
+
+void Config::ruleId(const std::string& where, const std::string& id) {
+    if (!knownRules().count(id)) warnings.push_back(where + ": unknown rule '" + id + "' ignored");
+}
+
+void Config::ruleGlob(const std::string& where, const std::string& glob) {
+    std::string g = !glob.empty() && glob[0] == '-' ? glob.substr(1) : glob;
+    if (g.find('*') == std::string::npos) return ruleId(where, g);
+    for (const auto& id : knownRules())
+        if (globMatch(g, id)) return;
+    warnings.push_back(where + ": '" + g + "' matches no rule");
+}
+
+void Config::printWarnings(std::ostream& os, const std::string& tool) {
+    for (; warningsPrinted_ < warnings.size(); warningsPrinted_++)
+        os << tool << ": warning: " << warnings[warningsPrinted_] << "\n";
+    os.flush();
 }
 
 // --- the engine ---
