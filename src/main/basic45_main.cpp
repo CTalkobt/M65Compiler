@@ -233,7 +233,7 @@ static void printUsage(const char* progName) {
     std::cout << "  --stack-page=P      The CPU stack of a --link / --compile build in page P ($17: $1700-$17FF)" << std::endl;
     std::cout << "                      or 'basic' (BASIC's own page-1 stack): ln45 --stack-page" << std::endl;
     std::cout << "  --overlay-store=R, --overlay-staging=B, --overlay-name=N, --overlay-region=R," << std::endl;
-    std::cout << "  --pack-overlays, --overlay-fast-stubs" << std::endl;
+    std::cout << "  --pack-overlays, --overlay-fast-stubs, --overlay-no-load, --overlay-depth=N" << std::endl;
     std::cout << "                      The code overlays of a --link / --compile build (ln45's options): their" << std::endl;
     std::cout << "                      files next to the output (.ov1, ...), and with --disk on the disk" << std::endl;
     std::cout << "  --decompile         Turn a BASIC .prg into basic45 source (also for a .prg input)" << std::endl;
@@ -414,7 +414,8 @@ static Options parseArgs(int argc, char* argv[]) {
         } else if (arg.rfind("--stack-page=", 0) == 0) {
             opts.stackPage = arg.substr(13);
         } else if (arg.rfind("--overlay-store=", 0) == 0 || arg.rfind("--overlay-staging=", 0) == 0 ||
-                   arg.rfind("--overlay-region=", 0) == 0 || arg == "--pack-overlays" || arg == "--overlay-fast-stubs") {
+                   arg.rfind("--overlay-region=", 0) == 0 || arg.rfind("--overlay-depth=", 0) == 0 ||
+                   arg == "--pack-overlays" || arg == "--overlay-fast-stubs" || arg == "--overlay-no-load") {
             opts.ovlArgs.push_back(arg);   // (ln45's, checked there, #685)
         } else if (arg.rfind("--overlay-name=", 0) == 0) {
             opts.ovlName = arg.substr(15);

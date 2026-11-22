@@ -1259,6 +1259,17 @@ bool O45Linker::resolveSymbols(std::string& errorMsg) {
         def("__ovl_mapped", ovlMap_ ? 1 : 0);
         for (int k = 0; k < 6; k++) def("__ovl_table" + std::to_string(k), ovlTableAddr_[k]);
         def("__ovl_file", ovlFileAddr_);
+        // the runtime's optional parts (ovl.s45 calls them when not 0, #689)
+        // and the overlay return stack (generateOverlayStubs)
+        auto addrOr0 = [&](const char* n) -> uint32_t {
+            auto it = globalSymbols_.find(n);
+            return it == globalSymbols_.end() ? 0 : it->second;
+        };
+        def("__ovl_loader", ovlNoLoad_ ? 0 : addrOr0("__ovl_files"));
+        def("__ovl_mapper", ovlMap_ ? addrOr0("__ovl_mload") : 0);
+        def("__ovl_mapinit", ovlMap_ ? addrOr0("__ovl_minit") : 0);
+        def("__ovl_depth", (uint32_t)ovlDepth_);
+        for (int k = 0; k < 4; k++) def(ovlRstkName(k), ovlRstkAddr_ ? ovlRstkAddr_ + k * (uint32_t)ovlDepth_ : 0);
         // the routine __ovl_init unpacks packed files with (0: not packed)
         def("__ovl_unpacker", packOverlays_ && globalSymbols_.count("__ovl_unpack") ? globalSymbols_["__ovl_unpack"] : 0);
         // the far memory the overlay files take (C: __ovl_store_bank, ...,
@@ -1810,7 +1821,36 @@ std::vector<uint8_t> O45Linker::link(std::string& errorMsg, bool isPrg) {
             if (!resolveLibraries(errorMsg)) return {};
             forcedUndefined_.clear();
         }
-        for (const char* k : {"__ovl_call", "__ovl_init", "__ovl_sa", "__ovl_jsave", "__ovl_jrestore"})
+        // (#689: the rest only when needed: the files' loader unless the
+        // program loads them itself, the mapped overlays' parts, setjmp's)
+        auto has = [&](const char* n) {
+            for (const auto& input : objects_)
+                for (const auto& exp : input.obj.exports)
+                    if (exp.name == n && !exp.isWeak()) return true;
+            return false;
+        };
+        auto imported = [&](const char* n) {
+            for (const auto& input : objects_)
+                for (const auto& imp : input.obj.imports)
+                    if (imp.name == n) return true;
+            return false;
+        };
+        std::vector<std::string> want;
+        if (!ovlNoLoad_ && !has("__ovl_files")) want.push_back("__ovl_files");
+        if (ovlMap_ && !has("__ovl_mload")) want.push_back("__ovl_mload");
+        ovlJmpLinked_ = imported("__ovl_jsave") || has("__ovl_jsave");
+        // (by a label only ovl_jmp.s45 defines: crt0 has weak __ovl_jsave too)
+        if (ovlJmpLinked_ && !has("__ovl_jsave")) want.push_back("__ovl_jmp");
+        if (!want.empty()) {
+            forcedUndefined_ = std::set<std::string>(want.begin(), want.end());
+            if (!resolveLibraries(errorMsg)) return {};
+            forcedUndefined_.clear();
+        }
+        std::vector<std::string> keep = {"__ovl_call", "__ovl_calli", "__ovl_init", "__ovl_sa"};
+        if (!ovlNoLoad_) keep.push_back("__ovl_files");
+        if (ovlMap_) for (const char* k : {"__ovl_mload", "__ovl_minit", "__ovl_rom_leave", "__ovl_exit", "__ovl_dma_fix"}) keep.push_back(k);
+        if (ovlJmpLinked_) for (const char* k : {"__ovl_jmp", "__ovl_jsave", "__ovl_jrestore"}) keep.push_back(k);
+        for (const auto& k : keep)
             if (std::find(keepSymbols_.begin(), keepSymbols_.end(), k) == keepSymbols_.end()) keepSymbols_.push_back(k);
         // packed overlay files: their unpacking (lib/stdlib_asm/ovl_unpack.s45, unpack())
         if (packOverlays_) {
@@ -3605,6 +3645,9 @@ bool O45Linker::generateOverlayStubs(std::string& errorMsg) {
             std::set<std::string> taken;
             buildCallGraph(direct, taken, false);
             if (packOverlays_) direct["__ovl_unpacker"].insert("__ovl_unpack");   // (ln45 defines it)
+            // (__ovl_init's optional parts, through ln45's symbols, #689)
+            if (!ovlNoLoad_) direct["__ovl_init"].insert("__ovl_files");
+            if (ovlMap_) direct["__ovl_init"].insert("__ovl_minit");
             const std::string root = "__ovl_init";
             std::map<std::string, std::string> from;
             std::vector<std::string> queue = {root};
@@ -3821,7 +3864,8 @@ bool O45Linker::generateOverlayStubs(std::string& errorMsg) {
     // use): the name's last character, the bank it is loaded into, attic
     // RAM's megabyte ($80-$87; 0: chip RAM, no copy) and bank it is copied
     // to, its address in the bank (bits 0-15, both) and the length
-    globalSymbols_["__ovl_file"] = textBase_ + (uint32_t)t.size();
+    globalSymbols_["__ovl_file"] = ovlNoLoad_ ? 0 : textBase_ + (uint32_t)t.size();
+    if (!ovlNoLoad_) {   // (--overlay-no-load: no loader reads it, #689)
     t.push_back((uint8_t)nfiles);
     t.push_back((uint8_t)name.size());
     for (char c : name) t.push_back((uint8_t)c);
@@ -3839,7 +3883,18 @@ bool O45Linker::generateOverlayStubs(std::string& errorMsg) {
             t.push_back(first & 0xFF); t.push_back((first >> 8) & 0xFF);
             t.push_back(len & 0xFF); t.push_back((len >> 8) & 0xFF);
         }
+    }
     for (int k = 0; k < 6; k++) ovlTableAddr_[k] = globalSymbols_["__ovl_table" + std::to_string(k)];
+    // the overlay return stack (#689: its depth --overlay-depth): four
+    // arrays of a byte per level, __ovl_rlo, __ovl_rhi (the caller's return
+    // address), __ovl_rid (the overlay to bring back), __ovl_rwt (the one
+    // the call entered)
+    ovlRstkAddr_ = textBase_ + (uint32_t)t.size();
+    t.insert(t.end(), 4 * (size_t)ovlDepth_, 0);
+    for (int k = 0; k < 4; k++) {
+        globalSymbols_[ovlRstkName(k)] = ovlRstkAddr_ + k * (uint32_t)ovlDepth_;
+        symbolSource_[ovlRstkName(k)] = "<linker>"; symbolWeak_[ovlRstkName(k)] = false;
+    }
     for (const auto* s2 : {"__ovl_table0", "__ovl_table1", "__ovl_table2", "__ovl_table3", "__ovl_table4",
                            "__ovl_table5", "__ovl_file"}) { symbolSource_[s2] = "<linker>"; symbolWeak_[s2] = false; }
     ovlFileAddr_ = globalSymbols_["__ovl_file"];

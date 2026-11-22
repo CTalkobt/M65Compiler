@@ -1,0 +1,151 @@
+; ovl_load.s45 — the code overlays' files loaded at start: ovl.s45's part
+; for it, linked by ln45 unless --overlay-no-load (the program loads them
+; itself, #689). ovl.s45's __ovl_init calls __ovl_files (ln45's
+; __ovl_loader).
+;
+; It loads the overlay files, which ln45 writes next to the program, into
+; far memory through the KERNAL (SETBNK, SETNAM, SETLFS, LOAD) from the
+; device the program was loaded from; the KERNAL loads into chip RAM only,
+; so a file kept in attic RAM is loaded into a staging bank and copied up
+; by DMA. ln45's __ovl_file: the number of files, the name's length, the
+; name (PETSCII; each file has its own last character), then a record of 8
+; bytes per file (ovl.s45's header). A missing file prints ?OVERLAY FILE
+; and ends the program (crt0's __abort: exit status $FFFE).
+
+; no calls through pointers here but the unpacker's (ln45's call graph)
+.weak cc45.icallinfo
+cc45.icallinfo = 1
+
+.global __ovl_files
+.extern __ovl_file, __ovl_unpacker, __ovl_job, ___cbm_target, __rom_call, __abort
+
+.segment "bss"
+__ovl_rec:  .res 1          ; the file's record in __ovl_file
+__ovl_n:    .res 1          ; the files still to load
+__ovl_lq:   .res 4          ; a packed file's address for the unpacker
+
+.segment "code"
+__ovl_msg:
+    .byte 13, $3F, $4F, $56, $45, $52, $4C, $41, $59, $20, $46, $49, $4C, $45, 13   ; "?OVERLAY FILE"
+__ovl_msg_end:
+
+proc __ovl_files
+    lda __ovl_file
+    sta __ovl_n
+    lda __ovl_file+1        ; the first record: after the name
+    clc
+    adc #2
+    sta __ovl_rec
+@file:
+    ; the file's name: its own last character
+    ldy __ovl_rec
+    ldx __ovl_file+1
+    lda __ovl_file,y
+    sta __ovl_file+1,x
+    ; SETBNK: A = the bank of the data, X = the bank of the file name
+    lda #$6B
+    sta ___cbm_target
+    lda #$FF
+    sta ___cbm_target+1
+    lda __ovl_file+1,y
+    and #$0F
+    ldx #0
+    jsr __rom_call
+    ; SETNAM: A = length, X/Y = the name
+    lda #$BD
+    sta ___cbm_target
+    lda __ovl_file+1
+    ldx #<(__ovl_file+2)
+    ldy #>(__ovl_file+2)
+    jsr __rom_call
+    ; SETLFS 0, the program's device (8 when none is known), 1: load to
+    ; the address the file starts with
+    lda #$BA
+    sta ___cbm_target
+    ldx $00BA
+    cpx #8
+    bcs @dev
+    ldx #8
+@dev:
+    lda #0
+    ldy #1
+    jsr __rom_call
+    ; LOAD (to the file's own address, in the bank SETBNK set)
+    lda #$D5
+    sta ___cbm_target
+    lda #0
+    ldx #0
+    ldy #0
+    jsr __rom_call
+    bcs @fail
+    ; attic RAM's: copied up from the staging bank, to the same address in
+    ; its bank
+    ldy __ovl_rec
+    lda __ovl_file+2,y
+    beq @next
+    cmp #$FF
+    bne @attic
+    ; a packed file: unpacked from where it was loaded (its bank, address)
+    lda __ovl_file+4,y
+    sta __ovl_lq
+    lda __ovl_file+5,y
+    sta __ovl_lq+1
+    lda __ovl_file+1,y
+    and #$0F
+    sta __ovl_lq+2
+    lda #0
+    sta __ovl_lq+3
+    ldq __ovl_lq
+    jsr __ovl_unpacker
+    bra @next
+@attic:
+    sta __ovl_job+4         ; destination megabyte
+    lda #0
+    sta __ovl_job+2         ; source megabyte: chip RAM
+    lda __ovl_file+1,y
+    and #$0F
+    sta __ovl_job+11
+    lda __ovl_file+3,y
+    sta __ovl_job+14
+    lda __ovl_file+4,y
+    sta __ovl_job+9
+    sta __ovl_job+12
+    lda __ovl_file+5,y
+    sta __ovl_job+10
+    sta __ovl_job+13
+    lda __ovl_file+6,y
+    sta __ovl_job+7
+    lda __ovl_file+7,y
+    sta __ovl_job+8
+    lda #0
+    php
+    sei
+    sta $D702
+    sta $D704
+    lda #>__ovl_job
+    sta $D701
+    lda #<__ovl_job
+    sta $D705
+    plp
+@next:
+    lda __ovl_rec
+    clc
+    adc #8
+    sta __ovl_rec
+    dec __ovl_n
+    bne @file
+    rts
+@fail:
+    ldx #0
+@msg:
+    lda #$D2                ; CHROUT the message
+    sta ___cbm_target
+    lda __ovl_msg,x
+    phx
+    jsr __rom_call
+    plx
+    inx
+    cpx #__ovl_msg_end - __ovl_msg
+    bne @msg
+    jmp __abort
+endproc

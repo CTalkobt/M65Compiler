@@ -1529,17 +1529,51 @@ done
 # bank 4, run in the program's own area (--overlay-region at a symbol), the
 # file put on the disk by basic45; loaded again after the program reuses
 # the area. A region too small for the largest overlay: a link error
-for bomode in "|" "c|--compile"; do
-    IFS='|' read -r boname boflags <<< "$bomode"
+# (#689: --overlay-no-load, the program BLOADs the file itself, no loader;
+# with --overlay-depth=2, the return stack two levels deep)
+for bomode in "||ovl" "c|--compile|ovl" "nl|--overlay-no-load --overlay-depth=2|ovlnl" \
+              "nlc|--compile --overlay-no-load --overlay-depth=2|ovlnl"; do
+    IFS='|' read -r boname boflags bosrc <<< "$bomode"
     bod=build/test/basic45_ovl$boname
     rm -rf $bod; mkdir -p $bod
-    echo "Testing test_basic45_ovl_xemu.bas $boflags..."
+    echo "Testing test_basic45_${bosrc}_xemu.bas $boflags..."
     if ./bin/basic45 --strict $boflags --link src/test-resources/basic45_ovl/main.c --link src/test-resources/basic45_ovl/cold.c \
            --overlay-store=0x40000-0x4FFFF --overlay-region=_mod_area+512 --disk $bod/bovl.d81 \
-           src/test-resources/test_basic45_ovl_xemu.bas -o $bod/bovl.prg >/dev/null 2>&1 && [ -f $bod/bovl.ov1 ]; then
+           src/test-resources/test_basic45_${bosrc}_xemu.bas -o $bod/bovl.prg >/dev/null 2>&1 && [ -f $bod/bovl.ov1 ]; then
         run_xemu_test "test_basic45_ovl$boname" "$bod/bovl.prg" "C0C0" 7 "01 01 01 01 01 01 AA" -8 "$PWD/$bod/bovl.d81"
     else
-        echo "FAIL: test_basic45_ovl_xemu.bas $boflags (basic45 --link with overlays failed)"
+        echo "FAIL: test_basic45_${bosrc}_xemu.bas $boflags (basic45 --link with overlays failed)"
+        failed=$((failed + 1))
+    fi
+done
+# #689: calls through overlays nested deeper than --overlay-depth=8 (the
+# overlay test's 20-level recursion, [3]): the program ends, exit status
+# $FFFE (crt0's __abort), after the checks before it passed
+echo "Testing code overlays --overlay-depth=8 overflow..."
+odd=build/test/overlay_depth
+rm -rf $odd; mkdir -p $odd
+if $CC -c src/test-resources/overlay/main.c -o $odd/main.o45 >/dev/null 2>&1 &&
+   $CC -c src/test-resources/overlay/ovl_a.c -o $odd/ovl_a.o45 >/dev/null 2>&1 &&
+   $CC -c src/test-resources/overlay/ovl_b.c -o $odd/ovl_b.o45 >/dev/null 2>&1 &&
+   $LD -basic --overlay-depth=8 -o $odd/ovltest.prg $odd/main.o45 $odd/ovl_a.o45 $odd/ovl_b.o45 $STDLIB >/dev/null 2>&1 &&
+   ./bin/disk45 create $odd/ovl.d81 -n OVLTEST >/dev/null 2>&1 &&
+   ./bin/disk45 add $odd/ovl.d81 $odd/ovltest.ov1 OVLTEST.OV1 >/dev/null 2>&1; then
+    run_xemu_test "test_overlay_depth_overflow" "$odd/ovltest.prg" "C0C0" 4 "01 01 01 00" -8 "$PWD/$odd/ovl.d81"
+    run_xemu_test "test_overlay_depth_overflow_status" "$odd/ovltest.prg" "00FD" 2 "FE FF" -8 "$PWD/$odd/ovl.d81"
+else
+    echo "FAIL: code overlays --overlay-depth=8 (build or link failed)"
+    failed=$((failed + 1))
+fi
+# #689: --overlay-no-load with packed files or attic RAM, a depth out of range: errors
+for oerr in "--overlay-no-load --pack-overlays|--pack-overlays" "--overlay-no-load --overlay-store=0x8000000|attic RAM" \
+            "--overlay-depth=0|--overlay-depth" "--overlay-depth=256|--overlay-depth"; do
+    IFS='|' read -r oeflags oemsg <<< "$oerr"
+    echo "Testing ln45 $oeflags (an error)..."
+    if [ -f $odd/main.o45 ] && ! out=$($LD -basic $oeflags -o $odd/err.prg $odd/main.o45 $odd/ovl_a.o45 $odd/ovl_b.o45 $STDLIB 2>&1) &&
+       echo "$out" | grep -q -- "$oemsg"; then
+        passed=$((passed + 1))
+    else
+        echo "FAIL: ln45 $oeflags (not the error: $out)"
         failed=$((failed + 1))
     fi
 done

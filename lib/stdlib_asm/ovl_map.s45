@@ -1,0 +1,112 @@
+; ovl_map.s45 — mapped code overlays (ln45 --overlay-map, __far functions):
+; ovl.s45's parts for them, linked by ln45 only then (#689; copied overlays
+; keep crt0's weak __ovl_rom_leave, __ovl_exit and __ovl_dma_fix).
+;
+; Mapped overlays run where they are kept: the window (8 KB blocks of
+; $4000-$7FFF, the lower half of the map) is mapped to the overlay with MAP;
+; no copying. The upper half stays as the ROM keeps it (the KERNAL at $E000
+; is mapped there), taken at start from the map the KERNAL records as
+; current ($011C-$011F), and the overlay's map is written there too, so the
+; ROM's own map changes (interrupts, far calls) put the overlay back when
+; they restore it. After every ROM call (crt0's __bp_prog) __ovl_rom_leave
+; maps it again; __exit (__ovl_exit) restores the ROM's map.
+
+; no calls through pointers here (ln45's call graph)
+.weak cc45.icallinfo
+cc45.icallinfo = 1
+
+.global __ovl_mload, __ovl_minit, __ovl_rom_leave, __ovl_exit, __ovl_dma_fix
+.extern __ovl_cur, __ovl_region, __ovl_table0, __ovl_table1, __dma_job
+
+.segment "bss"
+__ovl_map:  .res 4          ; the MAP registers in effect
+__ovl_sys:  .res 4          ; the ROM's map at start
+__ovl_q:    .res 4          ; (A, X, Y, Z across MAP)
+
+.segment "code"
+; At start (ovl.s45's __ovl_init): the ROM's map, whose upper half the
+; overlays' keeps
+proc __ovl_minit
+    ldq $011C
+    stq __ovl_sys
+    rts
+endproc
+
+; ovl.s45's __ovl_load for mapped overlays: X the overlay's index in the
+; tables (its id - 1)
+proc __ovl_mload
+    lda __ovl_table0,x      ; the lower half of the map: the window
+    sta __ovl_map
+    lda __ovl_table1,x
+    sta __ovl_map+1
+    lda __ovl_sys+2         ; the upper half: the ROM's
+    sta __ovl_map+2
+    lda __ovl_sys+3
+    sta __ovl_map+3
+    ldq __ovl_map
+    stq $011C               ; (the KERNAL's current map)
+    map
+    eom
+    rts
+endproc
+
+; memcpy, memmove, memset (dma_mem.s45): an address of their DMA job
+; (__dma_job+X: bits 0-15, bank) the CPU sees in the window of mapped
+; overlays is where the overlay in it is kept: + the window's MAP offset.
+; A, X, Y and the flags kept.
+proc __ovl_dma_fix
+    php
+    pha
+    lda __ovl_cur
+    beq @done
+    lda __dma_job+1,x
+    cmp #>__ovl_region
+    bcc @done
+    cmp #$80
+    bcs @done
+    clc
+    adc __ovl_map           ; (bits 8-15 of the offset)
+    sta __dma_job+1,x
+    lda __ovl_map+1
+    and #$0F                ; (bits 16-19)
+    adc __dma_job+2,x
+    sta __dma_job+2,x
+@done:
+    pla
+    plp
+    rts
+endproc
+
+; The overlay's map again after a ROM call (crt0's __bp_prog), and the
+; ROM's map at exit (crt0's __exit). A, X, Y, Z and the flags kept.
+proc __ovl_rom_leave
+    php
+    stq __ovl_q
+    lda __ovl_cur
+    beq @done
+    ldq __ovl_map
+    stq $011C
+    map
+    eom
+@done:
+    ldq __ovl_q
+    plp
+    rts
+endproc
+
+proc __ovl_exit
+    php
+    stq __ovl_q
+    lda __ovl_cur
+    beq @done
+    lda #0
+    sta __ovl_cur
+    ldq __ovl_sys
+    stq $011C
+    map
+    eom
+@done:
+    ldq __ovl_q
+    plp
+    rts
+endproc

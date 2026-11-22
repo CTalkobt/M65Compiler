@@ -4,11 +4,9 @@
 ; below the stack's share) and is kept in far memory; its data and BSS stay
 ; resident. ln45 links this runtime when a program has overlays.
 ;
-; __ovl_init (called by crt0 before main) loads the overlay files, which ln45
-; writes next to the program, into far memory through the KERNAL (SETBNK,
-; SETNAM, SETLFS, LOAD) from the device the program was loaded from; the
-; KERNAL loads into chip RAM only, so a file kept in attic RAM is loaded into
-; a staging bank and copied up by DMA.
+; __ovl_init (called by crt0 before main) clears the state and has the
+; overlay files loaded into far memory (ovl_load.s45; unless ln45
+; --overlay-no-load: the program loads them itself).
 ;
 ; A call from outside an overlay goes through a stub ln45 generates, 6
 ; bytes (#332):
@@ -57,6 +55,17 @@
 ;                  RAM, from the staging bank into attic RAM) by
 ;   __ovl_unpacker the address of __ovl_unpack (ovl_unpack.s45; 0 when the
 ;                  files are not packed)
+;   __ovl_rlo, __ovl_rhi, __ovl_rid, __ovl_rwt  the overlay return stack
+;                  (__ovl_depth entries each, ln45 --overlay-depth, #689)
+;   __ovl_loader   ovl_load.s45's __ovl_files, which loads the files (0:
+;                  ln45 --overlay-no-load, the program loads them itself)
+;   __ovl_mapper, __ovl_mapinit  ovl_map.s45's __ovl_mload and
+;                  __ovl_minit (0: copied overlays, that member not linked)
+;
+; This member has what copied overlays need; ln45 links the others only
+; when the program needs them (#689): ovl_load.s45 (the files' loader),
+; ovl_map.s45 (mapped overlays: __ovl_rom_leave, __ovl_exit, __ovl_dma_fix;
+; crt0's weak versions otherwise), ovl_jmp.s45 (setjmp / longjmp).
 ;
 ; Mapped overlays (ln45 --overlay-map) run where they are kept: the window
 ; (8 KB blocks of $4000-$7FFF, the lower half of the map) is mapped to the
@@ -74,32 +83,24 @@ cc45.icallinfo = 1
 .weak cc45.icall.__ovl_call
 cc45.icall.__ovl_call = 1
 
-.global __ovl_init, __ovl_call, __ovl_calli, __ovl_ret, __ovl_load, __ovl_rom_leave, __ovl_exit
-.global __ovl_sa, __ovl_want, __ovl_tgt, __ovl_cur, ___ovl_current
-.global __ovl_jsave, __ovl_jrestore, __ovl_dma_fix
-.extern __ovl_region, __ovl_region_end, __ovl_file, __ovl_mapped, __ovl_unpacker
+.global __ovl_init, __ovl_call, __ovl_calli, __ovl_ret, __ovl_load
+.global __ovl_sa, __ovl_want, __ovl_tgt, __ovl_cur, ___ovl_current, __ovl_rsp, __ovl_job
+.extern __ovl_region, __ovl_loader, __ovl_mapper, __ovl_mapinit, __ovl_depth
+.extern __ovl_rlo, __ovl_rhi, __ovl_rid, __ovl_rwt
 .extern __ovl_table0, __ovl_table1, __ovl_table2, __ovl_table3, __ovl_table4, __ovl_table5
-.extern ___cbm_target, __rom_call, _abort, __dma_job
-
-OVL_DEPTH = 32
+.extern __abort
 
 .segment "bss"
 __ovl_sx:   .res 1          ; X, Y, Z and the flags across the call
 __ovl_sy:   .res 1
 __ovl_sz:   .res 1
 __ovl_sf:   .res 1
-__ovl_map:  .res 4          ; mapped overlays: the MAP registers in effect
-__ovl_sys:  .res 4          ; the ROM's map at start
-__ovl_q:    .res 4          ; (A, X, Y, Z across MAP)
 ___ovl_current:             ; (C: __ovl_current, <overlay.h>)
 __ovl_cur:  .res 1          ; the overlay in the region (0: none)
-__ovl_rsp:  .res 1          ; the overlay return stack
-__ovl_rlo:  .res OVL_DEPTH
-__ovl_rhi:  .res OVL_DEPTH
-__ovl_rid:  .res OVL_DEPTH  ; the overlay to bring back on the return
-__ovl_rwt:  .res OVL_DEPTH  ; the overlay the call entered
-__ovl_rec:  .res 1          ; __ovl_init: the file's record in __ovl_file
-__ovl_n:    .res 1          ;             the files still to load
+__ovl_rsp:  .res 1          ; the overlay return stack (ln45 places it:
+                            ; __ovl_rlo, __ovl_rhi, __ovl_rid, the overlay
+                            ; to bring back on the return, __ovl_rwt, the
+                            ; overlay the call entered)
 __ovl_ix:   .res 1          ; __ovl_calli: X and Y while it reads the stub
 __ovl_iy:   .res 1
 
@@ -118,9 +119,24 @@ __ovl_job:
     .byte 0, 0, 0           ; source: bits 0-15, bank
     .byte 0, 0, 0           ; destination
     .byte 0, 0, 0
-__ovl_msg:
-    .byte 13, $3F, $4F, $56, $45, $52, $4C, $41, $59, $20, $46, $49, $4C, $45, 13   ; "?OVERLAY FILE"
-__ovl_msg_end:
+
+; At start (crt0, or __basic_call's first call): no overlay in the region,
+; the return stack empty; the mapped overlays' state, and the files loaded
+; (each when linked)
+proc __ovl_init
+    lda #0
+    sta __ovl_cur
+    sta __ovl_rsp
+    lda #>__ovl_mapinit
+    beq @nomap
+    jsr __ovl_mapinit
+@nomap:
+    lda #>__ovl_loader
+    beq @done
+    jmp __ovl_loader
+@done:
+    rts
+endproc
 
 ; The 6-byte stub's entry: jsr __ovl_calli / .byte id / .word f. Its return
 ; address is the stub's last byte: the id and the function follow it. Pulled
@@ -153,9 +169,10 @@ proc __ovl_call
     sty __ovl_sy
     stz __ovl_sz
     ldx __ovl_rsp
-    cpx #OVL_DEPTH
+    cpx #__ovl_depth
     bcc @room
-    jmp _abort              ; calls through overlays nested too deep
+    jmp __abort             ; calls through overlays nested too deep (exit
+                            ; status $FFFE; not abort(): no raise, #689)
 @room:
     pla                     ; the caller's return address
     sta __ovl_rlo,x
@@ -220,55 +237,15 @@ __ovl_ret:
     rts
 endproc
 
-; setjmp/longjmp (setjmp.s45; jmp_buf at $10/$11): setjmp saves the overlay
-; return stack's depth and the overlay in the region in env[6], env[7];
-; longjmp puts them back -- the calls it leaves are dropped, and the
-; overlay setjmp was called from (if any) is brought back before execution
-; continues there. A, Y (and in __ovl_jrestore X, Z) are changed, $10-$13 kept.
-proc __ovl_jsave
-    ldy #6
-    lda __ovl_rsp
-    sta ($10),y
-    iny
-    lda __ovl_cur
-    sta ($10),y
-    rts
-endproc
-
-proc __ovl_jrestore
-    ldy #6
-    lda ($10),y
-    sta __ovl_rsp
-    iny
-    lda ($10),y
-    beq @done               ; (none was in yet: the code there is resident)
-    cmp __ovl_cur
-    beq @done
-    jsr __ovl_load
-@done:
-    rts
-endproc
-
 ; Overlay A (1..n) into the region by DMA, or mapped into the window
+; (ovl_map.s45's __ovl_mload)
 proc __ovl_load
     sta __ovl_cur
     tax                     ; its index in the tables: A - 1
     dex
-    lda #<__ovl_mapped
+    lda #>__ovl_mapper
     beq @copy
-    lda __ovl_table0,x      ; the lower half of the map: the window
-    sta __ovl_map
-    lda __ovl_table1,x
-    sta __ovl_map+1
-    lda __ovl_sys+2         ; the upper half: the ROM's
-    sta __ovl_map+2
-    lda __ovl_sys+3
-    sta __ovl_map+3
-    ldq __ovl_map
-    stq $011C               ; (the KERNAL's current map)
-    map
-    eom
-    rts
+    jmp __ovl_mapper
 @copy:
     lda __ovl_table0,x      ; source: bits 0-15, bank, megabyte
     sta __ovl_job+9
@@ -300,200 +277,4 @@ proc __ovl_load
     sta $D705
     plp
     rts
-endproc
-
-; memcpy, memmove, memset (dma_mem.s45): an address of their DMA job
-; (__dma_job+X: bits 0-15, bank) the CPU sees in the window of mapped
-; overlays is where the overlay in it is kept: + the window's MAP offset.
-; A, X, Y and the flags kept.
-proc __ovl_dma_fix
-    php
-    pha
-    lda #<__ovl_mapped
-    beq @done
-    lda __ovl_cur
-    beq @done
-    lda __dma_job+1,x
-    cmp #>__ovl_region
-    bcc @done
-    cmp #$80
-    bcs @done
-    clc
-    adc __ovl_map           ; (bits 8-15 of the offset)
-    sta __dma_job+1,x
-    lda __ovl_map+1
-    and #$0F                ; (bits 16-19)
-    adc __dma_job+2,x
-    sta __dma_job+2,x
-@done:
-    pla
-    plp
-    rts
-endproc
-
-; Mapped overlays: the overlay's map again after a ROM call (crt0's
-; __bp_prog), and the ROM's map at exit (crt0's __exit). A, X, Y, Z and the
-; flags kept.
-proc __ovl_rom_leave
-    php
-    stq __ovl_q
-    lda #<__ovl_mapped
-    beq @done
-    lda __ovl_cur
-    beq @done
-    ldq __ovl_map
-    stq $011C
-    map
-    eom
-@done:
-    ldq __ovl_q
-    plp
-    rts
-endproc
-
-proc __ovl_exit
-    php
-    stq __ovl_q
-    lda #<__ovl_mapped
-    beq @done
-    lda __ovl_cur
-    beq @done
-    lda #0
-    sta __ovl_cur
-    ldq __ovl_sys
-    stq $011C
-    map
-    eom
-@done:
-    ldq __ovl_q
-    plp
-    rts
-endproc
-
-; Load the overlay files into far memory (attic RAM's through the staging
-; bank, then copied up by DMA)
-proc __ovl_init
-    lda #0
-    sta __ovl_cur
-    sta __ovl_rsp
-    ldq $011C               ; the ROM's map (mapped overlays keep its upper half)
-    stq __ovl_sys
-    lda __ovl_file
-    sta __ovl_n
-    lda __ovl_file+1        ; the first record: after the name
-    clc
-    adc #2
-    sta __ovl_rec
-@file:
-    ; the file's name: its own last character
-    ldy __ovl_rec
-    ldx __ovl_file+1
-    lda __ovl_file,y
-    sta __ovl_file+1,x
-    ; SETBNK: A = the bank of the data, X = the bank of the file name
-    lda #$6B
-    sta ___cbm_target
-    lda #$FF
-    sta ___cbm_target+1
-    lda __ovl_file+1,y
-    and #$0F
-    ldx #0
-    jsr __rom_call
-    ; SETNAM: A = length, X/Y = the name
-    lda #$BD
-    sta ___cbm_target
-    lda __ovl_file+1
-    ldx #<(__ovl_file+2)
-    ldy #>(__ovl_file+2)
-    jsr __rom_call
-    ; SETLFS 0, the program's device (8 when none is known), 1: load to
-    ; the address the file starts with
-    lda #$BA
-    sta ___cbm_target
-    ldx $00BA
-    cpx #8
-    bcs @dev
-    ldx #8
-@dev:
-    lda #0
-    ldy #1
-    jsr __rom_call
-    ; LOAD (to the file's own address, in the bank SETBNK set)
-    lda #$D5
-    sta ___cbm_target
-    lda #0
-    ldx #0
-    ldy #0
-    jsr __rom_call
-    bcs @fail
-    ; attic RAM's: copied up from the staging bank, to the same address in
-    ; its bank
-    ldy __ovl_rec
-    lda __ovl_file+2,y
-    beq @next
-    cmp #$FF
-    bne @attic
-    ; a packed file: unpacked from where it was loaded (its bank, address)
-    lda __ovl_file+4,y
-    sta __ovl_q
-    lda __ovl_file+5,y
-    sta __ovl_q+1
-    lda __ovl_file+1,y
-    and #$0F
-    sta __ovl_q+2
-    lda #0
-    sta __ovl_q+3
-    ldq __ovl_q
-    jsr __ovl_unpacker
-    bra @next
-@attic:
-    sta __ovl_job+4         ; destination megabyte
-    lda #0
-    sta __ovl_job+2         ; source megabyte: chip RAM
-    lda __ovl_file+1,y
-    and #$0F
-    sta __ovl_job+11
-    lda __ovl_file+3,y
-    sta __ovl_job+14
-    lda __ovl_file+4,y
-    sta __ovl_job+9
-    sta __ovl_job+12
-    lda __ovl_file+5,y
-    sta __ovl_job+10
-    sta __ovl_job+13
-    lda __ovl_file+6,y
-    sta __ovl_job+7
-    lda __ovl_file+7,y
-    sta __ovl_job+8
-    lda #0
-    php
-    sei
-    sta $D702
-    sta $D704
-    lda #>__ovl_job
-    sta $D701
-    lda #<__ovl_job
-    sta $D705
-    plp
-@next:
-    lda __ovl_rec
-    clc
-    adc #8
-    sta __ovl_rec
-    dec __ovl_n
-    bne @file
-    rts
-@fail:
-    ldx #0
-@msg:
-    lda #$D2                ; CHROUT the message
-    sta ___cbm_target
-    lda __ovl_msg,x
-    phx
-    jsr __rom_call
-    plx
-    inx
-    cpx #__ovl_msg_end - __ovl_msg
-    bne @msg
-    jmp _abort
 endproc

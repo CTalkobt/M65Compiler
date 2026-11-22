@@ -632,7 +632,7 @@ OU_ERR=$(./bin/cc45 -O2 -c $ou/main.c -o $ou/main.o45 2>&1 && ./bin/cc45 -O2 -c 
          ./bin/ln45 -basic --pack-overlays -o $ou/p.prg $ou/main.o45 $ou/ovl.o45 lib/build/c45.lib 2>&1)
 OU_W1=$(./bin/cc45 -O2 $ou/pc.c -o $ou/pc.prg 2>&1)
 OU_W2=$(./bin/cc45 -O2 -Wl,-Wno-override $ou/pc.c -o $ou/pc.prg 2>&1)
-if grep -q "'___unpack' (code overlay one) is reachable from the overlay loader (__ovl_init -> __ovl_unpacker -> __ovl_unpack -> ___unpack)" <<< "$OU_ERR" &&
+if grep -q "'___unpack' (code overlay one) is reachable from the overlay loader (__ovl_init -> __ovl_files -> __ovl_unpacker -> __ovl_unpack -> ___unpack)" <<< "$OU_ERR" &&
    grep -q "warning: '_putchar' of .* overrides the library's (.*asm_putchar.o45)), which .*vprintf.o45) uses" <<< "$OU_W1" &&
    ! grep -q "overrides the library's" <<< "$OU_W2"; then
     echo "SUCCESS: the overlay loader reaches no overlay; a program's library function overriding warns"

@@ -69,6 +69,10 @@ static void printUsage(const char* progName) {
     std::cout << "  --overlay-region=ADDR-END, ADDR+SIZE" << std::endl;
     std::cout << "                        Copied overlays run at ADDR (an address, or a symbol the program" << std::endl;
     std::cout << "                        defines: _mod_area+6280), not below the stack; the largest must fit" << std::endl;
+    std::cout << "  --overlay-no-load     The program loads the overlay files itself (no loader at start:" << std::endl;
+    std::cout << "                        chip RAM stores, not packed)" << std::endl;
+    std::cout << "  --overlay-depth=N     Calls through overlays nested at most N deep (1-255, default 32;" << std::endl;
+    std::cout << "                        4 bytes each)" << std::endl;
     std::cout << "  --overlay-map         Map overlays into a window of 8 KB blocks (MAP) instead of copying them" << std::endl;
     std::cout << "  --overlay-fast-stubs  Overlay call stubs of 21 bytes (default 6: jsr __ovl_calli and the data)," << std::endl;
     std::cout << "                        a few cycles faster per call" << std::endl;
@@ -111,6 +115,8 @@ int main(int argc, char** argv) {
     std::vector<std::pair<uint32_t, uint32_t>> ovlStores;   // code overlays: --overlay-store, --overlay-name, --overlay-out
     std::string ovlName, ovlOut;
     bool ovlMap = false;
+    bool ovlNoLoad = false;   // --overlay-no-load (#689)
+    int ovlDepth = 32;        // --overlay-depth (#689)
     // --overlay-region (#685): its start, an address or a symbol, and its
     // end (inclusive) or its size (+SIZE)
     std::string ovlRegion, ovlRegionSym;
@@ -279,6 +285,17 @@ int main(int argc, char** argv) {
         }
         else if (arg.rfind("--overlay-name=", 0) == 0) { ovlName = arg.substr(15); }
         else if (arg == "--overlay-map") { ovlMap = true; }
+        else if (arg == "--overlay-no-load") { ovlNoLoad = true; }
+        else if (arg.rfind("--overlay-depth=", 0) == 0) {
+            std::string v = arg.substr(16);
+            char* e = nullptr;
+            long n = std::strtol(v.c_str(), &e, 10);
+            if (v.empty() || *e || n < 1 || n > 255) {
+                std::cerr << "ln45: error: invalid --overlay-depth value '" << v << "' (1-255)" << std::endl;
+                return 1;
+            }
+            ovlDepth = (int)n;
+        }
         else if (arg.rfind("--overlay-region=", 0) == 0) {
             // ADDR-END or ADDR+SIZE; ADDR a number ($C000, 0xC000, C000: hex,
             // as -t) or a symbol (anything else: _mod_area)
@@ -410,6 +427,20 @@ int main(int argc, char** argv) {
         if (!zpPlanOut.empty()) linker.setZpPlanOut(zpPlanOut);
         linker.setOverlayFastStubs(ovlFastStubs);
         linker.setPackOverlays(packOverlays);
+        if (ovlNoLoad && packOverlays) {
+            std::cerr << "ln45: error: --overlay-no-load with --pack-overlays: the program loads the files as they "
+                      << "are (no loader unpacks them)" << std::endl;
+            return 1;
+        }
+        if (ovlNoLoad)
+            for (const auto& r : ovlStores)
+                if (r.first >= 0x8000000) {
+                    std::cerr << "ln45: error: --overlay-no-load with an attic RAM store: the program loads the files "
+                              << "itself, into chip RAM (no loader copies them up)" << std::endl;
+                    return 1;
+                }
+        linker.setOverlayNoLoad(ovlNoLoad);
+        linker.setOverlayDepth(ovlDepth);
         linker.setOverlayStaging(ovlStaging);
     }
 
