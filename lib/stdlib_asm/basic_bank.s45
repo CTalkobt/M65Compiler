@@ -41,13 +41,13 @@ MULTINA = $D770
 MULTINB = $D774
 MULTOUT = $D778
 
-fp      = $08       ; 32-bit address in the bank: offset, bank, 0
-cur     = $0C       ; the heap's block being looked at
-prev    = $0E       ; the one before it in the free list
-vp      = $0C       ; (outside the heap's routines) a variable in bank 0
-size    = $F6       ; (library temps of the program's base page)
+fp      = $08               ; 32-bit address in the bank: offset, bank, 0
+cur     = $0C               ; the heap's block being looked at
+prev    = $0E               ; the one before it in the free list
+vp      = $0C               ; (outside the heap's routines) a variable in bank 0
+size    = $F6               ; (library temps of the program's base page)
 next    = $F8
-bb      = $F8       ; ffree: the block freed
+bb      = $F8               ; ffree: the block freed
 need    = $FA
 
 .extern __bas_sa
@@ -75,13 +75,13 @@ __bas_areff:
     lda __bas_n
     sta nsub
     asl a
-    sta dim2            ; 2 * the subscripts
+    sta dim2                ; 2 * the subscripts
     inc a
-    sta hdr             ; the header's bytes: 1 + 2n
+    sta hdr                 ; the header's bytes: 1 + 2n
     lda __bas_m
     and #$3F
     sta esz
-    lda #0              ; (the multiplier's upper input bytes)
+    lda #0                  ; (the multiplier's upper input bytes)
     sta MULTINA+2
     sta MULTINA+3
     sta MULTINB+2
@@ -100,7 +100,7 @@ __bas_areff:
     beq ar_make
     bit __bas_m
     bpl ar_look
-    lda #19             ; ?REDIMENSIONED ARRAY
+    lda #19                 ; ?REDIMENSIONED ARRAY
     bra raise
 
 ; the array made: bytes := the size * each dimension's, at most $FF00
@@ -116,7 +116,7 @@ ar_count:
     jsr dimk
     sta MULTINB
     ora tmp
-    beq oom             ; (DIM 65535)
+    beq oom                 ; (DIM 65535)
     lda tmp
     sta MULTINB+1
     lda cnt
@@ -140,7 +140,7 @@ ar_fits:
     inx
     bra ar_count
 ar_counted:
-    clc                 ; falloc(the header + the elements)
+    clc                     ; falloc(the header + the elements)
     lda cnt
     adc hdr
     pha
@@ -154,12 +154,12 @@ ar_counted:
     ora arr+1
     bne ar_got
 oom:
-    lda #16             ; ?OUT OF MEMORY
+    lda #16                 ; ?OUT OF MEMORY
 raise:
     ldz #0
     jmp __bas_raise
 ar_got:
-    lda arr             ; the header
+    lda arr                 ; the header
     sta fp
     lda arr+1
     sta fp+1
@@ -180,7 +180,7 @@ ar_head:
     inx
     bra ar_head
 ar_headed:
-    clc                 ; the elements := 0 (numbers 0, strings the empty one)
+    clc                     ; the elements := 0 (numbers 0, strings the empty one)
     lda arr
     adc hdr
     sta fp
@@ -207,7 +207,7 @@ ar_zbyte:
     dex
     bne ar_zbyte
 ar_zdone:
-    lda __bas_sa        ; the variable := the array (falloc used vp's bytes)
+    lda __bas_sa            ; the variable := the array (falloc used vp's bytes)
     sta vp
     lda __bas_sa+1
     sta vp+1
@@ -218,7 +218,7 @@ ar_zdone:
     lda arr+1
     sta (vp),y
     ldz #0
-    bit __bas_m         ; DIM: done
+    bit __bas_m             ; DIM: done
     bpl ar_look
     rts
 
@@ -273,7 +273,7 @@ ar_in:
     sta off+1
     bra ar_dim
 ar_found:
-    lda off             ; __bas_n := the array + the header + offset * size
+    lda off                 ; __bas_n := the array + the header + offset * size
     sta MULTINA
     lda off+1
     sta MULTINA+1
@@ -298,7 +298,7 @@ ar_found:
     ldz #0
     rts
 bad:
-    lda #18             ; ?BAD SUBSCRIPT
+    lda #18                 ; ?BAD SUBSCRIPT
     bra raise
 
 ; X = 2k: A := dimension k's size, low byte (tmp the high one); Y, Z kept
@@ -340,7 +340,7 @@ __bas_sfetch:
     lda __bas_n
     ora __bas_n+1
     bne sf_go
-    sta (vp),y          ; (the empty string)
+    sta (vp),y              ; (the empty string)
     ldz #0
     rts
 sf_go:
@@ -350,7 +350,7 @@ sf_go:
     lda __bas_n+1
     sta fp+1
     ldz #0
-    lda [fp],z          ; the length and the characters, from the last
+    lda [fp],z              ; the length and the characters, from the last
     tay
     taz
 sf_copy:
@@ -365,8 +365,8 @@ sf_copy:
 
 __bas_sstore:
     jsr bankp
-    lda __bas_n         ; (freed first: its room is the new one's, the
-    ldx __bas_n+1       ; string being in bank 0)
+    lda __bas_n             ; (freed first: its room is the new one's, the
+    ldx __bas_n+1           ; string being in bank 0)
     jsr ffree
     lda __bas_sa
     sta vp
@@ -375,27 +375,27 @@ __bas_sstore:
     ldy #0
     lda (vp),y
     bne ss_some
-    sta __bas_n         ; the empty string: 0
+    sta __bas_n             ; the empty string: 0
     sta __bas_n+1
     ldz #0
     rts
 ss_some:
     sta tmp
-    ldx #0              ; falloc(the length + 1)
+    ldx #0                  ; falloc(the length + 1)
     inc a
     bne ss_lo
-    inx                 ; (255 + 1)
+    inx                     ; (255 + 1)
 ss_lo:
     jsr falloc
     sta __bas_n
     stx __bas_n+1
     ora __bas_n+1
-    beq oom             ; (__bas_n 0)
+    beq oom                 ; (__bas_n 0)
     lda __bas_n
     sta fp
     lda __bas_n+1
     sta fp+1
-    lda __bas_sa        ; (falloc used vp's bytes)
+    lda __bas_sa            ; (falloc used vp's bytes)
     sta vp
     lda __bas_sa+1
     sta vp+1
@@ -443,7 +443,7 @@ af_some:
     lda __bas_m
     ora __bas_m+1
     beq af_block
-    lda #0              ; strings: cnt := the elements (16 bits)
+    lda #0                  ; strings: cnt := the elements (16 bits)
     sta MULTINA+2
     sta MULTINA+3
     sta MULTINB+2
@@ -463,7 +463,7 @@ af_some:
 af_count:
     cpx #0
     beq af_counted
-    txa                 ; (X = 2k + 2: dimension k's size at 2k + 1)
+    txa                     ; (X = 2k + 2: dimension k's size at 2k + 1)
     dec a
     taz
     lda [fp],z
@@ -483,7 +483,7 @@ af_count:
     dex
     bra af_count
 af_counted:
-    sec                 ; e := the elements: the array + 1 + 2n
+    sec                     ; e := the elements: the array + 1 + 2n
     lda arr
     adc dim2
     sta off
@@ -523,7 +523,7 @@ af_block:
     lda arr
     ldx arr+1
     jsr ffree
-    lda __bas_sa        ; the variable := 0
+    lda __bas_sa            ; the variable := 0
     sta vp
     lda __bas_sa+1
     sta vp+1
@@ -542,13 +542,13 @@ af_block:
 ; A/X = n bytes: A/X := their offset (0: no room). The first fitting block;
 ; its end taken when the rest is a block (4 bytes or more), else the whole.
 falloc:
-    clc                 ; need := n + 2, at least 4
+    clc                     ; need := n + 2, at least 4
     adc #2
     sta need
     txa
     adc #0
     sta need+1
-    bcs fa_none         ; (n > $FFFD)
+    bcs fa_none             ; (n > $FFFD)
     bne fa_ready
     lda need
     cmp #4
@@ -558,7 +558,7 @@ falloc:
 fa_ready:
     bit ready
     bmi fa_list
-    lda #$FF            ; the first: one free block, the whole range
+    lda #$FF                ; the first: one free block, the whole range
     sta ready
     lda __bas_fstart
     sta freep
@@ -596,7 +596,7 @@ fa_loop:
     sta fp
     lda cur+1
     sta fp+1
-    ldz #0              ; size, next
+    ldz #0                  ; size, next
     lda [fp],z
     sta size
     inz
@@ -608,7 +608,7 @@ fa_loop:
     inz
     lda [fp],z
     sta next+1
-    sec                 ; size := the rest (size - need), if it fits
+    sec                     ; size := the rest (size - need), if it fits
     lda size
     sbc need
     sta size
@@ -620,7 +620,7 @@ fa_loop:
     lda size
     cmp #4
     bcs fa_split
-    lda prev            ; the whole block: out of the list
+    lda prev                ; the whole block: out of the list
     ora prev+1
     beq fa_head
     lda prev
@@ -640,7 +640,7 @@ fa_head:
     lda next+1
     sta freep+1
     bra fa_ret
-fa_split:               ; its end taken (the list stays as it is)
+fa_split:                   ; its end taken (the list stays as it is)
     ldz #0
     lda size
     sta [fp],z
@@ -664,7 +664,7 @@ fa_split:               ; its end taken (the list stays as it is)
     sta [fp],z
 fa_ret:
     ldz #0
-    clc                 ; the data: past the size word
+    clc                     ; the data: past the size word
     lda cur
     adc #2
     pha
@@ -698,7 +698,7 @@ ffree:
     bne ff_go
     rts
 ff_go:
-    sec                 ; bb := the block
+    sec                     ; bb := the block
     lda bb
     sbc #2
     sta bb
@@ -712,7 +712,7 @@ ff_b:
     sta cur
     lda freep+1
     sta cur+1
-ff_walk:                ; prev, cur: the free blocks around it
+ff_walk:                    ; prev, cur: the free blocks around it
     lda cur
     ora cur+1
     beq ff_end
@@ -748,7 +748,7 @@ ff_end:
     inz
     lda [fp],z
     sta size+1
-    lda cur             ; cur just after it: merged
+    lda cur                 ; cur just after it: merged
     ora cur+1
     beq ff_prev
     clc
@@ -782,7 +782,7 @@ ff_end:
     stx cur
     sta cur+1
 ff_prev:
-    lda prev            ; prev just before it: it takes the block
+    lda prev                ; prev just before it: it takes the block
     ora prev+1
     beq ff_link
     lda prev
@@ -818,7 +818,7 @@ ff_prev:
     sta [fp],z
     ldz #0
     rts
-ff_link:                ; else a block of its own, between them
+ff_link:                    ; else a block of its own, between them
     lda bb
     sta fp
     lda bb+1
@@ -859,10 +859,10 @@ ff_first:
     rts
 
 .segment "bss"
-__bas_ecell: .res 5     ; an element between the bank and the program
-                        ; (basic_bankx.s45)
-freep:  .res 2          ; the first free block (0: none)
-ready:  .res 1          ; $FF: the heap set up
+__bas_ecell: .res 5         ; an element between the bank and the program
+                            ; (basic_bankx.s45)
+freep:  .res 2              ; the first free block (0: none)
+ready:  .res 1              ; $FF: the heap set up
 arr:    .res 2
 cnt:    .res 2
 off:    .res 2

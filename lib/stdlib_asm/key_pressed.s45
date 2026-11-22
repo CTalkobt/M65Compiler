@@ -24,16 +24,16 @@ proc _key_pressed
     .reg_clobbers A, X, Y
     .flag_clobbers C, N, Z
 
-    tay                 ; Y = keycode
+    tay                     ; Y = keycode
     and #$07
-    sta $D614           ; the matrix row to read
+    sta $D614               ; the matrix row to read
     tya
     lsr
     lsr
     lsr
     and #$07
-    tax                 ; X = the key's bit in the row
-    lda $D613           ; the row: a bit 0 = key down
+    tax                     ; X = the key's bit in the row
+    lda $D613               ; the row: a bit 0 = key down
     eor #$FF
     and @bit_table,x
     beq @not_pressed

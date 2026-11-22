@@ -18,7 +18,7 @@
 .weak cc45.icallinfo
 cc45.icallinfo = 1
 
-RECS = 32               ; records a bank
+RECS = 32                   ; records a bank
 
 .global _far_malloc, _far_free, _far_size_long, _far_reserve, _bank_reset, _bank_reset_all
 .global ___far_heap_avail
@@ -27,28 +27,28 @@ RECS = 32               ; records a bank
 .extern ___ovl_store2_bank, ___ovl_store2_first, ___ovl_store2_last
 
 .segment "bss"
-__fh_offl:      .res 64 ; the records: offset low, high
+__fh_offl:      .res 64     ; the records: offset low, high
 __fh_offh:      .res 64
-__fh_sizl:      .res 64 ; size low, high
+__fh_sizl:      .res 64     ; size low, high
 __fh_sizh:      .res 64
-__fh_st:        .res 64 ; state: 0 allocated, 1 free, 2 kept
-__fh_n:         .res 2  ; records in use, bank 4, 5
-__fh_resf:      .res 32 ; far_reserve's ranges: first (linear, 4 bytes)
-__fh_resl:      .res 32 ; last
-__fh_resn:      .res 1  ; how many
-__fh_bank:      .res 1  ; the bank worked on (4, 5)
-__fh_base:      .res 1  ; its first record (0, 32)
-__fh_end:       .res 1  ; past its last
-__fh_i:         .res 1  ; a record
-__fh_need:      .res 1  ; records a carve adds
-__fh_size:      .res 2  ; far_malloc's size
-__fh_first:     .res 2  ; a range in the bank (carve), an offset (far_free)
+__fh_st:        .res 64     ; state: 0 allocated, 1 free, 2 kept
+__fh_n:         .res 2      ; records in use, bank 4, 5
+__fh_resf:      .res 32     ; far_reserve's ranges: first (linear, 4 bytes)
+__fh_resl:      .res 32     ; last
+__fh_resn:      .res 1      ; how many
+__fh_bank:      .res 1      ; the bank worked on (4, 5)
+__fh_base:      .res 1      ; its first record (0, 32)
+__fh_end:       .res 1      ; past its last
+__fh_i:         .res 1      ; a record
+__fh_need:      .res 1      ; records a carve adds
+__fh_size:      .res 2      ; far_malloc's size
+__fh_first:     .res 2      ; a range in the bank (carve), an offset (far_free)
 __fh_last:      .res 2
-__fh_lo:        .res 2  ; a free record's first, last byte (carve)
+__fh_lo:        .res 2      ; a free record's first, last byte (carve)
 __fh_hi:        .res 2
-__fh_lf:        .res 4  ; carve_linear's range
+__fh_lf:        .res 4      ; carve_linear's range
 __fh_ll:        .res 4
-__fh_t:         .res 2  ; a temporary
+__fh_t:         .res 2      ; a temporary
 
 .segment "code"
 
@@ -455,7 +455,7 @@ proc _far_malloc
     lda $13
     sta __fh_size+1
     jsr __fh_init
-    ldx __fh_base            ; first fit
+    ldx __fh_base           ; first fit
 @find:
     cpx __fh_end
     bcs @null
@@ -605,7 +605,7 @@ proc _far_free
     bcs @out
     lda #1
     sta __fh_st,x
-    ldx __fh_base            ; merge free neighbours
+    ldx __fh_base           ; merge free neighbours
 @merge:
     inx
     cpx __fh_end

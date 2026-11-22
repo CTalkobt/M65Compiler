@@ -4,6 +4,24 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### al45 style rules and the af45 formatter (#611)
+
+- **al45** `mega65-style-*` (off by default; `--checks='mega65-style-*'` or by id in `.cc45-lint.yml`), from the
+  source text: `-whitespace` (tabs, trailing spaces, a final newline), `-label` (labels and constants at column 1),
+  `-indent` (instructions after `mega65-style-instruction-column` spaces, 4; directives there or at column 1, or
+  lined up in a table), `-operand` (one space, or `mega65-style-operand-column`), `-comment` (`;` comments; trailing
+  ones at `mega65-style-comment-column`, 28, or two spaces after longer code), `-label-name`, `-local-name`,
+  `-constant-name` (regular expressions; exported names are not constants). An option that is not a column or a
+  regular expression is an error.
+- **af45**, a link to ca45: lays a file out as the rules describe, whitespace only (the bytes assembled do not
+  change), idempotent; to standard output, `-w` in place, `--check` (exit status 1), `-o`, `--config`, `--option`.
+- The defaults are the library's layout. Its trailing comments were at column 25 or 29: 29 has room for the code
+  of 99% of its commented lines (25: 94%). af45 changed 1577 lines of 89 library files (trailing comments moved from column 25, and
+  the 29 with one space before them, whitespace only); all 159 objects are byte-identical. `make lint-lib` runs the
+  style rules.
+- Tests: `test_af45.sh` (`src/test-resources/af45/messy.s45`: its findings, its formatted text, the same bytes
+  assembled, idempotence, the options, naming, NOLINT, errors; the library formatted).
+
 ### Code overlays: a smaller resident runtime (#689)
 
 - The runtime is split: `ovl.s45` (calls, copying, state) and, only when needed, `ovl_load.s45` (the files'

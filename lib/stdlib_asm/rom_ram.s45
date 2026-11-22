@@ -10,8 +10,8 @@ cc45.icallinfo = 1
 
 .global _romram_enable, _romram_protect, _romram_ranges, __romram_exit
 
-RR_PTR = $F6            ; 32-bit pointer for [RR_PTR],z (library temps)
-RR_OLD = $FA            ; the byte read before the test write
+RR_PTR = $F6                ; 32-bit pointer for [RR_PTR],z (library temps)
+RR_OLD = $FA                ; the byte read before the test write
 
 .segment "code"
 
@@ -21,18 +21,18 @@ proc _romram_enable
     .reg_clobbers A, X, Y, Z
     .flag_clobbers C, N, Z, V
     lda $10
-    beq @fail                   ; (no region)
-    and #$FE                    ; (only ROMRAM_C64 so far)
+    beq @fail               ; (no region)
+    and #$FE                ; (only ROMRAM_C64 so far)
     bne @fail
     lda #$02
-    sta $D641                   ; writes on
+    sta $D641               ; writes on
     clv
     lda #1
     sta __romram_on
     ; ROMRAM_C64: a byte of each of its two ranges takes a write
     ldx #0
 @range:
-    lda __rr_c64 + 4,x          ; the range's first address
+    lda __rr_c64 + 4,x      ; the range's first address
     sta RR_PTR
     lda __rr_c64 + 5,x
     sta RR_PTR + 1
@@ -45,15 +45,15 @@ proc _romram_enable
     sta RR_OLD
     eor #$FF
     sta [RR_PTR],z
-    cmp [RR_PTR],z              ; did it take?
+    cmp [RR_PTR],z          ; did it take?
     php
     lda RR_OLD
-    sta [RR_PTR],z              ; (put it back)
+    sta [RR_PTR],z          ; (put it back)
     plp
     bne @fail
     txa
     clc
-    adc #8                      ; the next first/last pair
+    adc #8                  ; the next first/last pair
     tax
     cpx #16
     bne @range
@@ -70,7 +70,7 @@ proc _romram_protect
     .reg_clobbers A
     .flag_clobbers N, Z, V
     lda #$00
-    sta $D641                   ; writes off
+    sta $D641               ; writes off
     clv
     sta __romram_on
     rts
@@ -83,7 +83,7 @@ proc _romram_ranges
     .reg_clobbers A, X
     .flag_clobbers C, N, Z
     lda $10
-    cmp #1                      ; ROMRAM_C64
+    cmp #1                  ; ROMRAM_C64
     bne @none
     lda #<__rr_c64
     ldx #>__rr_c64
@@ -112,7 +112,7 @@ proc __romram_exit
     endproc
 
 .segment "data"
-    .byte 0                     ; (a relocation at offset 0 cannot be encoded)
+    .byte 0                 ; (a relocation at offset 0 cannot be encoded)
 ; ROMRAM_C64: 2 ranges, first / last
 __rr_c64:
     .long 2

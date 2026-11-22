@@ -36,28 +36,28 @@
 .weak cc45.icallinfo
 cc45.icallinfo = 1
 
-D       = $08       ; a direction: 0 or 2
-CL      = $09       ; the colour taken out (erase)
-CT_ES   = $0A       ; (container.s45's: copy and compare)
+D       = $08               ; a direction: 0 or 2
+CL      = $09               ; the colour taken out (erase)
+CT_ES   = $0A               ; (container.s45's: copy and compare)
 CT_P    = $0C
 CT_Q    = $0E
-TP      = $0C       ; a node (the colour helpers)
-T       = $10       ; the tree
-K       = $12       ; the key (next: the element)
-VAL     = $14       ; the value (a map's insert)
-N       = $16       ; nodes
+TP      = $0C               ; a node (the colour helpers)
+T       = $10               ; the tree
+K       = $12               ; the key (next: the element)
+VAL     = $14               ; the value (a map's insert)
+N       = $16               ; nodes
 P       = $18
 XN      = $1A
 XP      = $1C
 W       = $1E
 YN      = $20
-R       = $20       ; (the search's lower bound: not at the same time as YN)
+R       = $20               ; (the search's lower bound: not at the same time as YN)
 ZN      = $22
-TU      = $24       ; rotate's x, transplant's u
-TV      = $26       ; rotate's y, transplant's v
-TW      = $28       ; rotate's w
-TG      = $2A       ; transplant's parent
-ZLO     = $08       ; what __ts_save keeps
+TU      = $24               ; rotate's x, transplant's u
+TV      = $26               ; rotate's y, transplant's v
+TW      = $28               ; rotate's w
+TG      = $2A               ; transplant's parent
+ZLO     = $08               ; what __ts_save keeps
 ZLEN    = $24
 
 N_PAR   = 4
@@ -288,7 +288,7 @@ endproc
 proc __ts_compare
     .reg_clobbers A, X, Y, Z
     .flag_clobbers C, N, Z, V
-    clc                 ; CT_Q = the node's element
+    clc                     ; CT_Q = the node's element
     lda N
     adc #N_KEY
     sta CT_Q
@@ -300,7 +300,7 @@ proc __ts_compare
     iny
     ora (T),y
     bne @fn
-    mov CT_P, K         ; no cmp: the key's bytes
+    mov CT_P, K             ; no cmp: the key's bytes
     ldy #F_KS
     lda (T),y
     sta CT_ES
@@ -321,7 +321,7 @@ proc __ts_compare
     lda (T),y
     sta ___ct_cmpf+1
     jsr __ts_save
-    mov $10, K          ; cmp(key, element)
+    mov $10, K              ; cmp(key, element)
     mov $12, CT_Q
     jsr ___ct_cmp
     pha
@@ -329,7 +329,7 @@ proc __ts_compare
     jsr __ts_restore
     plx
     pla
-    cpx #$80            ; (negative: before)
+    cpx #$80                ; (negative: before)
     bcs @lt
     cpx #0
     bne @gt
@@ -359,10 +359,10 @@ proc __ts_search
     tax
     beq @found
     mov P, N
-    ldy #2              ; after this node: link[1]
+    ldy #2                  ; after this node: link[1]
     cpx #$FF
     bne @go
-    mov R, N            ; before it: link[0], and it is after the key
+    mov R, N                ; before it: link[0], and it is after the key
     ldy #0
 @go:
     sty D
@@ -391,7 +391,7 @@ proc __ts_transplant
     put T, 0, TV
     bra @parent
 @child:
-    ldy #0              ; TU's side of TG
+    ldy #0                  ; TU's side of TG
     lda (TG),y
     cmp TU
     bne @upper
@@ -420,16 +420,16 @@ endproc
 ; rotate(TU, D): TV = TU.link[d^2] up into TU's place, TU down towards d
 ; (d 0: a left rotation)
 proc __ts_rotate
-    geto TV, TU         ; y = x.link[d^2]
-    getd TW, TV         ; w = y.link[d]
-    puto TU, TW         ; x.link[d^2] = w
+    geto TV, TU             ; y = x.link[d^2]
+    getd TW, TV             ; w = y.link[d]
+    puto TU, TW             ; x.link[d^2] = w
     isnull TW
     beq @1
-    put TW, N_PAR, TU   ; w.parent = x
+    put TW, N_PAR, TU       ; w.parent = x
 @1:
-    jsr __ts_transplant ; y in x's place
-    putd TV, TU         ; y.link[d] = x
-    put TU, N_PAR, TV   ; x.parent = y
+    jsr __ts_transplant     ; y in x's place
+    putd TV, TU             ; y.link[d] = x
+    put TU, N_PAR, TV       ; x.parent = y
     rts
 endproc
 
@@ -449,7 +449,7 @@ proc __ts_value
     sta CT_ES+1
     ora CT_ES
     beq @none
-    jsr __ts_elem       ; CT_P = N + 7 + ksize
+    jsr __ts_elem           ; CT_P = N + 7 + ksize
     ldy #F_KS
     clc
     adc (T),y
@@ -488,7 +488,7 @@ proc _tset__init
     lda $15
     sta ($10),y
     iny
-    lda $12             ; ksize = esize
+    lda $12                 ; ksize = esize
     sta ($10),y
     iny
     lda $13
@@ -504,12 +504,12 @@ proc _tset__insert
     jsr __ts_search
     cmp #0
     bne @new
-    jsr __ts_value      ; there already (a map's value replaced)
+    jsr __ts_value          ; there already (a map's value replaced)
     lda #0
     tax
     rts
 @new:
-    jsr __ts_save       ; z = malloc(7 + esize)
+    jsr __ts_save           ; z = malloc(7 + esize)
     ldy #F_ES+1
     lda (T),y
     tax
@@ -532,11 +532,11 @@ proc _tset__insert
     stx ZN+1
     ora ZN+1
     bne @got
-    lda #$FF            ; no memory
+    lda #$FF                ; no memory
     tax
     rts
 @got:
-    lda #0              ; links NULL, parent P, red, the key, the value
+    lda #0                  ; links NULL, parent P, red, the key, the value
     ldy #3
 @zero:
     sta (ZN),y
@@ -559,14 +559,14 @@ proc _tset__insert
     sta CT_ES+1
     jsr __ct_copy
     jsr __ts_value
-    isnull P            ; under P on side D, or the root
+    isnull P                ; under P on side D, or the root
     bne @under
     put T, 0, ZN
     bra @linked
 @under:
     putd P, ZN
 @linked:
-    ldy #2              ; len + 1
+    ldy #2                  ; len + 1
     lda (T),y
     clc
     adc #1
@@ -575,20 +575,20 @@ proc _tset__insert
     lda (T),y
     adc #0
     sta (T),y
-@fix:                   ; while z's parent is red
+@fix:                       ; while z's parent is red
     get P, ZN, N_PAR
     ldx #P
     jsr __ts_isred
     bcs @red
     jmp @done
 @red:
-    get XN, P, N_PAR    ; g (a red node is not the root: it exists)
-    side XN, P          ; D: p's side of g
-    geto W, XN          ; the uncle
+    get XN, P, N_PAR        ; g (a red node is not the root: it exists)
+    side XN, P              ; D: p's side of g
+    geto W, XN              ; the uncle
     ldx #W
     jsr __ts_isred
     bcc @black
-    lda #0              ; red uncle: p, u black, g red, up two
+    lda #0                  ; red uncle: p, u black, g red, up two
     ldx #P
     jsr __ts_paint
     lda #0
@@ -600,12 +600,12 @@ proc _tset__insert
     mov ZN, XN
     jmp @fix
 @black:
-    geto YN, P          ; z on the inner side: rotate it out
+    geto YN, P              ; z on the inner side: rotate it out
     eq YN, ZN
     bne @outer
     mov ZN, P
     mov TU, P
-    jsr __ts_rotate     ; rotate(z, d)
+    jsr __ts_rotate         ; rotate(z, d)
     get P, ZN, N_PAR
 @outer:
     lda #0
@@ -615,13 +615,13 @@ proc _tset__insert
     lda #1
     ldx #XN
     jsr __ts_paint
-    mov TU, XN          ; rotate(g, d ^ 2)
+    mov TU, XN              ; rotate(g, d ^ 2)
     lda D
     eor #2
     sta D
     jsr __ts_rotate
 @done:
-    get N, T, 0         ; the root black
+    get N, T, 0             ; the root black
     lda #0
     ldx #N
     jsr __ts_paint
@@ -643,7 +643,7 @@ proc _tset__erase
     rts
 @found:
     mov ZN, N
-    ldy #N_COL          ; the colour taken out: z's
+    ldy #N_COL              ; the colour taken out: z's
     lda (ZN),y
     sta CL
     get XN, ZN, 2
@@ -651,52 +651,52 @@ proc _tset__erase
     lda (ZN),y
     iny
     ora (ZN),y
-    beq @one            ; no lower child: the upper in its place
+    beq @one                ; no lower child: the upper in its place
     isnull XN
     bne @two
-    get XN, ZN, 0       ; no upper child: the lower in its place
+    get XN, ZN, 0           ; no upper child: the lower in its place
 @one:
     get XP, ZN, N_PAR
     mov TU, ZN
     mov TV, XN
     jsr __ts_transplant
     jmp @removed
-@two:                   ; two: its successor y in its place
+@two:                       ; two: its successor y in its place
     mov N, XN
     jsr __ts_min
     mov YN, N
-    ldy #N_COL          ; the colour taken out: y's
+    ldy #N_COL              ; the colour taken out: y's
     lda (YN),y
     sta CL
     get XN, YN, 2
     get XP, YN, N_PAR
     eq XP, ZN
     bne @deeper
-    mov XP, YN          ; y is z's child: x stays under y
+    mov XP, YN              ; y is z's child: x stays under y
     bra @place
 @deeper:
-    mov TU, YN          ; y out of its place, x in it
+    mov TU, YN              ; y out of its place, x in it
     mov TV, XN
     jsr __ts_transplant
-    get W, ZN, 2        ; y.link[1] = z.link[1], its parent y
+    get W, ZN, 2            ; y.link[1] = z.link[1], its parent y
     put YN, 2, W
     put W, N_PAR, YN
 @place:
-    mov TU, ZN          ; y in z's place
+    mov TU, ZN              ; y in z's place
     mov TV, YN
     jsr __ts_transplant
-    get W, ZN, 0        ; y.link[0] = z.link[0], its parent y
+    get W, ZN, 0            ; y.link[0] = z.link[0], its parent y
     put YN, 0, W
     put W, N_PAR, YN
-    ldy #N_COL          ; y takes z's colour
+    ldy #N_COL              ; y takes z's colour
     lda (ZN),y
     sta (YN),y
 @removed:
-    jsr __ts_save       ; free(z)
+    jsr __ts_save           ; free(z)
     mov $10, ZN
     jsr _free
     jsr __ts_restore
-    ldy #2              ; len - 1
+    ldy #2                  ; len - 1
     lda (T),y
     sec
     sbc #1
@@ -706,9 +706,9 @@ proc _tset__erase
     sbc #0
     sta (T),y
     lda CL
-    beq @loop           ; a black node out: the fixup
+    beq @loop               ; a black node out: the fixup
     jmp @ok
-@loop:                  ; while x is not the root and black
+@loop:                      ; while x is not the root and black
     ldy #0
     lda (T),y
     cmp XN
@@ -724,12 +724,12 @@ proc _tset__erase
     bcc @xblack
     jmp @end
 @xblack:
-    side XP, XN         ; D: x's side of xp
-    geto W, XP          ; w: the sibling
+    side XP, XN             ; D: x's side of xp
+    geto W, XP              ; w: the sibling
     ldx #W
     jsr __ts_isred
     bcc @wblack
-    lda #0              ; red sibling: w black, xp red, rotate(xp, d)
+    lda #0                  ; red sibling: w black, xp red, rotate(xp, d)
     ldx #W
     jsr __ts_paint
     lda #1
@@ -739,7 +739,7 @@ proc _tset__erase
     jsr __ts_rotate
     geto W, XP
 @wblack:
-    getd N, W           ; N: the near nephew, P: the far one
+    getd N, W               ; N: the near nephew, P: the far one
     geto P, W
     ldx #N
     jsr __ts_isred
@@ -747,14 +747,14 @@ proc _tset__erase
     ldx #P
     jsr __ts_isred
     bcs @nephew
-    lda #1              ; both black: w red, up one
+    lda #1                  ; both black: w red, up one
     ldx #W
     jsr __ts_paint
     mov XN, XP
     get XP, XN, N_PAR
     jmp @loop
 @nephew:
-    ldx #P              ; the far one black: rotate(w, d ^ 2)
+    ldx #P                  ; the far one black: rotate(w, d ^ 2)
     jsr __ts_isred
     bcs @far
     lda #0
@@ -773,7 +773,7 @@ proc _tset__erase
     sta D
     geto W, XP
 @far:
-    ldy #N_COL          ; w takes xp's colour; xp, the far nephew black
+    ldy #N_COL              ; w takes xp's colour; xp, the far nephew black
     lda (XP),y
     sta (W),y
     lda #0
@@ -783,7 +783,7 @@ proc _tset__erase
     lda #0
     ldx #P
     jsr __ts_paint
-    mov TU, XP          ; rotate(xp, d); done
+    mov TU, XP              ; rotate(xp, d); done
     jsr __ts_rotate
     get XN, T, 0
 @end:
@@ -848,14 +848,14 @@ endproc
 proc _tset__next
     .zp_uses $10, $11, $12, $13
     clobbers
-    sec                 ; N: e's node
+    sec                     ; N: e's node
     lda K
     sbc #N_KEY
     sta N
     lda K+1
     sbc #0
     sta N+1
-    ldy #2              ; an upper subtree: its lowest
+    ldy #2                  ; an upper subtree: its lowest
     lda (N),y
     iny
     ora (N),y
@@ -863,7 +863,7 @@ proc _tset__next
     follow N, 2
     jsr __ts_min
     jmp __ts_elem
-@up:                    ; else up while N is its parent's link[1]
+@up:                        ; else up while N is its parent's link[1]
     get P, N, N_PAR
     isnull P
     beq @none
@@ -909,7 +909,7 @@ proc _tset__clear
 @loop:
     isnull N
     beq @empty
-    ldy #0              ; down while there is a child
+    ldy #0                  ; down while there is a child
     lda (N),y
     iny
     ora (N),y
@@ -924,7 +924,7 @@ proc _tset__clear
     beq @leaf
     follow N, 2
     bra @loop
-@leaf:                  ; a leaf: out of its parent, freed
+@leaf:                      ; a leaf: out of its parent, freed
     get P, N, N_PAR
     isnull P
     beq @free
@@ -942,7 +942,7 @@ proc _tset__clear
     mov N, P
     bra @loop
 @empty:
-    lda #0              ; root NULL, len 0
+    lda #0                  ; root NULL, len 0
     ldy #3
 @z:
     sta (T),y
@@ -967,19 +967,19 @@ proc _tmap__init
     .zp_uses $10, $11, $12, $13, $14, $15, $16, $17
     .reg_clobbers A, Y
     .flag_clobbers C, N, Z, V
-    ldy #8              ; ksize
+    ldy #8                  ; ksize
     lda $12
     sta ($10),y
     iny
     lda $13
     sta ($10),y
-    ldy #6              ; cmp
+    ldy #6                  ; cmp
     lda $16
     sta ($10),y
     iny
     lda $17
     sta ($10),y
-    ldy #4              ; esize = ksize + vsize
+    ldy #4                  ; esize = ksize + vsize
     clc
     lda $12
     adc $14
@@ -988,7 +988,7 @@ proc _tmap__init
     lda $13
     adc $15
     sta ($10),y
-    lda #0              ; empty
+    lda #0                  ; empty
     ldy #3
 @z:
     sta ($10),y

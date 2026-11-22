@@ -30,9 +30,9 @@ cc45.icallinfo = 1
 .global _font_put_cells
 .extern ___font_glyph, ___dma_copy_far
 
-FP = $08                ; the font_t (2 bytes)
-SP = $0A                ; the string; font_width's sum; font_put_cells' number
-WP = $0C                ; a far pointer (4 bytes)
+FP = $08                    ; the font_t (2 bytes)
+SP = $0A                    ; the string; font_width's sum; font_put_cells' number
+WP = $0C                    ; a far pointer (4 bytes)
 
 ; font_t's members
 F_HEIGHT = 0
@@ -48,69 +48,69 @@ F_WIDTHS = 10
 F_GLYPHS = 14
 
 .segment "data"
-__font_rampv:   .byte 1         ; font_ramp's first entry
-__font_clipv:                   ; font_clip's x0, y0, x1, y1 (nothing left of or above the buffer)
+__font_rampv:   .byte 1     ; font_ramp's first entry
+__font_clipv:               ; font_clip's x0, y0, x1, y1 (nothing left of or above the buffer)
     .word 0
     .word 0
     .word 32767
     .word 32767
 
 .segment "bss"
-__fd_kind:  .res 1      ; 0 a linear buffer, 1 FCM characters, 2 NCM ones
-__fd_f:     .res 2      ; the font_t
+__fd_kind:  .res 1          ; 0 a linear buffer, 1 FCM characters, 2 NCM ones
+__fd_f:     .res 2          ; the font_t
 __fd_lin:   .res 4
 __fd_pitch: .res 2
 __fd_x:     .res 2
 __fd_y:     .res 2
-__fd_gb:    .res 2      ; a glyph's bytes: height * rowbytes
-__fd_mask:  .res 1      ; (1 << bpp) - 1
-__fd_ink0:  .res 1      ; ramp first - 1
-__fd_ch:    .res 1      ; the code
-__fd_w:     .res 1      ; its advance
-__fd_g:     .res 4      ; its glyph's address
-__fd_t:     .res 4      ; 32-bit temporaries
+__fd_gb:    .res 2          ; a glyph's bytes: height * rowbytes
+__fd_mask:  .res 1          ; (1 << bpp) - 1
+__fd_ink0:  .res 1          ; ramp first - 1
+__fd_ch:    .res 1          ; the code
+__fd_w:     .res 1          ; its advance
+__fd_g:     .res 4          ; its glyph's address
+__fd_t:     .res 4          ; 32-bit temporaries
 __fd_p:     .res 4
-__fd_c0:    .res 1      ; the visible columns c0..c1 - 1, rows r0..r1 - 1
+__fd_c0:    .res 1          ; the visible columns c0..c1 - 1, rows r0..r1 - 1
 __fd_c1:    .res 1
 __fd_r0:    .res 1
 __fd_r1:    .res 1
-__fd_sl:    .res 2      ; __font_span: the clip's low and high ends,
-__fd_sh:    .res 2      ;   the position, the cell's size;
+__fd_sl:    .res 2          ; __font_span: the clip's low and high ends,
+__fd_sh:    .res 2          ;   the position, the cell's size;
 __fd_sp:    .res 2
 __fd_sn:    .res 1
-__fd_a0:    .res 1      ;   the first visible and the one after
+__fd_a0:    .res 1          ;   the first visible and the one after
 __fd_a1:    .res 1
-__fd_row:   .res 1      ; the characters' drawing (#670): the row,
-__fd_py:    .res 2      ;   y + row,
-__fd_bpp:   .res 1      ;   bits a pixel, pixels a byte (8 / bpp),
+__fd_row:   .res 1          ; the characters' drawing (#670): the row,
+__fd_py:    .res 2          ;   y + row,
+__fd_bpp:   .res 1          ;   bits a pixel, pixels a byte (8 / bpp),
 __fd_ppb:   .res 1
-__fd_bi0:   .res 1      ;   column c0's byte, bit, pixels left in its byte,
+__fd_bi0:   .res 1          ;   column c0's byte, bit, pixels left in its byte,
 __fd_bo:    .res 1
 __fd_pl0:   .res 1
-__fd_nb:    .res 1      ;   the next byte's index, z saved,
+__fd_nb:    .res 1          ;   the next byte's index, z saved,
 __fd_zs:    .res 1
-__fd_cpx:   .res 1      ;   pixels a cell (8 / 16), the first's pixel,
+__fd_cpx:   .res 1          ;   pixels a cell (8 / 16), the first's pixel,
 __fd_k:     .res 1
-__fd_cnt:   .res 1      ;   pixels drawn in the cell,
-__fd_cn:    .res 2      ;   the cell's character, the next one's step,
+__fd_cnt:   .res 1          ;   pixels drawn in the cell,
+__fd_cn:    .res 2          ;   the cell's character, the next one's step,
 __fd_step:  .res 2
-__fd_cn0:   .res 2      ;   the row's first cell's, the step a row of characters down,
+__fd_cn0:   .res 2          ;   the row's first cell's, the step a row of characters down,
 __fd_stepq: .res 2
-__fd_k0:    .res 1      ;   the row's first pixel in its cell
-__fd_shr:   .res 1      ;   3 (FCM: 8 pixels a character) or 4 (NCM: 16)
-__fd_pos:   .res 1      ;   1: numbered down the columns (pitch > 0)
-__fd_mp:    .res 2      ;   |pitch|
-__fd_pp:    .res 2      ;   px >> shr, py >> 3
+__fd_k0:    .res 1          ;   the row's first pixel in its cell
+__fd_shr:   .res 1          ;   3 (FCM: 8 pixels a character) or 4 (NCM: 16)
+__fd_pos:   .res 1          ;   1: numbered down the columns (pitch > 0)
+__fd_mp:    .res 2          ;   |pitch|
+__fd_pp:    .res 2          ;   px >> shr, py >> 3
 __fd_qq:    .res 2
 __fd_ad:    .res 2
 __fd_tmp:   .res 1
-__fc_e0:    .res 4      ; font_put_cells: screen + row * row_bytes
-__fc_shr:   .res 1      ;   3 (FCM) or 4 (NCM)
-__fc_base:  .res 2      ;   glyphs >> 6
-__fc_per:   .res 2      ;   cols * rows
+__fc_e0:    .res 4          ; font_put_cells: screen + row * row_bytes
+__fc_shr:   .res 1          ;   3 (FCM) or 4 (NCM)
+__fc_base:  .res 2          ;   glyphs >> 6
+__fc_per:   .res 2          ;   cols * rows
 __fc_w:     .res 1
-__fc_c:     .res 1      ;   the code
-__fc_ac:    .res 1      ;   the characters across
+__fc_c:     .res 1          ;   the code
+__fc_ac:    .res 1          ;   the characters across
 __fc_cx:    .res 1
 __fc_cy:    .res 1
 __fc_t:     .res 3

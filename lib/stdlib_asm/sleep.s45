@@ -36,7 +36,7 @@ proc _sleep
 @pal:
     sta $D774
 @busy:
-    bit $D70F           ; bit 6 -> V: the multiplier is busy
+    bit $D70F               ; bit 6 -> V: the multiplier is busy
     bvs @busy
     ldq $D778
     stq __sleep_goal
@@ -45,7 +45,7 @@ proc _sleep
     adcq __sleep_goal
     stq __sleep_goal
 @wait:
-    jsr _clock          ; until (long)(goal - now) <= 0
+    jsr _clock              ; until (long)(goal - now) <= 0
     stq __sleep_now
     ldq __sleep_goal
     sec

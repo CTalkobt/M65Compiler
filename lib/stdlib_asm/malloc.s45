@@ -26,7 +26,7 @@ cc45.icallinfo = 1
 .extern _memset
 
 .segment "bss"
-__heap_ptr: .res 2       ; Head of the sorted free list
+__heap_ptr: .res 2          ; Head of the sorted free list
 
 .segment "code"
 
@@ -63,7 +63,7 @@ proc _malloc
     lda $17
     adc #0
     bcc @no_wrap
-    jmp @fail           ; size > $FFFC: no block that large
+    jmp @fail               ; size > $FFFC: no block that large
 @no_wrap:
     tay
     txa
@@ -75,8 +75,8 @@ proc _malloc
     bcs @size_ok
     ldx #4
 @size_ok:
-    stx $16             ; Req size low
-    sty $17             ; Req size high
+    stx $16                 ; Req size low
+    sty $17                 ; Req size high
 
     ; 2. Ensure initialized
     lda __heap_ptr
@@ -88,21 +88,21 @@ proc _malloc
     beq @fail
 
 @search:
-    lda #0              ; prev = 0 (STZ stores the Z register, not zero)
+    lda #0                  ; prev = 0 (STZ stores the Z register, not zero)
     sta $12
     sta $13
     lda __heap_ptr
-    sta $10             ; curr = head
+    sta $10                 ; curr = head
     lda __heap_ptr+1
     sta $11
 
 @loop:
     ldy #0
     lda ($10),y
-    tax                 ; block size low
+    tax                     ; block size low
     iny
     lda ($10),y
-    tay                 ; block size high
+    tay                     ; block size high
 
     ; Compare (Y:X) with req ($17:$16)
     tya
@@ -119,15 +119,15 @@ proc _malloc
     txa
     sec
     sbc $16
-    sta $0B             ; remainder low (using extra ZP)
+    sta $0B                 ; remainder low (using extra ZP)
     tya
     sbc $17
-    pha                 ; remainder high (on stack temporarily)
+    pha                     ; remainder high (on stack temporarily)
 
     ora $0B
     beq @exact_match_pop
 
-    pla                 ; remainder high
+    pla                     ; remainder high
     pha
     bne @do_split_pop
     lda $0B
@@ -135,8 +135,8 @@ proc _malloc
     bcc @exact_match_pop
 
 @do_split_pop:
-    pla                 ; remainder high -> use in split
-    sta $02             ; stash remainder high in scratch
+    pla                     ; remainder high -> use in split
+    sta $02                 ; stash remainder high in scratch
 
     ; Split: new free block at curr + req_size
     lda $10
@@ -152,7 +152,7 @@ proc _malloc
     lda $0B
     sta ($14),y
     iny
-    lda $02             ; remainder high
+    lda $02                 ; remainder high
     sta ($14),y
 
     ; new_free->next = curr->next
@@ -182,7 +182,7 @@ proc _malloc
     bra @mark_used
 
 @exact_match_pop:
-    pla                 ; discard remainder high from stack
+    pla                     ; discard remainder high from stack
     ; Remove curr from free list: $14/$15 = curr->next (not in Y:X: Y is
     ; the index of the stores below, which lost the high byte)
     ldy #2
@@ -282,19 +282,19 @@ proc _free
     lda ($10),y
     and #$FE
     sta ($10),y
-    tax                 ; block size low
+    tax                     ; block size low
     iny
     lda ($10),y
-    tay                 ; block size high
-    stx $16             ; block size low
-    sty $17             ; block size high
+    tay                     ; block size high
+    stx $16                 ; block size low
+    sty $17                 ; block size high
 
     ; Find insertion point in sorted list
-    lda #0              ; prev = 0 (STZ stores the Z register, not zero)
+    lda #0                  ; prev = 0 (STZ stores the Z register, not zero)
     sta $12
     sta $13
     lda __heap_ptr
-    sta $14             ; next_p = head
+    sta $14                 ; next_p = head
     lda __heap_ptr+1
     sta $15
 
@@ -314,7 +314,7 @@ proc _free
 
 @search_next:
     lda $14
-    sta $12             ; prev = next_p
+    sta $12                 ; prev = next_p
     lda $15
     sta $13
     ldy #2
@@ -401,10 +401,10 @@ proc _free
 
     ldy #0
     lda ($12),y
-    tax                 ; prev->size low
+    tax                     ; prev->size low
     iny
     lda ($12),y
-    tay                 ; prev->size high
+    tay                     ; prev->size high
 
     txa
     clc
@@ -472,13 +472,13 @@ proc _calloc
     bne @overflow
     lda $D778
     ldx $D779
-    sta $10             ; malloc(total)
+    sta $10                 ; malloc(total)
     stx $11
-    pha                 ; total lo
+    pha                     ; total lo
     txa
-    pha                 ; total hi
+    pha                     ; total hi
     jsr _malloc
-    sta $16             ; result (memset clobbers $10-$15 only)
+    sta $16                 ; result (memset clobbers $10-$15 only)
     stx $17
     ora $17
     beq @fail
@@ -487,18 +487,18 @@ proc _calloc
     lda $16
     sta $10
     lda $17
-    sta $11             ; dest = result
-    lda #0              ; c = 0
+    sta $11                 ; dest = result
+    lda #0                  ; c = 0
     sta $12
     sta $13
     pla
-    sta $15             ; n hi
+    sta $15                 ; n hi
     pla
-    sta $14             ; n lo
+    sta $14                 ; n lo
     jsr _memset
 
-    lda $16  ; NOLINT(mega65-zp-param-block): memset leaves $16/$17 (its .zp_clobbers: $10-$15)
-    ldx $17  ; NOLINT(mega65-zp-param-block): as above
+    lda $16                 ; NOLINT(mega65-zp-param-block): memset leaves $16/$17 (its .zp_clobbers: $10-$15)
+    ldx $17                 ; NOLINT(mega65-zp-param-block): as above
     rts
 @fail:
     pla
@@ -544,31 +544,31 @@ proc _realloc
 @do_realloc:
     ; malloc clobbers $12-$17: keep ptr and size on the stack
     lda $10
-    pha                 ; ptr lo
+    pha                     ; ptr lo
     lda $11
-    pha                 ; ptr hi
+    pha                     ; ptr hi
     lda $12
-    pha                 ; size lo
+    pha                     ; size lo
     lda $13
-    pha                 ; size hi
+    pha                     ; size hi
     lda $12
     sta $10
     lda $13
     sta $11
-    jsr _malloc         ; malloc(size)
-    sta $12             ; new_ptr lo (reuse $12/$13 for new ptr)
+    jsr _malloc             ; malloc(size)
+    sta $12                 ; new_ptr lo (reuse $12/$13 for new ptr)
     stx $13
     pla
-    sta $15             ; size hi
+    sta $15                 ; size hi
     pla
-    sta $14             ; size lo
+    sta $14                 ; size lo
     pla
-    sta $17             ; ptr hi
+    sta $17                 ; ptr hi
     pla
-    sta $16             ; ptr lo
+    sta $16                 ; ptr lo
     lda $12
     ora $13
-    beq @fail           ; out of memory: the old block is kept
+    beq @fail               ; out of memory: the old block is kept
 
     ; Get old block size: read header at (ptr - 2)
     lda $16
@@ -582,12 +582,12 @@ proc _realloc
     lda ($10),y
     and #$FE
     sec
-    sbc #2              ; old_data_size low
+    sbc #2                  ; old_data_size low
     tax
     iny
     lda ($10),y
-    sbc #0              ; old_data_size high
-    tay                 ; Y:X = old_data_size
+    sbc #0                  ; old_data_size high
+    tay                     ; Y:X = old_data_size
 
     ; count = min(old_data_size, new_size)
     tya
@@ -599,7 +599,7 @@ proc _realloc
     bcc @use_old
 @use_new:
     lda $14
-    sta $10             ; count lo (reuse $10/$11 for count... wait)
+    sta $10                 ; count lo (reuse $10/$11 for count... wait)
     lda $15
     bra @do_copy_setup
 @use_old:
@@ -607,25 +607,25 @@ proc _realloc
     sta $10
     tya
 @do_copy_setup:
-    sta $11             ; count hi in $11, count lo in $10
+    sta $11                 ; count hi in $11, count lo in $10
     ; Now: new_ptr=$12/$13, old_ptr=$16/$17, count=$10/$11
     ; Set up memcpy(new_ptr, old_ptr, count): dest=$10/$11, src=$12/$13, n=$14/$15
     lda $10
-    pha                 ; save count lo
+    pha                     ; save count lo
     lda $11
-    pha                 ; save count hi
+    pha                     ; save count hi
     lda $12
-    sta $10             ; dest = new_ptr
+    sta $10                 ; dest = new_ptr
     lda $13
     sta $11
     lda $16
-    sta $12             ; src = old_ptr
+    sta $12                 ; src = old_ptr
     lda $17
     sta $13
     pla
-    sta $15             ; n hi
+    sta $15                 ; n hi
     pla
-    sta $14             ; n lo
+    sta $14                 ; n lo
     ; Save new_ptr before memcpy clobbers $10/$11
     lda $10
     pha
@@ -634,16 +634,16 @@ proc _realloc
     jsr _memcpy
 
     ; free(old_ptr)
-    lda $16  ; NOLINT(mega65-zp-param-block): memcpy leaves $16/$17 (its .zp_clobbers: $10-$15)
+    lda $16                 ; NOLINT(mega65-zp-param-block): memcpy leaves $16/$17 (its .zp_clobbers: $10-$15)
     sta $10
-    lda $17  ; NOLINT(mega65-zp-param-block): as above
+    lda $17                 ; NOLINT(mega65-zp-param-block): as above
     sta $11
     jsr _free
 
     ; Return new_ptr
     pla
-    tax                 ; hi
-    pla                 ; lo
+    tax                     ; hi
+    pla                     ; lo
     rts
 @fail:
     lda #0
@@ -695,7 +695,7 @@ _heap_init:
     bne @calc_size
     lda #>__stack_top
     beq @stack8
-    lda #<__stack_top   ; __stack_top + 1 - __stack_size: the stack's share
+    lda #<__stack_top       ; __stack_top + 1 - __stack_size: the stack's share
     clc
     adc #1
     sta $12
@@ -710,7 +710,7 @@ _heap_init:
     sbc #>__stack_size
     sta $13
     bcs @calc_size
-    lda #0              ; a share above the stack top: no heap
+    lda #0                  ; a share above the stack top: no heap
     sta $12
     sta $13
     bra @calc_size
@@ -724,12 +724,12 @@ _heap_init:
     lda $12
     sec
     sbc $10
-    and #$FE        ; even: bit 0 of a block's size is the allocated flag
-    sta $14         ; size low
+    and #$FE                ; even: bit 0 of a block's size is the allocated flag
+    sta $14                 ; size low
     lda $13
     sbc $11
-    sta $15         ; size high
-    bcc @no_heap    ; the end is below the start (the program reaches past it)
+    sta $15                 ; size high
+    bcc @no_heap            ; the end is below the start (the program reaches past it)
 
     ; Ensure size >= 4
     bne @init_ok
@@ -737,7 +737,7 @@ _heap_init:
     cmp #4
     bcs @init_ok
 @no_heap:
-    rts             ; Fail to init
+    rts                     ; Fail to init
 
 @init_ok:
     ; head = __heap_start

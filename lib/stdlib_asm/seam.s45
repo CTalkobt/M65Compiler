@@ -27,21 +27,21 @@
 .weak cc45.icallinfo
 cc45.icallinfo = 1
 
-fp      = $08       ; a cell's address (seam_put; scratch)
+fp      = $08               ; a cell's address (seam_put; scratch)
 
 .global _seam_cell, _seam_colour, _seam_clear, _seam_init, _seam_show, _seam_hide
 .global _seam_put, _seam_text, _seam_row, _seam_cells
 .extern ___dma_copy_far_step, ___dma_fill_far_step, ___dma_copy_far
 
 .segment "bss"
-__seam_a:   .res 4      ; the cell's screen bytes
-__seam_c:   .res 4      ; its colour RAM bytes
-__seam_n:   .res 2      ; the offset; the run's length (cells)
-__seam_s:   .res 2      ; the run's codes (bank 0)
-__seam_s2:  .res 2      ; its colours (bank 0)
-__seam_v:   .res 1      ; or its colour
-__seam_m:   .res 1      ; bit 0: colours copied from __seam_s2; bit 7: the
-                        ; codes are spaces (seam_clear)
+__seam_a:   .res 4          ; the cell's screen bytes
+__seam_c:   .res 4          ; its colour RAM bytes
+__seam_n:   .res 2          ; the offset; the run's length (cells)
+__seam_s:   .res 2          ; the run's codes (bank 0)
+__seam_s2:  .res 2          ; its colours (bank 0)
+__seam_v:   .res 1          ; or its colour
+__seam_m:   .res 1          ; bit 0: colours copied from __seam_s2; bit 7: the
+                            ; codes are spaces (seam_clear)
 
 .segment "code"
 __seam_one:     .dword 1
@@ -62,12 +62,12 @@ proc __seam_at
     lda $14
     sta $D770
     ldy #6
-    lda ($10),y         ; cols
+    lda ($10),y             ; cols
     sta $D774
 @busy:
-    bit $D70F           ; bit 6: the multiplier is busy
+    bit $D70F               ; bit 6: the multiplier is busy
     bvs @busy
-    lda $D778           ; (y * cols + x) * 2: 17 bits
+    lda $D778               ; (y * cols + x) * 2: 17 bits
     clc
     adc $12
     sta __seam_n
@@ -78,8 +78,8 @@ proc __seam_at
     sta __seam_n+1
     lda #0
     rol a
-    sta __seam_c+2      ; (bits 16-23)
-    ldy #0              ; screen + offset
+    sta __seam_c+2          ; (bits 16-23)
+    ldy #0                  ; screen + offset
     clc
     lda ($10),y
     adc __seam_n
@@ -96,7 +96,7 @@ proc __seam_at
     lda ($10),y
     adc #0
     sta __seam_a+3
-    iny                 ; $FF80000 + colour + offset
+    iny                     ; $FF80000 + colour + offset
     clc
     lda ($10),y
     adc __seam_n
@@ -199,7 +199,7 @@ proc __seam_run
     lsr a
     bcs @cc
     lda __seam_v
-@fill:                  ; A to every other byte from $10
+@fill:                      ; A to every other byte from $10
     sta $16
     lda __seam_n
     sta $14
@@ -211,7 +211,7 @@ proc __seam_run
 @cc:
     lda __seam_s2
     ldx __seam_s2+1
-@copy:                  ; from A/X (bank 0) to every other byte from $10
+@copy:                      ; from A/X (bank 0) to every other byte from $10
     sta $14
     stx $15
     lda #0
@@ -294,10 +294,10 @@ proc _seam_clear
     lda #$80
     sta __seam_m
     lda #0
-    sta $12             ; from cell 0, 0
+    sta $12                 ; from cell 0, 0
     sta $14
     jsr __seam_at
-    ldy #7              ; n = cols * rows (the multiplier's other bytes 0)
+    ldy #7                  ; n = cols * rows (the multiplier's other bytes 0)
     lda ($10),y
     sta $D770
     dey
@@ -397,7 +397,7 @@ proc _seam_show
     lda ($10),y
     sta $D065
     iny
-    lda ($10),y         ; cols: the stride cols * 2
+    lda ($10),y             ; cols: the stride cols * 2
     asl a
     sta $D058
     lda #0
@@ -406,7 +406,7 @@ proc _seam_show
     lda ($10),y
     sta $D05E
     lda $D054
-    ora #$05            ; CHR16, FCLRHI
+    ora #$05                ; CHR16, FCLRHI
     sta $D054
     ldy #8
     lda #1
@@ -428,7 +428,7 @@ proc _seam_hide
     sta ($10),y
     iny
     lda ($10),y
-    sta $D054           ; (first: one byte a cell again)
+    sta $D054               ; (first: one byte a cell again)
     ldx #1
     ldz #10
 @put:
@@ -451,9 +451,9 @@ proc _seam_cells
     .reg_clobbers A, X, Y, Z
     .flag_clobbers C, N, Z, V
     jsr __seam_at
-    ldq $16             ; src
+    ldq $16                 ; src
     stq $14
-    lda $1A             ; len = n * 2
+    lda $1A                 ; len = n * 2
     asl a
     sta $18
     lda $1B

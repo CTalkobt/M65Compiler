@@ -43,7 +43,7 @@ The builder stage runs `make clean && make all && make -C lib` (with FUSE3 and S
 
 | Path | Contents |
 |------|----------|
-| `/usr/local/bin/` | everything in `bin/`: `cc45`, `cp45`, `cl45`, `ca45`, `al45`, `ln45`, `ar45`, `nm45`, `objdump45`, `disk45`, `asmCvt45`, `basic45`, `pack45`, `font45`, `tune45`, `deploy45`, `dbg45` (plus the C++ test binaries) |
+| `/usr/local/bin/` | everything in `bin/`: `cc45`, `cp45`, `cl45`, `ca45`, `al45`, `af45`, `ln45`, `ar45`, `nm45`, `objdump45`, `disk45`, `asmCvt45`, `basic45`, `pack45`, `font45`, `tune45`, `deploy45`, `dbg45` (plus the C++ test binaries) |
 | `/usr/local/lib/cc45/` | `lib/build/`: `c45.lib` (ZP convention), `c45_zp.lib` (copy), `c45_stack.lib` (stack convention) and the `.o45` members |
 | `/usr/local/include/cc45/` | `lib/include/` (including `sys/`) |
 | `/opt/cc45/` | the full source tree (working directory) |

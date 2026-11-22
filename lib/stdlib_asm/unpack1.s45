@@ -17,13 +17,13 @@ cc45.icallinfo = 1
 .global ___unpack1, ___unpack_format1
 .extern ___dma_copy_far, ___dma_fill_far
 
-P = $08                 ; the stream (32 bits)
-D = $0C                 ; where it writes (32 bits)
-CPU_MAX = 16            ; literals up to this long: the CPU, a byte at a time
+P = $08                     ; the stream (32 bits)
+D = $0C                     ; where it writes (32 bits)
+CPU_MAX = 16                ; literals up to this long: the CPU, a byte at a time
 
 .segment "bss"
-__u_start:      .res 4  ; the first byte written
-__u_n:          .res 1  ; a token's length
+__u_start:      .res 4      ; the first byte written
+__u_n:          .res 1      ; a token's length
 
 .segment "code"
 

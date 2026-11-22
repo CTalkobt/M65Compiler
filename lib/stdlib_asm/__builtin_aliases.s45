@@ -74,10 +74,10 @@ ___builtin_longjmp: jmp _longjmp
 ___builtin_abort:   jmp _abort
 ___builtin_exit:    jmp _exit
 
-___builtin_apply:   ; void* __builtin_apply(void (*fn)(), void *args, size_t size)
-___builtin_apply_args: ; void* __builtin_apply_args()
-___builtin_shuffle: ; void __builtin_shuffle(...)
-___builtin_choose_expr: ; should be handled by parser, but just in case
+___builtin_apply:           ; void* __builtin_apply(void (*fn)(), void *args, size_t size)
+___builtin_apply_args:      ; void* __builtin_apply_args()
+___builtin_shuffle:         ; void __builtin_shuffle(...)
+___builtin_choose_expr:     ; should be handled by parser, but just in case
     lda #0
     ldx #0
     rts

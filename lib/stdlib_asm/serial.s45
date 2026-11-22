@@ -34,7 +34,7 @@ ST_TXFULL       = $08
 ST_RXEMPTY      = $40
 
 .segment "bss"
-__ser_state:    .res 1  ; bit 0 installed, bit 1 open
+__ser_state:    .res 1      ; bit 0 installed, bit 1 open
 
 .segment "code"
 _ser_stddrv:    .text "m65-uart.ser"
@@ -44,29 +44,29 @@ _ser_static_stddrv:
 
 ; the divisors of SER_BAUD_45_5 ... SER_BAUD_56_875 (80 MHz / baud - 1)
 __ser_div:
-    .byte $21, $D4, $1A   ;  0: 45.5 baud
-    .byte $FF, $69, $18   ;  1: 50 baud
-    .byte $AA, $46, $10   ;  2: 75 baud
-    .byte $E8, $18, $0B   ;  3: 110 baud
-    .byte $6B, $13, $09   ;  4: 134.5 baud
-    .byte $54, $23, $08   ;  5: 150 baud
-    .byte $AA, $11, $04   ;  6: 300 baud
-    .byte $D4, $08, $02   ;  7: 600 baud
-    .byte $6A, $04, $01   ;  8: 1200 baud
-    .byte $9B, $AD, $00   ;  9: 1800 baud
-    .byte $34, $82, $00   ; 10: 2400 baud
-    .byte $CD, $56, $00   ; 11: 3600 baud
-    .byte $1A, $41, $00   ; 12: 4800 baud
-    .byte $66, $2B, $00   ; 13: 7200 baud
-    .byte $8C, $20, $00   ; 14: 9600 baud
-    .byte $46, $10, $00   ; 15: 19200 baud
-    .byte $22, $08, $00   ; 16: 38400 baud
-    .byte $6C, $05, $00   ; 17: 57600 baud
-    .byte $B5, $02, $00   ; 18: 115200 baud
-    .byte $5A, $01, $00   ; 19: 230400 baud
-    .byte $FF, $09, $00   ; 20: 31250 baud
-    .byte $FF, $04, $00   ; 21: 62500 baud
-    .byte $80, $76, $15   ; 22: 56.875 baud
+    .byte $21, $D4, $1A     ;  0: 45.5 baud
+    .byte $FF, $69, $18     ;  1: 50 baud
+    .byte $AA, $46, $10     ;  2: 75 baud
+    .byte $E8, $18, $0B     ;  3: 110 baud
+    .byte $6B, $13, $09     ;  4: 134.5 baud
+    .byte $54, $23, $08     ;  5: 150 baud
+    .byte $AA, $11, $04     ;  6: 300 baud
+    .byte $D4, $08, $02     ;  7: 600 baud
+    .byte $6A, $04, $01     ;  8: 1200 baud
+    .byte $9B, $AD, $00     ;  9: 1800 baud
+    .byte $34, $82, $00     ; 10: 2400 baud
+    .byte $CD, $56, $00     ; 11: 3600 baud
+    .byte $1A, $41, $00     ; 12: 4800 baud
+    .byte $66, $2B, $00     ; 13: 7200 baud
+    .byte $8C, $20, $00     ; 14: 9600 baud
+    .byte $46, $10, $00     ; 15: 19200 baud
+    .byte $22, $08, $00     ; 16: 38400 baud
+    .byte $6C, $05, $00     ; 17: 57600 baud
+    .byte $B5, $02, $00     ; 18: 115200 baud
+    .byte $5A, $01, $00     ; 19: 230400 baud
+    .byte $FF, $09, $00     ; 20: 31250 baud
+    .byte $FF, $04, $00     ; 21: 62500 baud
+    .byte $80, $76, $15     ; 22: 56.875 baud
 
 ; A = ERR_OK in A/X (the result)
 proc __ser_ok
@@ -81,7 +81,7 @@ proc __ser_flush
     lda $D0E1
     and #ST_RXEMPTY
     bne @done
-    sta $D0E2           ; (any write takes the byte off)
+    sta $D0E2               ; (any write takes the byte off)
     bra @more
 @done:
     rts
@@ -149,11 +149,11 @@ proc _ser_open
     rts
 @drv:
     ldy #1
-    lda ($10),y         ; SER_BITS_8
+    lda ($10),y             ; SER_BITS_8
     cmp #3
     bne @fail
     iny
-    lda ($10),y         ; SER_STOP_1, SER_PAR_NONE, SER_HS_NONE
+    lda ($10),y             ; SER_STOP_1, SER_PAR_NONE, SER_HS_NONE
     iny
     ora ($10),y
     iny
@@ -163,7 +163,7 @@ proc _ser_open
     lda ($10),y
     cmp #23
     bcs @baud
-    sta $08             ; divisor = table + 3 * code
+    sta $08                 ; divisor = table + 3 * code
     asl a
     adc $08
     tax
@@ -234,7 +234,7 @@ proc _ser_get
     lda $D0E2
     ldy #0
     sta ($10),y
-    sta $D0E2           ; taken off the buffer
+    sta $D0E2               ; taken off the buffer
     jmp __ser_ok
 @ret:
     rts

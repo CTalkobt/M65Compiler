@@ -20,25 +20,25 @@ cc45.icallinfo = 1
 .extern __tgi_ecs, __tgi_ece, __tgi_statebit, ___tgi_arcon, ___tgi_allow
 .extern ___dma_fill_far, ___dma_fill_far_step
 
-PIX = $08               ; a pixel's address (32 bits)
-PIX2 = $0C              ; the glyph: the next character column's (32 bits)
-XNEXT = 1593            ; x + 1 from a character column's last pixel: 1600 - 7
-P0 = $0C                ; the ellipse's 4 points' addresses: (cx + x, cy - y)
-P1 = $14                ; (cx - x, cy - y)
-P2 = $18                ; (cx - x, cy + y)
-P3 = $1C                ; (cx + x, cy + y)
+PIX = $08                   ; a pixel's address (32 bits)
+PIX2 = $0C                  ; the glyph: the next character column's (32 bits)
+XNEXT = 1593                ; x + 1 from a character column's last pixel: 1600 - 7
+P0 = $0C                    ; the ellipse's 4 points' addresses: (cx + x, cy - y)
+P1 = $14                    ; (cx - x, cy - y)
+P2 = $18                    ; (cx - x, cy + y)
+P3 = $1C                    ; (cx + x, cy + y)
 
 .segment "data"
-___tgi_fcm:     .byte 0 ; (what the drivers' descriptions refer to)
+___tgi_fcm:     .byte 0     ; (what the drivers' descriptions refer to)
 
 .segment "bss"
-__tgi_sx:       .res 1  ; the line: $FF when x goes left
-__tgi_ys:       .res 1  ; $FF when y goes up
-__tgi_xb:       .res 1  ; the glyph: x & 7
-__tgi_bits:     .res 1  ; a row's pixels left
-__tgi_row:      .res 1  ; its row
-__tgi_n1:       .res 1  ; its pixels in the first character column
-__f_x:          .res 2  ; tgi_bar's fill: x, its last x, y1, the height
+__tgi_sx:       .res 1      ; the line: $FF when x goes left
+__tgi_ys:       .res 1      ; $FF when y goes up
+__tgi_xb:       .res 1      ; the glyph: x & 7
+__tgi_bits:     .res 1      ; a row's pixels left
+__tgi_row:      .res 1      ; its row
+__tgi_n1:       .res 1      ; its pixels in the first character column
+__f_x:          .res 2      ; tgi_bar's fill: x, its last x, y1, the height
 __f_xe:         .res 2
 __f_y:          .res 1
 __f_h:          .res 1
@@ -54,11 +54,11 @@ __f_t:          .res 2
 ; the top of the loop, so its high byte changes only on a borrow. A minor
 ; step is at most 199 (dy for an x-major line, dx for a y-major one): one
 ; byte.
-ERR = $0C               ; Bresenham's error
-CNT = $0E               ; pixels left
-YS = $10                ; the offset's y step: 8 or -8 (over x1, once read)
-DX = $14                ; |x2 - x1|
-DY = $16                ; |y2 - y1|
+ERR = $0C                   ; Bresenham's error
+CNT = $0E                   ; pixels left
+YS = $10                    ; the offset's y step: 8 or -8 (over x1, once read)
+DX = $14                    ; |x2 - x1|
+DY = $16                    ; |y2 - y1|
 
 proc ___tgi_f_line
     .zp_uses $10, $11, $12, $13, $14, $15, $16, $17

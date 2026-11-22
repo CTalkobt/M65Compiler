@@ -35,7 +35,7 @@ proc __ct_addr
     sec
     sbc #1
     and CT_ES
-    bne @mul            ; not a power of two
+    bne @mul                ; not a power of two
     ldy CT_ES
 @shift:
     tya
@@ -169,7 +169,7 @@ proc __ct_bytecmp
     dex
     bne @byte
 @equal:
-    lda #0              ; (Z set, C set)
+    lda #0                  ; (Z set, C set)
     sec
 @done:
     rts

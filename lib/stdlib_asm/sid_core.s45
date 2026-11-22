@@ -18,8 +18,8 @@ cc45.icallinfo = 1
 .extern ___sid_regs
 
 .segment "bss"
-___sid_shadow:  .res 128        ; chip * $20 + register
-___sid_mirror:  .res 1          ; $80: SIDs 1-2 repeated on SIDs 3-4
+___sid_shadow:  .res 128    ; chip * $20 + register
+___sid_mirror:  .res 1      ; $80: SIDs 1-2 repeated on SIDs 3-4
 
 .segment "code"
 

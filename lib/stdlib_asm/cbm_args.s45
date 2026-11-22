@@ -13,7 +13,7 @@ cc45.icallinfo = 1
 .global ___cbm_target
 
 .segment "bss"
-___cbm_target: .res 2   ; the KERNAL routine crt0's __rom_call calls
+___cbm_target: .res 2       ; the KERNAL routine crt0's __rom_call calls
 
 .global ___jsr_a, ___jsr_x, ___jsr_y, ___jsr_z, ___jsr_c, ___jsr_p
 .global ___jsr_ax, ___jsr_ay, ___jsr_az, ___jsr_xy, ___jsr_q
@@ -21,8 +21,8 @@ ___jsr_a:  .res 1
 ___jsr_x:  .res 1
 ___jsr_y:  .res 1
 ___jsr_z:  .res 1
-___jsr_c:  .res 1       ; .Carry = value (not 0: set)
-___jsr_p:  .res 1       ; the flags after the call (php)
+___jsr_c:  .res 1           ; .Carry = value (not 0: set)
+___jsr_p:  .res 1           ; the flags after the call (php)
 ___jsr_ax: .res 2
 ___jsr_ay: .res 2
 ___jsr_az: .res 2

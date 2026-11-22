@@ -23,11 +23,11 @@
 .weak cc45.icallinfo
 cc45.icallinfo = 1
 
-data     = $08      ; the list - 1 (the return address)
-dest     = $0A      ; where the current parameter goes
-idx      = $0C      ; the next list byte, from data
-cnt      = $0D      ; the current parameter's size
-PARAMS   = $10      ; the parameter block
+data     = $08              ; the list - 1 (the return address)
+dest     = $0A              ; where the current parameter goes
+idx      = $0C              ; the next list byte, from data
+cnt      = $0D              ; the current parameter's size
+PARAMS   = $10              ; the parameter block
 
 ; (PARAMS,x stays in the parameter block: none of the register pool)
     .bpindex 32
@@ -39,10 +39,10 @@ __zp_args:
     sta data
     pla
     sta data+1
-    ldx #0              ; the next argument byte: PARAMS + X
+    ldx #0                  ; the next argument byte: PARAMS + X
     ldy #1
 @param:
-    lda (data),y        ; the size (0 ends the list; bit 7: not copied)
+    lda (data),y            ; the size (0 ends the list; bit 7: not copied)
     beq @done
     iny
     pha
@@ -74,7 +74,7 @@ __zp_args:
     tax
 @slot:
     lda cnt
-    cmp #1              ; a char's slot is 2 bytes
+    cmp #1                  ; a char's slot is 2 bytes
     bne @param
     inx
     bra @param

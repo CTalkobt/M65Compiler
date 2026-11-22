@@ -29,26 +29,26 @@ cc45.icallinfo = 1
 .extern __float_a, __float_b, __float_ultof, __float_mul, __float_add, __float_lt
 .extern __bas_sr, __bas_n, __bas_error
 
-CIA2_TALO = $DD04       ; timer A, then B (4 bytes, low first)
+CIA2_TALO = $DD04           ; timer A, then B (4 bytes, low first)
 CIA2_CRA  = $DD0E
 CIA2_CRB  = $DD0F
-VIC_PAL   = $D06F       ; bit 7: NTSC
+VIC_PAL   = $D06F           ; bit 7: NTSC
 
-P = $08                 ; the RTC (a 32-bit pointer)
-R = $0C                 ; TI$'s buffer
+P = $08                     ; the RTC (a 32-bit pointer)
+R = $0C                     ; TI$'s buffer
 
 .segment "bss"
-__bas_tcnt: .res 4      ; the count elapsed
-__tk_until: .res 5      ; SLEEP's end (TI)
+__bas_tcnt: .res 4          ; the count elapsed
+__tk_until: .res 5          ; SLEEP's end (TI)
 
 .segment "data"
-__dt_default:           ; NO-RTC-2000 (PETSCII upper case)
+__dt_default:               ; NO-RTC-2000 (PETSCII upper case)
     .byte $4E, $4F, $2D, $52, $54, $43, $2D, $32, $30, $30, $30, $20
-__dt_months:            ; JAN FEB ... DEC
+__dt_months:                ; JAN FEB ... DEC
     .byte $4A, $41, $4E, $46, $45, $42, $4D, $41, $52, $41, $50, $52
     .byte $4D, $41, $59, $4A, $55, $4E, $4A, $55, $4C, $41, $55, $47
     .byte $53, $45, $50, $4F, $43, $54, $4E, $4F, $56, $44, $45, $43
-__tk_scale:             ; (cc45's conversions of the ROM's .real constants)
+__tk_scale:                 ; (cc45's conversions of the ROM's .real constants)
     .byte $81, $08, $8F, $D9, $FD       ; PAL  1.066890
     .byte $81, $07, $65, $3C, $9B       ; NTSC 1.057777
 

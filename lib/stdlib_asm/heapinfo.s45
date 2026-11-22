@@ -127,7 +127,7 @@ proc __heapmaxavail
     beq @done
 @block:
     jsr __heapfree_size
-    lda $12             ; bigger than the largest so far?
+    lda $12                 ; bigger than the largest so far?
     cmp $14
     lda $13
     sbc $15
@@ -180,7 +180,7 @@ proc __heapadd
     .zp_clobbers $10, $11, $12, $13, $14, $15, $16, $17
     .reg_clobbers A, X, Y
     .flag_clobbers C, N, Z
-    lda $10             ; an even start
+    lda $10                 ; an even start
     and #1
     beq @even
     inw $10
@@ -191,7 +191,7 @@ proc __heapadd
     dec $12
 @even:
     lda $12
-    and #$FE            ; an even size, 4 or more
+    and #$FE                ; an even size, 4 or more
     sta __heapadd_size
     lda $13
     sta __heapadd_size+1
@@ -205,14 +205,14 @@ proc __heapadd
     sta __heapadd_mem
     lda $11
     sta __heapadd_mem+1
-    jsr __heapfirst     ; (the heap's own memory first)
+    jsr __heapfirst         ; (the heap's own memory first)
     lda __heapadd_mem
     sta $10
     lda __heapadd_mem+1
     sta $11
     ldy #0
     lda __heapadd_size
-    ora #1              ; allocated
+    ora #1                  ; allocated
     sta ($10),y
     iny
     lda __heapadd_size+1

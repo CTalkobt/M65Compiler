@@ -26,8 +26,8 @@ cc45.icallinfo = 1
 .global ___unpack, ___unpack_to, ___unpack1, ___unpack2
 .weak ___unpack1, ___unpack2
 
-P = $08                 ; the stream (32 bits)
-D = $0C                 ; where it writes (32 bits)
+P = $08                     ; the stream (32 bits)
+D = $0C                     ; where it writes (32 bits)
 
 .segment "code"
 

@@ -20,9 +20,9 @@
 .weak cc45.icallinfo
 cc45.icallinfo = 1
 
-src     = $08       ; the string (from its length byte)
-dst     = $0A       ; the stream
-cnt     = $0C       ; characters left
+src     = $08               ; the string (from its length byte)
+dst     = $0A               ; the stream
+cnt     = $0C               ; characters left
 tmp     = $0D
 
 .extern __bas_n
@@ -34,7 +34,7 @@ tmp     = $0D
     .split "__bas_plparse"
 .global __bas_plparse
 __bas_plparse:
-    lda __bas_sa        ; malloc(2 * length + 4): two bytes a character at most
+    lda __bas_sa            ; malloc(2 * length + 4): two bytes a character at most
     sta src
     lda __bas_sa+1
     sta src+1
@@ -60,10 +60,10 @@ __bas_plparse:
     stx dst+1
     ora dst+1
     bne @mem
-    lda #16             ; ?OUT OF MEMORY
+    lda #16                 ; ?OUT OF MEMORY
     jmp __bas_raise
 @mem:
-    lda __bas_sa        ; (malloc's base page used: again)
+    lda __bas_sa            ; (malloc's base page used: again)
     sta src
     lda __bas_sa+1
     sta src+1
@@ -78,7 +78,7 @@ __bas_plparse:
     sta pl_any
     sta pl_loop
     jsr @clear
-    lda #$81            ; its envelope
+    lda #$81                ; its envelope
     jsr @emit
     lda pl_env
     jsr @emit
@@ -93,19 +93,19 @@ __bas_plparse:
     inw src
     ldy #0
     lda (src),y
-    cmp #$4C            ; L
+    cmp #$4C                ; L
     bne @nl
     lda #1
     sta pl_loop
     jmp @end
 @nl:
-    cmp #$41            ; A-G: a note
+    cmp #$41                ; A-G: a note
     bcc @nn
     cmp #$48
     bcs @nn
-    sbc #$40            ; (C clear: - $41)
+    sbc #$40                ; (C clear: - $41)
     tax
-    lda pl_oct          ; 12 * (octave + 1) + the scale's + sharp / flat
+    lda pl_oct              ; 12 * (octave + 1) + the scale's + sharp / flat
     inc a
     asl a
     asl a
@@ -120,12 +120,12 @@ __bas_plparse:
     and #$7F
     bra @timed
 @nn:
-    cmp #$52            ; R: a rest
+    cmp #$52                ; R: a rest
     bne @nr
     lda #$80
 @timed:
     jsr @emit
-    lda pl_len          ; its ticks (dotted: 1.5 times)
+    lda pl_len              ; its ticks (dotted: 1.5 times)
     ldx pl_dot
     beq @plain
     lsr a
@@ -139,56 +139,56 @@ __bas_plparse:
     bra @next
 @nr:
     ldx #1
-    cmp #$23            ; #
+    cmp #$23                ; #
     beq @sh
     ldx #$FF
-    cmp #$24            ; $
+    cmp #$24                ; $
     bne @nf
 @sh:
     stx pl_sharp
     bra @next
 @nf:
-    cmp #$2E            ; .
+    cmp #$2E                ; .
     bne @nd
     sta pl_dot
     bra @next
 @nd:
-    ldx #4              ; W H Q I S: the length
+    ldx #4                  ; W H Q I S: the length
 @lc:
     cmp pl_lchars,x
     beq @len
     dex
     bpl @lc
-    ldx #5              ; O T X U M P: the next digit's
+    ldx #5                  ; O T X U M P: the next digit's
 @fc:
     cmp pl_fchars,x
     beq @flag
     dex
     bpl @fc
-    cmp #$30            ; a digit after one of them
+    cmp #$30                ; a digit after one of them
     bcc @other
     cmp #$3A
     bcs @other
     ldx pl_flag
     beq @other
-    sbc #$2F            ; (C clear: - $30)
+    sbc #$2F                ; (C clear: - $30)
     sta tmp
     dex
     beq @oct
     cpx #2
     bne @nx
-    cmp #2              ; X0 / X1
+    cmp #2                  ; X0 / X1
     bcs @bad
 @nx:
     cpx #3
     bne @nu
-    tay                 ; U: through BASIC's volume table
+    tay                     ; U: through BASIC's volume table
     lda pl_voltab,y
     sta tmp
 @nu:
     cpx #1
     bne @nt
-    sta pl_env          ; T
+    sta pl_env              ; T
 @nt:
     lda pl_ops-1,x
     jsr @emit
@@ -201,7 +201,7 @@ __bas_plparse:
     sta pl_oct
     bra @other
 @bad:
-    lda #14             ; ?ILLEGAL QUANTITY
+    lda #14                 ; ?ILLEGAL QUANTITY
     jmp __bas_raise
 @len:
     lda pl_lengths,x
@@ -216,7 +216,7 @@ __bas_plparse:
     sta pl_flag
     jmp @next
 @end:
-    lda pl_any          ; $FE: L after something to play
+    lda pl_any              ; $FE: L after something to play
     and pl_loop
     beq @once
     lda #$FE

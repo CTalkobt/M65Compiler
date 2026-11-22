@@ -50,7 +50,7 @@ proc _putstr
     plz
     iny
     bne @loop
-    inc $FC             ; next page of the string
+    inc $FC                 ; next page of the string
     bra @loop
 @done:
     ; Restore $FB/$FC

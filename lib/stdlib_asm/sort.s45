@@ -26,16 +26,16 @@ cc45.icallinfo = 1
 QS_DEPTH = 16
 
 .segment "bss"
-__qs_arr:   .res 2      ; the part being sorted
-__qs_n:     .res 2      ; its count
+__qs_arr:   .res 2          ; the part being sorted
+__qs_n:     .res 2          ; its count
 __qs_size:  .res 2
 __qs_i:     .res 2
 __qs_j:     .res 2
 __qs_mid:   .res 2
 __qs_sp:    .res 1
-__qs_pa:    .res 2      ; the two elements compared or swapped
+__qs_pa:    .res 2          ; the two elements compared or swapped
 __qs_pb:    .res 2
-__qs_pv:    .res 2      ; the pivot
+__qs_pv:    .res 2          ; the pivot
 __qs_cnt:   .res 2
 __qs_t:     .res 1
 __qs_key:   .res 2
@@ -102,10 +102,10 @@ proc ___sort_gt
     sta $13
     jsr ___sort_cmp
     cpx #$80
-    bcs @le             ; negative
+    bcs @le                 ; negative
     stx __qs_t
     ora __qs_t
-    beq @le             ; zero
+    beq @le                 ; zero
     sec
     rts
 @le:
@@ -175,7 +175,7 @@ proc ___qsort_core
     sta __qs_n
     lda $13
     sta __qs_n+1
-    bpl @count          ; (a negative count: nothing)
+    bpl @count              ; (a negative count: nothing)
     lda #0
     sta __qs_n
     sta __qs_n+1
@@ -198,7 +198,7 @@ proc ___qsort_core
     lda #0
     sta __qs_i+1
 @ins:
-    lda __qs_i          ; i < n
+    lda __qs_i              ; i < n
     cmp __qs_n
     lda __qs_i+1
     sbc __qs_n+1
@@ -211,7 +211,7 @@ proc ___qsort_core
     lda __qs_j
     ora __qs_j+1
     beq @insnext
-    lda __qs_j          ; elements j - 1 and j
+    lda __qs_j              ; elements j - 1 and j
     sec
     sbc #1
     tay
@@ -264,33 +264,33 @@ proc ___qsort_core
     lda __qs_n
     ror a
     sta __qs_mid
-    lda #0              ; 0, mid
+    lda #0                  ; 0, mid
     tax
     jsr __qs_pa_at
     lda __qs_mid
     ldx __qs_mid+1
     jsr __qs_pb_at
     jsr __qs_swap_gt
-    lda #0              ; 0, n - 1
+    lda #0                  ; 0, n - 1
     tax
     jsr __qs_pa_at
     jsr __qs_last
     jsr __qs_pb_at
     jsr __qs_swap_gt
-    lda __qs_mid        ; mid, n - 1
+    lda __qs_mid            ; mid, n - 1
     ldx __qs_mid+1
     jsr __qs_pa_at
     jsr __qs_last
     jsr __qs_pb_at
     jsr __qs_swap_gt
-    lda #1              ; 1, mid
+    lda #1                  ; 1, mid
     ldx #0
     jsr __qs_pa_at
     lda __qs_mid
     ldx __qs_mid+1
     jsr __qs_pb_at
     jsr __qs_swap
-    lda __qs_pa         ; the pivot: element 1
+    lda __qs_pa             ; the pivot: element 1
     sta __qs_pv
     lda __qs_pa+1
     sta __qs_pv+1
@@ -303,12 +303,12 @@ proc ___qsort_core
     sta __qs_j
     stx __qs_j+1
 @scani:
-    lda __qs_i          ; i < n
+    lda __qs_i              ; i < n
     cmp __qs_n
     lda __qs_i+1
     sbc __qs_n+1
     bcs @scanj
-    lda __qs_i          ; and element i <= pivot
+    lda __qs_i              ; and element i <= pivot
     ldx __qs_i+1
     jsr __qs_pa_at
     jsr __qs_pv_pb
@@ -319,13 +319,13 @@ proc ___qsort_core
     inc __qs_i+1
     bra @scani
 @scanj:
-    lda __qs_j+1        ; j > 1
+    lda __qs_j+1            ; j > 1
     bne @jgt
     lda __qs_j
     cmp #2
     bcc @cross
 @jgt:
-    lda __qs_j          ; and element j > pivot
+    lda __qs_j              ; and element j > pivot
     ldx __qs_j+1
     jsr __qs_pa_at
     jsr __qs_pv_pb
@@ -338,7 +338,7 @@ proc ___qsort_core
     dec __qs_j
     bra @scanj
 @cross:
-    lda __qs_i          ; i >= j: done
+    lda __qs_i              ; i >= j: done
     cmp __qs_j
     lda __qs_i+1
     sbc __qs_j+1
@@ -352,7 +352,7 @@ proc ___qsort_core
     jsr __qs_swap
     bra @scani
 @parted:
-    lda #1              ; the pivot to j
+    lda #1                  ; the pivot to j
     ldx #0
     jsr __qs_pa_at
     lda __qs_j
@@ -363,14 +363,14 @@ proc ___qsort_core
     lda __qs_sp
     asl a
     tax
-    lda __qs_n          ; __qs_i = u = n - j - 1 (the upper part's count)
+    lda __qs_n              ; __qs_i = u = n - j - 1 (the upper part's count)
     clc
     sbc __qs_j
     sta __qs_i
     lda __qs_n+1
     sbc __qs_j+1
     sta __qs_i+1
-    lda __qs_i          ; j <= u (j < n - j): the lower part is next
+    lda __qs_i              ; j <= u (j < n - j): the lower part is next
     cmp __qs_j
     lda __qs_i+1
     sbc __qs_j+1
@@ -468,7 +468,7 @@ proc ___bsearch_core
     lda #0
     sta __qs_lo
     sta __qs_lo+1
-    lda $14             ; hi = n - 1
+    lda $14                 ; hi = n - 1
     sec
     sbc #1
     sta __qs_hi
@@ -476,14 +476,14 @@ proc ___bsearch_core
     sbc #0
     sta __qs_hi+1
 @loop:
-    lda __qs_hi+1       ; hi < 0, or lo > hi: not found
+    lda __qs_hi+1           ; hi < 0, or lo > hi: not found
     bmi @none
     lda __qs_hi
     cmp __qs_lo
     lda __qs_hi+1
     sbc __qs_lo+1
     bcc @none
-    lda __qs_lo         ; mid = (lo + hi) / 2
+    lda __qs_lo             ; mid = (lo + hi) / 2
     clc
     adc __qs_hi
     tay
@@ -510,11 +510,11 @@ proc ___bsearch_core
     bne @higher
     cmp #0
     bne @higher
-    lda __qs_pb         ; found
+    lda __qs_pb             ; found
     ldx __qs_pb+1
     rts
 @higher:
-    lda __qs_mid        ; lo = mid + 1
+    lda __qs_mid            ; lo = mid + 1
     clc
     adc #1
     sta __qs_lo
@@ -523,7 +523,7 @@ proc ___bsearch_core
     sta __qs_lo+1
     bra @loop
 @lower:
-    lda __qs_mid        ; hi = mid - 1
+    lda __qs_mid            ; hi = mid - 1
     sec
     sbc #1
     sta __qs_hi

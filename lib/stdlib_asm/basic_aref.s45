@@ -23,8 +23,8 @@ MULTINA = $D770
 MULTINB = $D774
 MULTOUT = $D778
 
-ptr     = $F6       ; the array (library temps of the program's base page)
-vp      = $F8       ; the variable, then the elements being cleared
+ptr     = $F6               ; the array (library temps of the program's base page)
+vp      = $F8               ; the variable, then the elements being cleared
 
 .extern __bas_sa
 .extern __bas_n
@@ -44,13 +44,13 @@ __bas_aref:
     lda __bas_n
     sta nsub
     asl a
-    sta dim2            ; 2 * the subscripts
+    sta dim2                ; 2 * the subscripts
     inc a
-    sta hdr             ; the header's bytes: 1 + 2n
+    sta hdr                 ; the header's bytes: 1 + 2n
     lda __bas_m
     and #$3F
     sta esz
-    lda #0              ; (the multiplier's upper input bytes)
+    lda #0                  ; (the multiplier's upper input bytes)
     sta MULTINA+2
     sta MULTINA+3
     sta MULTINB+2
@@ -65,7 +65,7 @@ __bas_aref:
     beq @make
     bit __bas_m
     bpl @look
-    lda #19             ; ?REDIMENSIONED ARRAY
+    lda #19                 ; ?REDIMENSIONED ARRAY
     jmp __bas_raise
 
 ; the array made: count := the product of the sizes (16 bits)
@@ -81,7 +81,7 @@ __bas_aref:
     jsr @dimk
     sta MULTINB
     ora tmp
-    beq @oom            ; (DIM 65535)
+    beq @oom                ; (DIM 65535)
     lda tmp
     sta MULTINB+1
     lda cnt
@@ -99,7 +99,7 @@ __bas_aref:
     inx
     bra @count
 @counted:
-    lda cnt             ; the elements' bytes: count * the size
+    lda cnt                 ; the elements' bytes: count * the size
     sta MULTINA
     lda cnt+1
     sta MULTINA+1
@@ -113,7 +113,7 @@ __bas_aref:
     sta ebytes
     lda MULTOUT+1
     sta ebytes+1
-    clc                 ; malloc(the header + the elements)
+    clc                     ; malloc(the header + the elements)
     lda ebytes
     adc hdr
     sta $10
@@ -126,7 +126,7 @@ __bas_aref:
     stx ptr+1
     ora ptr+1
     beq @oom
-    ldy #0              ; the header
+    ldy #0                  ; the header
     lda nsub
     sta (ptr),y
     iny
@@ -144,13 +144,13 @@ __bas_aref:
     inx
     bra @head
 @headed:
-    ldy #0              ; the variable := the array
+    ldy #0                  ; the variable := the array
     lda ptr
     sta (vp),y
     iny
     lda ptr+1
     sta (vp),y
-    clc                 ; vp := its elements
+    clc                     ; vp := its elements
     lda ptr
     adc hdr
     sta vp
@@ -159,7 +159,7 @@ __bas_aref:
     sta vp+1
     bit __bas_m
     bvs @strings
-    lda #0              ; numbers: 0
+    lda #0                  ; numbers: 0
     ldy #0
     ldx ebytes+1
     beq @zrest
@@ -179,7 +179,7 @@ __bas_aref:
     dex
     bne @zbyte
     bra @made
-@strings:               ; strings: each the empty one
+@strings:                   ; strings: each the empty one
     ldy #0
 @sloop:
     lda cnt
@@ -201,7 +201,7 @@ __bas_aref:
     dec cnt
     bra @sloop
 @made:
-    bit __bas_m         ; DIM: done
+    bit __bas_m             ; DIM: done
     bpl @look
     rts
 
@@ -252,7 +252,7 @@ __bas_aref:
     sta off+1
     bra @dim
 @found:
-    lda off             ; __bas_sr := the array + the header + offset * size
+    lda off                 ; __bas_sr := the array + the header + offset * size
     sta MULTINA
     lda off+1
     sta MULTINA+1
@@ -276,10 +276,10 @@ __bas_aref:
     sta __bas_sr+1
     rts
 @bad:
-    lda #18             ; ?BAD SUBSCRIPT
+    lda #18                 ; ?BAD SUBSCRIPT
     jmp __bas_raise
 @oom:
-    lda #16             ; ?OUT OF MEMORY
+    lda #16                 ; ?OUT OF MEMORY
     jmp __bas_raise
 
 ; X = 2k: A := dimension k's size, low byte (tmp the high one); Y kept
@@ -303,7 +303,7 @@ __bas_aref:
 
 .segment "bss"
 .global __bas_sub
-__bas_sub: .res 16      ; the subscripts (0..65535)
+__bas_sub: .res 16          ; the subscripts (0..65535)
 nsub:   .res 1
 dim2:   .res 1
 hdr:    .res 1

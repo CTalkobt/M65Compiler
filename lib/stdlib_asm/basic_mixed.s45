@@ -42,8 +42,8 @@ cc45.icallinfo = 1
 __bas_xp:    .res 4
 __bas_xcell: .res 5
 
-FP = $08                ; the variable (a 32-bit pointer)
-SP = $0C                ; the compiled program's string (16 bits)
+FP = $08                    ; the variable (a 32-bit pointer)
+SP = $0C                    ; the compiled program's string (16 bits)
 
 .segment "code"
 

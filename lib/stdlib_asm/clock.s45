@@ -32,7 +32,7 @@ proc _clock
     cpy $110E
     bne @read
     ldz #0
-    negq                ; 2^24 - counter, the top byte dropped
+    negq                    ; 2^24 - counter, the top byte dropped
     ldz #0
     rts
     .func_flags zp_call

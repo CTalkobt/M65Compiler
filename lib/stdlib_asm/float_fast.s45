@@ -539,7 +539,7 @@ __ffast_cmp:
 ; ===========================================================================
     .split "__ffast_eq"
 .global __ffast_eq
-__ffast_eq:            ; a = b
+__ffast_eq:                 ; a = b
     jsr __ffast_cmp
     cmp #1
     lda #0
@@ -550,7 +550,7 @@ __ffast_eq:            ; a = b
 
     .split "__ffast_ne"
 .global __ffast_ne
-__ffast_ne:            ; a <> b
+__ffast_ne:                 ; a <> b
     jsr __ffast_cmp
     cmp #1
     lda #0
@@ -560,7 +560,7 @@ __ffast_ne:            ; a <> b
 
     .split "__ffast_lt"
 .global __ffast_lt
-__ffast_lt:            ; a < b
+__ffast_lt:                 ; a < b
     jsr __ffast_cmp
     asl a
     lda #0
@@ -570,7 +570,7 @@ __ffast_lt:            ; a < b
 
     .split "__ffast_ge"
 .global __ffast_ge
-__ffast_ge:            ; a >= b
+__ffast_ge:                 ; a >= b
     jsr __ffast_cmp
     asl a
     lda #0
@@ -581,7 +581,7 @@ __ffast_ge:            ; a >= b
 
     .split "__ffast_gt"
 .global __ffast_gt
-__ffast_gt:            ; a > b
+__ffast_gt:                 ; a > b
     jsr __ffast_cmp
     dec a
     cmp #1
@@ -593,7 +593,7 @@ __ffast_gt:            ; a > b
 
     .split "__ffast_le"
 .global __ffast_le
-__ffast_le:            ; a <= b
+__ffast_le:                 ; a <= b
     jsr __ffast_cmp
     dec a
     cmp #1

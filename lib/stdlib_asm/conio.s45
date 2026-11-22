@@ -26,8 +26,8 @@
 .weak cc45.icallinfo
 cc45.icallinfo = 1
 
-SCR = $08               ; screen RAM address of the row (32 bits)
-COL = $0C               ; colour RAM address of the row (32 bits)
+SCR = $08                   ; screen RAM address of the row (32 bits)
+COL = $0C                   ; colour RAM address of the row (32 bits)
 
 .global _clrscr, _gotoxy, _wherex, _wherey, _textcolor, _textbackground
 .global _textattr, _revers, _putch, _cputch, _cputs, _cputsxy, _getch
@@ -45,40 +45,40 @@ COL = $0C               ; colour RAM address of the row (32 bits)
 .weak ___conio_ffmt
 
 .segment "bss"
-__conio_cx:     .res 1  ; cursor column
-__conio_cy:     .res 1  ; cursor row
-__conio_w:      .res 1  ; characters per row
-__conio_h:      .res 1  ; rows
-__conio_rowok:  .res 1  ; 1: SCR / COL point at the cursor's row
-__conio_rev:    .res 1  ; $80 while revers is on
-__conio_shown:  .res 1  ; 1: getch shows the cursor
-__conio_t:      .res 1  ; temporary
-__conio_r:      .res 1  ; row counter
-__conio_under:  .res 1  ; the cell under the cursor (getch)
-__conio_key:    .res 1  ; getch's key
-__conio_save:   .res 4  ; row 0's colour RAM address (scrolling)
-__conio_c16:    .res 1  ; 1: two bytes a cell (CHR16), set by __conio_row
-___conio_chtab: .res 2  ; full-colour glyphs' characters by the number's low byte (conio_fcm.s45), or 0
-__conio_n:      .res 2  ; count (lines, cpeeks)
-__conio_px:     .res 1  ; cpeeks' column and row
+__conio_cx:     .res 1      ; cursor column
+__conio_cy:     .res 1      ; cursor row
+__conio_w:      .res 1      ; characters per row
+__conio_h:      .res 1      ; rows
+__conio_rowok:  .res 1      ; 1: SCR / COL point at the cursor's row
+__conio_rev:    .res 1      ; $80 while revers is on
+__conio_shown:  .res 1      ; 1: getch shows the cursor
+__conio_t:      .res 1      ; temporary
+__conio_r:      .res 1      ; row counter
+__conio_under:  .res 1      ; the cell under the cursor (getch)
+__conio_key:    .res 1      ; getch's key
+__conio_save:   .res 4      ; row 0's colour RAM address (scrolling)
+__conio_c16:    .res 1      ; 1: two bytes a cell (CHR16), set by __conio_row
+___conio_chtab: .res 2      ; full-colour glyphs' characters by the number's low byte (conio_fcm.s45), or 0
+__conio_n:      .res 2      ; count (lines, cpeeks)
+__conio_px:     .res 1      ; cpeeks' column and row
 __conio_py:     .res 1
-__conio_wsave:  .res 6  ; conio_set_width: $D060-$D065
+__conio_wsave:  .res 6      ; conio_set_width: $D060-$D065
 
 .split "cgets"
-__conio_cgbuf:  .res 2  ; cgets: the buffer
-__conio_cgmax:  .res 2  ;   size - 1
-__conio_cgi:    .res 2  ;   characters read
-__conio_cgold:  .res 1  ;   the cursor setting before
-__conio_cgc:    .res 1  ;   the key
+__conio_cgbuf:  .res 2      ; cgets: the buffer
+__conio_cgmax:  .res 2      ;   size - 1
+__conio_cgi:    .res 2      ;   characters read
+__conio_cgold:  .res 1      ;   the cursor setting before
+__conio_cgc:    .res 1      ;   the key
 .split "cscanf"
-__conio_csfmt:  .res 2  ; vcscanf's format and va_list
+__conio_csfmt:  .res 2      ; vcscanf's format and va_list
 __conio_csap:   .res 2
-__conio_csline: .res 81 ; the line it reads
+__conio_csline: .res 81     ; the line it reads
 .nosplit
 
 .segment "code"
-__conio_color:  .byte 1 ; text colour (WHITE)
-___conio_ffmt:  .word 0 ; (weak: printf_float.c's __pf_format)
+__conio_color:  .byte 1     ; text colour (WHITE)
+___conio_ffmt:  .word 0     ; (weak: printf_float.c's __pf_format)
 __conio_hex:    .text "0123456789ABCDEF"
 
 ; An enhanced (F018B) DMA job: options (destination step, F018B format,
@@ -174,9 +174,9 @@ proc __conio_put
     rts
 @c16:
     lda #0
-    sta [COL],z         ; colour RAM byte 0: no flags
+    sta [COL],z             ; colour RAM byte 0: no flags
     inz
-    sta [SCR],z         ; character number bits 8-12
+    sta [SCR],z             ; character number bits 8-12
     lda __conio_color
     sta [COL],z
     rts
@@ -200,18 +200,18 @@ proc __conio_scrcode
     cmp #$20
     bcc @ctl
     cmp #$40
-    bcc @done           ; $20-$3F: the same
+    bcc @done               ; $20-$3F: the same
     cmp #$60
-    bcc @sub40          ; $40-$5F: letters
+    bcc @sub40              ; $40-$5F: letters
     cmp #$80
-    bcc @sub20          ; $60-$7F: shifted letters
+    bcc @sub20              ; $60-$7F: shifted letters
     cmp #$A0
-    bcc @ctl            ; $80-$9F: control
+    bcc @ctl                ; $80-$9F: control
     cmp #$C0
-    bcc @sub40          ; $A0-$BF: graphics
+    bcc @sub40              ; $A0-$BF: graphics
     cmp #$FF
     beq @pi
-    sec                 ; $C0-$FE
+    sec                     ; $C0-$FE
     sbc #$80
     rts
 @sub40:
@@ -286,7 +286,7 @@ endproc
 ; (X is SCR or COL: the indexed loads reach 4 bytes, below the register pool)
     .bpindex 4
 proc __conio_fill
-    sta __conio_job+11       ; the value: the source address' low byte
+    sta __conio_job+11      ; the value: the source address' low byte
     lda $00,x
     sta __conio_job+14
     lda $01,x
@@ -332,7 +332,7 @@ proc __conio_scroll
     lda __conio_h
     sec
     sbc #1
-    jsr __conio_row     ; (for its product: (rows - 1) * stride)
+    jsr __conio_row         ; (for its product: (rows - 1) * stride)
     lda $D778
     sta __conio_job+9
     lda $D779
@@ -410,12 +410,12 @@ proc __conio_dma
     php
     sei
     lda #0
-    sta $D702           ; list in bank 0
-    sta $D704           ; megabyte 0
+    sta $D702               ; list in bank 0
+    sta $D704               ; megabyte 0
     lda #>__conio_job
     sta $D701
     lda #<__conio_job
-    sta $D705           ; start (enhanced job)
+    sta $D705               ; start (enhanced job)
     plp
     rts
 endproc
@@ -446,7 +446,7 @@ proc __conio_out
     beq @nl
     cmp #$0A
     bne @chr
-    lda #0              ; '\r': column 0
+    lda #0                  ; '\r': column 0
     sta __conio_cx
     rts
 @chr:
@@ -867,7 +867,7 @@ proc _cgetc
     lda [SCR],z
     sta __conio_under
     jsr __conio_hi
-    bne @wait           ; a full-colour glyph: the cursor is not shown on it
+    bne @wait               ; a full-colour glyph: the cursor is not shown on it
     lda __conio_under
     eor #$80
     sta [SCR],z
@@ -1131,7 +1131,7 @@ proc _chline
     jsr __conio_geom
     lda $10
     sta __conio_n
-    lda #$C0            ; CH_HLINE
+    lda #$C0                ; CH_HLINE
     jmp __conio_rep
     .func_flags zp_call
 endproc
@@ -1185,7 +1185,7 @@ proc __conio_vrep
     cmp __conio_h
     bcs @done
     jsr __conio_cell
-    lda #$5D            ; CH_VLINE's screen code
+    lda #$5D                ; CH_VLINE's screen code
     ora __conio_rev
     jsr __conio_put
     inc __conio_cy
@@ -1277,12 +1277,12 @@ endproc
 ; Screen code A (bit 7 clear) to PETSCII, as cputc would write it back
 proc __conio_petscii
     cmp #$20
-    bcc @a40            ; $00-$1F: @, letters...
+    bcc @a40                ; $00-$1F: @, letters...
     cmp #$40
-    bcc @done           ; $20-$3F: the same
+    bcc @done               ; $20-$3F: the same
     cmp #$60
-    bcs @a40            ; $60-$7F: graphics ($A0-$BF)
-    adc #$80            ; $40-$5F: shifted letters ($C0-$DF; C clear)
+    bcs @a40                ; $60-$7F: graphics ($A0-$BF)
+    adc #$80                ; $40-$5F: shifted letters ($C0-$DF; C clear)
     rts
 @a40:
     clc
@@ -1444,20 +1444,20 @@ proc _cgets
     cmp __conio_cgmax
     lda __conio_cgi+1
     sbc __conio_cgmax+1
-    bcs @end            ; full
+    bcs @end                ; full
     jsr _cgetc
     sta __conio_cgc
     cmp #$0D
     beq @crlf
     cmp #$0A
     beq @crlf
-    cmp #$14            ; DEL
+    cmp #$14                ; DEL
     beq @del
-    cmp #$08            ; '\b'
+    cmp #$08                ; '\b'
     beq @del
     jsr __conio_scrcode
     cmp #$FF
-    beq @key            ; not printable
+    beq @key                ; not printable
     jsr __conio_geom
     lda #0
     sta __conio_rowok
@@ -1484,7 +1484,7 @@ proc _cgets
     lda __conio_cx
     bne @left
     lda __conio_cy
-    beq @blank          ; (the row it started on scrolled away)
+    beq @blank              ; (the row it started on scrolled away)
     dec __conio_cy
     lda __conio_w
     sta __conio_cx
@@ -1527,7 +1527,7 @@ proc __conio_vput
     .reg_clobbers A, X, Y, Z
     .flag_clobbers C, N, Z, V
     lda #0
-    sta __conio_rowok   ; (__vformat may have used SCR / COL)
+    sta __conio_rowok       ; (__vformat may have used SCR / COL)
     lda $10
     jmp __conio_out
     .func_flags zp_call
@@ -1631,9 +1631,9 @@ proc _conio_set_width
     dex
     bpl @save
     lda $D031
-    asl a               ; bit 7 out
+    asl a                   ; bit 7 out
     ldx $10
-    cpx #80             ; C: 80 columns
+    cpx #80                 ; C: 80 columns
     ror a
     sta $D031
     ldx #5
@@ -1646,7 +1646,7 @@ proc _conio_set_width
     sta $D05E
     ldx $D054
     txa
-    lsr a               ; C: CHR16
+    lsr a                   ; C: CHR16
     lda $10
     bcc @stride
     asl a

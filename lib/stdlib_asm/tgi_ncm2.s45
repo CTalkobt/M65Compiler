@@ -14,14 +14,14 @@
 _tgi_static_ncm2:
     .byte $74, $67, $69, $05        ; 't' 'g' 'i' TGI_API_VERSION
     .word ___tgi_ncm2_name
-    .word 640, 200                  ; xres, yres
-    .byte 16, 2                     ; colours, pages
-    .byte 8, 8                      ; the bitmap font
-    .word $006A                     ; aspect ratio: 200 / 640 * 4 / 3 (8.8)
-    .byte 0                         ; flags
-    .byte $80                       ; mode: 640x200, nibble colour
-    .word ___tgi_ncm                ; draw
-    .word ___tgi_heapm              ; heap
+    .word 640, 200          ; xres, yres
+    .byte 16, 2             ; colours, pages
+    .byte 8, 8              ; the bitmap font
+    .word $006A             ; aspect ratio: 200 / 640 * 4 / 3 (8.8)
+    .byte 0                 ; flags
+    .byte $80               ; mode: 640x200, nibble colour
+    .word ___tgi_ncm        ; draw
+    .word ___tgi_heapm      ; heap
 ; "mega65-ncm2.tgi" (as a C string: PETSCII)
 ___tgi_ncm2_name:
     .byte $4D, $45, $47, $41, $36, $35, $2D, $4E, $43, $4D, $32, $2E, $54

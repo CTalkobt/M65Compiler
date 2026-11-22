@@ -21,7 +21,7 @@ fi
 # Create aliases for all tools (as the calling user: the files they write in
 # the current directory are yours, not root's)
 _M65RUN="docker run --rm --user \$(id -u):\$(id -g) -v \$(pwd):/work"
-_M65TOOLS="cc45 cp45 cl45 ca45 al45 ln45 ar45 nm45 objdump45 disk45 basic45 asmCvt45 pack45 font45 tune45 deploy45 dbg45"
+_M65TOOLS="cc45 cp45 cl45 ca45 al45 af45 ln45 ar45 nm45 objdump45 disk45 basic45 asmCvt45 pack45 font45 tune45 deploy45 dbg45"
 for _t in $_M65TOOLS; do
     alias $_t="$_M65RUN --entrypoint $_t $IMAGE"
 done

@@ -96,7 +96,7 @@ proc _strxfrm
     inw $08
     bra @len
 @counted:
-    lda $08             ; length < n: copy
+    lda $08                 ; length < n: copy
     cmp $14
     lda $09
     sbc $15

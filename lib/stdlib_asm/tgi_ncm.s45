@@ -27,21 +27,21 @@ cc45.icallinfo = 1
 .extern __tgi_ecs, __tgi_ece, __tgi_statebit, ___tgi_arcon, ___tgi_allow
 .extern _tgi_color, _tgi_xmax, _tgi_ymax, ___dma_fill_far, ___dma_fill_far_step
 
-PIX = $08               ; a pixel's address (32 bits)
+PIX = $08                   ; a pixel's address (32 bits)
 
 .segment "data"
 ; the driver (stdlib/tgi_drv.h's tgi_driver_t)
 _tgi_static_ncm640:
     .byte $74, $67, $69, $05        ; 't' 'g' 'i' TGI_API_VERSION
     .word ___tgi_ncm640_name
-    .word 640, 200                  ; xres, yres
-    .byte 16, 1                     ; colours, pages
-    .byte 8, 8                      ; the bitmap font
-    .word $006A                     ; aspect ratio: 200 / 640 * 4 / 3 (8.8)
-    .byte 0                         ; flags
-    .byte $80                       ; mode: 640x200, nibble colour
-    .word 0                         ; draw (its drawing is here)
-    .word 0                         ; heap: none
+    .word 640, 200          ; xres, yres
+    .byte 16, 1             ; colours, pages
+    .byte 8, 8              ; the bitmap font
+    .word $006A             ; aspect ratio: 200 / 640 * 4 / 3 (8.8)
+    .byte 0                 ; flags
+    .byte $80               ; mode: 640x200, nibble colour
+    .word 0                 ; draw (its drawing is here)
+    .word 0                 ; heap: none
 ; "mega65-ncm640.tgi" (as a C string: PETSCII)
 ___tgi_ncm640_name:
     .byte $4D, $45, $47, $41, $36, $35, $2D, $4E, $43, $4D, $36, $34, $30
@@ -50,24 +50,24 @@ ___tgi_ncm640_name:
 ___tgi_ncm:     .byte 0
 
 .segment "bss"
-__n_cl:         .res 1  ; the colour (low nibble)
-__n_ch:         .res 1  ; (high nibble)
-__n_x:          .res 2  ; a line's point, a glyph's or a bar's x
-__n_y:          .res 1  ; its y
-__n_dx:         .res 2  ; a line's |dx|, |dy|
+__n_cl:         .res 1      ; the colour (low nibble)
+__n_ch:         .res 1      ; (high nibble)
+__n_x:          .res 2      ; a line's point, a glyph's or a bar's x
+__n_y:          .res 1      ; its y
+__n_dx:         .res 2      ; a line's |dx|, |dy|
 __n_dy:         .res 2
-__n_err:        .res 2  ; Bresenham's error
-__n_cnt:        .res 2  ; pixels left
-__n_sx:         .res 1  ; $FF: x goes left
-__n_sy:         .res 1  ; $FF: y goes up
-__n_row:        .res 1  ; a glyph's byte in its row of the character column
-__n_bits:       .res 1  ; its x odd
-__n_xe:         .res 2  ; a bar's last x, last y, height
+__n_err:        .res 2      ; Bresenham's error
+__n_cnt:        .res 2      ; pixels left
+__n_sx:         .res 1      ; $FF: x goes left
+__n_sy:         .res 1      ; $FF: y goes up
+__n_row:        .res 1      ; a glyph's byte in its row of the character column
+__n_bits:       .res 1      ; its x odd
+__n_xe:         .res 2      ; a bar's last x, last y, height
 __n_ye:         .res 1
 __n_h:          .res 1
-__n_cc:         .res 1  ; the colour in both nibbles
-__n_t:          .res 2  ; a temporary
-__n_rows:       .res 8  ; a glyph's rows (its bits left)
+__n_cc:         .res 1      ; the colour in both nibbles
+__n_t:          .res 2      ; a temporary
+__n_rows:       .res 8      ; a glyph's rows (its bits left)
 
 .segment "code"
 
@@ -240,12 +240,12 @@ endproc
 ; two pixels on one row are stored at once (no read); a pixel alone in its
 ; byte is read, changed and written. X: x & 15 (the pixel in its character
 ; column).
-ERR = $0C               ; Bresenham's error
-CNT = $0E               ; pixels left
-YS = $10                ; the y step: 8 or -8 (over x1, once read)
-DX = $14                ; |x2 - x1|
-DY = $16                ; |y2 - y1|
-XNEXT = 1593            ; x + 1 from a character column's last byte: 1600 - 7
+ERR = $0C                   ; Bresenham's error
+CNT = $0E                   ; pixels left
+YS = $10                    ; the y step: 8 or -8 (over x1, once read)
+DX = $14                    ; |x2 - x1|
+DY = $16                    ; |y2 - y1|
+XNEXT = 1593                ; x + 1 from a character column's last byte: 1600 - 7
 
 proc ___tgi_n_line
     .zp_uses $10, $11, $12, $13, $14, $15, $16, $17
@@ -833,7 +833,7 @@ proc ___tgi_n_eplot
 @qn:
     dex
     bpl @q
-@plot:                  ; NOLINT(mega65-unused-label): names the plot step (fallen into)
+@plot:                      ; NOLINT(mega65-unused-label): names the plot step (fallen into)
     tya
     lsr a
     tay

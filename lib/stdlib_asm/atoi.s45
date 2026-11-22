@@ -41,20 +41,20 @@ proc _atoi
 @checksign:
     pha
     lda #0
-    sta $16             ; $16 = sign flag (0=positive); not stz, which stores Z
+    sta $16                 ; $16 = sign flag (0=positive); not stz, which stores Z
     pla
-    cmp #$2d            ; '-'
+    cmp #$2d                ; '-'
     bne @checkplus
     inc $16
     iny
     bra @startnum
 @checkplus:
-    cmp #$2b            ; '+'
+    cmp #$2b                ; '+'
     bne @startnum
     iny
 @startnum:
     ; --- Initialize result = 0 ---
-    lda #0              ; $12/$13 = result (lo/hi); STZ would store Z
+    lda #0                  ; $12/$13 = result (lo/hi); STZ would store Z
     sta $12
     sta $13
 
@@ -66,7 +66,7 @@ proc _atoi
     bcc @done
     cmp #10
     bcs @done
-    sta $14             ; $14 = current digit
+    sta $14                 ; $14 = current digit
 
     ; result = result * 10 using hardware multiplier
     lda $12

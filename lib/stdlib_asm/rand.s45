@@ -45,7 +45,7 @@ proc _rand
 @lcg:
     ldq __rand_next
     stq $D770
-    lda #$6D            ; 1103515245 = $41C64E6D
+    lda #$6D                ; 1103515245 = $41C64E6D
     sta $D774
     lda #$4E
     sta $D775
@@ -54,13 +54,13 @@ proc _rand
     lda #$41
     sta $D777
 @busy:
-    bit $D70F           ; bit 6 -> V: the multiplier is busy
+    bit $D70F               ; bit 6 -> V: the multiplier is busy
     bvs @busy
-    ldq $D778           ; the product's low 32 bits
+    ldq $D778               ; the product's low 32 bits
     clc
     adcq __rand_inc
     stq __rand_next
-    tya                 ; (next >> 16) & $7FFF
+    tya                     ; (next >> 16) & $7FFF
     pha
     tza
     and #$7F
@@ -92,7 +92,7 @@ proc __randomize
     .flag_clobbers C, N, Z, V
     ldx #0
 @byte:
-    bit $D7FE           ; the next random byte, ready when bit 7 is clear
+    bit $D7FE               ; the next random byte, ready when bit 7 is clear
     bmi @byte
     lda $D7EF
     sta __rand_next,x

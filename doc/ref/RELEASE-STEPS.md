@@ -117,7 +117,7 @@ Review:
 
 ```bash
 make install_local          # PREFIX=~/.local
-for t in cc45 cp45 ca45 al45 cl45 ln45 ar45 nm45 objdump45 asmCvt45 disk45 basic45 pack45 font45 tune45 deploy45 dbg45; do ~/.local/bin/$t --version; done
+for t in cc45 cp45 ca45 al45 af45 cl45 ln45 ar45 nm45 objdump45 asmCvt45 disk45 basic45 pack45 font45 tune45 deploy45 dbg45; do ~/.local/bin/$t --version; done
 ls ~/.local/lib/cc45        # c45.lib c45_zp.lib c45_stack.lib crt0*.o45 tuneplay.o45 symbols/
 ls ~/.local/include/cc45    # headers
 (cd /tmp && ~/.local/bin/cc45 -O2 hello.c -o hello.prg)   # with a hello.c there: no -I, no CC45_INCLUDE

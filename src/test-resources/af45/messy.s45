@@ -1,0 +1,27 @@
+; messy.s45 -- al45 style rules / af45 fixture (#611): every layout problem
+; the rules report, and what af45 makes of it (messy.fmt.s45)
+COUNT = 3                   ; a constant
+  INDENTED = 4
+lower = 5
+.global exported_low
+exported_low = 6
+start:
+	ldx #COUNT	; a tab before the code and the comment
+  loop: dex
+      bne loop
+    lda   #';'              ; three spaces, a ; in a character literal
+    lda #'a' ;one space
+    jsr sub // a slash comment
+        .text "a;b//c"
+table:  .byte 1, 2
+        .byte 3
+    clc   
+/* a block comment, left as it is:
+   lda   #1 ; inside it */
+    lda #1                  ; first part
+                            ; continued under it
+// a comment alone, with slashes
+    lda #$12345678 & $FF + 0 ; a long operand runs past the comment column
+sub:
+@loc:
+    rts

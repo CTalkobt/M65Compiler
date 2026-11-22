@@ -32,8 +32,8 @@ cc45.icallinfo = 1
 .global _palette_set_color, _palette_set_color_rgb, _palette_get_color
 .global _palette_set_range, _palette_save, _palette_restore, _palette_rotate
 
-PAL_PTR = $08           ; ($08),y: a component's registers (__zp_scratch)
-PAL_CNT = $0A           ; entries left
+PAL_PTR = $08               ; ($08),y: a component's registers (__zp_scratch)
+PAL_CNT = $0A               ; entries left
 
 .segment "code"
 
@@ -130,11 +130,11 @@ proc _palette_set_range
     .reg_clobbers A, X, Y
     .flag_clobbers C, N, Z, V
 @next:
-    lda $13             ; count > 0 (signed)
+    lda $13                 ; count > 0 (signed)
     bmi @out
     ora $12
     beq @out
-    lda $11             ; an entry out of 0-255: skipped
+    lda $11                 ; an entry out of 0-255: skipped
     bne @skip
     ldx $10
     ldy #0
@@ -241,10 +241,10 @@ proc _palette_rotate
     .zp_uses $10, $11, $12, $13, $14, $15
     .reg_clobbers A, X, Y
     .flag_clobbers C, N, Z, V
-    lda $11             ; start and end in 0-255
+    lda $11                 ; start and end in 0-255
     ora $13
     bne @out
-    lda $10             ; start < end
+    lda $10                 ; start < end
     cmp $12
     bcs @out
     lda $15
@@ -255,7 +255,7 @@ proc _palette_rotate
     rts
 
 @fwd:
-    ldx $12             ; red
+    ldx $12                 ; red
     ldy $D100,x
 @f1:
     dex
@@ -265,7 +265,7 @@ proc _palette_rotate
     bne @f1
     tya
     sta $D100,x
-    ldx $12             ; green
+    ldx $12                 ; green
     ldy $D200,x
 @f2:
     dex
@@ -275,7 +275,7 @@ proc _palette_rotate
     bne @f2
     tya
     sta $D200,x
-    ldx $12             ; blue
+    ldx $12                 ; blue
     ldy $D300,x
 @f3:
     dex
@@ -288,7 +288,7 @@ proc _palette_rotate
     rts
 
 @back:
-    ldx $10             ; red
+    ldx $10                 ; red
     ldy $D100,x
 @b1:
     lda $D101,x
@@ -298,7 +298,7 @@ proc _palette_rotate
     bne @b1
     tya
     sta $D100,x
-    ldx $10             ; green
+    ldx $10                 ; green
     ldy $D200,x
 @b2:
     lda $D201,x
@@ -308,7 +308,7 @@ proc _palette_rotate
     bne @b2
     tya
     sta $D200,x
-    ldx $10             ; blue
+    ldx $10                 ; blue
     ldy $D300,x
 @b3:
     lda $D301,x

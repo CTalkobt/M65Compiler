@@ -21,7 +21,7 @@ proc _isblank
     lda $10
     cmp #$20
     beq @yes
-    cmp #$09            ; tab
+    cmp #$09                ; tab
     beq @yes
     lda #0
     ldx #0
