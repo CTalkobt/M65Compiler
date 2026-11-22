@@ -26,6 +26,11 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 - The comment a `--convert=tsbneo` conversion starts with said "converted from Simons' BASIC (C64) by basic45
   --convert=simons"; it is now "converted from TSBneo (C64) by basic45 --convert=tsbneo". `test_basic45.sh` checks
   each dialect's header (basic7, basic35, simons, tsbneo, basic8); basic45.md's TSBneo listing shows the new one.
+### dbg45: `list` stops at the file's last line (#712)
+
+- **Fixed: `list` near the end of a file printed lines past its last one** (lines 18 and 19 of a 17-line `sum.c`,
+  blank): the listing ends at the file's last line; a source file dbg45 cannot read is now `error: cannot read the
+  source file` instead of empty lines. Test: `test_dbg45.sh` lists near the end of `t.c`.
 
 ### Documentation: what the audit found missing (#644)
 
