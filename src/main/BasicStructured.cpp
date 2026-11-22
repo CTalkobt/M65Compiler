@@ -123,6 +123,16 @@ bool isStringValue(const std::string& e) {
     return j < e.size() && e[j] == '$';
 }
 
+// An array parameter (#683): name() or name%() (the name without them in base)
+bool arrayParam(const std::string& p, std::string* base = nullptr) {
+    static const std::regex re(R"(^([A-Za-z_]\w*[%$]?)\s*\(\s*\)$)");
+    std::smatch m;
+    std::string t = trim(p);
+    if (!std::regex_match(t, m, re)) return false;
+    if (base) *base = m[1].str();
+    return true;
+}
+
 // Whether word (lower case) is in text as a whole word, outside strings
 bool hasWord(const std::string& text, const char* word) {
     size_t n = strlen(word);
@@ -372,8 +382,26 @@ BasicStructuredResult lowerBasicStructured(const std::string& fullSource,
                                        name + " takes " + std::to_string(pp->second.size()));
                     } else {
                         argsOk = true;
-                        for (size_t k = 0; k < args.size(); k++)
+                        for (size_t k = 0; k < args.size(); k++) {
+                            std::string pb, ab;
+                            if (arrayParam(pp->second[k], &pb)) {
+                                // (an array, #683: passed by its POINTER, the
+                                // same type: x() or x%())
+                                char pt = pb.back() == '%' ? '%' : 'f', at = 0;
+                                if (arrayParam(args[k], &ab)) at = ab.back() == '%' ? '%' : ab.back() == '$' ? '$' : 'f';
+                                if (pt != at) {
+                                    error(lineNum, "call " + name + ": argument " + std::to_string(k + 1) + " (" + args[k] +
+                                                   ") for " + pp->second[k] + ": an array of its type, as " + pb + "()");
+                                    argsOk = false;
+                                }
+                                if (unit) {
+                                    error(lineNum, "call " + name + ": an array is passed from the interpreted program only");
+                                    argsOk = false;
+                                }
+                                continue;
+                            }
                             assigns += pp->second[k] + " = " + args[k] + " : ";
+                        }
                     }
                     if (unit) {
                         // a compiled proc's call of a compiled proc (#681): a
@@ -403,7 +431,11 @@ BasicStructuredResult lowerBasicStructured(const std::string& fullSource,
                         res += assigns + "bank 0 : wpoke {__bas_psel}, " + std::to_string(ck->second + 256 * kind);
                         if (kind || !args.empty())
                             res += ", " + (kind == 3 ? std::string("pointer(zbuf$)") : kind ? "pointer(" + to + ")" : std::string("0"));
-                        for (size_t k = 0; k < args.size(); k++) res += ", pointer(" + pp->second[k] + ")";
+                        for (size_t k = 0; k < args.size(); k++) {
+                            std::string ab;
+                            if (arrayParam(args[k], &ab)) res += ", pointer(" + ab + "(0))";
+                            else res += ", pointer(" + pp->second[k] + ")";
+                        }
                         // (an error in the proc: its message printed, its
                         // number back in A; the program ends at __mixerr)
                         res += " : bank 128 : sys {__bas_mixed} : rreg zerr";
@@ -648,9 +680,17 @@ BasicStructuredResult lowerBasicStructured(const std::string& fullSource,
                 // read by the compiled program's entry; a number each
                 std::vector<std::string> ps;
                 if (m[2].matched && !trim(m[3].str()).empty()) ps = splitTop(m[3].str());
-                for (const auto& p : ps)
+                for (const auto& p : ps) {
+                    std::string ab;
+                    if (arrayParam(p, &ab)) {
+                        // (an array by reference, #683: floats and integers)
+                        if (ab.back() == '$')
+                            error(lineNum, "proc " + m[1].str() + " compiled: " + p + ": string arrays are not passed yet");
+                        continue;
+                    }
                     if (p.empty() || p.back() == '&' || p.find('(') != std::string::npos)
-                        error(lineNum, "proc " + m[1].str() + " compiled: a parameter is a float, % or string variable, not " + p);
+                        error(lineNum, "proc " + m[1].str() + " compiled: a parameter is a float, % or string variable, or an array (a()), not " + p);
+                }
                 if (!stack.empty()) error(lineNum, "proc inside a block");
                 stack.push_back(Block{'p', nextId++, false, lineNum, 0, ""});
                 curProc = lower(m[1].str());
@@ -665,6 +705,13 @@ BasicStructuredResult lowerBasicStructured(const std::string& fullSource,
                 scope = "p" + lower(m[1].str());
                 continue;
             }
+            if (m[2].matched)
+                for (const auto& p : splitTop(m[3].str()))
+                    if (arrayParam(p))
+                        error(lineNum, "proc " + m[1].str() + ": " + p + ": " +
+                                       (m[4].matched ? std::string("an array parameter is the interpreted program's array: not with "
+                                                                   "--compile, which compiles the whole program")
+                                                     : std::string("an array is a parameter of a compiled proc only")));
             int id = nextId++;
             stack.push_back(Block{'p', id, false, lineNum, 0, ""});
             // The GOTO around the proc (#605): none where the line before

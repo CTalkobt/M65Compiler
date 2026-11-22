@@ -309,6 +309,35 @@ private:
     struct MixedProc { size_t li; std::vector<std::string> params; };
     std::vector<MixedProc> mixed_;
     bool mixed() const { return chainOpt_ && chainOpt_->mixed; }
+    // a compiled proc's array parameters (#683): the interpreter's arrays,
+    // their elements read and written where they are (key: the name's two
+    // characters and %)
+    std::set<std::string> extArr_;
+    static std::string extKey(const std::string& name) {
+        std::string base = name;
+        bool pct = !base.empty() && base.back() == '%';
+        if (pct || (!base.empty() && base.back() == '$')) base.pop_back();
+        return base.substr(0, 2) + (pct ? "%" : "");
+    }
+    bool isExt(const std::string& name) const { return extArr_.count(extKey(name)) > 0; }
+    // its globals' names: __bas_xb_<key> (I32: element 0's address), __bas_xn_<key> (I16: the elements)
+    static std::string extSym(const std::string& what, const std::string& key) {
+        std::string k = key;
+        if (!k.empty() && k.back() == '%') { k.pop_back(); k += "_i"; }
+        return what + k;
+    }
+    // the element name(i)'s 28-bit address (I32): one subscript, below the
+    // array's elements (--checks: ?BAD SUBSCRIPT)
+    ir::Operand extAddr(const std::string& name, VK& kind) {
+        std::string key = extKey(name);
+        kind = key.back() == '%' ? VK::I : VK::F;
+        auto subs = subscripts();
+        if (subs.size() != 1) fail("an array parameter (" + name + "()) takes one subscript");
+        raiseIf(bin(ir::Op::CMP_GEU, ir::Type::I8, subs[0], load(ir::Type::I16, ir::Operand::global(extSym("__bas_xn_", key)))), 18);
+        auto off = bin(ir::Op::MUL, ir::Type::I32, zext(subs[0], ir::Type::I16, ir::Type::I32),
+                       iconst(ir::Type::I32, kind == VK::I ? 2 : 5));
+        return bin(ir::Op::ADD, ir::Type::I32, load(ir::Type::I32, ir::Operand::global(extSym("__bas_xb_", key))), off);
+    }
     void mixedEntry();
     void mixedReturn();
     void mixedDepth(int d) {
@@ -430,6 +459,7 @@ private:
             "__bas_ti", "__bas_tis", "__bas_dts", "__bas_restore", "__bas_rnd", "__bas_int", "__float_sin", "__float_cos",
             "__float_tan", "__float_atn", "__float_abs", "__bas_mvget", "__bas_mvput", "__bas_mvarg",
             "__bas_vget", "__bas_vputf", "__bas_vputi", "__bas_vgets", "__bas_vputs",
+            "__bas_xgetf", "__bas_xgeti", "__bas_xputf", "__bas_xputi",
             "__bas_sprcol", "__bas_sprclr", "__bas_sprgs", "__bas_sprcp", "__bas_sprirq"};
         // (with CMD, PRINT's output can go to a file: an error)
         if (!safe.count(f) || (cmdUsed_ && f.compare(0, 8, "__bas_pr") == 0)) raises();
@@ -765,6 +795,15 @@ private:
     }
     Val loadElem(const std::string& name) {
         VK k;
+        if (isExt(name)) {
+            auto a = extAddr(name, k);
+            store(ir::Type::I32, a, global("__bas_xp"));
+            call(k == VK::I ? "__bas_xgeti" : "__bas_xgetf");
+            Val v; v.k = k;
+            if (k == VK::I) { v.op = load(ir::Type::I16, global("__bas_xcell")); v.bound = 32768; }
+            else v.op = load(ir::Type::F32, global("__bas_xcell"));
+            return v;
+        }
         auto a = elemAddr(name, k, bank() != 0);
         Val v; v.k = k;
         if (bank()) {
@@ -790,6 +829,7 @@ private:
                 varGlobal(t->text, k);
                 continue;
             }
+            if (isExt(t->text)) fail("DIM " + t->text + ": an array parameter is the interpreted program's (its DIM)");
             std::string g = arrayGlobal(t->text, k);
             auto subs = subscripts();
             arefCall(g, subs, elemSize(k) | (k == VK::S ? 0x40 : 0) | 0x80);
@@ -1632,7 +1672,8 @@ private:
     }
     void assignment(const std::string& name);
     // a place a value is stored: a scalar (its global) or an element (its address)
-    struct LV { VK k = VK::F; bool elem = false; std::string g; ir::Operand addr; };
+    // (ext: an array parameter's element, #683: addr its 28-bit address, I32)
+    struct LV { VK k = VK::F; bool elem = false; bool ext = false; std::string g; ir::Operand addr; };
     LV parseLV(const std::string& name);
     void assignLV(const LV& lv, const Val& v);
     LV listVar(const char* stmt);
@@ -3019,7 +3060,11 @@ void Compiler::statement() {
 
 Compiler::LV Compiler::parseLV(const std::string& name) {
     LV lv;
-    if (isCh('(')) {
+    if (isCh('(') && isExt(name)) {
+        lv.elem = true;
+        lv.ext = true;
+        lv.addr = extAddr(name, lv.k);
+    } else if (isCh('(')) {
         lv.elem = true;
         lv.addr = elemAddr(name, lv.k);
     } else {
@@ -3029,6 +3074,14 @@ Compiler::LV Compiler::parseLV(const std::string& name) {
 }
 
 void Compiler::assignLV(const LV& lv, const Val& v) {
+    if (lv.ext) {
+        // an array parameter's element (#683), where it is
+        if (lv.k == VK::I) store(ir::Type::I16, asType(toI16(v), ir::Type::I16), global("__bas_xcell"));
+        else store(ir::Type::F32, toF(v), global("__bas_xcell"));
+        store(ir::Type::I32, lv.addr, global("__bas_xp"));
+        call(lv.k == VK::I ? "__bas_xputi" : "__bas_xputf");
+        return;
+    }
     if (bank() && (lv.elem || lv.k == VK::S)) {
         if (lv.k == VK::S) {
             // the string copied into the bank (the variable's old one
@@ -4724,7 +4777,18 @@ void Compiler::mixedEntry() {
         mp.li = li;
         const auto& t = segs[0].toks;
         for (size_t i = 1; i < t.size(); i++)
-            if (t[i].k == TK::Name) mp.params.push_back(t[i].text);
+            if (t[i].k == TK::Name) {
+                // (an array parameter: name(), #683)
+                bool arr = i + 2 < t.size() && t[i + 1].k == TK::Ch && t[i + 1].ch == '(' && t[i + 2].k == TK::Ch &&
+                           t[i + 2].ch == ')';
+                mp.params.push_back(t[i].text + (arr ? "()" : ""));
+                if (arr) {
+                    std::string key = extKey(t[i].text);
+                    extArr_.insert(key);
+                    vars_[extSym("__bas_xb_", key)] = ir::Type::I32;
+                    vars_[extSym("__bas_xn_", key)] = ir::Type::I16;
+                }
+            }
         mixed_.push_back(mp);
     }
     toks_ = &none;
@@ -4739,6 +4803,17 @@ void Compiler::mixedEntry() {
         li_ = mixed_[k].li;
         for (size_t i = 0; i < mixed_[k].params.size(); i++) {
             const std::string& name = mixed_[k].params[i];
+            if (name.size() > 2 && name.compare(name.size() - 2, 2, "()") == 0) {
+                // an array (#683): its element 0's address and its size
+                std::string key = extKey(name.substr(0, name.size() - 2));
+                auto a = addrElem(global("__bas_parg"), iconst(ir::Type::I8, (int64_t)i), 2);
+                store(ir::Type::I16, load(ir::Type::I16, a), global("__bas_n"));
+                store(ir::Type::I16, iconst(ir::Type::I16, key.back() == '%' ? 0x25 : 0x22), global("__bas_m"));
+                call("__bas_xbase");
+                store(ir::Type::I32, load(ir::Type::I32, global("__bas_xp")), ir::Operand::global(extSym("__bas_xb_", key)));
+                store(ir::Type::I16, load(ir::Type::I16, global("__bas_n")), ir::Operand::global(extSym("__bas_xn_", key)));
+                continue;
+            }
             LV lv;
             lv.g = varGlobal(name, lv.k);
             auto a = addrElem(global("__bas_parg"), iconst(ir::Type::I8, (int64_t)i), 2);

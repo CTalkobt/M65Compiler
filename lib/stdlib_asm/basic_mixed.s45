@@ -16,6 +16,15 @@
 ;                 untouched); __bas_sa: the string (a length byte, then the
 ;                 characters), as many as fit; __bas_plen: how many (the
 ;                 thunk gives it to the CALL, which takes LEFT$(ZBUF$, n))
+;   __bas_xbase   an array parameter (#683): __bas_n: POINTER(x(0)), __bas_m:
+;                 its type byte ($22 a float, $25 an integer) -> __bas_xp: the
+;                 element 0's 28-bit address, __bas_n: the elements; another
+;                 type ?TYPE MISMATCH, more than one dimension ?BAD SUBSCRIPT
+;                 (the array's header before it, b65.src: ..., type, length
+;                 (2), dimensions (1), elements (2, high first))
+;   __bas_xgetf / __bas_xgeti   the element at __bas_xp into __bas_xcell
+;   __bas_xputf / __bas_xputi   __bas_xcell into the element at __bas_xp
+;                 (integers high byte first there, low first in the cell)
 ;
 ; BASIC 65's variables (b65.src: ptrget): a scalar's value in bank 0 at
 ; $F700-$FEFF, an array's in bank 1 (POINTER's rule: an address from $F700
@@ -26,7 +35,12 @@
 cc45.icallinfo = 1
 
 .global __bas_vget, __bas_vputf, __bas_vputi, __bas_vgets, __bas_vputs
-.extern __bas_n, __bas_m, __float_a, __bas_sr, __bas_sa, __bas_plen
+.global __bas_xbase, __bas_xgetf, __bas_xgeti, __bas_xputf, __bas_xputi, __bas_xp, __bas_xcell
+.extern __bas_n, __bas_m, __float_a, __bas_sr, __bas_sa, __bas_plen, __bas_raise
+
+.segment "bss"
+__bas_xp:    .res 4
+__bas_xcell: .res 5
 
 FP = $08                ; the variable (a 32-bit pointer)
 SP = $0C                ; the compiled program's string (16 bits)
@@ -159,5 +173,103 @@ proc __bas_vputs
     dex
     bne @c
 @done:
+    rts
+endproc
+
+proc __bas_xbase
+    jsr __bas_vaddr
+    ldx #3
+@cp:
+    lda FP,x
+    sta __bas_xp,x
+    dex
+    bpl @cp
+    ; FP := the header's type byte, 6 before the element
+    sec
+    lda FP
+    sbc #6
+    sta FP
+    lda FP+1
+    sbc #0
+    sta FP+1
+    lda FP+2
+    sbc #0
+    sta FP+2
+    ldz #0
+    lda [FP],z              ; the type
+    cmp __bas_m
+    beq @typed
+    lda #22                 ; ?TYPE MISMATCH
+    jmp __bas_raise
+@typed:
+    ldz #3
+    lda [FP],z              ; the dimensions
+    cmp #1
+    beq @one
+    lda #18                 ; ?BAD SUBSCRIPT
+    jmp __bas_raise
+@one:
+    inz
+    lda [FP],z              ; the elements, high first
+    sta __bas_n+1
+    inz
+    lda [FP],z
+    sta __bas_n
+    rts
+endproc
+
+; FP := __bas_xp
+proc __bas_xaddr
+    ldx #3
+@cp:
+    lda __bas_xp,x
+    sta FP,x
+    dex
+    bpl @cp
+    ldz #0
+    rts
+endproc
+
+proc __bas_xgetf
+    jsr __bas_xaddr
+    ldx #0
+@f: lda [FP],z
+    sta __bas_xcell,x
+    inz
+    inx
+    cpx #5
+    bne @f
+    rts
+endproc
+
+proc __bas_xgeti
+    jsr __bas_xaddr
+    lda [FP],z              ; high
+    sta __bas_xcell+1
+    inz
+    lda [FP],z
+    sta __bas_xcell
+    rts
+endproc
+
+proc __bas_xputf
+    jsr __bas_xaddr
+    ldx #0
+@f: lda __bas_xcell,x
+    sta [FP],z
+    inz
+    inx
+    cpx #5
+    bne @f
+    rts
+endproc
+
+proc __bas_xputi
+    jsr __bas_xaddr
+    lda __bas_xcell+1       ; high first
+    sta [FP],z
+    inz
+    lda __bas_xcell
+    sta [FP],z
     rts
 endproc
