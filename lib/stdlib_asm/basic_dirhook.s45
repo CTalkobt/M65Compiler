@@ -11,9 +11,9 @@ cc45.icallinfo = 1
 .global __bas_dirsdp, __bas_sdcall, __bas_sdlen, __bas_sdpage
 
 .segment "bss"
-__bas_dirsdp:   .res 2  ; __bas_dirsd, once a DIR set it (0: none)
-__bas_sdlen:    .res 1  ; the pattern's length (0: none)
-__bas_sdpage:   .res 1  ; bit 7: page mode; bit 6: stop (pagemo's)
+__bas_dirsdp:   .res 2      ; __bas_dirsd, once a DIR set it (0: none)
+__bas_sdlen:    .res 1      ; the pattern's length (0: none)
+__bas_sdpage:   .res 1      ; bit 7: page mode; bit 6: stop (pagemo's)
 
 .segment "code"
 

@@ -21,13 +21,13 @@ proc _strlen
 
     ; s is already at $10/$11
     ldy #0
-    ldx #0              ; X: length high byte (pages walked)
+    ldx #0                  ; X: length high byte (pages walked)
 @loop:
     lda ($10),y
     beq @done
     iny
     bne @loop
-    inc $11             ; next page of the string
+    inc $11                 ; next page of the string
     inx
     bra @loop
 @done:

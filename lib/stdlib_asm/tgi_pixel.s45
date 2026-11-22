@@ -19,12 +19,12 @@
 .weak cc45.icallinfo
 cc45.icallinfo = 1
 
-PIX = $08               ; a pixel's address (32 bits)
-XNEXT = 1593            ; x + 1 from a character column's last pixel: 1600 - 7
-P0 = $0C                ; the ellipse's 4 points' addresses: (cx + x, cy - y)
-P1 = $14                ; (cx - x, cy - y) (over rx, ry: read by then)
-P2 = $18                ; (cx - x, cy + y)
-P3 = $1C                ; (cx + x, cy + y)
+PIX = $08                   ; a pixel's address (32 bits)
+XNEXT = 1593                ; x + 1 from a character column's last pixel: 1600 - 7
+P0 = $0C                    ; the ellipse's 4 points' addresses: (cx + x, cy - y)
+P1 = $14                    ; (cx - x, cy - y) (over rx, ry: read by then)
+P2 = $18                    ; (cx - x, cy + y)
+P3 = $1C                    ; (cx + x, cy + y)
 
 .global _tgi_setpixel, _tgi_getpixel, ___tgi_line_on_screen, ___tgi_glyph
 .global _tgi_line, _tgi_lineto, ___tgi_clipline, ___tgi_ellipse, _tgi_ellipse, _tgi_circle
@@ -46,42 +46,42 @@ P3 = $1C                ; (cx + x, cy + y)
 .extern _tgi_curx, _tgi_cury, __divs32
 
 .segment "bss"
-__tgi_col:      .res 1  ; the ellipse's colour
-__c_pt:         .res 16 ; a clipped line's ends: x1, y1, x2, y2 (32 bits)
-__c_c1:         .res 1  ; their outcodes
+__tgi_col:      .res 1      ; the ellipse's colour
+__c_pt:         .res 16     ; a clipped line's ends: x1, y1, x2, y2 (32 bits)
+__c_c1:         .res 1      ; their outcodes
 __c_c2:         .res 1
-__c_ou:         .res 1  ; the intersection: the coordinate worked out (0: x,
-__c_ov:         .res 1  ; 4: y), the one at the edge
-__c_au:         .res 4  ; (the ends' coordinates)
+__c_ou:         .res 1      ; the intersection: the coordinate worked out (0: x,
+__c_ov:         .res 1      ; 4: y), the one at the edge
+__c_au:         .res 4      ; (the ends' coordinates)
 __c_av:         .res 4
 __c_bu:         .res 4
 __c_bv:         .res 4
-__c_edge:       .res 4  ; the edge: 0, xmax or ymax
+__c_edge:       .res 4      ; the edge: 0, xmax or ymax
 __c_t:          .res 4
-__c_end:        .res 1  ; the end moved: 0 or 8
-__tgi_ecx:      .res 2  ; the ellipse: its centre
+__c_end:        .res 1      ; the end moved: 0 or 8
+__tgi_ecx:      .res 2      ; the ellipse: its centre
 __tgi_ecy:      .res 2
-__tgi_ex:       .res 1  ; the walk's point (the first quarter's)
+__tgi_ex:       .res 1      ; the walk's point (the first quarter's)
 __tgi_ey:       .res 1
-__tgi_ebit:     .res 1  ; the point's state as a bit (__tgi_allow's)
-__tgi_eerr:     .res 4  ; Kennedy's error
-__tgi_exc:      .res 4  ; its change for a step in x
-__tgi_eyc:      .res 4  ; in y
-__tgi_estx:     .res 4  ; the pass's stopping numbers
+__tgi_ebit:     .res 1      ; the point's state as a bit (__tgi_allow's)
+__tgi_eerr:     .res 4      ; Kennedy's error
+__tgi_exc:      .res 4      ; its change for a step in x
+__tgi_eyc:      .res 4      ; in y
+__tgi_estx:     .res 4      ; the pass's stopping numbers
 __tgi_esty:     .res 4
-__tgi_ecs:      .res 4  ; c for the arc's start angle (>= 0: past it)
-__tgi_ece:      .res 4  ; for its end angle
-__tgi_efast:    .res 1  ; $80: the ellipse's box on the screen (the 4 points by address)
-__tgi_xbr:      .res 1  ; then: (cx + x) & 7 (640x200: & 15)
-__tgi_xbl:      .res 1  ; (cx - x) & 7
-__tgi_ta2:      .res 4  ; Kennedy's numbers (__tgi_ellipse works them out): 2 rx^2
-__tgi_tb2:      .res 4  ; 2 ry^2
-__tgi_xc1:      .res 4  ; pass 1 from (rx, 0): x change ry^2 (1 - 2 rx)
-__tgi_yc1:      .res 4  ; y change rx^2
-__tgi_sx1:      .res 4  ; stopping x 2 ry^2 rx
-__tgi_xc2:      .res 4  ; pass 2 from (0, ry): x change ry^2
-__tgi_yc2:      .res 4  ; y change rx^2 (1 - 2 ry)
-__tgi_sy2:      .res 4  ; stopping y 2 rx^2 ry
+__tgi_ecs:      .res 4      ; c for the arc's start angle (>= 0: past it)
+__tgi_ece:      .res 4      ; for its end angle
+__tgi_efast:    .res 1      ; $80: the ellipse's box on the screen (the 4 points by address)
+__tgi_xbr:      .res 1      ; then: (cx + x) & 7 (640x200: & 15)
+__tgi_xbl:      .res 1      ; (cx - x) & 7
+__tgi_ta2:      .res 4      ; Kennedy's numbers (__tgi_ellipse works them out): 2 rx^2
+__tgi_tb2:      .res 4      ; 2 ry^2
+__tgi_xc1:      .res 4      ; pass 1 from (rx, 0): x change ry^2 (1 - 2 rx)
+__tgi_yc1:      .res 4      ; y change rx^2
+__tgi_sx1:      .res 4      ; stopping x 2 ry^2 rx
+__tgi_xc2:      .res 4      ; pass 2 from (0, ry): x change ry^2
+__tgi_yc2:      .res 4      ; y change rx^2 (1 - 2 ry)
+__tgi_sy2:      .res 4      ; stopping y 2 rx^2 ry
 ; an arc's (stdlib_asm/tgi_arc.s45 sets them, in this order: a block of 16
 ; bytes for each angle): c = y * k1 - x * k2 for its start and end angles,
 ; c at each pass's start, the quarters' states shown
@@ -93,8 +93,8 @@ ___tgi_ke1:     .res 4
 ___tgi_ke2:     .res 4
 ___tgi_ce1:     .res 4
 ___tgi_ce2:     .res 4
-___tgi_allow:   .res 4  ; a quarter's points shown in the states (bit: c_s < 0 | c_e < 0 << 1)
-___tgi_arcon:   .res 1  ; $80: keep c_s and c_e
+___tgi_allow:   .res 4      ; a quarter's points shown in the states (bit: c_s < 0 | c_e < 0 << 1)
+___tgi_arcon:   .res 1      ; $80: keep c_s and c_e
 
 .segment "code"
 ; (c * 1600) for the character columns c = 0..39

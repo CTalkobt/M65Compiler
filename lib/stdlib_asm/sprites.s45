@@ -41,21 +41,21 @@ NPART = 5
 
 .segment "bss"
     .align 16               ; (16-bit pointer mode ignores the table address's bits 0-3)
-__spr_ptr:      .res 16 ; the sprite pointers (image address / 64)
-__spr_xl:       .res 8  ; the positions
+__spr_ptr:      .res 16     ; the sprite pointers (image address / 64)
+__spr_xl:       .res 8      ; the positions
 __spr_xh:       .res 8
 __spr_yl:       .res 8
 __spr_yh:       .res 8
-__spr_w:        .res 8  ; sprite_overlap's widths, heights
+__spr_w:        .res 8      ; sprite_overlap's widths, heights
 __spr_hl:       .res 8
 __spr_hh:       .res 8
 __spr_save:     .res NREGS
-__spr_s54:      .res 1  ; $D054's bit 4
-__spr_spart:    .res NPART ; (__spr_part's bits)
-__spr_m:        .res 1  ; a sprite's bit
-__spr_nm:       .res 1  ; (the others)
-__spr_t:        .res 2  ; a temporary
-__spr_a:        .res 1  ; sprite_overlap's two sprites
+__spr_s54:      .res 1      ; $D054's bit 4
+__spr_spart:    .res NPART  ; (__spr_part's bits)
+__spr_m:        .res 1      ; a sprite's bit
+__spr_nm:       .res 1      ; (the others)
+__spr_t:        .res 2      ; a temporary
+__spr_a:        .res 1      ; sprite_overlap's two sprites
 __spr_b:        .res 1
 
 .segment "code"

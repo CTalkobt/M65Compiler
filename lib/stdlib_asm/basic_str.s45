@@ -25,8 +25,8 @@ MULTINA = $D770
 MULTINB = $D774
 MULTOUT = $D778
 
-SRC     = $F6       ; library temps of the program's base page (malloc and
-DST     = $F8       ; free leave them alone)
+SRC     = $F6               ; library temps of the program's base page (malloc and
+DST     = $F8               ; free leave them alone)
 
 .extern __bas_sa
 .extern __bas_sb
@@ -50,13 +50,13 @@ __bas_empty: .byte 0
 .global __bas_sp
 __bas_stk:  .res 256
 __bas_sp:   .res 1
-newp:   .res 2          ; __bas_sset's new block
-ln:     .res 1          ; a string's length
-ln2:    .res 1          ; another's (__bas_scmp), the result's (__bas_scat, part)
-pp:     .res 2          ; part's position (0-based)
-nn:     .res 2          ; part's count
-vv:     .res 1          ; a FOR loop's variable
-cnt:    .res 2          ; __bas_afree's elements
+newp:   .res 2              ; __bas_sset's new block
+ln:     .res 1              ; a string's length
+ln2:    .res 1              ; another's (__bas_scmp), the result's (__bas_scat, part)
+pp:     .res 2              ; part's position (0-based)
+nn:     .res 2              ; part's count
+vv:     .res 1              ; a FOR loop's variable
+cnt:    .res 2              ; __bas_afree's elements
 
 .segment "code"
 
@@ -91,7 +91,7 @@ __bas_smove:
     lda DST
     cmp SRC
 @cmp:
-    bcc @fwd            ; DST below SRC: from the first byte up
+    bcc @fwd                ; DST below SRC: from the first byte up
     txa
     tay
 @bwd:
@@ -125,11 +125,11 @@ __bas_sset:
     ldy #0
     lda (SRC),y
     beq @set
-    clc                 ; malloc(the length + 1)
+    clc                     ; malloc(the length + 1)
     adc #1
     sta $10
     lda #0
-    rol a               ; (the carry: 256)
+    rol a                   ; (the carry: 256)
     sta $11
     jsr _malloc
     sta DST
@@ -138,7 +138,7 @@ __bas_sset:
     stx newp+1
     ora DST+1
     bne @copy
-    lda #16             ; ?OUT OF MEMORY
+    lda #16                 ; ?OUT OF MEMORY
     jmp __bas_raise
 @copy:
     ldy #0
@@ -151,7 +151,7 @@ __bas_sset:
     dey
     bne @cloop
 @set:
-    lda __bas_sr        ; the variable's old block freed (not __bas_empty, not 0)
+    lda __bas_sr            ; the variable's old block freed (not __bas_empty, not 0)
     sta DST
     lda __bas_sr+1
     sta DST+1
@@ -195,19 +195,19 @@ __bas_scat:
     lda __bas_sb+1
     sta SRC+1
     lda (SRC),y
-    tax                 ; b's length
+    tax                     ; b's length
     clc
     adc ln
     bcc @fits
-    lda #23             ; ?STRING TOO LONG
+    lda #23                 ; ?STRING TOO LONG
     jmp __bas_raise
 @fits:
     sta ln2
-    inc SRC             ; b + 1
+    inc SRC                 ; b + 1
     bne @s1
     inc SRC+1
 @s1:
-    sec                 ; r + 1 + a's length
+    sec                     ; r + 1 + a's length
     lda __bas_sr
     adc ln
     sta DST
@@ -215,7 +215,7 @@ __bas_scat:
     adc #0
     sta DST+1
     jsr __bas_smove
-    clc                 ; then a's characters to r + 1
+    clc                     ; then a's characters to r + 1
     lda __bas_sa
     adc #1
     sta SRC
@@ -247,7 +247,7 @@ __bas_scmp:
     sta ln
     lda (DST),y
     sta ln2
-    ldx ln              ; X := the shorter length
+    ldx ln                  ; X := the shorter length
     cpx ln2
     bcc @min
     ldx ln2
@@ -291,12 +291,12 @@ __bas_part:
     jsr __bas_sasrc
     ldy #0
     lda (SRC),y
-    ldx #0              ; (past the end: none)
+    ldx #0                  ; (past the end: none)
     ldy pp+1
     bne @go
     cmp pp
     bcc @go
-    sec                 ; the characters after the position
+    sec                     ; the characters after the position
     sbc pp
     ldy nn+1
     bne @rest
@@ -307,7 +307,7 @@ __bas_part:
     tax
 @go:
     stx ln2
-    sec                 ; a + 1 + the position
+    sec                     ; a + 1 + the position
     lda SRC
     adc pp
     sta SRC
@@ -380,7 +380,7 @@ __bas_mid:
     lda __bas_n
     ora __bas_n+1
     bne @ok
-    lda #14             ; ?ILLEGAL QUANTITY
+    lda #14                 ; ?ILLEGAL QUANTITY
     jmp __bas_raise
 @ok:
     sec
@@ -444,12 +444,12 @@ __bas_fdrop:
 @loop:
     cpx #2
     bcc @done
-    dex                 ; the entry's upper word, at 2 * (i - 1)
+    dex                     ; the entry's upper word, at 2 * (i - 1)
     txa
     asl a
     tay
     lda __bas_stk+1,y
-    bne @done           ; (a GOSUB's or a DO's: the search ends)
+    bne @done               ; (a GOSUB's or a DO's: the search ends)
     lda __bas_stk,y
     beq @done
     tay
@@ -472,7 +472,7 @@ __bas_forpush:
     ldx __bas_sp
     cpx #127
     bcc @push
-    lda #16             ; ?OUT OF MEMORY
+    lda #16                 ; ?OUT OF MEMORY
     jmp __bas_raise
 @push:
     txa
@@ -527,7 +527,7 @@ __bas_next:
     sta __bas_n+1
     rts
 @err:
-    lda #10             ; ?NEXT WITHOUT FOR
+    lda #10                 ; ?NEXT WITHOUT FOR
     jmp __bas_raise
 
 ; DO: its entry (the DO's address __bas_n, then 0). ?OUT OF MEMORY when full
@@ -565,7 +565,7 @@ __bas_dopop:
 @loop:
     cpx #2
     bcc @err
-    dex                 ; word i - 1
+    dex                     ; word i - 1
     txa
     asl a
     tay
@@ -580,7 +580,7 @@ __bas_dopop:
     stx __bas_sp
     rts
 @err:
-    lda #33             ; ?LOOP WITHOUT DO
+    lda #33                 ; ?LOOP WITHOUT DO
     jmp __bas_raise
 
 ; CLR's arrays: the array of the variable __bas_sa freed (a string array's
@@ -616,10 +616,10 @@ __bas_afree:
     ldy #0
     lda (SRC),y
     asl a
-    sta ln              ; 2 * the dimensions
+    sta ln                  ; 2 * the dimensions
     ldy #1
 @dims:
-    cpy ln              ; (the sizes at 1 .. 2n)
+    cpy ln                  ; (the sizes at 1 .. 2n)
     bcs @counted
     lda cnt
     sta MULTINA
@@ -638,7 +638,7 @@ __bas_afree:
     bra @dims
 @counted:
     ; the elements' pointers from the array + 1 + 2 * the dimensions
-    tya                 ; (Y = 2n + 1)
+    tya                     ; (Y = 2n + 1)
     clc
     adc SRC
     sta DST

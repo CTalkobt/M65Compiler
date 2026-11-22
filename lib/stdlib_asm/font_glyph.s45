@@ -23,8 +23,8 @@ cc45.icallinfo = 1
 
 .global ___font_glyph
 
-COL = $08               ; the column
-V = $09                 ; the source byte, then the ink
+COL = $08                   ; the column
+V = $09                     ; the source byte, then the ink
 
 .segment "code"
 

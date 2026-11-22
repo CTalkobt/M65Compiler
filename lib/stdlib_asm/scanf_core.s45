@@ -29,10 +29,10 @@ cc45.icallinfo = 1
 .global ___vscanf_core
 .extern ___scan_getc, ___scan_ungetc, ___scan_float
 
-SC_NONE_LO = $FE        ; la: -2 (not read yet), -1 EOF
+SC_NONE_LO = $FE            ; la: -2 (not read yet), -1 EOF
 
 .segment "bss"
-sc_src:                 ; struct __scan_src
+sc_src:                     ; struct __scan_src
 sc_file:    .res 2
 sc_str:     .res 2
 sc_la:      .res 2
@@ -100,17 +100,17 @@ proc ___vscanf_core
 @fchar:
     jsr @isspace
     bcc @notspace
-    jsr @skipws         ; white space in the format: any amount in the input
+    jsr @skipws             ; white space in the format: any amount in the input
     jsr @finc
     bra @loop
 @notspace:
-    cmp #$25            ; '%'
+    cmp #$25                ; '%'
     bne @literal
     ldy #1
     jsr @fy
     cmp #$25
     bne @conv
-    jsr @finc           ; "%%": white space, then a '%'
+    jsr @finc               ; "%%": white space, then a '%'
     jsr @skipws
 @literal:
     jsr @peek
@@ -120,7 +120,7 @@ proc ___vscanf_core
     jsr @fy
     cmp sc_t
     beq @litok
-    jmp @done           ; a mismatch
+    jmp @done               ; a mismatch
 @litok:
     jsr @next
     jsr @finc
@@ -140,7 +140,7 @@ proc ___vscanf_core
     sta sc_size
     ldy #0
     jsr @fy
-    cmp #$2A            ; '*'
+    cmp #$2A                ; '*'
     bne @wdig
     inc sc_suppress
     jsr @finc
@@ -151,13 +151,13 @@ proc ___vscanf_core
     sbc #$30
     cmp #10
     bcs @lenmod
-    pha                 ; width = width * 10 + digit: * 8 + * 2
+    pha                     ; width = width * 10 + digit: * 8 + * 2
     lda sc_width
     asl a
     sta sc_t
     lda sc_width+1
     rol a
-    sta sc_hi           ; sc_hi:sc_t = width * 2
+    sta sc_hi               ; sc_hi:sc_t = width * 2
     lda sc_t
     asl a
     sta sc_width
@@ -165,7 +165,7 @@ proc ___vscanf_core
     rol a
     sta sc_width+1
     asl sc_width
-    rol sc_width+1      ; width * 8
+    rol sc_width+1          ; width * 8
     lda sc_width
     clc
     adc sc_t
@@ -185,7 +185,7 @@ proc ___vscanf_core
 @lenmod:
     ldy #0
     jsr @fy
-    cmp #$48            ; 'h'
+    cmp #$48                ; 'h'
     bne @lm_l
     lda #2
     sta sc_size
@@ -193,11 +193,11 @@ proc ___vscanf_core
     jsr @fy
     cmp #$48
     bne @lm_one
-    lda #1              ; hh
+    lda #1                  ; hh
     sta sc_size
     bra @lm_two
 @lm_l:
-    cmp #$4C            ; 'l'
+    cmp #$4C                ; 'l'
     bne @lm_big
     lda #4
     sta sc_size
@@ -205,7 +205,7 @@ proc ___vscanf_core
     jsr @fy
     cmp #$4C
     bne @lm_one
-    lda #8              ; ll
+    lda #8                  ; ll
     sta sc_size
 @lm_two:
     jsr @finc
@@ -214,16 +214,16 @@ proc ___vscanf_core
     bra @lenmod
 @lm_big:
     ldx #4
-    cmp #$CC            ; 'L'
+    cmp #$CC                ; 'L'
     beq @lm_set
-    cmp #$6C            ; (the other form of 'L')
+    cmp #$6C                ; (the other form of 'L')
     beq @lm_set
-    cmp #$4A            ; 'j'
+    cmp #$4A                ; 'j'
     beq @lm_set
     ldx #2
-    cmp #$5A            ; 'z'
+    cmp #$5A                ; 'z'
     beq @lm_set
-    cmp #$54            ; 't'
+    cmp #$54                ; 't'
     bne @convchar
 @lm_set:
     stx sc_size
@@ -235,7 +235,7 @@ proc ___vscanf_core
     jmp @done
 @hasconv:
     jsr @finc
-    lda sc_conv         ; the lower-case letter ('D' and 'd' are the same)
+    lda sc_conv             ; the lower-case letter ('D' and 'd' are the same)
     cmp #$61
     bcc @lc
     cmp #$7B
@@ -254,7 +254,7 @@ proc ___vscanf_core
     sta sc_lc
 
     lda sc_conv
-    cmp #$4E            ; 'n': the characters read so far
+    cmp #$4E                ; 'n': the characters read so far
     bne @notn
     lda sc_suppress
     bne @jloop
@@ -271,7 +271,7 @@ proc ___vscanf_core
     jmp @loop
 @notn:
     lda sc_lc
-    cmp #$43            ; 'c' and '[' do not skip white space
+    cmp #$43                ; 'c' and '[' do not skip white space
     beq @noskip
     lda sc_conv
     cmp #$5B
@@ -285,7 +285,7 @@ proc ___vscanf_core
     lda sc_width
     ora sc_width+1
     bne @widthset
-    lda #1              ; %c: 1, else no limit
+    lda #1                  ; %c: 1, else no limit
     ldx #0
     ldy sc_lc
     cpy #$43
@@ -298,44 +298,44 @@ proc ___vscanf_core
 @widthset:
     lda sc_lc
     ldx #10
-    cmp #$44            ; 'd'
+    cmp #$44                ; 'd'
     beq @int
-    cmp #$55            ; 'u'
+    cmp #$55                ; 'u'
     beq @int
     ldx #0
-    cmp #$49            ; 'i'
+    cmp #$49                ; 'i'
     beq @int
     ldx #8
-    cmp #$4F            ; 'o'
+    cmp #$4F                ; 'o'
     beq @int
     ldx #16
-    cmp #$58            ; 'x'
+    cmp #$58                ; 'x'
     beq @int
-    cmp #$50            ; 'p'
+    cmp #$50                ; 'p'
     beq @int
     cmp #$43
     bne @notc
     jmp @char
 @notc:
-    cmp #$53            ; 's'
+    cmp #$53                ; 's'
     bne @nots
     jmp @str
 @nots:
     lda sc_conv
-    cmp #$5B            ; '['
+    cmp #$5B                ; '['
     bne @notset
     jmp @str
 @notset:
     lda sc_lc
-    cmp #$46            ; 'f'
+    cmp #$46                ; 'f'
     beq @float
-    cmp #$45            ; 'e'
+    cmp #$45                ; 'e'
     beq @float
-    cmp #$47            ; 'g'
+    cmp #$47                ; 'g'
     beq @float
-    cmp #$41            ; 'a'
+    cmp #$41                ; 'a'
     beq @float
-    jmp @done           ; an unknown conversion
+    jmp @done               ; an unknown conversion
 
 ; ---- %f %e %g %a: __scan_float(&src, width, dest) ----
 @float:
@@ -358,7 +358,7 @@ proc ___vscanf_core
     bne @fok
     jmp @done
 @fok:
-    lda sc_dest         ; assigned when stored
+    lda sc_dest             ; assigned when stored
     ora sc_dest+1
     beq @fcount
     jmp @assigned
@@ -378,9 +378,9 @@ proc ___vscanf_core
     jsr @wz
     beq @digits
     jsr @peek
-    cmp #$2B            ; '+'
+    cmp #$2B                ; '+'
     beq @sign
-    cmp #$2D            ; '-'
+    cmp #$2D                ; '-'
     bne @prefix
     inc sc_neg
 @sign:
@@ -393,7 +393,7 @@ proc ___vscanf_core
     cmp #16
     bne @zero
     jsr @peek
-    cmp #$24            ; '$'
+    cmp #$24                ; '$'
     bne @zero
     jsr @next
     jsr @wdec
@@ -405,7 +405,7 @@ proc ___vscanf_core
     bne @digits
 @zero2:
     jsr @peek
-    cmp #$30            ; '0'
+    cmp #$30                ; '0'
     bne @digits
     jsr @next
     jsr @wdec
@@ -414,7 +414,7 @@ proc ___vscanf_core
     jsr @wz
     beq @oct
     jsr @peek
-    cmp #$58            ; 'x' in any encoding
+    cmp #$58                ; 'x' in any encoding
     beq @hex
     cmp #$78
     beq @hex
@@ -443,7 +443,7 @@ proc ___vscanf_core
     jsr @digit
     cmp sc_base
     bcs @dend
-    pha                 ; v = v * base + digit (the hardware multiplier)
+    pha                     ; v = v * base + digit (the hardware multiplier)
     ldq sc_val
     stq $D770
     lda sc_base
@@ -487,7 +487,7 @@ proc ___vscanf_core
     lda sc_suppress
     bne @counted
     lda sc_lc
-    cmp #$50            ; %p: a pointer
+    cmp #$50                ; %p: a pointer
     bne @isize
     lda #2
     sta sc_size
@@ -539,14 +539,14 @@ proc ___vscanf_core
     bpl @clr
     ldy #0
     jsr @fy
-    cmp #$5E            ; '^'
+    cmp #$5E                ; '^'
     bne @first
     inc sc_setneg
     jsr @finc
 @first:
     ldy #0
     jsr @fy
-    cmp #$5D            ; ']' first: one of the set
+    cmp #$5D                ; ']' first: one of the set
     bne @members
     jsr @setbit
     jsr @finc
@@ -556,11 +556,11 @@ proc ___vscanf_core
     beq @setend
     cmp #$5D
     beq @setclose
-    sta sc_t            ; lo
-    sta sc_hi           ; hi
+    sta sc_t                ; lo
+    sta sc_hi               ; hi
     ldy #1
     jsr @fy
-    cmp #$2D            ; a range lo-hi (not before ']' or the end)
+    cmp #$2D                ; a range lo-hi (not before ']' or the end)
     bne @range
     ldy #2
     jsr @fy
@@ -574,7 +574,7 @@ proc ___vscanf_core
     lda sc_t
     cmp sc_hi
     beq @rlast
-    bcs @rnext          ; lo > hi: nothing
+    bcs @rnext              ; lo > hi: nothing
 @rloop:
     lda sc_t
     jsr @setbit
@@ -600,12 +600,12 @@ proc ___vscanf_core
     jsr @n_lt_width
     bcs @send
     jsr @peek
-    bcs @send           ; EOF
+    bcs @send               ; EOF
     sta sc_t
     lda sc_conv
     cmp #$5B
     bne @sspace
-    lda sc_t            ; in the set (or not, for ^)
+    lda sc_t                ; in the set (or not, for ^)
     lsr a
     lsr a
     lsr a
@@ -640,14 +640,14 @@ proc ___vscanf_core
     lda sc_dest
     ora sc_dest+1
     beq @counted
-    lda #0              ; the terminator
+    lda #0                  ; the terminator
     jsr @put
     jmp @assigned
 
 ; ---- the end: the lookahead back to the source ----
 @done:
     lda sc_la+1
-    bne @noback         ; none, or EOF
+    bne @noback             ; none, or EOF
     lda #<sc_src
     sta $10
     lda #>sc_src
@@ -662,7 +662,7 @@ proc ___vscanf_core
     beq @ret
     lda sc_converted
     bne @ret
-    lda #$FF            ; EOF
+    lda #$FF                ; EOF
     tax
     rts
 @ret:
@@ -764,15 +764,15 @@ proc ___vscanf_core
     cmp #$DB
     bcs @dno
     sec
-    sbc #$B7            ; $C1 - 10
+    sbc #$B7                ; $C1 - 10
     rts
 @d61:
     sec
-    sbc #$57            ; $61 - 10
+    sbc #$57                ; $61 - 10
     rts
 @d41:
     sec
-    sbc #$37            ; $41 - 10
+    sbc #$37                ; $41 - 10
     rts
 @dd:
     sec

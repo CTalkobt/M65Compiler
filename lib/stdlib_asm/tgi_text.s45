@@ -26,31 +26,31 @@ cc45.icallinfo = 1
 .extern _tgi_curx, _tgi_cury, _tgi_xmax, _tgi_ymax
 .extern _tgi_imulround, ___tgi_clipline, ___tgi_glyph, _tgi_bar
 
-FIRST = $20             ; TGI_VF_FIRSTCHAR
-LAST = $7E              ; TGI_VF_LASTCHAR
-PTR = $0E               ; a pointer read through (set before each use)
-GA = $08                ; a glyph's address (32 bits)
+FIRST = $20                 ; TGI_VF_FIRSTCHAR
+LAST = $7E                  ; TGI_VF_LASTCHAR
+PTR = $0E                   ; a pointer read through (set before each use)
+GA = $08                    ; a glyph's address (32 bits)
 
 .segment "bss"
-__x_s:          .res 2  ; the string
-__x_w:          .res 2  ; a width; a product
-__x_ops:        .res 2  ; a vector character's operations
-__x_bx:         .res 1  ; an operation's bytes
+__x_s:          .res 2      ; the string
+__x_w:          .res 2      ; a width; a product
+__x_ops:        .res 2      ; a vector character's operations
+__x_bx:         .res 1      ; an operation's bytes
 __x_by:         .res 1
-__x_x1:         .res 2  ; its line: from (x1, y1) to (x2, y2)
+__x_x1:         .res 2      ; its line: from (x1, y1) to (x2, y2)
 __x_y1:         .res 2
 __x_x2:         .res 2
 __x_y2:         .res 2
-__x_xs:         .res 2  ; the scaled offsets
+__x_xs:         .res 2      ; the scaled offsets
 __x_ys:         .res 2
-__x_mx:         .res 1  ; the bitmap font's magnification
+__x_mx:         .res 1      ; the bitmap font's magnification
 __x_my:         .res 1
-__x_font:       .res 4  ; the bitmap font's address
-__x_ga:         .res 4  ; a glyph's
-__x_c:          .res 1  ; a run's first pixel, its end
+__x_font:       .res 4      ; the bitmap font's address
+__x_ga:         .res 4      ; a glyph's
+__x_c:          .res 1      ; a run's first pixel, its end
 __x_e:          .res 1
-__x_r:          .res 1  ; the glyph's row
-__x_bits:       .res 1  ; its pixels left
+__x_r:          .res 1      ; the glyph's row
+__x_bits:       .res 1      ; its pixels left
 
 .segment "code"
 

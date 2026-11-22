@@ -31,10 +31,10 @@ V_SIZE  = $F6
 V_CAP   = $F8
 
 .segment "bss"
-__vec_v:    .res 2      ; the vector, across calls
-__vec_i:    .res 2      ; an index / count
-__vec_e:    .res 2      ; the element given
-__vec_p:    .res 2      ; the element's address (the result)
+__vec_v:    .res 2          ; the vector, across calls
+__vec_i:    .res 2          ; an index / count
+__vec_e:    .res 2          ; the element given
+__vec_p:    .res 2          ; the element's address (the result)
 
 .segment "code"
 
@@ -101,7 +101,7 @@ proc __vec_grow
     lda __vec_i
     ldx __vec_i+1
     jsr __vec_bytes
-    sta $12             ; realloc(data, bytes)
+    sta $12                 ; realloc(data, bytes)
     stx $13
     lda CT_BASE
     sta $10
@@ -122,11 +122,11 @@ proc __vec_grow
     rts
 @ok:
     ldy #0
-    jsr __vec_put       ; data
+    jsr __vec_put           ; data
     lda __vec_i
     ldx __vec_i+1
     ldy #4
-    jsr __vec_put       ; cap
+    jsr __vec_put           ; cap
     jsr __vec_load
     clc
     rts
@@ -140,7 +140,7 @@ proc __vec_room
     lda V_SIZE+1
     cmp V_CAP+1
     bne @room
-    lda V_CAP           ; twice the capacity, 4 at first
+    lda V_CAP               ; twice the capacity, 4 at first
     ora V_CAP+1
     bne @double
     lda #4
@@ -187,7 +187,7 @@ proc _vec_reserve
     .reg_clobbers A, X, Y, Z
     .flag_clobbers C, N, Z, V
     jsr __vec_load
-    lda V_CAP+1         ; n <= cap: there
+    lda V_CAP+1             ; n <= cap: there
     cmp $13
     bcc @grow
     bne @ok
@@ -226,12 +226,12 @@ proc _vec_shrink
     lda V_SIZE
     ora V_SIZE+1
     bne @realloc
-    jsr _vec_free       ; (empty: no memory at all)
+    jsr _vec_free           ; (empty: no memory at all)
     rts
 @realloc:
     lda V_SIZE
     ldx V_SIZE+1
-    jsr __vec_grow      ; (realloc to the size; on failure it stays)
+    jsr __vec_grow          ; (realloc to the size; on failure it stays)
 @done:
     rts
     .func_flags zp_call
@@ -335,7 +335,7 @@ proc _vec_pop
     lda V_SIZE
     ora V_SIZE+1
     beq @empty
-    lda V_SIZE          ; size - 1
+    lda V_SIZE              ; size - 1
     bne @lo
     dec V_SIZE+1
 @lo:
@@ -374,7 +374,7 @@ proc _vec_at
     .reg_clobbers A, X, Y
     .flag_clobbers C, N, Z, V
     jsr __vec_load
-    lda $13             ; i < size
+    lda $13                 ; i < size
     cmp V_SIZE+1
     bcc @in
     bne @none
@@ -431,7 +431,7 @@ proc _vec_insert
     lda $15
     sta __vec_e+1
     jsr __vec_load
-    lda V_SIZE+1        ; i > size: none
+    lda V_SIZE+1            ; i > size: none
     cmp __vec_i+1
     bcc @fail
     bne @fits
@@ -439,7 +439,7 @@ proc _vec_insert
     cmp __vec_i
     bcc @fail
 @fits:
-    lda __vec_i         ; (__vec_grow uses __vec_i)
+    lda __vec_i             ; (__vec_grow uses __vec_i)
     pha
     lda __vec_i+1
     pha
@@ -453,7 +453,7 @@ proc _vec_insert
     sta __vec_v
     lda $11
     sta __vec_v+1
-    sec                 ; (size - i) * esize bytes up one element
+    sec                     ; (size - i) * esize bytes up one element
     lda V_SIZE
     sbc __vec_i
     tay
@@ -469,9 +469,9 @@ proc _vec_insert
     jsr __ct_addr
     sta __vec_p
     stx __vec_p+1
-    sta $12             ; src: element i
+    sta $12                 ; src: element i
     stx $13
-    clc                 ; dest: one element on
+    clc                     ; dest: one element on
     adc CT_ES
     sta $10
     txa
@@ -530,7 +530,7 @@ proc _vec_erase
     lda $13
     sta __vec_i+1
     jsr __vec_load
-    lda __vec_i+1       ; i >= size: none
+    lda __vec_i+1           ; i >= size: none
     cmp V_SIZE+1
     bcc @in
     bne @fail
@@ -542,9 +542,9 @@ proc _vec_erase
     sta __vec_v
     lda $11
     sta __vec_v+1
-    clc                 ; (size - i - 1) * esize bytes
+    clc                     ; (size - i - 1) * esize bytes
     lda V_SIZE
-    sbc __vec_i         ; (C clear: - 1 more)
+    sbc __vec_i             ; (C clear: - 1 more)
     tay
     lda V_SIZE+1
     sbc __vec_i+1
@@ -556,9 +556,9 @@ proc _vec_erase
     lda __vec_i
     ldx __vec_i+1
     jsr __ct_addr
-    sta $10             ; dest: element i
+    sta $10                 ; dest: element i
     stx $11
-    clc                 ; src: the next
+    clc                     ; src: the next
     adc CT_ES
     sta $12
     txa
@@ -574,7 +574,7 @@ proc _vec_erase
     lda __vec_v+1
     sta $11
     jsr __vec_load
-    lda V_SIZE          ; size - 1
+    lda V_SIZE              ; size - 1
     bne @lo
     dec V_SIZE+1
 @lo:
@@ -599,7 +599,7 @@ proc _vec_erase_unordered
     .reg_clobbers A, X, Y
     .flag_clobbers C, N, Z, V
     jsr __vec_load
-    lda $13             ; i >= size: none
+    lda $13                 ; i >= size: none
     cmp V_SIZE+1
     bcc @in
     bne @fail
@@ -607,7 +607,7 @@ proc _vec_erase_unordered
     cmp V_SIZE
     bcs @fail
 @in:
-    lda V_SIZE          ; size - 1: the last
+    lda V_SIZE              ; size - 1: the last
     bne @lo
     dec V_SIZE+1
 @lo:
@@ -616,7 +616,7 @@ proc _vec_erase_unordered
     ldx V_SIZE+1
     ldy #2
     jsr __vec_put
-    lda $12             ; i the last: nothing to move
+    lda $12                 ; i the last: nothing to move
     cmp V_SIZE
     bne @move
     lda $13
@@ -630,7 +630,7 @@ proc _vec_erase_unordered
     stx CT_Q+1
     lda $12
     ldx $13
-    jsr __ct_addr       ; (CT_P: element i)
+    jsr __ct_addr           ; (CT_P: element i)
     jsr __ct_copy
 @ok:
     lda #0

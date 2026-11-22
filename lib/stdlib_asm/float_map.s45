@@ -49,8 +49,8 @@ __float_romcall:
     stx @call+2
     ldq CURRENT_MAP
     stq __fm_map
-    lda #$00            ; the lower half: blocks 2 and 3 ($4000-$7FFF)
-    ldx #$C3            ; at offset $30000
+    lda #$00                ; the lower half: blocks 2 and 3 ($4000-$7FFF)
+    ldx #$C3                ; at offset $30000
     stq CURRENT_MAP
     map
     ldz #0

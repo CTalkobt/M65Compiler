@@ -32,18 +32,18 @@ cc45.icallinfo = 1
 .global __bas_hex, __bas_dec, __bas_instr, __bas_ayintw
 .extern __float_a, __float_ultof, __bas_sa, __bas_sb, __bas_sr, __bas_n, __bas_m, __bas_error
 
-P = $08                 ; a string (pointer)
-Q = $0A                 ; another
+P = $08                     ; a string (pointer)
+Q = $0A                     ; another
 
 .segment "bss"
-__fn_u:     .res 4      ; the 32-bit integer (low byte first)
-__fn_frac:  .res 1      ; bits shifted out
-__fn_bits:  .res 1      ; HEX$ / STRBIN$: its digits' bits
-__fn_hl:    .res 1      ; INSTR: the haystack's length
-__fn_nl:    .res 1      ; the needle's
-__fn_pos:   .res 1      ; the position tried (0-based)
-__fn_cnt:   .res 1      ; the characters left from it
-__fn_c:     .res 1      ; a pattern's character
+__fn_u:     .res 4          ; the 32-bit integer (low byte first)
+__fn_frac:  .res 1          ; bits shifted out
+__fn_bits:  .res 1          ; HEX$ / STRBIN$: its digits' bits
+__fn_hl:    .res 1          ; INSTR: the haystack's length
+__fn_nl:    .res 1          ; the needle's
+__fn_pos:   .res 1          ; the position tried (0-based)
+__fn_cnt:   .res 1          ; the characters left from it
+__fn_c:     .res 1          ; a pattern's character
 
 .segment "code"
 
@@ -235,7 +235,7 @@ proc __bas_hex
     bne @h4
     cmp #10
     bcc @dig
-    adc #$41 - 10 - $30 - 1 ; (C set: A-F)
+    adc #$41 - 10 - $30 - 1  ; (C set: A-F)
 @dig:
     adc #$30
     iny

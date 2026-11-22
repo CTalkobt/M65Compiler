@@ -24,11 +24,11 @@
 .weak cc45.icallinfo
 cc45.icallinfo = 1
 
-sp_ptr   = $08      ; the stack pointer (the stack may be on any page)
-data     = $0A      ; the list - 1 (the return address)
-dest     = $0C      ; where the current parameter goes
-src      = $0E      ; the next argument byte, from SP
-idx      = $0F      ; the next list byte, from data
+sp_ptr   = $08              ; the stack pointer (the stack may be on any page)
+data     = $0A              ; the list - 1 (the return address)
+dest     = $0C              ; where the current parameter goes
+src      = $0E              ; the next argument byte, from SP
+idx      = $0F              ; the next list byte, from data
 
     .split "__sac_args"
 .global __sac_args
@@ -43,13 +43,13 @@ __sac_args:
     iny
     lda (sp_ptr),y
     sta data+1
-    lda #5              ; SP + 1, past this return address and the function's
+    lda #5                  ; SP + 1, past this return address and the function's
     sta src
     lda #1
     sta idx
 @param:
     ldy idx
-    lda (data),y        ; the size (0 ends the list)
+    lda (data),y            ; the size (0 ends the list)
     beq @done
     pha
     iny
@@ -73,7 +73,7 @@ __sac_args:
     dex
     bne @byte
     pla
-    cmp #1              ; a char's slot is 2 bytes
+    cmp #1                  ; a char's slot is 2 bytes
     bne @param
     inc src
     bra @param

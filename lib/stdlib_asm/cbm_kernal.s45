@@ -18,14 +18,14 @@ cc45.icallinfo = 1
 .global _cbm_load, _cbm_save, __oserror, _get_tv, _waitvsync
 .extern __rom_calli, __bp_rom, __bp_prog
 
-SAVEPTR = $FB           ; SAVE's start pointer, in the ROM's page 0 (its two
-                        ; bytes kept and put back)
+SAVEPTR = $FB               ; SAVE's start pointer, in the ROM's page 0 (its two
+                            ; bytes kept and put back)
 
 .segment "bss"
-__oserror:      .res 1  ; the last KERNAL error of a load or save (0: none)
-__cbm_keep:     .res 2  ; SAVEPTR's bytes
-__cbm_data:     .res 2  ; cbm_load / cbm_save: the data's address
-__cbm_size:     .res 2  ;   cbm_save: its size
+__oserror:      .res 1      ; the last KERNAL error of a load or save (0: none)
+__cbm_keep:     .res 2      ; SAVEPTR's bytes
+__cbm_data:     .res 2      ; cbm_load / cbm_save: the data's address
+__cbm_size:     .res 2      ;   cbm_save: its size
 
 .segment "code"
 
@@ -273,7 +273,7 @@ proc _cbm_k_save
     .flag_clobbers C, N, Z, V
     ldx $10
     ldy $11
-    jsr __bp_rom        ; (the ROM's page 0 for the pointer)
+    jsr __bp_rom            ; (the ROM's page 0 for the pointer)
     lda SAVEPTR
     sta __cbm_keep
     lda SAVEPTR+1
@@ -342,7 +342,7 @@ proc _cbm_load
     lda #0
     bra @set
 @sa1:
-    lda #1              ; NULL: the file's own address
+    lda #1                  ; NULL: the file's own address
 @set:
     jsr __cbm_lfsnam
     lda #0

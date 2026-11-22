@@ -27,13 +27,13 @@
 .weak cc45.icallinfo
 cc45.icallinfo = 1
 
-idx     = $08       ; the subscript
-esz     = $0A       ; the element size (| $40: strings)
-get     = $0B       ; $80: the element copied to __bas_ecell
-fp      = $0C       ; the list - 1 (the return address) and the variable's
-                    ; address; then the 32-bit address in the bank
-var     = $F6       ; the array's variable (library temps)
-off     = $F8       ; the element's offset in the block
+idx     = $08               ; the subscript
+esz     = $0A               ; the element size (| $40: strings)
+get     = $0B               ; $80: the element copied to __bas_ecell
+fp      = $0C               ; the list - 1 (the return address) and the variable's
+                            ; address; then the 32-bit address in the bank
+var     = $F6               ; the array's variable (library temps)
+off     = $F8               ; the element's offset in the block
 
 .extern __bas_areff
 .extern __bas_sub
@@ -88,7 +88,7 @@ bas_fel_go:
     iny
     lda (fp),y
     sta var+1
-    clc                 ; return after the word: the list + 2 for rts
+    clc                     ; return after the word: the list + 2 for rts
     lda fp
     adc #2
     tax
@@ -97,7 +97,7 @@ bas_fel_go:
     pha
     txa
     pha
-    ldy #0              ; the array's block (0: none yet)
+    ldy #0                  ; the array's block (0: none yet)
     lda (var),y
     sta fp
     iny
@@ -110,10 +110,10 @@ bas_fel_go:
     lda #0
     sta fp+3
     ldz #0
-    lda [fp],z          ; one dimension
+    lda [fp],z              ; one dimension
     cmp #1
     bne @slow
-    ldz #2              ; the subscript below its size (16 bits)
+    ldz #2                  ; the subscript below its size (16 bits)
     lda idx+1
     cmp [fp],z
     bcc @in
@@ -123,7 +123,7 @@ bas_fel_go:
     cmp [fp],z
     bcs @slow
 @in:
-    lda idx             ; offset: the subscript * 2
+    lda idx                 ; offset: the subscript * 2
     asl a
     sta off
     lda idx+1
@@ -132,7 +132,7 @@ bas_fel_go:
     lda esz
     cmp #5
     bne @add
-    asl off             ; * 4, + the subscript: * 5
+    asl off                 ; * 4, + the subscript: * 5
     rol off+1
     clc
     lda off
@@ -142,7 +142,7 @@ bas_fel_go:
     adc idx+1
     sta off+1
 @add:
-    clc                 ; the block + 3 + the offset
+    clc                     ; the block + 3 + the offset
     lda off
     adc #3
     bcc @a1
@@ -161,7 +161,7 @@ bas_fel_go:
     lda fp
     ldx fp+1
     rts
-@slow:                  ; _bas_areff: __bas_sa, one subscript, __bas_m
+@slow:                      ; _bas_areff: __bas_sa, one subscript, __bas_m
     lda var
     sta __bas_sa
     lda var+1
@@ -177,7 +177,7 @@ bas_fel_go:
     lda #0
     sta __bas_n+1
     sta __bas_m+1
-    lda get             ; (__bas_areff uses the base page's temporaries)
+    lda get                 ; (__bas_areff uses the base page's temporaries)
     pha
     lda esz
     pha

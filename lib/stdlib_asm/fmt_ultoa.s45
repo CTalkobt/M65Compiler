@@ -29,9 +29,9 @@ proc ___fmt_ultoa
     .flag_clobbers C, N, Z, V
 
     ; v at $10..$13, base at $14, end at $16/$17, digits at $18/$19
-    ldz #0              ; the number of digits
+    ldz #0                  ; the number of digits
 @digit:
-    lda #0              ; v / base: shift-subtract, the remainder in A
+    lda #0                  ; v / base: shift-subtract, the remainder in A
     ldx #32
 @bit:
     asl $10
@@ -42,17 +42,17 @@ proc ___fmt_ultoa
     cmp $14
     bcc @no
     sbc $14
-    inc $10             ; the quotient bit (bit 0 is 0 after the shift)
+    inc $10                 ; the quotient bit (bit 0 is 0 after the shift)
 @no:
     dex
     bne @bit
     tay
-    lda $16             ; end = end - 1
+    lda $16                 ; end = end - 1
     bne @low
     dec $17
 @low:
     dec $16
-    lda ($18),y         ; digits[remainder]
+    lda ($18),y             ; digits[remainder]
     ldy #0
     sta ($16),y
     inz

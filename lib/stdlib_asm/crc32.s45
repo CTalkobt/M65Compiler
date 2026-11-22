@@ -28,7 +28,7 @@ proc _crc32
     lda $14
     ora $15
     bne @go
-    lda #0              ; NULL: the initial value, 0
+    lda #0                  ; NULL: the initial value, 0
     tax
     tay
     taz

@@ -20,29 +20,29 @@
 cc45.icallinfo = 1
 
 .global __bas_fin, __bas_val, __bas_iitemn, __bas_readn
-.global __fin_buf, __fin_i            ; (the reader's text and end: test_basic_fin_xemu.c)
+.global __fin_buf, __fin_i  ; (the reader's text and end: test_basic_fin_xemu.c)
 .extern __float_a, __float_b, __float_mul, __float_div, __float_add, __float_sub, __float_lt, __float_neg
 .extern __float_utof
 .extern __bas_sa, __bas_sr, __bas_m, __bas_n, __bas_error, __bas_iitem, __bas_read, __bas_iredo
 
-S = $08                 ; VAL's string (a pointer: no float calls while it is read)
+S = $08                     ; VAL's string (a pointer: no float calls while it is read)
 
 .segment "bss"
-__fin_len:  .res 1      ; (INPUT / READ: the item's length, its text after it)
-__fin_buf:  .res 82     ; the text read, 0 after it
-__fin_r:    .res 5      ; the value so far
-__fin_d:    .res 5      ; a digit's value
-__fin_i:    .res 1      ; the text's index
-__fin_dot:  .res 1      ; the dot's index
-__fin_got:  .res 1      ; a digit seen
-__fin_neg:  .res 1      ; a minus sign
-__fin_eneg: .res 1      ; the exponent's minus sign
-__fin_e10:  .res 2      ; the power of ten the digits are scaled by (signed)
-__fin_x:    .res 2      ; the exponent written
-__fin_k:    .res 1      ; a scaling step (1-9)
-__val_n:    .res 1      ; VAL: the string's length
-__val_st:   .res 1      ; the first character after the sign
-__val_fl:   .res 1      ; bit 0 a dot, 1 an E, 2 a digit after the E, 7 a minus
+__fin_len:  .res 1          ; (INPUT / READ: the item's length, its text after it)
+__fin_buf:  .res 82         ; the text read, 0 after it
+__fin_r:    .res 5          ; the value so far
+__fin_d:    .res 5          ; a digit's value
+__fin_i:    .res 1          ; the text's index
+__fin_dot:  .res 1          ; the dot's index
+__fin_got:  .res 1          ; a digit seen
+__fin_neg:  .res 1          ; a minus sign
+__fin_eneg: .res 1          ; the exponent's minus sign
+__fin_e10:  .res 2          ; the power of ten the digits are scaled by (signed)
+__fin_x:    .res 2          ; the exponent written
+__fin_k:    .res 1          ; a scaling step (1-9)
+__val_n:    .res 1          ; VAL: the string's length
+__val_st:   .res 1          ; the first character after the sign
+__val_fl:   .res 1          ; bit 0 a dot, 1 an E, 2 a digit after the E, 7 a minus
 
 .segment "code"
 

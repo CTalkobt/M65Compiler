@@ -22,7 +22,7 @@ proc _adler32
     lda $14
     ora $15
     bne @byte
-    lda #1              ; NULL: the initial value, 1
+    lda #1                  ; NULL: the initial value, 1
     ldx #0
     ldy #0
     ldz #0
@@ -31,7 +31,7 @@ proc _adler32
     lda $16
     ora $17
     beq @end
-    ldy #0              ; a += the byte
+    ldy #0                  ; a += the byte
     lda ($14),y
     clc
     adc $10
@@ -40,7 +40,7 @@ proc _adler32
     adc #0
     sta $11
     jsr @mod_a
-    lda $12             ; b += a
+    lda $12                 ; b += a
     clc
     adc $10
     sta $12

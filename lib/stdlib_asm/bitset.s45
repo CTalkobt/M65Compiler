@@ -25,13 +25,13 @@ cc45.icallinfo = 1
 .global _bs_and, _bs_or, _bs_xor
 .global __bs_at, __bs_lowmask
 
-BS_T = $08      ; an index / count (16 bits)
-BS_N = $0A      ; a count (16 bits)
-BS_P = $0C      ; a byte's address
-BS_Q = $0E      ; another
-BS_M = $F6      ; a mask
-BS_V = $F7      ; set ($FF) or clear (0)
-BS_C = $F8      ; a count (16 bits)
+BS_T = $08                  ; an index / count (16 bits)
+BS_N = $0A                  ; a count (16 bits)
+BS_P = $0C                  ; a byte's address
+BS_Q = $0E                  ; another
+BS_M = $F6                  ; a mask
+BS_V = $F7                  ; set ($FF) or clear (0)
+BS_C = $F8                  ; a count (16 bits)
 
 .segment "code"
 
@@ -173,7 +173,7 @@ proc __bs_fill
     bne @byte
 @done:
     tax
-    tya                 ; BS_P past them
+    tya                     ; BS_P past them
     clc
     adc BS_P
     sta BS_P
@@ -196,7 +196,7 @@ proc _bs_set_all
     jsr __bs_fill
     pla
     beq @done
-    jsr __bs_lowmask    ; the last byte: its bits below nbits
+    jsr __bs_lowmask        ; the last byte: its bits below nbits
     sta (BS_P),y
 @done:
     rts
@@ -268,7 +268,7 @@ proc __bs_range
     lda $14
     ora $15
     beq @done
-    lda BS_C            ; on a byte boundary with 8 or more to go: the byte
+    lda BS_C                ; on a byte boundary with 8 or more to go: the byte
     and #7
     bne @bit
     lda $15
@@ -353,7 +353,7 @@ proc _bs_count
     .reg_clobbers A, X, Y
     .flag_clobbers C, N, Z, V
     jsr __bs_split
-    sta BS_M            ; (the last byte's bits)
+    sta BS_M                ; (the last byte's bits)
     lda #0
     sta BS_C
     sta BS_C+1
@@ -378,13 +378,13 @@ proc _bs_count
     lda BS_M
     beq @done
     ldy #0
-    lda (BS_P),y        ; (its bits past nbits are 0)
+    lda (BS_P),y            ; (its bits past nbits are 0)
     jsr @add
 @done:
     lda BS_C
     ldx BS_C+1
     rts
-@add:                   ; BS_C += the bits set in A
+@add:                       ; BS_C += the bits set in A
     pha
     and #$0F
     tay
@@ -421,7 +421,7 @@ proc _bs_any
     .flag_clobbers C, N, Z
     jsr __bs_split
     beq @1
-    inc BS_N            ; the last byte too (its bits past nbits are 0)
+    inc BS_N                ; the last byte too (its bits past nbits are 0)
     bne @1
     inc BS_N+1
 @1:
@@ -461,7 +461,7 @@ proc __bs_find
     lda $15
     sta BS_C+1
 @loop:
-    lda BS_C+1          ; at nbits: none
+    lda BS_C+1              ; at nbits: none
     cmp $13
     bcc @in
     bne @none
@@ -472,7 +472,7 @@ proc __bs_find
     lda BS_C
     ldx BS_C+1
     jsr __bs_at
-    lda BS_C            ; on a byte boundary: a byte of none of them skipped
+    lda BS_C                ; on a byte boundary: a byte of none of them skipped
     and #7
     bne @bit
     lda (BS_P),y
@@ -536,7 +536,7 @@ proc __bs_two
     sta BS_Q
     lda $13
     sta BS_Q+1
-    clc                 ; (nbits + 7) >> 3
+    clc                     ; (nbits + 7) >> 3
     lda $14
     adc #7
     sta BS_N

@@ -16,7 +16,7 @@
 .weak cc45.icallinfo
 cc45.icallinfo = 1
 
-list    = $F6       ; the list - 1 (the return address), then src
+list    = $F6               ; the list - 1 (the return address), then src
 dst     = $F8
 
     .split "__f32cpy"
@@ -26,7 +26,7 @@ __f32cpy:
     sta list
     pla
     sta list+1
-    clc                 ; return after the list: list + 4 for rts
+    clc                     ; return after the list: list + 4 for rts
     lda list
     adc #4
     tax
@@ -67,7 +67,7 @@ __f32cpy:
 ;
 ; Each returns after its list; A and X clobbered, Y and Z kept; $F6-$FA used.
 
-mode    = $FA       ; 0 lda, 2 ldb, 4 sta, 6 ldab's first
+mode    = $FA               ; 0 lda, 2 ldb, 4 sta, 6 ldab's first
 
 .extern __float_a
 .extern __float_b
@@ -96,7 +96,7 @@ f32ld_go:
     sta list+1
     phy
 f32ld_next:
-    ldy #1              ; the next address of the list (list: the byte before)
+    ldy #1                  ; the next address of the list (list: the byte before)
     lda (list),y
     sta dst
     iny
@@ -123,7 +123,7 @@ f32ld_a:
     lda mode
     cmp #6
     bne f32ld_ret
-    lda #2              ; ldab: then the second into __float_b
+    lda #2                  ; ldab: then the second into __float_b
     sta mode
     bra f32ld_next
 f32ld_b:
@@ -139,7 +139,7 @@ f32ld_st:
     bpl f32ld_st
 f32ld_ret:
     ply
-    lda list+1          ; return after the list
+    lda list+1              ; return after the list
     pha
     lda list
     pha

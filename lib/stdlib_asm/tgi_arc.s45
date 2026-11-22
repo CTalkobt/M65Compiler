@@ -24,29 +24,29 @@ cc45.icallinfo = 1
 .extern ___tgi_ks1, ___tgi_arcon, ___tgi_allow
 
 .segment "bss"
-__arc_cx:       .res 2  ; the arc's centre, radii and angles
+__arc_cx:       .res 2      ; the arc's centre, radii and angles
 __arc_cy:       .res 2
 __arc_rx:       .res 1
 __arc_ry:       .res 1
 __arc_sa:       .res 2
 __arc_ea:       .res 2
-__arc_q:        .res 1  ; the quarter
-__arc_lo:       .res 2  ; its first angle: 90 q
-__arc_m:        .res 1  ; its states shown
-__arc_b:        .res 1  ; an angle's t (0..90)
-__arc_neg:      .res 1  ; $FF: the test is c <= 0
-__arc_mb:       .res 1  ; the multiplier's byte
-__arc_t:        .res 16 ; an angle's k1, k2, c1, c2 (tgi_pixel.s45's block)
-__arc_d:        .res 2  ; __tgi_isin's angle
-__arc_inc:      .res 1  ; the polygon's step
+__arc_q:        .res 1      ; the quarter
+__arc_lo:       .res 2      ; its first angle: 90 q
+__arc_m:        .res 1      ; its states shown
+__arc_b:        .res 1      ; an angle's t (0..90)
+__arc_neg:      .res 1      ; $FF: the test is c <= 0
+__arc_mb:       .res 1      ; the multiplier's byte
+__arc_t:        .res 16     ; an angle's k1, k2, c1, c2 (tgi_pixel.s45's block)
+__arc_d:        .res 2      ; __tgi_isin's angle
+__arc_inc:      .res 1      ; the polygon's step
 __arc_done:     .res 1
-__arc_px:       .res 2  ; a point of the ellipse (__tgi_arcpt)
+__arc_px:       .res 2      ; a point of the ellipse (__tgi_arcpt)
 __arc_py:       .res 2
-__arc_x1:       .res 2  ; the polygon's last point
+__arc_x1:       .res 2      ; the polygon's last point
 __arc_y1:       .res 2
-__arc_psa:      .res 2  ; tgi_pieslice's angles
+__arc_psa:      .res 2      ; tgi_pieslice's angles
 __arc_pea:      .res 2
-__imr_neg:      .res 1  ; tgi_imulround: the result's sign
+__imr_neg:      .res 1      ; tgi_imulround: the result's sign
 
 .segment "text"
 

@@ -28,27 +28,27 @@
 .weak cc45.icallinfo
 cc45.icallinfo = 1
 
-OUTP    = $08           ; output pointer (after the ROM call)
-PF_NDIG = 12            ; significant digits kept from the ROM's text
-PF_MAXP = 20            ; precision limit (the buffer's size)
+OUTP    = $08               ; output pointer (after the ROM call)
+PF_NDIG = 12                ; significant digits kept from the ROM's text
+PF_MAXP = 20                ; precision limit (the buffer's size)
 
 .segment "bss"
-pf_d:     .res PF_NDIG  ; the digits 0-9
-pf_nd:    .res 1        ; how many (0: the value is 0)
-pf_exp:   .res 1        ; signed: value = 0.d0 d1 ... x 10^pf_exp
+pf_d:     .res PF_NDIG      ; the digits 0-9
+pf_nd:    .res 1            ; how many (0: the value is 0)
+pf_exp:   .res 1            ; signed: value = 0.d0 d1 ... x 10^pf_exp
 pf_prec:  .res 1
-pf_kind:  .res 1        ; 5 e, 6 f, 7 g
-pf_up:    .res 1        ; $80: upper case
+pf_kind:  .res 1            ; 5 e, 6 f, 7 g
+pf_up:    .res 1            ; $80: upper case
 pf_alt:   .res 1
-pf_strip: .res 1        ; %g without #: trailing zeros go
-pf_nz:    .res 1        ; the value is not 0 (its exponent byte)
-pf_oi:    .res 1        ; output index
+pf_strip: .res 1            ; %g without #: trailing zeros go
+pf_nz:    .res 1            ; the value is not 0 (its exponent byte)
+pf_oi:    .res 1            ; output index
 pf_neg:   .res 1
 pf_dot:   .res 1
-pf_int:   .res 1        ; digits before the point
-pf_lead:  .res 1        ; signed: zeros after the point before the first digit
-pf_e:     .res 1        ; signed: the exponent printed by %e
-pf_i:     .res 1        ; a digit position (signed)
+pf_int:   .res 1            ; digits before the point
+pf_lead:  .res 1            ; signed: zeros after the point before the first digit
+pf_e:     .res 1            ; signed: the exponent printed by %e
+pf_i:     .res 1            ; a digit position (signed)
 pf_cnt:   .res 1
 pf_buf:   .res 2
 

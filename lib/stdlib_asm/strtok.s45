@@ -41,7 +41,7 @@ proc _strtok_r
     lda $10
     ora $11
     bne @skip
-    ldy #0              ; s = *saveptr
+    ldy #0                  ; s = *saveptr
     lda ($14),y
     sta $10
     iny
@@ -50,7 +50,7 @@ proc _strtok_r
     ora $10
     beq @none
 @skip:
-    ldy #0              ; leading delimiters
+    ldy #0                  ; leading delimiters
     lda ($10),y
     beq @none
     jsr __strtok_isdelim
@@ -58,7 +58,7 @@ proc _strtok_r
     inw $10
     bra @skip
 @token:
-    lda $10             ; the token's end
+    lda $10                 ; the token's end
     sta $08
     lda $11
     sta $09
@@ -73,9 +73,9 @@ proc _strtok_r
 @cut:
     lda #0
     tay
-    sta ($08),y         ; the delimiter becomes the token's end
+    sta ($08),y             ; the delimiter becomes the token's end
     inw $08
-    lda $08             ; *saveptr = past it
+    lda $08                 ; *saveptr = past it
     sta ($14),y
     iny
     lda $09
@@ -84,7 +84,7 @@ proc _strtok_r
     ldx $11
     rts
 @last:
-    ldy #0              ; the token ends the string: *saveptr = NULL
+    ldy #0                  ; the token ends the string: *saveptr = NULL
     tya
     sta ($14),y
     iny

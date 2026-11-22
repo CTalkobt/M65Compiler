@@ -18,10 +18,10 @@
 .weak cc45.icallinfo
 cc45.icallinfo = 1
 
-idx     = $08       ; the subscript
-esz     = $0A       ; __bas_m: the element size (| $40: strings)
-p       = $0C       ; the list - 1 (the return address), then the array
-arr     = $0E       ; the array's variable, then the element's offset
+idx     = $08               ; the subscript
+esz     = $0A               ; __bas_m: the element size (| $40: strings)
+p       = $0C               ; the list - 1 (the return address), then the array
+arr     = $0E               ; the array's variable, then the element's offset
 
 .extern __bas_aref
 .extern __bas_sub
@@ -56,7 +56,7 @@ bas_ael_go:
     iny
     lda (p),y
     sta arr+1
-    clc                 ; return after the word: the list + 2 for rts
+    clc                     ; return after the word: the list + 2 for rts
     lda p
     adc #2
     tax
@@ -65,7 +65,7 @@ bas_ael_go:
     pha
     txa
     pha
-    ldy #0              ; the array (0: none yet)
+    ldy #0                  ; the array (0: none yet)
     lda (arr),y
     sta p
     iny
@@ -74,10 +74,10 @@ bas_ael_go:
     ora p
     beq @slow
     dey
-    lda (p),y           ; one dimension
+    lda (p),y               ; one dimension
     cmp #1
     bne @slow
-    ldy #2              ; the subscript below its size (p+1, 16 bits)
+    ldy #2                  ; the subscript below its size (p+1, 16 bits)
     lda idx+1
     cmp (p),y
     bcc @in
@@ -87,7 +87,7 @@ bas_ael_go:
     cmp (p),y
     bcs @slow
 @in:
-    lda idx             ; offset: the subscript * 2
+    lda idx                 ; offset: the subscript * 2
     asl a
     sta arr
     lda idx+1
@@ -96,7 +96,7 @@ bas_ael_go:
     lda esz
     cmp #5
     bne @add
-    asl arr             ; * 4, + the subscript: * 5
+    asl arr                 ; * 4, + the subscript: * 5
     rol arr+1
     clc
     lda arr
@@ -106,7 +106,7 @@ bas_ael_go:
     adc idx+1
     sta arr+1
 @add:
-    clc                 ; the array + 3 + the offset
+    clc                     ; the array + 3 + the offset
     lda arr
     adc p
     sta arr
@@ -120,7 +120,7 @@ bas_ael_go:
     inx
 @done:
     rts
-@slow:                  ; _bas_aref: __bas_sa, one subscript, __bas_m
+@slow:                      ; _bas_aref: __bas_sa, one subscript, __bas_m
     lda arr
     sta __bas_sa
     lda arr+1

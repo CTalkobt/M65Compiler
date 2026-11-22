@@ -54,12 +54,12 @@ vf_ffmt:   .res 2
 vf_count:  .res 2
 vf_flags:  .res 1
 vf_width:  .res 2
-vf_prec:   .res 2      ; $FFFF: none
+vf_prec:   .res 2           ; $FFFF: none
 vf_size:   .res 1
 vf_conv:   .res 1
-vf_s:      .res 2      ; the text
+vf_s:      .res 2           ; the text
 vf_len:    .res 2
-vf_pfx:    .res 2      ; the sign or base prefix
+vf_pfx:    .res 2           ; the sign or base prefix
 vf_pfxlen: .res 1
 vf_zeros:  .res 2
 vf_neg:    .res 1

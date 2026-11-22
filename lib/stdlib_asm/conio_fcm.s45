@@ -33,32 +33,32 @@ cc45.icallinfo = 1
 .extern _screenwidth, _screenheight, _getch_xy, _getattr_xy
 .extern _far_malloc, _far_free
 
-FCM_BLACK = $FE         ; the palette entry of a black background (pixel $00
-                        ; is the screen's)
-FCM_EMPTY = $FF         ; __fcm_bg of a free cache entry
+FCM_BLACK = $FE             ; the palette entry of a black background (pixel $00
+                            ; is the screen's)
+FCM_EMPTY = $FF             ; __fcm_bg of a free cache entry
 
 .segment "bss"
 __fcm_on:       .res 1
-__fcm_mem:      .res 3  ; far_ptr_t: bank, offset (the screen, then the glyphs)
-__fcm_glyphs:   .res 4  ; glyph 0's address
-__fcm_first:    .res 2  ; its character number
-__fcm_w:        .res 1  ; the width fcm_enable found
-__fcm_old:      .res 9  ; $D058/$D059, $D060-$D065, $D054
-__fcm_font:     .res 4  ; the font the glyphs are made from
-__fcm_chs:      .res 256 ; a glyph's character, by its number's low byte
-__fcm_bg:       .res 256 ; its background (FCM_EMPTY: free)
+__fcm_mem:      .res 3      ; far_ptr_t: bank, offset (the screen, then the glyphs)
+__fcm_glyphs:   .res 4      ; glyph 0's address
+__fcm_first:    .res 2      ; its character number
+__fcm_w:        .res 1      ; the width fcm_enable found
+__fcm_old:      .res 9      ; $D058/$D059, $D060-$D065, $D054
+__fcm_font:     .res 4      ; the font the glyphs are made from
+__fcm_chs:      .res 256    ; a glyph's character, by its number's low byte
+__fcm_bg:       .res 256    ; its background (FCM_EMPTY: free)
 __fcm_row:      .res 80
 __fcm_row2:     .res 80
 __fcm_big:      .res 160
 __fcm_pix:      .res 64
-__fcm_used:     .res 32 ; the glyphs on the screen (a bit each)
+__fcm_used:     .res 32     ; the glyphs on the screen (a bit each)
 ; put: the cell
 __pc_x:         .res 1
 __pc_y:         .res 1
-__pc_c:         .res 1  ; screen code
+__pc_c:         .res 1      ; screen code
 __pc_fg:        .res 1
 __pc_bg:        .res 1
-__pc_n:         .res 2  ; the character number written
+__pc_n:         .res 2      ; the character number written
 ; the glyph search
 __g_cnt:        .res 2
 __g_free:       .res 1
@@ -82,7 +82,7 @@ __cv_col:       .res 4
 __cv_scr2:      .res 4
 __cv_col2:      .res 4
 __cv_stride:    .res 4
-__cv_w2:        .res 4  ; 2 * w (32 bits, for adcq)
+__cv_w2:        .res 4      ; 2 * w (32 bits, for adcq)
 __cv_w:         .res 1
 __cv_h:         .res 1
 __cv_y:         .res 1
@@ -97,10 +97,10 @@ __a_str:        .res 2
 __a_w:          .res 1
 __a_h:          .res 1
 __a_t:          .res 4
-__a_bg:         .res 1  ; the background asked for
+__a_bg:         .res 1      ; the background asked for
 
 .segment "code"
-__fcm_slots:    .word 256 ; cache entries
+__fcm_slots:    .word 256   ; cache entries
 __fcm_bits:     .byte 1, 2, 4, 8, 16, 32, 64, 128
 
 ; An enhanced (F018B) DMA job: options (F018B format, source and destination
@@ -166,12 +166,12 @@ proc __fcm_copy
     php
     sei
     lda #0
-    sta $D702           ; list in bank 0
-    sta $D704           ; megabyte 0
+    sta $D702               ; list in bank 0
+    sta $D704               ; megabyte 0
     lda #>__fcm_job
     sta $D701
     lda #<__fcm_job
-    sta $D705           ; start (enhanced job)
+    sta $D705               ; start (enhanced job)
     plp
     rts
 endproc
@@ -223,7 +223,7 @@ proc __fcm_free_unused
     lda __fu_y
     sta $12
     jsr ___conio_get16
-    sec                 ; d = n - first, under the cache's size?
+    sec                     ; d = n - first, under the cache's size?
     sbc __fcm_first
     sta __fu_d
     txa
@@ -235,7 +235,7 @@ proc __fcm_free_unused
     lda __fu_d+1
     sbc __fcm_slots+1
     bcs @skip
-    lda __fu_d          ; k = n's low byte
+    lda __fu_d              ; k = n's low byte
     clc
     adc __fcm_first
     jsr __fcm_bit
@@ -266,7 +266,7 @@ proc __fcm_free_unused
     jsr __fcm_bit
     and __fcm_used,y
     bne @next
-    ldy __fu_k          ; not on the screen: free
+    ldy __fu_k              ; not on the screen: free
     lda #FCM_EMPTY
     sta __fcm_bg,y
     lda __g_hasfree
@@ -303,14 +303,14 @@ proc __fcm_glyph
     txa
     clc
     adc __fcm_first
-    tay                 ; Y = k
+    tay                     ; Y = k
     lda __fcm_bg,y
     cmp __pc_bg
     bne @notbg
     lda __fcm_chs,y
     cmp __pc_c
     bne @next
-    txa                 ; found: number first + s
+    txa                     ; found: number first + s
     jmp @number
 @notbg:
     cmp #FCM_EMPTY
@@ -333,7 +333,7 @@ proc __fcm_glyph
     jsr __fcm_free_unused
     lda __g_hasfree
     bne @build
-    rts                 ; none: the screen's background
+    rts                     ; none: the screen's background
 @build:
     ; the font's 8 bytes (font + c * 8) to __fcm_row
     lda __pc_c
@@ -368,8 +368,8 @@ proc __fcm_glyph
     lda #FCM_BLACK
 @pix:
     sta __g_pix
-    ldx #0              ; the font's row
-    ldy #0              ; the pixel
+    ldx #0                  ; the font's row
+    ldy #0                  ; the pixel
 @byte:
     lda __fcm_row,x
     sta __g_t
@@ -477,7 +477,7 @@ endproc
 ; __cv_stride bytes) to the two-byte one at __fcm_mem / colour RAM $1000 (a
 ; row every 2 * w), or back (__cv_wide 0)
 proc __fcm_convert
-    lda __fcm_mem+1     ; the far pointer's linear address (bank 4 or 5)
+    lda __fcm_mem+1         ; the far pointer's linear address (bank 4 or 5)
     sta __cv_scr2
     lda __fcm_mem+2
     sta __cv_scr2+1
@@ -485,7 +485,7 @@ proc __fcm_convert
     sta __cv_scr2+2
     lda #0
     sta __cv_scr2+3
-    sta __cv_col2       ; colour RAM + $1000
+    sta __cv_col2           ; colour RAM + $1000
     lda #$10
     sta __cv_col2+1
     lda #$F8
@@ -588,7 +588,7 @@ proc __fcm_convert
     lda __fcm_big,y
     bra @store
 @high:
-    lda __fcm_big,y     ; n - first under the cache's size: a glyph
+    lda __fcm_big,y         ; n - first under the cache's size: a glyph
     sec
     sbc __fcm_first
     sta __cv_t
@@ -728,10 +728,10 @@ proc _fcm_set_cache_size
     lda __fcm_on
     bne @no
     lda $11
-    beq @low            ; 1-255
+    beq @low                ; 1-255
     cmp #1
     bne @no
-    lda $10             ; 256
+    lda $10                 ; 256
     bne @no
     bra @set
 @low:
@@ -789,10 +789,10 @@ proc _fcm_enable
     bit $D70F
     bvs @busy
     lda $D778
-    sta __a_x           ; 160 * h
+    sta __a_x               ; 160 * h
     lda $D779
     sta __a_x+1
-    lda __fcm_slots     ; slots * 64
+    lda __fcm_slots         ; slots * 64
     sta __a_y
     lda __fcm_slots+1
     sta __a_y+1
@@ -903,7 +903,7 @@ proc _fcm_enable
     and #$70
     cmp #$10
     bne @font
-    lda __fcm_font+1    ; $FF7E000 + (a & $0FFF)
+    lda __fcm_font+1        ; $FF7E000 + (a & $0FFF)
     and #$0F
     ora #$E0
     sta __fcm_font+1
@@ -934,11 +934,11 @@ proc _fcm_enable
     lda #1
     sta __cv_wide
     jsr __fcm_convert
-    lda #0              ; the black background's palette entry
+    lda #0                  ; the black background's palette entry
     sta $D1FE
     sta $D2FE
     sta $D3FE
-    lda __fcm_mem+1     ; the screen
+    lda __fcm_mem+1         ; the screen
     sta $D060
     lda __fcm_mem+2
     sta $D061
@@ -947,7 +947,7 @@ proc _fcm_enable
     lda __fcm_old+5
     and #$F0
     sta $D063
-    lda #$00            ; colour RAM from $1000
+    lda #$00                ; colour RAM from $1000
     sta $D064
     lda #$10
     sta $D065
@@ -957,7 +957,7 @@ proc _fcm_enable
     lda #0
     sta $D059
     lda __fcm_old+8
-    ora #$05            ; CHR16, FCLRHI
+    ora #$05                ; CHR16, FCLRHI
     sta $D054
     lda #<__fcm_chs
     sta ___conio_chtab
@@ -1018,7 +1018,7 @@ proc _fcm_disable
     bpl @regs
     bra @back
 @width:
-    lda $D031           ; (conio_set_width since: the VIC's own layout for it)
+    lda $D031               ; (conio_set_width since: the VIC's own layout for it)
     sta $D031
 @back:
     jsr __fcm_regs
@@ -1075,7 +1075,7 @@ proc _fcm_putch
     beq @out
     sta __pc_c
     jsr __fcm_size
-    lda __a_x+1         ; (unsigned) x < w, y < h
+    lda __a_x+1             ; (unsigned) x < w, y < h
     bne @out
     lda __a_y+1
     bne @out
@@ -1121,7 +1121,7 @@ proc _fcm_cputs
     lda $16
     sta __pc_fg
     lda $18
-    sta __a_bg          ; (__fcm_put masks __pc_bg)
+    sta __a_bg              ; (__fcm_put masks __pc_bg)
     jsr __fcm_size
 @char:
     lda __a_str
@@ -1133,7 +1133,7 @@ proc _fcm_cputs
     bne @row
     jmp @done
 @row:
-    ldx __a_y+1         ; y < h (signed)
+    ldx __a_y+1             ; y < h (signed)
     bmi @in
     bne @done1
     ldx __a_y
@@ -1150,7 +1150,7 @@ proc _fcm_cputs
     jsr ___conio_code
     cmp #$FF
     beq @advance
-    ldx __a_x+1         ; x >= 0, y >= 0
+    ldx __a_x+1             ; x >= 0, y >= 0
     bne @advance
     ldx __a_y+1
     bne @advance
@@ -1173,7 +1173,7 @@ proc _fcm_cputs
     lda #0
     sta __a_x+1
 @wrap:
-    lda __a_x+1         ; x >= w (signed): the next row
+    lda __a_x+1             ; x >= w (signed): the next row
     bmi @next
     bne @nl
     lda __a_x
@@ -1212,7 +1212,7 @@ proc _fcm_fill_rect
     ldx #7
 @args:
     lda $10,x
-    sta __a_x,x         ; __a_x, __a_y, __a_x2, __a_y2 (in that order)
+    sta __a_x,x             ; __a_x, __a_y, __a_x2, __a_y2 (in that order)
     dex
     bpl @args
     lda $1A
@@ -1362,7 +1362,7 @@ proc _fcm_putglyph
     .flag_clobbers C, N, Z, V
     lda __fcm_on
     beq @out
-    lda $15             ; n >= 256
+    lda $15                 ; n >= 256
     beq @out
     lda $11
     bne @out
@@ -1379,7 +1379,7 @@ proc _fcm_putglyph
     lda __pc_y
     cmp __a_h
     bcs @out
-    lda #0              ; (__conio_put16's x, y, n, colour as they came)
+    lda #0                  ; (__conio_put16's x, y, n, colour as they came)
     sta $17
     jmp ___conio_put16
 @out:
@@ -1420,11 +1420,11 @@ proc _fcm_getattr_xy
     jsr ___conio_get16
     cpx #0
     beq @attr
-    tax                 ; a glyph: its background
+    tax                     ; a glyph: its background
     lda __fcm_bg,x
     sta __pc_bg
 @attr:
-    lda __pc_bg         ; (bg << 4) | fg, 16 bits
+    lda __pc_bg             ; (bg << 4) | fg, 16 bits
     lsr a
     lsr a
     lsr a

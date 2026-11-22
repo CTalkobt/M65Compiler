@@ -20,20 +20,20 @@ cc45.icallinfo = 1
 .extern __bas_out, __bas_hyv, __bp_rom, __bp_prog, __bas_dos16
 .extern __bas_sdlen, __bas_sdpage, __bas_dirsdp    ; (basic_dirhook.s45)
 
-DSTR = $1300            ; the directory entry (the hypervisor's transfer area)
-PAT = $0400             ; the pattern
+DSTR = $1300                ; the directory entry (the hypervisor's transfer area)
+PAT = $0400                 ; the pattern
 HYV_OPENDIR = $12
 HYV_READDIR = $14
 HYV_CLOSDIR = $16
 PLOT = $FFF0
 
 .segment "bss"
-__sd_fd:        .res 1  ; the directory's descriptor
-__sd_bp:        .res 1  ; slide's beginpat
-__sd_bn:        .res 1  ; slide's beginame
-__sd_num:       .res 2  ; the size
-__sd_cnt:       .res 1  ; its digits' count
-__sd_dig:       .res 7  ; its digits (formats+1), 0 after them
+__sd_fd:        .res 1      ; the directory's descriptor
+__sd_bp:        .res 1      ; slide's beginpat
+__sd_bn:        .res 1      ; slide's beginame
+__sd_num:       .res 2      ; the size
+__sd_cnt:       .res 1      ; its digits' count
+__sd_dig:       .res 7      ; its digits (formats+1), 0 after them
 
 .segment "code"
 

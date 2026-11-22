@@ -94,7 +94,7 @@ proc __rb_count
     sbc RB_T+1
     tax
     bcs @done
-    clc                 ; (negative: + 2 * cap)
+    clc                     ; (negative: + 2 * cap)
     tya
     adc CT_Q
     tay
@@ -220,7 +220,7 @@ proc _rb_push_back
     bcs @full
     lda RB_H
     ldx RB_H+1
-    jsr __rb_addr       ; (CT_P: the element)
+    jsr __rb_addr           ; (CT_P: the element)
     lda $12
     sta CT_Q
     lda $13
@@ -235,8 +235,8 @@ proc _rb_push_back
     tax
     rts
 @full:
-    lda #$FF          ; (here, not a shared routine: a branch to one would tie
-    tax               ; the functions' sections together)
+    lda #$FF                ; (here, not a shared routine: a branch to one would tie
+    tax                     ; the functions' sections together)
     rts
     .func_flags zp_call
 endproc
@@ -268,8 +268,8 @@ proc _rb_push_front
     tax
     rts
 @full:
-    lda #$FF          ; (here, not a shared routine: a branch to one would tie
-    tax               ; the functions' sections together)
+    lda #$FF                ; (here, not a shared routine: a branch to one would tie
+    tax                     ; the functions' sections together)
     rts
     .func_flags zp_call
 endproc
@@ -310,8 +310,8 @@ proc _rb_pop_front
     tax
     rts
 @empty:
-    lda #$FF          ; (here, not a shared routine: a branch to one would tie
-    tax               ; the functions' sections together)
+    lda #$FF                ; (here, not a shared routine: a branch to one would tie
+    tax                     ; the functions' sections together)
     rts
     .func_flags zp_call
 endproc
@@ -356,8 +356,8 @@ proc _rb_pop_back
     tax
     rts
 @empty:
-    lda #$FF          ; (here, not a shared routine: a branch to one would tie
-    tax               ; the functions' sections together)
+    lda #$FF                ; (here, not a shared routine: a branch to one would tie
+    tax                     ; the functions' sections together)
     rts
     .func_flags zp_call
 endproc
@@ -415,15 +415,15 @@ proc _rb_at
     .reg_clobbers A, X, Y
     .flag_clobbers C, N, Z, V
     jsr __rb_load
-    jsr __rb_count      ; (CT_Q: 2 * cap)
+    jsr __rb_count          ; (CT_Q: 2 * cap)
     cpx $13
-    bcc @none           ; count < i
+    bcc @none               ; count < i
     bne @in
     cmp $12
     bcc @none
-    beq @none           ; count == i
+    beq @none               ; count == i
 @in:
-    clc                 ; tail + i, less 2 * cap when past it
+    clc                     ; tail + i, less 2 * cap when past it
     lda RB_T
     adc $12
     tay
@@ -549,18 +549,18 @@ proc _rbb_put
     .flag_clobbers C, N, Z
     jsr __rbb_buf
     ldy #0
-    lda ($10),y         ; head
+    lda ($10),y             ; head
     tax
     inx
     txa
     ldy #1
-    cmp ($10),y         ; head + 1 == tail: full
+    cmp ($10),y             ; head + 1 == tail: full
     beq @full
     dex
     txa
     tay
     lda $12
-    sta (CT_P),y        ; the byte, then the index
+    sta (CT_P),y            ; the byte, then the index
     iny
     tya
     ldy #0
@@ -582,12 +582,12 @@ proc _rbb_get
     .flag_clobbers C, N, Z
     jsr __rbb_buf
     ldy #1
-    lda ($10),y         ; tail
+    lda ($10),y             ; tail
     ldy #0
     cmp ($10),y
     beq @empty
     tay
-    lda (CT_P),y        ; the byte, then the index
+    lda (CT_P),y            ; the byte, then the index
     tax
     iny
     tya

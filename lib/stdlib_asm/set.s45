@@ -40,8 +40,8 @@ CT_P    = $0C
 CT_Q    = $0E
 
 .segment "bss"
-__set_s:    .res 2      ; the set
-__set_data: .res 2      ; its fields
+__set_s:    .res 2          ; the set
+__set_data: .res 2          ; its fields
 __set_len:  .res 2
 __set_es:   .res 2
 __set_cmp:  .res 2
@@ -49,10 +49,10 @@ __set_key:  .res 2
 __set_lo:   .res 2
 __set_hi:   .res 2
 __set_mid:  .res 2
-__set_pa:   .res 2      ; the element compared with the key
-__set_eq:   .res 1      ; the search found it
-__set_ks:   .res 2      ; the key's size
-__set_val:  .res 2      ; the value (a map's insert)
+__set_pa:   .res 2          ; the element compared with the key
+__set_eq:   .res 1          ; the search found it
+__set_ks:   .res 2          ; the key's size
+__set_val:  .res 2          ; the value (a map's insert)
 __set_t:    .res 1
 
 .segment "code"
@@ -139,7 +139,7 @@ proc __set_compare
     sta CT_ES
     lda __set_ks+1
     sta CT_ES+1
-    jsr __ct_bytecmp    ; (Z equal, C clear lower)
+    jsr __ct_bytecmp        ; (Z equal, C clear lower)
     beq @eq
     bcc @lt
     lda #1
@@ -160,7 +160,7 @@ proc __set_compare
     jsr ___ct_cmp
     cpx #$80
     bcs @lt
-    stx __set_t         ; (A | X: zero is equal)
+    stx __set_t             ; (A | X: zero is equal)
     ora __set_t
     beq @eq
     lda #1
@@ -186,7 +186,7 @@ proc __set_search
     lda __set_len+1
     sta __set_hi+1
 @loop:
-    lda __set_lo+1      ; lo < hi
+    lda __set_lo+1          ; lo < hi
     cmp __set_hi+1
     bcc @mid
     bne @end
@@ -194,7 +194,7 @@ proc __set_search
     cmp __set_hi
     bcs @end
 @mid:
-    clc                 ; mid = (lo + hi) / 2
+    clc                     ; mid = (lo + hi) / 2
     lda __set_lo
     adc __set_hi
     tay
@@ -212,7 +212,7 @@ proc __set_search
     jsr __set_compare
     cmp #$FF
     bne @high
-    clc                 ; before the key: lo = mid + 1
+    clc                     ; before the key: lo = mid + 1
     lda __set_mid
     adc #1
     sta __set_lo
@@ -221,13 +221,13 @@ proc __set_search
     sta __set_lo+1
     bra @loop
 @high:
-    lda __set_mid       ; hi = mid
+    lda __set_mid           ; hi = mid
     sta __set_hi
     lda __set_mid+1
     sta __set_hi+1
     bra @loop
 @end:
-    lda __set_lo+1      ; lo < len: is it the key?
+    lda __set_lo+1          ; lo < len: is it the key?
     cmp __set_len+1
     bcc @check
     bne @done
@@ -266,16 +266,16 @@ proc _set__init
     .flag_clobbers N, Z
     jsr _vec_init
     ldy #8
-    lda $14  ; NOLINT(mega65-zp-param-block): vec_init changes no base-page byte (it has no .zp_clobbers)
-    sta ($10),y  ; NOLINT(mega65-zp-param-block): as above
+    lda $14                 ; NOLINT(mega65-zp-param-block): vec_init changes no base-page byte (it has no .zp_clobbers)
+    sta ($10),y             ; NOLINT(mega65-zp-param-block): as above
     iny
-    lda $15  ; NOLINT(mega65-zp-param-block): as above
-    sta ($10),y  ; NOLINT(mega65-zp-param-block): as above
+    lda $15                 ; NOLINT(mega65-zp-param-block): as above
+    sta ($10),y             ; NOLINT(mega65-zp-param-block): as above
     iny
-    lda $12             ; ksize = esize  ; NOLINT(mega65-zp-param-block): as above
+    lda $12                 ; ksize = esize  ; NOLINT(mega65-zp-param-block): as above
     sta ($10),y
     iny
-    lda $13  ; NOLINT(mega65-zp-param-block): as above
+    lda $13                 ; NOLINT(mega65-zp-param-block): as above
     sta ($10),y
     rts
     .func_flags zp_call
@@ -290,7 +290,7 @@ proc _set__insert
     jsr __set_search
     lda __set_eq
     bne @there
-    jsr __set_this      ; vec_insert(s, lo, NULL): the place
+    jsr __set_this          ; vec_insert(s, lo, NULL): the place
     lda __set_lo
     sta $12
     lda __set_lo+1
@@ -303,13 +303,13 @@ proc _set__insert
     bne @ok
     cpx #0
     bne @ok
-    lda #$FF            ; no memory
+    lda #$FF                ; no memory
     tax
     rts
 @ok:
     sta __set_pa
     stx __set_pa+1
-    sta CT_P            ; the key
+    sta CT_P                ; the key
     stx CT_P+1
     lda __set_key
     sta CT_Q
@@ -325,7 +325,7 @@ proc _set__insert
     ldx #0
     rts
 @there:
-    jsr __set_value     ; (a map's value replaced)
+    jsr __set_value         ; (a map's value replaced)
     lda #0
     tax
     rts
@@ -369,7 +369,7 @@ proc _set__erase
     jsr __set_search
     lda __set_eq
     beq @absent
-    jsr __set_this      ; vec_erase(s, lo)
+    jsr __set_this          ; vec_erase(s, lo)
     lda __set_lo
     sta $12
     lda __set_lo+1
@@ -410,7 +410,7 @@ proc _set__lower_bound
     .reg_clobbers A, X, Y, Z
     .flag_clobbers C, N, Z, V
     jsr __set_load
-    jsr __set_search    ; (A/X = lo)
+    jsr __set_search        ; (A/X = lo)
     cpx __set_len+1
     bcc @in
     bne @none
@@ -453,7 +453,7 @@ proc _set__next
     .zp_uses $10, $11, $12, $13
     .reg_clobbers A, X, Y
     .flag_clobbers C, N, Z, V
-    ldy #0              ; CT_BASE, CT_ES: data, esize
+    ldy #0                  ; CT_BASE, CT_ES: data, esize
     lda ($10),y
     sta CT_BASE
     iny
@@ -465,7 +465,7 @@ proc _set__next
     iny
     lda ($10),y
     sta CT_ES+1
-    ldy #2              ; the end: data + len * esize -> CT_Q
+    ldy #2                  ; the end: data + len * esize -> CT_Q
     lda ($10),y
     tax
     iny
@@ -476,14 +476,14 @@ proc _set__next
     jsr __ct_addr
     sta CT_Q
     stx CT_Q+1
-    clc                 ; e + esize
+    clc                     ; e + esize
     lda $12
     adc CT_ES
     tay
     lda $13
     adc CT_ES+1
     tax
-    cpx CT_Q+1          ; < the end
+    cpx CT_Q+1              ; < the end
     bcc @in
     bne @none
     cpy CT_Q
@@ -542,7 +542,7 @@ proc _map__init
     .zp_uses $10, $11, $12, $13, $14, $15, $16, $17
     .reg_clobbers A, X, Y
     .flag_clobbers C, N, Z, V
-    lda $12             ; set::init(ksize + vsize, cmp), then ksize
+    lda $12                 ; set::init(ksize + vsize, cmp), then ksize
     pha
     lda $13
     pha

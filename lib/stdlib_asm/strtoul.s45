@@ -94,12 +94,12 @@ proc __strto_sign
     inw $08
     bra @ws
 @sign:
-    cmp #$2D            ; '-'
+    cmp #$2D                ; '-'
     bne @plus
     inc __strto_neg
     bra @past
 @plus:
-    cmp #$2B            ; '+'
+    cmp #$2B                ; '+'
     bne @done
 @past:
     inw $08
@@ -159,7 +159,7 @@ proc _strtoul
 @nohex:
     lda __strto_base
     bne @digits
-    lda #10             ; base 0: 8 after a leading 0, else 10
+    lda #10                 ; base 0: 8 after a leading 0, else 10
     sta __strto_base
     ldy #0
     lda ($08),y
@@ -178,7 +178,7 @@ proc _strtoul
     sta __strto_d+1
     sta __strto_d+2
     sta __strto_d+3
-    sta $D775           ; the multiplier's B: the base (32 bits)
+    sta $D775               ; the multiplier's B: the base (32 bits)
     sta $D776
     sta $D777
 @digit:
@@ -191,7 +191,7 @@ proc _strtoul
     lda #1
     sta __strto_any
     lda __strto_ovf
-    bne @skip           ; (past an overflow: only the digits are read)
+    bne @skip               ; (past an overflow: only the digits are read)
     ldq __strto_r
     stq $D770
     lda __strto_base
@@ -199,7 +199,7 @@ proc _strtoul
 @busy:
     bit $D70F
     bvs @busy
-    lda $D77C           ; above 32 bits: too large
+    lda $D77C               ; above 32 bits: too large
     ora $D77D
     ora $D77E
     ora $D77F
@@ -241,7 +241,7 @@ proc _strtoul
     sta _errno
     lda #0
     sta _errno+1
-    lda #$FF            ; ULONG_MAX
+    lda #$FF                ; ULONG_MAX
     tax
     tay
     taz
@@ -309,7 +309,7 @@ proc _strtol
     lda #0
     sta _errno
     sta _errno+1
-    jsr _strtoul        ; (its own sign check finds none)
+    jsr _strtoul            ; (its own sign check finds none)
     stq __strto_r
     pla
     sta __strto_neg
@@ -337,9 +337,9 @@ proc _strtol
     lda _errno+1
     beq @huge
 @fits:
-    lda __strto_r+3     ; bit 31 set: too large for a long,
+    lda __strto_r+3         ; bit 31 set: too large for a long,
     bpl @ok
-    lda __strto_neg     ; except $80000000 negated
+    lda __strto_neg         ; except $80000000 negated
     beq @huge
     lda __strto_r+3
     cmp #$80
@@ -372,13 +372,13 @@ proc _strtol
     sta _errno+1
     lda __strto_neg
     bne @min
-    lda #$FF            ; LONG_MAX
+    lda #$FF                ; LONG_MAX
     tax
     tay
     ldz #$7F
     rts
 @min:
-    lda #0              ; LONG_MIN
+    lda #0                  ; LONG_MIN
     tax
     tay
     ldz #$80

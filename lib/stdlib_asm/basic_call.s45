@@ -36,7 +36,7 @@ __bc_run:
     lda #1
     sta __bc_done
     jsr _init_features
-    jsr __ovl_init      ; code overlays: load their file (weak: none)
+    jsr __ovl_init          ; code overlays: load their file (weak: none)
 @ready:
     ; the first three parameter slots (2 bytes each, as for a char or int
     ; parameter): A, X, Y with high bytes 0 (base-page stores: the
@@ -59,7 +59,7 @@ __bc_run:
     ldx __bc_x
     ldy __bc_y
 __bc_jsr:
-    jsr $FFFF           ; (patched above)
+    jsr $FFFF               ; (patched above)
     sta __bc_a
     stx __bc_x
     sty __bc_y

@@ -25,15 +25,15 @@ cc45.icallinfo = 1
 .global _tgi_setpattern, _tgi_setpattern_mono, _tgi_setsolid, ___tgi_pbar
 .extern ___tgi_mode, __tgi_addr, _tgi_setpixel, _tgi_color
 
-PIX = $08               ; __tgi_addr's result (32 bits)
+PIX = $08                   ; __tgi_addr's result (32 bits)
 
 .segment "bss"
-__tp_on:        .res 1  ; 1: tgi_bar fills with the pattern
-__tp_pat:       .res 64 ; the pattern's colours, row by row
-__tp_tron:      .res 1  ; 1: a transparent colour
-__tp_tval:      .res 1  ;   it
-__tp_built:     .res 1  ; ___tgi_mode the strip is built for ($FF: none)
-__tp_blk:       .res 64 ; the 640x200 rows (two nibbles a byte)
+__tp_on:        .res 1      ; 1: tgi_bar fills with the pattern
+__tp_pat:       .res 64     ; the pattern's colours, row by row
+__tp_tron:      .res 1      ; 1: a transparent colour
+__tp_tval:      .res 1      ;   it
+__tp_built:     .res 1      ; ___tgi_mode the strip is built for ($FF: none)
+__tp_blk:       .res 64     ; the 640x200 rows (two nibbles a byte)
 __tp_strip:     .res 1600
 ; the copy
 __tp_src:       .res 4
@@ -45,7 +45,7 @@ __tp_xe:        .res 2
 __tp_y:         .res 1
 __tp_ye:        .res 1
 __tp_h:         .res 1
-__tp_soff:      .res 2  ; y1 * 8: the strip's offset
+__tp_soff:      .res 2      ; y1 * 8: the strip's offset
 __tp_t:         .res 2
 __tp_py:        .res 1
 __tp_col:       .res 1
@@ -130,12 +130,12 @@ proc __tp_copy
     php
     sei
     lda #0
-    sta $D702           ; list in bank 0
-    sta $D704           ; megabyte 0
+    sta $D702               ; list in bank 0
+    sta $D704               ; megabyte 0
     lda #>__tp_job
     sta $D701
     lda #<__tp_job
-    sta $D705           ; start (enhanced job)
+    sta $D705               ; start (enhanced job)
     plp
     rts
 endproc
@@ -152,7 +152,7 @@ proc __tp_build
     lda ___tgi_mode
     sta __tp_built
     bmi @ncm
-    ldx #63             ; 320x200: the pattern itself
+    ldx #63                 ; 320x200: the pattern itself
 @copy:
     lda __tp_pat,x
     sta __tp_blk,x
@@ -160,14 +160,14 @@ proc __tp_build
     bpl @copy
     bra @fill
 @ncm:
-    ldx #0              ; 640x200: byte b of a row is pixels 2b and 2b + 1
-@pair:                  ; (both & 7 in the pattern's row)
+    ldx #0                  ; 640x200: byte b of a row is pixels 2b and 2b + 1
+@pair:                      ; (both & 7 in the pattern's row)
     txa
-    and #$38            ; the row's start
+    and #$38                ; the row's start
     sta __tp_t
     txa
     asl a
-    and #$06            ; (2b) & 7
+    and #$06                ; (2b) & 7
     ora __tp_t
     tay
     lda __tp_pat,y
@@ -371,7 +371,7 @@ proc _tgi_setpattern
     lda $12
     sta __tp_tval
     lda $13
-    eor #$FF            ; (-1: off; 0-255: on)
+    eor #$FF                ; (-1: off; 0-255: on)
     beq @off
     lda #1
 @off:
@@ -397,7 +397,7 @@ proc _tgi_setpattern_mono
     .reg_clobbers A, X, Y
     .flag_clobbers C, N, Z
     lda $15
-    bpl @opaque         ; bg -1: clear bits fg ^ 1, the transparent byte
+    bpl @opaque             ; bg -1: clear bits fg ^ 1, the transparent byte
     lda $12
     eor #1
     sta __tp_tval
@@ -410,8 +410,8 @@ proc _tgi_setpattern_mono
     lda $14
     sta __tp_tval
 @bits:
-    ldy #0              ; the row
-    ldx #0              ; the pixel
+    ldy #0                  ; the row
+    ldx #0                  ; the pixel
 @row:
     lda ($10),y
     sta __tp_t
@@ -473,8 +473,8 @@ proc ___tgi_pbar
     sbc __tp_y
     clc
     adc #1
-    sta __tp_h          ; (1..200)
-    lda __tp_y          ; the strip's row y1
+    sta __tp_h              ; (1..200)
+    lda __tp_y              ; the strip's row y1
     sta __tp_soff
     lda #0
     sta __tp_soff+1
@@ -488,7 +488,7 @@ proc ___tgi_pbar
     bit ___tgi_mode
     bmi @ncm
 @fcm:
-    lda __tp_xe         ; x <= xe
+    lda __tp_xe             ; x <= xe
     cmp __tp_x
     lda __tp_xe+1
     sbc __tp_x+1
@@ -501,7 +501,7 @@ proc ___tgi_pbar
     lda __tp_x
     and #7
     bne @fpix
-    lda #7              ; x + 7 <= xe: the whole character column
+    lda #7                  ; x + 7 <= xe: the whole character column
     jsr __tp_fits
     bcc @fpix
     lda #0
@@ -511,7 +511,7 @@ proc ___tgi_pbar
     jsr __tp_adv
     jmp @fcm
 @fpix:
-    lda __tp_x          ; a column of pixels: every 8th byte
+    lda __tp_x              ; a column of pixels: every 8th byte
     and #7
     jsr __tp_srcat
     jsr __tp_column
@@ -523,16 +523,16 @@ proc ___tgi_pbar
     ldx #0
     rts
 @ncm:
-    lda __tp_xe         ; x <= xe
+    lda __tp_xe             ; x <= xe
     cmp __tp_x
     lda __tp_xe+1
     sbc __tp_x+1
     bcs @nmore
     jmp @done
 @nmore:
-    lda __tp_tron       ; transparent: a pixel at a time
+    lda __tp_tron           ; transparent: a pixel at a time
     bne @npix
-    lda __tp_x+1        ; the address of x >> 1
+    lda __tp_x+1            ; the address of x >> 1
     lsr a
     sta $11
     lda __tp_x
@@ -541,7 +541,7 @@ proc ___tgi_pbar
     lda __tp_x
     and #$0F
     bne @npair
-    lda #15             ; x + 15 <= xe: the whole character column
+    lda #15                 ; x + 15 <= xe: the whole character column
     jsr __tp_fits
     bcc @npair
     jsr __tp_addr
@@ -552,7 +552,7 @@ proc ___tgi_pbar
     jsr __tp_adv
     jmp @ncm
 @npair:
-    lda __tp_x          ; x even, x + 1 <= xe: a byte column
+    lda __tp_x              ; x even, x + 1 <= xe: a byte column
     lsr a
     bcs @npix
     lda #1

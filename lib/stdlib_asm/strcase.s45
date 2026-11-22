@@ -28,7 +28,7 @@ proc __strfold
     bcc @c1
     cmp #$7B
     bcs @c1
-    sbc #$1F            ; (C clear: - $20)
+    sbc #$1F                ; (C clear: - $20)
     rts
 @c1:
     cmp #$C1
@@ -160,7 +160,7 @@ proc _strcasestr
     jsr __strfold
     sta $08
     lda ($10),y
-    beq @none           ; the haystack ends first
+    beq @none               ; the haystack ends first
     jsr __strfold
     cmp $08
     bne @next

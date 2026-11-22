@@ -24,7 +24,7 @@ T0 = $FA
 T1 = $FB
 T2 = $FC
 NVT = 16
-RD = NVT                        ; (the reader's place after the voices')
+RD = NVT                    ; (the reader's place after the voices')
 NS = NVT + 1
 C_OP = 0
 C_DUR = 1
@@ -43,42 +43,42 @@ C_DVOL = 21
 NCTX = 22
 
 .segment "bss"
-__tv_bit:       .res NS         ; the bits of the byte at a voice's place read (from bit 7)
-__tv_sb:        .res NS         ;   that byte, its bits read shifted out
-__tv_sbit:      .res NVT        ; the loop point's bit
-__tv_sp:        .res NS         ; patterns called (0-2)
-__tv_rbit0:     .res NS         ; the first one's return's bit, the transposition before it
+__tv_bit:       .res NS     ; the bits of the byte at a voice's place read (from bit 7)
+__tv_sb:        .res NS     ;   that byte, its bits read shifted out
+__tv_sbit:      .res NVT    ; the loop point's bit
+__tv_sp:        .res NS     ; patterns called (0-2)
+__tv_rbit0:     .res NS     ; the first one's return's bit, the transposition before it
 __tv_optr0:     .res NS
-__tv_ret_lo1:   .res NS         ; the second: where the stream goes on after it,
+__tv_ret_lo1:   .res NS     ; the second: where the stream goes on after it,
 __tv_ret_hi1:   .res NS
 __tv_rbit1:     .res NS
-__tv_pat_lo1:   .res NS         ;   its start,
+__tv_pat_lo1:   .res NS     ;   its start,
 __tv_pat_hi1:   .res NS
-__tv_rep1:      .res NS         ;   the times it plays yet,
-__tv_optr1:     .res NS         ;   the transposition before it
-__tune_pats:    .res 2          ; the pattern table
-__tune_ctl:     .res NCTX       ; each code's table
+__tv_rep1:      .res NS     ;   the times it plays yet,
+__tv_optr1:     .res NS     ;   the transposition before it
+__tune_pats:    .res 2      ; the pattern table
+__tune_ctl:     .res NCTX   ; each code's table
 __tune_cth:     .res NCTX
-__tune_cx:      .res 1          ; (a symbol being read: its code,
-__tune_tp:      .res 2          ;   its table,
-__tune_hl:      .res 1          ;   its longest code, the length so far,
+__tune_cx:      .res 1      ; (a symbol being read: its code,
+__tune_tp:      .res 2      ;   its table,
+__tune_hl:      .res 1      ;   its longest code, the length so far,
 __tune_hn:      .res 1
-__tune_hk:      .res 1          ;   the codes of that length,
-__tune_hc:      .res 2          ;   the bits read,
-__tune_hf:      .res 2          ;   the first code of the length,
-__tune_hi:      .res 2          ;   the symbols before it)
-__tune_ng:      .res 1          ; the instruments' groups of fields (5, or 6);
-__tune_gdl:     .res 6          ;   each group's dictionary,
+__tune_hk:      .res 1      ;   the codes of that length,
+__tune_hc:      .res 2      ;   the bits read,
+__tune_hf:      .res 2      ;   the first code of the length,
+__tune_hi:      .res 2      ;   the symbols before it)
+__tune_ng:      .res 1      ; the instruments' groups of fields (5, or 6);
+__tune_gdl:     .res 6      ;   each group's dictionary,
 __tune_gdh:     .res 6
-__tune_gi:      .res 6          ;   an instrument's entries,
-__tune_gf:      .res 1          ;   (a field, a group, a count)
+__tune_gi:      .res 6      ;   an instrument's entries,
+__tune_gf:      .res 1      ;   (a field, a group, a count)
 __tune_gg:      .res 1
 __tune_gk:      .res 1
-__tune_cb:      .res 1          ; (a call: its byte, offset, times, transposition)
+__tune_cb:      .res 1      ; (a call: its byte, offset, times, transposition)
 __tune_ct:      .res 2
 __tune_crep:    .res 1
 __tune_ctr:     .res 1
-__tune_px:      .res 1          ; (the voice looked ahead of)
+__tune_px:      .res 1      ; (the voice looked ahead of)
 
 .segment "code"
 
@@ -138,7 +138,7 @@ proc __tune_cdec
     sta __tune_tp+1
     jsr __tune_dtab
     ldz #0
-    lda [P],z           ; its longest code (0: one symbol, no bits)
+    lda [P],z               ; its longest code (0: one symbol, no bits)
     bne @code
     inz
     lda [P],z
@@ -153,16 +153,16 @@ proc __tune_cdec
     sta __tune_hf+1
     sta __tune_hi
     sta __tune_hi+1
-    ldz #1              ; (the length)
+    ldz #1                  ; (the length)
 @bit:
-    asl __tv_sb,x       ; the next bit into the code
+    asl __tv_sb,x           ; the next bit into the code
     rol __tune_hc
     rol __tune_hc+1
     inc __tv_bit,x
     lda __tv_bit,x
     cmp #8
     bcc @in
-    lda #0              ; (the byte read: the next, and P back on the table)
+    lda #0                  ; (the byte read: the next, and P back on the table)
     sta __tv_bit,x
     inc __tv_pos_lo,x
     bne @load
@@ -173,7 +173,7 @@ proc __tune_cdec
     jsr __tune_dtab
     ldz __tune_hn
 @in:
-    sec                 ; within the codes of this length: code - first < count
+    sec                     ; within the codes of this length: code - first < count
     lda __tune_hc
     sbc __tune_hf
     sta T0
@@ -190,7 +190,7 @@ proc __tune_cdec
     lda [P],z
     sta __tune_hk
 @past:
-    clc                 ; past them: the symbols before, the next length's first code
+    clc                     ; past them: the symbols before, the next length's first code
     lda __tune_hi
     adc __tune_hk
     sta __tune_hi
@@ -210,7 +210,7 @@ proc __tune_cdec
     cpz __tune_hl
     bcc @bit
     beq @bit
-    lda #$FF            ; (no code)
+    lda #$FF                ; (no code)
     ldy __tune_cx
     rts
 @found:
@@ -229,7 +229,7 @@ proc __tune_cdec
     bcc @l
     inc T1
 @l:
-    lda T1              ; (within 256 of the table: P is on it)
+    lda T1                  ; (within 256 of the table: P is on it)
     bne @far
     lda T0
     taz
@@ -299,7 +299,7 @@ proc __tune_cinst
     sta T0
     lda #0
     sta T1
-    asl T0              ; (A * 5, or 6)
+    asl T0                  ; (A * 5, or 6)
     rol T1
     asl T0
     rol T1
@@ -336,7 +336,7 @@ proc __tune_cinst
     sta __tune_gf
     ldy #0
 @group:
-    lda __tune_gdl,y    ; the entry: the dictionary + its number * the group's bytes
+    lda __tune_gdl,y        ; the entry: the dictionary + its number * the group's bytes
     sta T0
     lda __tune_gdh,y
     sta T1
@@ -588,7 +588,7 @@ proc __tune_cpeek
     ldy #C_INST
     cmp #$81
     beq @one
-    ldy #C_DVOL         ; $8D-$90: a byte (volume, routing, modulation, portamento)
+    ldy #C_DVOL             ; $8D-$90: a byte (volume, routing, modulation, portamento)
     cmp #$8D
     bcc @pk
     cmp #$91
@@ -619,7 +619,7 @@ proc __tune_cpeek
     beq @look
     cmp #$FE
     bne @is
-    lda __tune_guard    ; (from the voice's start or loop point, once)
+    lda __tune_guard        ; (from the voice's start or loop point, once)
     bne @no
     inc __tune_guard
     ldy __tune_px
@@ -700,10 +700,10 @@ proc __tune_ccodes
     ldz #0
     lda [P],z
     bne @sum
-    lda #2              ; (one symbol: L and it)
+    lda #2                  ; (one symbol: L and it)
     bra @next
 @sum:
-    sta __tune_hl       ; 1 + L + the symbols (each length's count)
+    sta __tune_hl           ; 1 + L + the symbols (each length's count)
     inc a
     sta __tune_hi
     lda #0
@@ -750,7 +750,7 @@ proc __tune_ccodes
     jsr __tune_at
     ldz #0
     lda [P],z
-    sta __tune_gk       ; (its entries)
+    sta __tune_gk           ; (its entries)
     clc
     lda T0
     adc #1
@@ -760,12 +760,12 @@ proc __tune_ccodes
     adc #0
     sta T1
     sta __tune_gdh,y
-    lda __tune_gsize,y  ; past them: entries * bytes
+    lda __tune_gsize,y      ; past them: entries * bytes
     sta __tune_gg
 @past:
     lda __tune_gk
     bne @add
-    inc T1              ; (256)
+    inc T1                  ; (256)
     bra @next2
 @add:
     clc

@@ -50,24 +50,24 @@ CT_BASE = $08
 CT_ES   = $0A
 CT_P    = $0C
 CT_Q    = $0E
-HH      = $F6       ; the hash being computed
-HT      = $F8       ; a temp
-T       = $10       ; the table
-K       = $12       ; the key (next: the element; rehash: n)
-VAL     = $14       ; the value
-SLOTS   = $16       ; the table's fields 0-11, copied (__hm_load)
+HH      = $F6               ; the hash being computed
+HT      = $F8               ; a temp
+T       = $10               ; the table
+K       = $12               ; the key (next: the element; rehash: n)
+VAL     = $14               ; the value
+SLOTS   = $16               ; the table's fields 0-11, copied (__hm_load)
 LEN     = $18
 USED    = $1A
 KS      = $1C
 VS      = $1E
 CAP     = $20
-KSE     = $22       ; the key's bytes in a slot (2 for a string)
-SS      = $24       ; a slot's bytes
-END     = $26       ; SLOTS + CAP * SS
-H       = $28       ; the hash
-PP      = $2A       ; a slot
-INS     = $2C       ; where a new key goes
-TAG     = $2E       ; the slot's state for the hash
+KSE     = $22               ; the key's bytes in a slot (2 for a string)
+SS      = $24               ; a slot's bytes
+END     = $26               ; SLOTS + CAP * SS
+H       = $28               ; the hash
+PP      = $2A               ; a slot
+INS     = $2C               ; where a new key goes
+TAG     = $2E               ; the slot's state for the hash
 ZLO     = $10
 ZLEN    = $20
 
@@ -97,7 +97,7 @@ F_CMP   = 14
 
 .segment "bss"
 __hm_stash: .res ZLEN
-__hm_old:   .res 2      ; rehash: the old slots
+__hm_old:   .res 2          ; rehash: the old slots
 __hm_oend:  .res 2
 __hm_ofree: .res 2
 __hm_ncap:  .res 2
@@ -244,7 +244,7 @@ proc __hm_load
     lda #2
     sta KSE
 @fixed:
-    sec                 ; SS = KSE + VS + 1
+    sec                     ; SS = KSE + VS + 1
     lda KSE
     adc VS
     sta SS
@@ -324,7 +324,7 @@ endproc
 proc __hm_equal
     .reg_clobbers A, X, Y, Z
     .flag_clobbers C, N, Z, V
-    jsr __hm_elem       ; CT_Q = the slot's key (a string: its pointer)
+    jsr __hm_elem           ; CT_Q = the slot's key (a string: its pointer)
     sta CT_Q
     stx CT_Q+1
     isnull KS
@@ -345,7 +345,7 @@ proc __hm_equal
     bne @fn
     isnull KS
     bne @bytes
-    ldy #0              ; strings: equal as strcmp
+    ldy #0                  ; strings: equal as strcmp
 @str:
     lda (CT_P),y
     cmp (CT_Q),y
@@ -377,7 +377,7 @@ proc __hm_equal
     pha
     phx
     jsr __hm_restore
-    pla                 ; (X's byte)
+    pla                     ; (X's byte)
     sta HT
     pla
     ora HT
@@ -508,7 +508,7 @@ proc __hm_resize
     lda #0
     sta __hm_ncap+1
 @want:
-    lda __hm_ncap+1     ; ncap < n: double
+    lda __hm_ncap+1         ; ncap < n: double
     cmp HT+1
     bcc @dbl
     bne @room
@@ -521,7 +521,7 @@ proc __hm_resize
     bcc @want
     jmp @fail
 @room:
-    lda __hm_ncap       ; len >= ncap - ncap / 4: double
+    lda __hm_ncap           ; len >= ncap - ncap / 4: double
     ldx __hm_ncap+1
     jsr __hm_q3
     lda LEN+1
@@ -532,7 +532,7 @@ proc __hm_resize
     cmp HH
     bcs @dbl
 @size:
-    mov HH, SS          ; bytes = ss * ncap (a power of two): shifts
+    mov HH, SS              ; bytes = ss * ncap (a power of two): shifts
     mov HT, __hm_ncap
 @sh:
     lsr HT+1
@@ -544,7 +544,7 @@ proc __hm_resize
     bcc @sh
     jmp @fail
 @alloc:
-    jsr __hm_save       ; calloc(bytes, 1): every state empty
+    jsr __hm_save           ; calloc(bytes, 1): every state empty
     mov $10, HH
     lda #1
     sta $12
@@ -568,7 +568,7 @@ proc __hm_resize
     mov SLOTS, HT
     mov CAP, __hm_ncap
     mov USED, LEN
-    mov CT_BASE, SLOTS  ; END
+    mov CT_BASE, SLOTS      ; END
     mov CT_ES, SS
     lda CAP
     ldx CAP+1
@@ -578,7 +578,7 @@ proc __hm_resize
     isnull __hm_old
     beq @done
 @move:
-    lda __hm_old        ; the old slots, each used one to its new place
+    lda __hm_old            ; the old slots, each used one to its new place
     cmp __hm_oend
     bne @slot
     lda __hm_old+1
@@ -589,7 +589,7 @@ proc __hm_resize
     ldy #0
     lda (PP),y
     bpl @skip
-    jsr __hm_elem       ; its key: the element, or the string's pointer
+    jsr __hm_elem           ; its key: the element, or the string's pointer
     sta HT
     stx HT+1
     isnull KS
@@ -643,7 +643,7 @@ endproc
 proc __hm_value
     isnull VS
     beq @none
-    sec                 ; PP + 1 + KSE
+    sec                     ; PP + 1 + KSE
     lda PP
     adc KSE
     sta CT_P
@@ -662,7 +662,7 @@ proc _hashmap__init
     .zp_uses $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $1A, $1B
     .reg_clobbers A, X, Y
     .flag_clobbers N, Z
-    ldy #15             ; fields 6-15: the arguments
+    ldy #15                 ; fields 6-15: the arguments
     ldx #9
 @copy:
     lda $12,x
@@ -670,7 +670,7 @@ proc _hashmap__init
     dey
     dex
     bpl @copy
-    lda #0              ; slots NULL, len and used 0
+    lda #0                  ; slots NULL, len and used 0
 @zero:
     sta ($10),y
     dey
@@ -686,13 +686,13 @@ proc _hashmap__put
     jsr __hm_load
     isnull SLOTS
     bne @have
-    lda CAP             ; the first: the size asked for
+    lda CAP                 ; the first: the size asked for
     ldx CAP+1
     jsr __hm_resize
     bcs @nomem
     bra @look
 @have:
-    lda CAP             ; used + 1 > cap - cap / 4: rehash
+    lda CAP                 ; used + 1 > cap - cap / 4: rehash
     ldx CAP+1
     jsr __hm_q3
     lda USED+1
@@ -703,7 +703,7 @@ proc _hashmap__put
     cmp HH
     bcc @look
 @grow:
-    lda LEN             ; to 2 * (len + 1)
+    lda LEN                 ; to 2 * (len + 1)
     clc
     adc #1
     sta HT
@@ -725,7 +725,7 @@ proc _hashmap__put
     lda TAG
     sta (PP),y
     txa
-    bne @len            ; (a tombstone: used already counts it)
+    bne @len                ; (a tombstone: used already counts it)
     inc USED
     bne @len
     inc USED+1
@@ -739,7 +739,7 @@ proc _hashmap__put
     stx CT_P+1
     isnull KS
     bne @copy
-    ldy #0              ; a string: its pointer
+    ldy #0                  ; a string: its pointer
     lda K
     sta (CT_P),y
     iny
@@ -799,7 +799,7 @@ proc _hashmap__get
     clobbers
     jsr __hm_findp
     bcc @none
-    sec                 ; PP + 1 + KSE
+    sec                     ; PP + 1 + KSE
     lda PP
     adc KSE
     tay
@@ -821,7 +821,7 @@ proc _hashmap__erase
     clobbers
     jsr __hm_findp
     bcc @none
-    ldy #0              ; a tombstone
+    ldy #0                  ; a tombstone
     lda #1
     sta (PP),y
     lda LEN
@@ -977,7 +977,7 @@ proc _hashmap__free
     mov $10, SLOTS
     jsr _free
     jsr __hm_restore
-    ldx #5              ; slots NULL, len and used 0; cap 0 (8 at the next put)
+    ldx #5                  ; slots NULL, len and used 0; cap 0 (8 at the next put)
     lda #0
     sta CAP
     sta CAP+1

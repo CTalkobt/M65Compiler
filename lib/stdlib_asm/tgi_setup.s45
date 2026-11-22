@@ -27,10 +27,10 @@ cc45.icallinfo = 1
 .extern _tgi_color, _tgi_font, _tgi_textdir, _tgi_textscalew, _tgi_textscaleh
 .extern _tgi_charwidth, _tgi_charheight, ___tgi_state, ___tgi_state_size, ___tgi_mode
 
-P = $08                 ; a far address (32 bits)
-Q = $0C                 ; a near one (16 bits)
+P = $08                     ; a far address (32 bits)
+Q = $0C                     ; a near one (16 bits)
 
-COLOUR_RAM = $FF80000   ; the screen's colour RAM: COLOUR_RAM + $3000
+COLOUR_RAM = $FF80000       ; the screen's colour RAM: COLOUR_RAM + $3000
 TGI_COLOURS = $3000
 PAGE_SIZE = 64000
 ERR_NO_DRIVER = 1
@@ -40,23 +40,23 @@ ERR_NO_RES = 8
 ERR_INSTALLED = 9
 
 .segment "bss"
-___tgi_draw:    .res 4  ; the draw page
-___tgi_view:    .res 1  ; the view page
-___tgi_page:    .res 8  ; the pages
-___tgi_scr:     .res 8  ; their screens
-___tgi_palsave: .res 4  ; the palette at tgi_install: R, G, B (768 bytes)
-___tgi_palset:  .res 1  ; tgi_setpalette changed the palette
-__ts_fblk:      .res 15 ; the memory (far pointers): pages, screens, palette
-__ts_hblk:      .res 10 ; (from the heap)
-__ts_old:       .res 17 ; the VIC registers tgi_init changes
-__ts_fp:        .res 3  ; far_malloc's result
-__ts_size:      .res 2  ; take's
+___tgi_draw:    .res 4      ; the draw page
+___tgi_view:    .res 1      ; the view page
+___tgi_page:    .res 8      ; the pages
+___tgi_scr:     .res 8      ; their screens
+___tgi_palsave: .res 4      ; the palette at tgi_install: R, G, B (768 bytes)
+___tgi_palset:  .res 1      ; tgi_setpalette changed the palette
+__ts_fblk:      .res 15     ; the memory (far pointers): pages, screens, palette
+__ts_hblk:      .res 10     ; (from the heap)
+__ts_old:       .res 17     ; the VIC registers tgi_init changes
+__ts_fp:        .res 3      ; far_malloc's result
+__ts_size:      .res 2      ; take's
 __ts_heap:      .res 1
 __ts_k:         .res 1
-__ts_addr:      .res 4  ; its result
-__ts_n:         .res 2  ; take_screen's character number
+__ts_addr:      .res 4      ; its result
+__ts_n:         .res 2      ; take_screen's character number
 __ts_col:       .res 1
-__ts_drv:       .res 2  ; tgi_install's driver
+__ts_drv:       .res 2      ; tgi_install's driver
 
 .segment "code"
 

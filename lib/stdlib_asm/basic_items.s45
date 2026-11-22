@@ -26,17 +26,17 @@ cc45.icallinfo = 1
 .extern __bas_ibuf, __bas_ipos, __bas_morein, __bas_iredo
 .extern __bas_sr, __bas_m, __bas_n, __bas_data, __bas_error
 
-NUMLEN = 80             ; a number item's characters at most (basic_fin.s45's buffer)
-R = $08                 ; the result's buffer
-T = $0A                 ; READ's statement (its length byte)
+NUMLEN = 80                 ; a number item's characters at most (basic_fin.s45's buffer)
+R = $08                     ; the result's buffer
+T = $0A                     ; READ's statement (its length byte)
 
 .segment "bss"
-__it_start: .res 1      ; the item's first character
-__it_n:     .res 1      ; its length
-__rd_rec:   .res 2      ; READ's statement (0: none yet)
-__rd_pos:   .res 1      ; its position in the statement's text
-__rd_need:  .res 1      ; 1: the next statement first; 2: __rd_rec is it
-__rd_len:   .res 1      ; the statement's length
+__it_start: .res 1          ; the item's first character
+__it_n:     .res 1          ; its length
+__rd_rec:   .res 2          ; READ's statement (0: none yet)
+__rd_pos:   .res 1          ; its position in the statement's text
+__rd_need:  .res 1          ; 1: the next statement first; 2: __rd_rec is it
+__rd_len:   .res 1          ; the statement's length
 
 .segment "code"
 

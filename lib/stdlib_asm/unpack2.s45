@@ -28,32 +28,32 @@ cc45.icallinfo = 1
 .global ___unpack2, ___unpack_format2
 .extern ___dma_copy_far
 
-P = $08                 ; the stream (32 bits)
-D = $0C                 ; where it writes (32 bits)
+P = $08                     ; the stream (32 bits)
+D = $0C                     ; where it writes (32 bits)
 
 .segment "bss"
-__u2_sym:   .res 256    ; the lookup: an 8-bit value's symbol
-__u2_len:   .res 256    ;   and its code's length
-__u2_rank:  .res 256    ; the row's ranks
-__u2_row:   .res 128    ; the row's bytes
-__u2_lo:    .res 16     ; rank -> its palette entry
-__u2_hi:    .res 16     ;   << 4
-__u2_start: .res 4      ; the first byte written
-__u2_pitch: .res 1      ; bytes a row (w / 2)
-__u2_w:     .res 1      ; w (0: 256)
-__u2_h:     .res 2      ; rows still to do
-__u2_n:     .res 1      ; colours
-__u2_left:  .res 1      ; 1: predicted from the left
-__u2_hb:    .res 2      ; the bits held (MSB first: high byte first)
+__u2_sym:   .res 256        ; the lookup: an 8-bit value's symbol
+__u2_len:   .res 256        ;   and its code's length
+__u2_rank:  .res 256        ; the row's ranks
+__u2_row:   .res 128        ; the row's bytes
+__u2_lo:    .res 16         ; rank -> its palette entry
+__u2_hi:    .res 16         ;   << 4
+__u2_start: .res 4          ; the first byte written
+__u2_pitch: .res 1          ; bytes a row (w / 2)
+__u2_w:     .res 1          ; w (0: 256)
+__u2_h:     .res 2          ; rows still to do
+__u2_n:     .res 1          ; colours
+__u2_left:  .res 1          ; 1: predicted from the left
+__u2_hb:    .res 2          ; the bits held (MSB first: high byte first)
 __u2_bits:  .res 1
-__u2_cur:   .res 1      ; the last rank
-__u2_s:     .res 1      ; a code's symbol
-__u2_ln:    .res 1      ; the table's: the length
-__u2_k:     .res 1      ;   its entries a code (2^(8 - length))
-__u2_at:    .res 2      ;   the next entry
+__u2_cur:   .res 1          ; the last rank
+__u2_s:     .res 1          ; a code's symbol
+__u2_ln:    .res 1          ; the table's: the length
+__u2_k:     .res 1          ;   its entries a code (2^(8 - length))
+__u2_at:    .res 2          ;   the next entry
 __u2_t:     .res 2
 __u2_c:     .res 1
-__u2_tl:    .res 1      ; a byte taken, shifted into place
+__u2_tl:    .res 1          ; a byte taken, shifted into place
 __u2_th:    .res 1
 
 .segment "code"

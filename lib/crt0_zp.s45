@@ -79,7 +79,7 @@ __exit_status = $FD
 
 __init:
     lda #0
-    sta __bc_mode       ; started as a program (not by __basic_call)
+    sta __bc_mode           ; started as a program (not by __basic_call)
 __start:
     ; Save caller's stack pointer for clean return
     tsx
@@ -94,9 +94,9 @@ __start:
     ; so the next PRINT waited for ever (#667). PLP: the caller's I again
     php
     sei
-    lda #$47            ; 'G'
+    lda #$47                ; 'G'
     sta $D02F
-    lda #$53            ; 'S'
+    lda #$53                ; 'S'
     sta $D02F
     plp
 
@@ -124,7 +124,7 @@ __start:
     tys
     ldx #<__stack_top
     txs
-    and #$04            ; caller's I flag
+    and #$04                ; caller's I flag
     bne @stack8
     cli
 @stack8:
@@ -144,35 +144,35 @@ __start:
     sec
     lda #<__bss_end
     sbc #<__bss_start
-    tax                 ; X = size low
+    tax                     ; X = size low
     lda #>__bss_end
     sbc #>__bss_start
-    tay                 ; Y = size high
+    tay                     ; Y = size high
     bne @bss_fill
     txa
-    beq @bss_done       ; no BSS
+    beq @bss_done           ; no BSS
 @bss_fill:
     lda #0
-    pha                 ; modulo high
-    pha                 ; modulo low
-    pha                 ; command high
-    pha                 ; destination bank
+    pha                     ; modulo high
+    pha                     ; modulo low
+    pha                     ; command high
+    pha                     ; destination bank
     lda #>__bss_start
     pha
     lda #<__bss_start
-    pha                 ; destination
+    pha                     ; destination
     lda #0
-    pha                 ; source bank
-    pha                 ; source high
+    pha                     ; source bank
+    pha                     ; source high
     lda #<__bss_fill
-    pha                 ; fill value (source low)
+    pha                     ; fill value (source low)
     tya
-    pha                 ; count high
+    pha                     ; count high
     txa
-    pha                 ; count low
+    pha                     ; count low
     lda #$03
-    pha                 ; command: fill
-    tsx                 ; the job list at SP+1 into Y:X
+    pha                     ; command: fill
+    tsx                     ; the job list at SP+1 into Y:X
     tsy
     txa
     clc
@@ -181,27 +181,27 @@ __start:
     tya
     adc #0
     tay
-    php                 ; (no interrupt between the DMA register writes)
+    php                     ; (no interrupt between the DMA register writes)
     sei
     lda #0
-    sta $D702           ; list bank
-    sty $D701           ; list address high
-    stx $D700           ; list address low: starts the job
+    sta $D702               ; list bank
+    sty $D701               ; list address high
+    stx $D700               ; list address low: starts the job
     plp
     ldx #12
 @bss_drop:
     pla
     dex
     bne @bss_drop
-    jsr __zp_init       ; __zp variables' initial values (ln45; weak: none)
+    jsr __zp_init           ; __zp variables' initial values (ln45; weak: none)
 @bss_done:
 
     lda __bc_mode
     beq @program
-    jmp __bc_run        ; (basic_call.s45: started by __basic_call)
+    jmp __bc_run            ; (basic_call.s45: started by __basic_call)
 @program:
     jsr _init_features
-    jsr __ovl_init      ; code overlays: load their file (weak: none)
+    jsr __ovl_init          ; code overlays: load their file (weak: none)
     ; main(argc, argv): __mainargs returns a pointer to { int argc; char
     ; **argv; } -- the weak default below gives argc 0, argv NULL; the
     ; library's (mainargs.c, linked when main takes parameters) parses the
@@ -211,7 +211,7 @@ __start:
     jsr ___mainargs
     sta $08
     stx $09
-    ldy #0              ; (base-page stores: the block is in __zp_page)
+    ldy #0                  ; (base-page stores: the block is in __zp_page)
     lda ($08),y
     sta $10
     iny
@@ -223,7 +223,7 @@ __start:
     iny
     lda ($08),y
     sta $13
-    pha                 ; argv, then argc: low bytes at the lower address
+    pha                     ; argv, then argc: low bytes at the lower address
     lda $12
     pha
     lda $11
@@ -241,9 +241,9 @@ __start:
 
     ; Fall through to __exit
 __exit:
-    jsr __ovl_exit      ; (mapped code overlays: the ROM's map back)
-    jsr __romram_exit   ; (rom_ram.h: the ROM area write-protected again)
-    jsr __irqhook_exit  ; (basic45 --compile: its interrupt hook out again)
+    jsr __ovl_exit          ; (mapped code overlays: the ROM's map back)
+    jsr __romram_exit       ; (rom_ram.h: the ROM area write-protected again)
+    jsr __irqhook_exit      ; (basic45 --compile: its interrupt hook out again)
     ; Back to the ROM's zero page, then record the exit status (A:X) there
     tay
     lda #0
@@ -296,11 +296,11 @@ __ovl_rom_leave:
 ; Default __romram_exit -- rom_ram.s45 (<rom_ram.h>) protects the ROM area
 ; again when the program left it writable
 __romram_exit:
-__irqhook_exit:      ; (basic_spr.s45: the KERNAL's IRQ vector back)
+__irqhook_exit:             ; (basic_spr.s45: the KERNAL's IRQ vector back)
 __ovl_exit:
-__ovl_jsave:         ; (setjmp/longjmp: the overlay state, ovl.s45)
-__ovl_dma_fix:       ; (memcpy & co.: an address in the mapped overlays' window)
-__bc_run:            ; (basic_call.s45's; never reached without it)
+__ovl_jsave:                ; (setjmp/longjmp: the overlay state, ovl.s45)
+__ovl_dma_fix:              ; (memcpy & co.: an address in the mapped overlays' window)
+__bc_run:                   ; (basic_call.s45's; never reached without it)
 __ovl_jrestore:
     rts
 
@@ -331,7 +331,7 @@ __noargs:
 __abort:
     ; Return to the caller (BASIC's READY. prompt) like exit(), marked as an
     ; abort, rather than stopping in the monitor with BRK
-    lda #$FE            ; exit status $FFFE
+    lda #$FE                ; exit status $FFFE
     ldx #$FF
     bra __exit
 
@@ -360,7 +360,7 @@ __bp_prog:
     tab
     pla
     plp
-    jmp __ovl_rom_leave ; (mapped code overlays: the overlay mapped again)
+    jmp __ovl_rom_leave     ; (mapped code overlays: the overlay mapped again)
 
 ; __rom_call (a KERNAL routine on the ROM's stack) is the library's
 ; rom_call.s45, linked only when a program calls one (#322)
