@@ -66,6 +66,9 @@ static void printUsage(const char* progName) {
     std::cout << "  --overlay-name=NAME   The overlay file's name on disk (default: the output's, .OV1)" << std::endl;
     std::cout << "  --overlay-out=PATH    Where to write the overlay file (default: the output's, .ov1;" << std::endl;
     std::cout << "                        its description for nm45/objdump45 next to it, .ovd)" << std::endl;
+    std::cout << "  --overlay-region=ADDR-END, ADDR+SIZE" << std::endl;
+    std::cout << "                        Copied overlays run at ADDR (an address, or a symbol the program" << std::endl;
+    std::cout << "                        defines: _mod_area+6280), not below the stack; the largest must fit" << std::endl;
     std::cout << "  --overlay-map         Map overlays into a window of 8 KB blocks (MAP) instead of copying them" << std::endl;
     std::cout << "  --overlay-fast-stubs  Overlay call stubs of 21 bytes (default 6: jsr __ovl_calli and the data)," << std::endl;
     std::cout << "                        a few cycles faster per call" << std::endl;
@@ -108,6 +111,10 @@ int main(int argc, char** argv) {
     std::vector<std::pair<uint32_t, uint32_t>> ovlStores;   // code overlays: --overlay-store, --overlay-name, --overlay-out
     std::string ovlName, ovlOut;
     bool ovlMap = false;
+    // --overlay-region (#685): its start, an address or a symbol, and its
+    // end (inclusive) or its size (+SIZE)
+    std::string ovlRegion, ovlRegionSym;
+    uint32_t ovlRegionAddr = 0, ovlRegionEnd = 0, ovlRegionSize = 0;
     std::string zpPlanOut;   // --zp-plan-out: the program-wide base-page plan (#304)
     bool ovlFastStubs = false;   // --overlay-fast-stubs: 21-byte overlay call stubs (#332)
     bool packOverlays = false;   // --pack-overlays: the overlay files packed (#345)
@@ -272,6 +279,48 @@ int main(int argc, char** argv) {
         }
         else if (arg.rfind("--overlay-name=", 0) == 0) { ovlName = arg.substr(15); }
         else if (arg == "--overlay-map") { ovlMap = true; }
+        else if (arg.rfind("--overlay-region=", 0) == 0) {
+            // ADDR-END or ADDR+SIZE; ADDR a number ($C000, 0xC000, C000: hex,
+            // as -t) or a symbol (anything else: _mod_area)
+            ovlRegion = arg.substr(17);
+            auto num = [](std::string v, unsigned long& out, int base) {
+                if (!v.empty() && v[0] == '$') { v = v.substr(1); base = 16; }
+                else if (v.size() > 2 && v[0] == '0' && (v[1] == 'x' || v[1] == 'X')) { v = v.substr(2); base = 16; }
+                try { size_t used = 0; out = std::stoul(v, &used, base); return used == v.size() && !v.empty(); }
+                catch (...) { return false; }
+            };
+            size_t cut = ovlRegion.find_first_of("-+", 1);
+            std::string a = ovlRegion.substr(0, cut), why;
+            unsigned long av = 0, ev = 0;
+            ovlRegionSym.clear();
+            if (!num(a, av, 16)) {
+                bool ident = !a.empty() && !std::isdigit((unsigned char)a[0]);
+                for (char c : a) ident = ident && (std::isalnum((unsigned char)c) || c == '_' || c == '.');
+                if (!ident) why = "'" + a + "' is neither an address nor a symbol";
+                else ovlRegionSym = a;
+            }
+            if (why.empty() && cut == std::string::npos)
+                why = ovlRegionSym.empty() ? "give its end or its size: " + a + "-END or " + a + "+SIZE"
+                                           : "give its size: " + a + "+SIZE";
+            else if (why.empty() && ovlRegion[cut] == '+') {
+                // (a size: decimal, or $ / 0x hex)
+                if (!num(ovlRegion.substr(cut + 1), ev, 10) || ev == 0 || ev > 0x10000) why = "a size from 1 to 65536";
+                else ovlRegionSize = (uint32_t)ev;
+            } else if (why.empty()) {
+                if (!ovlRegionSym.empty()) why = "the end of a region at a symbol: its size, " + a + "+SIZE";
+                else if (!num(ovlRegion.substr(cut + 1), ev, 16) || ev < av) why = "END is an address after ADDR";
+                else ovlRegionEnd = (uint32_t)ev;
+            }
+            if (why.empty() && ovlRegionSym.empty()) {
+                ovlRegionAddr = (uint32_t)av;
+                if (!ovlRegionEnd) ovlRegionEnd = ovlRegionAddr + ovlRegionSize - 1;
+                if (ovlRegionEnd > 0xFFFF) why = "in bank 0: $0000-$FFFF";
+            }
+            if (!why.empty()) {
+                std::cerr << "ln45: error: invalid --overlay-region value '" << ovlRegion << "' (" << why << ")" << std::endl;
+                return 1;
+            }
+        }
         else if (arg.rfind("--zp-plan-out=", 0) == 0) { zpPlanOut = arg.substr(14); }
         else if (arg == "--overlay-fast-stubs") { ovlFastStubs = true; }
         else if (arg == "--pack-overlays") { packOverlays = true; }
@@ -444,9 +493,47 @@ int main(int argc, char** argv) {
 
     // Link (we always add the header ourselves in ln45_main)
     std::string linkErr;
+    // --overlay-region at a symbol (#685): a first link finds where it is
+    // (the overlays' place changes no other address), the second puts the
+    // region there
+    if (!ovlRegion.empty() && !ovlRegionSym.empty()) {
+        O45Linker probe = linker;
+        std::ostringstream quiet;
+        probe.setWarningStream(&quiet);
+        probe.setOverlayRegion(textBase, 0xFFFF, true);
+        if (probe.link(linkErr, false).empty()) {
+            std::cerr << "ln45: link error: " << linkErr << std::endl;
+            return 1;
+        }
+        const auto& syms = probe.getSymbolMap();
+        auto it = syms.find(ovlRegionSym);
+        if (it == syms.end() && ovlRegionSym[0] != '_') {   // (a C name without its underscore)
+            ovlRegionSym = "_" + ovlRegionSym;
+            it = syms.find(ovlRegionSym);
+        }
+        if (it == syms.end()) {
+            std::cerr << "ln45: error: --overlay-region: the program defines no symbol '" << ovlRegion.substr(0, ovlRegion.find('+'))
+                      << "'" << std::endl;
+            return 1;
+        }
+        ovlRegionAddr = it->second;
+        ovlRegionEnd = ovlRegionAddr + ovlRegionSize - 1;
+        if (ovlRegionEnd > 0xFFFF) {
+            std::cerr << "ln45: error: --overlay-region: " << ovlRegionSym << " ($" << std::hex << ovlRegionAddr << std::dec
+                      << ") is not in bank 0" << std::endl;
+            return 1;
+        }
+    }
+    if (!ovlRegion.empty()) linker.setOverlayRegion(ovlRegionAddr, ovlRegionEnd);
     auto binary = linker.link(linkErr, false);
     if (binary.empty()) {
         std::cerr << "ln45: link error: " << linkErr << std::endl;
+        return 1;
+    }
+    if (!ovlRegionSym.empty() && linker.getSymbolMap().at(ovlRegionSym) != ovlRegionAddr) {
+        std::cerr << "ln45: error: --overlay-region: " << ovlRegionSym << " moved between the two links ($" << std::hex
+                  << ovlRegionAddr << ", then $" << linker.getSymbolMap().at(ovlRegionSym) << std::dec << "); give its address"
+                  << std::endl;
         return 1;
     }
 

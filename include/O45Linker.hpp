@@ -386,6 +386,12 @@ public:
     // Mapped overlays: run in a window of 8 KB blocks mapped to them (MAP),
     // not copied into a region
     void setOverlayMap(bool on) { ovlMap_ = on; }
+    // --overlay-region (#685): copied overlays run at addr (to end,
+    // inclusive), not below the stack; probe: a first link that only finds
+    // where a symbol given as the region is (no checks of the region)
+    void setOverlayRegion(uint32_t addr, uint32_t end, bool probe = false) {
+        ovlRegionSet_ = true; ovlRegionAddr_ = addr; ovlRegionEnd_ = end; ovlRegionProbe_ = probe;
+    }
     // write the program-wide choice of base-page block variables (#304)
     void setZpPlanOut(const std::string& path) { zpPlanOut_ = path; }
     // overlay call stubs of 21 bytes, a few cycles faster than the 6-byte ones (#332)
@@ -566,6 +572,8 @@ private:
     std::vector<std::vector<uint8_t>> ovlText_;    // their code
     uint32_t ovlBase_ = 0, ovlSize_ = 0;           // the region they run in
     bool ovlMap_ = false;
+    bool ovlRegionSet_ = false, ovlRegionProbe_ = false;   // --overlay-region
+    uint32_t ovlRegionAddr_ = 0, ovlRegionEnd_ = 0;
     std::vector<uint32_t> ovlAt_;                  // each overlay's far address
     // where their images are kept in far memory (default bank 5): ranges
     // (chip or attic RAM); the files: the part of a range in one bank each

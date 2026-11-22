@@ -100,7 +100,8 @@ writes a standalone assembly form with its own startup stub.
 
 A file with `#pragma cc45 overlay(name)` / `-foverlay=name` (ca45 `.overlay`)
 has its code in that overlay: ln45 links all overlays to run at one region
-below the stack's share (`__ovl_region`; the heap ends there) and writes
+below the stack's share (`__ovl_region`; the heap ends there; or at `--overlay-region=ADDR-END` / `SYM+SIZE`, an area
+of the program's own, #685; basic45 passes the overlay options to its `--link` / `--compile` build) and writes
 them to `<prog>.ov1` (on the disk as `<PROG>.OV1`, `--overlay-name`), which
 crt0's `__ovl_init` loads into bank 5 (`--overlay-store`; bank 1 is BASIC's; further
 ranges take what does not fit, a file per 64 KB bank: `<prog>.ov2`, …; ranges in attic

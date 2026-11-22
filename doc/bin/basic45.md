@@ -70,6 +70,7 @@ Without `-o` the output is the input name with its extension replaced by `.prg` 
 | `--map <file>` | Write the link map of a `--link` or `--compile` build: `ln45 -M` (segments, objects, symbols with their addresses, the call graph, calls through pointers, base-page blocks; see [ln45's map](ln45.md#map-file-format)). A warning without either option (nothing is linked) |
 | `--link-align=N` | Start the `--link` code at the first multiple of `N` after the program: a power of 2 from 1 to 32768, default 256 (a page boundary); 1 puts it right after the program, saving up to 255 bytes of bank 0 ([Calling C Functions](#calling-c-functions-link)). Not used with `--compile` |
 | `--stack-page=P` | The CPU stack of a `--link` or `--compile` build in page `P` (`$17`: `$1700`-`$17FF`) or `basic` (BASIC's own page-1 stack): passed to `ln45 --stack-page` ([ln45](ln45.md)). Without it: as before |
+| `--overlay-store=R`, `--overlay-staging=B`, `--overlay-name=N`, `--overlay-region=R`, `--pack-overlays`, `--overlay-fast-stubs` | The [code overlays](#code-overlays) of a `--link` or `--compile` build: passed to ln45 ([ln45](ln45.md#code-overlays)); the files written next to the output (`.ov1`, …, `.ovd`), and with `--disk` added to the disk. An error without `--link` or `--compile` |
 | `--decompile` | Turn a tokenized BASIC `.prg` into basic45 source ([Listing, Source Map and Decompiling](#listing-source-map-and-decompiling)) |
 | `--compile` | Compile the program (the source, or a tokenized BASIC 65 `.prg`) to machine code: a `.prg` started with `RUN` ([Compiling](#compiling-compile)) |
 | `-O0` … `-O4` | `--compile` (and the [compiled procs](#compiled-procs-proc--compiled)): cc45's optimization level (default `-O2`) |
@@ -322,6 +323,21 @@ basic45 --link routines.c menu.bas -o menu.prg
 - `--map file` writes the link's `ln45 -M` map; `-v` shows the cc45, ca45 and ln45 commands. `BASIC45_KEEP_TMP=1` in the environment keeps the build's temporary directory (`basic45_link_<pid>`, `basic45_compile_<pid>` in the system's temporary directory): the thunks, the objects, the compiled program's assembly.
 
 `examples/basic/c_routines` is a complete example; `test_basic45_link_xemu.bas` with `test_basic45_link_xemu.c` is run by BASIC 65 on xemu.
+
+### Code Overlays
+
+Cold C code can leave bank 0 (#685): a linked file with `#pragma cc45 overlay(name)` has its code in a [code overlay](ln45.md#code-overlays), kept in far memory and copied in by DMA when a call needs it. ln45's overlay options are passed through: `--overlay-store`, `--overlay-staging`, `--overlay-name`, `--overlay-region`, `--pack-overlays`, `--overlay-fast-stubs`.
+
+```bash
+basic45 --link main.c --link cold.c --overlay-store=0x40000-0x4FFFF \
+        --overlay-region=_mod_area+6280 --disk prog.d81 prog.bas -o prog.prg
+```
+
+- The overlay files go next to the output (`prog.ov1`, …, and `prog.ovd` for nm45 and objdump45) and, with `--disk`, onto the disk under the name the program loads them by (`--overlay-name`, default the output's name in upper case with `.OV1`: `PROG.OV1`). The first `SYS` into the C code loads them (`__basic_call` calls `__ovl_init`), from the drive the program came from.
+- By default the overlays run in a region below the stack's share; the code after a BASIC program usually fills bank 0, so `--overlay-region` puts them in an area of the program's own: `_mod_area+6280`, a C array it reuses. A program that writes over the area sets `__ovl_current` to 0 (`<overlay.h>`), and the next call copies the overlay in again.
+- Mapped overlays and `__far` functions are not for `--link` programs (they map `$4000`-`$7FFF`, where the program's code usually is).
+- With `--compile` the same options go to the compiled program's link.
+- Test: `test_basic45_ovl_xemu.bas` with `basic45_ovl/main.c` and `cold.c` (as is and `--compile`).
 
 ## Compiled Procs (`proc ... compiled`)
 
