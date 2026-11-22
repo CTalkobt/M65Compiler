@@ -176,7 +176,7 @@ MANDIR ?= $(PREFIX)/share/man/man1
 # lib45-common: Object format, symbols, config, utilities, diagnostics, debug info, source tracking
 $(LIB_DIR)/lib45-common.a: $(addprefix $(OBJ_DIR)/, \
     O45Reader.o O45Writer.o O45DebugSections.o O45Emitter.o O45Archive.o \
-    O45Linker.o Logger.o AssemblerOpcodeDatabase.o ConfigLoader.o Pack45.o CpuCycles.o Lint.o)
+    O45Linker.o Logger.o AssemblerOpcodeDatabase.o ConfigLoader.o Pack45.o CpuCycles.o Lint.o LintRules.o)
 	@mkdir -p $(LIB_DIR)
 	@rm -f $@
 	$(AR) rcs $@ $^
@@ -781,7 +781,7 @@ TV_OBJECTS = $(patsubst src/test/%.cpp,$(OBJ_DIR)/tv_%.o,$(TV_SOURCES)) $(OBJ_DI
 # (the linker category calls O45Linker itself)
 TV_LIB_OBJECTS = $(OBJ_DIR)/O45Reader.o $(OBJ_DIR)/O45Writer.o $(OBJ_DIR)/O45DebugSections.o $(OBJ_DIR)/O45IRSerializer.o \
                  $(OBJ_DIR)/O45Linker.o $(OBJ_DIR)/Logger.o $(OBJ_DIR)/O45Archive.o $(OBJ_DIR)/AssemblerOpcodeDatabase.o $(OBJ_DIR)/Pack45.o \
-                 $(OBJ_DIR)/Lint.o
+                 $(OBJ_DIR)/Lint.o $(OBJ_DIR)/LintRules.o
 
 # (the ca45lib category calls libca45; its plain objects without objcopy)
 TV_CA45LIB = $(if $(HAVE_LIBCA45),$(LIBCA45),$(LIBCA45_INT))

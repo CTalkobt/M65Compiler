@@ -13,6 +13,27 @@
 #include "LinkerLog.hpp"
 #include <iostream>
 #include <streambuf>
+#include <cstdarg>
+#include <cstdio>
+
+// printf into a std::string, as long as it needs to be (#709: messages and
+// map lines with names and paths in them were cut at a fixed buffer's size)
+static std::string strprintf(const char* fmt, ...) __attribute__((format(printf, 1, 2)));
+static std::string strprintf(const char* fmt, ...) {
+    va_list ap, ap2;
+    va_start(ap, fmt);
+    va_copy(ap2, ap);
+    int n = vsnprintf(nullptr, 0, fmt, ap);
+    va_end(ap);
+    std::string r;
+    if (n > 0) {
+        r.resize((size_t)n + 1);
+        vsnprintf(&r[0], r.size(), fmt, ap2);
+        r.resize((size_t)n);
+    }
+    va_end(ap2);
+    return r;
+}
 
 // ln45's verbosity (-v, -vv); see LinkerLog.hpp
 
@@ -1983,11 +2004,17 @@ std::vector<uint8_t> O45Linker::link(std::string& errorMsg, bool isPrg) {
         if (zp != globalSymbols_.end()) end = std::max(end, zp->second + 0x100);
         end = std::max(end, dataBase_ + (uint32_t)mergedData_.size());
         if (end > ovlBase_ && !ovlRegionSet_) {   // (--overlay-region: the program's own choice)
-            char b[160];
-            snprintf(b, sizeof b, "code overlays: the program ends at $%04X, above the overlay region at $%04X "
-                     "(%u bytes below the stack's share): move more code into overlays or shrink the stack",
-                     (unsigned)end, (unsigned)ovlBase_, (unsigned)ovlSize_);
-            errorMsg = b;
+            // (the region is as large as the largest overlay: below the
+            // stack's share when copied, at the start of MAP's window when mapped)
+            errorMsg = strprintf("code overlays: the program ends at $%04X, above the overlay region $%04X-$%04X "
+                                 "(the largest overlay's %u bytes, ", (unsigned)end, (unsigned)ovlBase_,
+                                 (unsigned)(ovlBase_ + ovlSize_ - 1), (unsigned)ovlSize_);
+            if (ovlMap_)
+                errorMsg += strprintf("in the window MAP points at $%04X-$7FFF): move more code into overlays",
+                                      (unsigned)ovlBase_);
+            else
+                errorMsg += "placed below the stack's share): move more code into overlays or shrink the stack's "
+                            "share (--stack-size)";
             return {};
         }
         buildOverlayFile();
@@ -2004,7 +2031,7 @@ std::vector<uint8_t> O45Linker::link(std::string& errorMsg, bool isPrg) {
     uint32_t dataEnd = dataBase_ + (uint32_t)mergedData_.size();
     imageBase_ = textBase_;
     auto hex4 = [](uint32_t v) {
-        char b[8]; snprintf(b, sizeof b, "$%04X", (unsigned)v); return std::string(b);
+        char b[12]; snprintf(b, sizeof b, "$%04X", (unsigned)v); return std::string(b);
     };
     if (!mergedData_.empty() && dataBase_ < textEnd && dataEnd > textBase_) {
         errorMsg = "data segment " + hex4(dataBase_) + "-" + hex4(dataEnd - 1) +
@@ -3448,11 +3475,9 @@ bool O45Linker::placeOverlayRegion(std::string& errorMsg) {
         ovlBase_ = ovlRegionAddr_;
         uint32_t room = ovlRegionEnd_ + 1 - ovlRegionAddr_;
         if (!ovlRegionProbe_ && ovlSize_ > room) {
-            char b[200];
-            snprintf(b, sizeof b, "code overlays: the largest overlay (%u bytes) does not fit in the region "
-                     "$%04X-$%04X (%u bytes, --overlay-region)", (unsigned)ovlSize_, (unsigned)ovlRegionAddr_,
-                     (unsigned)ovlRegionEnd_, (unsigned)room);
-            errorMsg = b;
+            errorMsg = strprintf("code overlays: the largest overlay (%u bytes) does not fit in the region "
+                                 "$%04X-$%04X (%u bytes, --overlay-region)", (unsigned)ovlSize_, (unsigned)ovlRegionAddr_,
+                                 (unsigned)ovlRegionEnd_, (unsigned)room);
             return false;
         }
         return true;
@@ -3566,10 +3591,8 @@ bool O45Linker::placeOverlayStore(std::string& errorMsg) {
                        " bytes) does not fit in the overlay store (" + std::to_string(room) + " bytes left in " +
                        std::to_string(cur.size()) + (cur.size() == 1 ? " bank" : " banks") + ")";
             if (cur.size() == 1 && (parts[0].first >> 16) < 5) {
-                char b[160];
-                snprintf(b, sizeof(b), "; the next bank as a second range: --overlay-store=0x%X-0x%X,0x%X0000-0x%XFFFF",
+                errorMsg += strprintf("; the next bank as a second range: --overlay-store=0x%X-0x%X,0x%X0000-0x%XFFFF",
                          parts[0].first, parts[0].second, (parts[0].first >> 16) + 1, (parts[0].first >> 16) + 1);
-                errorMsg += b;
             } else if (!ovlMap_ && !attic) {
                 errorMsg += "; attic RAM as a range too: --overlay-store=...,0x8000000-0x803FFFF";
             }
@@ -4510,54 +4533,48 @@ void O45Linker::writeMap(std::ostream& out) const {
     out << "-------------\n";
     auto printSeg = [&](const char* name, uint32_t base, uint32_t len) {
         if (len == 0) return;
-        char buf[80];
-        snprintf(buf, sizeof(buf), "  %-6s $%04X - $%04X  (%u bytes)\n",
+        out << strprintf("  %-6s $%04X - $%04X  (%u bytes)\n",
                  name, base, base + len - 1, len);
-        out << buf;
     };
     printSeg("TEXT", textBase_, (uint32_t)mergedText_.size());
     printSeg("DATA", dataBase_, (uint32_t)mergedData_.size());
     printSeg("BSS", bssBase_, mergedBssLen_);
     if (sacOverlayLen_ > 0) {
-        char buf[100];
-        snprintf(buf, sizeof(buf), "  (SAC overlay $%04X - $%04X, %u bytes; %u saved by sharing)\n",
+        std::string buf;
+        buf = strprintf("  (SAC overlay $%04X - $%04X, %u bytes; %u saved by sharing)\n",
                  bssBase_ + sacOverlayOffset_, bssBase_ + sacOverlayOffset_ + sacOverlayLen_ - 1,
                  sacOverlayLen_, sacOverlaySaved_);
         out << buf;
     }
     if (zarTotal_ > 0) {
-        char buf[120];
-        snprintf(buf, sizeof(buf), "  (base-page blocks $%02X - $%02X, %u bytes; %u asked for by %zu functions)\n",
+        std::string buf;
+        buf = strprintf("  (base-page blocks $%02X - $%02X, %u bytes; %u asked for by %zu functions)\n",
                  zarLo_, zarLo_ + zarUsed_ - 1, zarUsed_, zarTotal_, zarOffset_.size());
         out << buf;
     }
     uint32_t zpSegLen = zpSegAt_ >= 0 ? mergedZpLen_ : 0, zpVarLen = zpVarTotal_ - zpSegLen;
     if (zpVarLen > 0) {
-        char buf[120];
-        snprintf(buf, sizeof(buf), "  (__zp variables $%02X - $%02X, %u bytes, %zu variables)\n",
+        out << strprintf("  (__zp variables $%02X - $%02X, %u bytes, %zu variables)\n",
                  ZAR_HI - zpVarLen, ZAR_HI - 1, zpVarLen, zpVarAddr_.size());
-        out << buf;
     }
     for (const auto& [n, sec] : sections_) {
-        char buf[160];
+        std::string buf;
         size_t nv = 0;
         for (const auto& [sym, v] : sectVars_) nv += v.section == n;
         if (sec.size && sec.code)
-            snprintf(buf, sizeof(buf), "  %-6s $%04X - $%04X  (section %s, %u bytes: %u of code, %zu variables)\n", "SECT",
+            buf = strprintf("  %-6s $%04X - $%04X  (section %s, %u bytes: %u of code, %zu variables)\n", "SECT",
                      sec.addr, sec.addr + sec.size - 1, n.c_str(), sec.size, sec.code, nv);
         else if (sec.size)
-            snprintf(buf, sizeof(buf), "  %-6s $%04X - $%04X  (section %s, %u bytes, %zu variables)\n", "SECT", sec.addr,
+            buf = strprintf("  %-6s $%04X - $%04X  (section %s, %u bytes, %zu variables)\n", "SECT", sec.addr,
                      sec.addr + sec.size - 1, n.c_str(), sec.size, nv);
         else
-            snprintf(buf, sizeof(buf), "  %-6s $%04X          (section %s, empty)\n", "SECT", sec.addr, n.c_str());
+            buf = strprintf("  %-6s $%04X          (section %s, empty)\n", "SECT", sec.addr, n.c_str());
         out << buf;
     }
     printSeg("ZP", zpBase_, mergedZpLen_);
     if (zpSegLen > 0) {
-        char buf[80];
-        snprintf(buf, sizeof(buf), "  (in the program's base page: $%02X - $%02X)\n",
+        out << strprintf("  (in the program's base page: $%02X - $%02X)\n",
                  (unsigned)zpSegAt_, (unsigned)(zpSegAt_ + zpSegLen - 1));
-        out << buf;
     }
     // code overlays: where they run, and where each is kept in far memory
     // (bank, then the address in the bank)
@@ -4567,17 +4584,17 @@ void O45Linker::writeMap(std::ostream& out) const {
         return std::string(b);
     };
     if (!ovlNames_.empty()) {
-        char buf[200];
+        std::string buf;
         if (ovlSize_)
-            snprintf(buf, sizeof(buf), "  %-6s $%04X - $%04X  (%zu %s, %s)\n", "OVL", ovlBase_, ovlBase_ + ovlSize_ - 1,
+            buf = strprintf("  %-6s $%04X - $%04X  (%zu %s, %s)\n", "OVL", ovlBase_, ovlBase_ + ovlSize_ - 1,
                      ovlNames_.size(), ovlNames_.size() == 1 ? "overlay" : "overlays",
                      ovlMap_ ? "mapped: MAP points this window at each" : "copied here by DMA when called");
         else   // (__bank variables only: nothing runs there)
-            snprintf(buf, sizeof(buf), "  %-6s (%zu kept in far memory, no code: no region)\n", "OVL", ovlNames_.size());
+            buf = strprintf("  %-6s (%zu kept in far memory, no code: no region)\n", "OVL", ovlNames_.size());
         out << buf;
         for (size_t i = 0; i < ovlNames_.size(); i++) {
             uint32_t len = (uint32_t)ovlText_[i].size();
-            snprintf(buf, sizeof(buf), "    %-14s kept in %s - $%04X  (%u bytes%s)\n", ovlNames_[i].c_str(),
+            buf = strprintf("    %-14s kept in %s - $%04X  (%u bytes%s)\n", ovlNames_[i].c_str(),
                      far(ovlAt_[i]).c_str(), (ovlAt_[i] + (len ? len - 1 : 0)) & 0xFFFF, len,
                      ovlData_[i] ? "; __bank variables, never run" : "");
             out << buf;
@@ -4585,11 +4602,11 @@ void O45Linker::writeMap(std::ostream& out) const {
         for (size_t r = 0; r < ovlFiles_.size(); r++) {
             uint32_t first = ovlFileRange_[r].first;
             if (first >= 0x8000000)
-                snprintf(buf, sizeof(buf), "    (file %s, %zu bytes, loaded into %s at start, copied to attic RAM $%07X)\n",
+                buf = strprintf("    (file %s, %zu bytes, loaded into %s at start, copied to attic RAM $%07X)\n",
                          ovlFileNameOf(r).c_str(), ovlFiles_[r].size(),
                          far(((uint32_t)ovlStaging_ << 16) | (first & 0xFFFF)).c_str(), first);
             else
-                snprintf(buf, sizeof(buf), "    (file %s, %zu bytes, loaded into %s at start)\n",
+                buf = strprintf("    (file %s, %zu bytes, loaded into %s at start)\n",
                          ovlFileNameOf(r).c_str(), ovlFiles_[r].size(), far(first).c_str());
             out << buf;
         }
@@ -4618,7 +4635,7 @@ void O45Linker::writeMap(std::ostream& out) const {
         out << "  " << input.filename;
         if (input.ovl) out << "  [overlay " << ovlNames_[input.ovl - 1] << "]";
         out << "\n";
-        char buf[160];
+        std::string buf;
         // an object whose text went to several places (__far code): a line per chunk
         bool split = false;
         for (const auto& r : input.textRemaps) if (r.ovl != input.ovl) split = true;
@@ -4628,46 +4645,46 @@ void O45Linker::writeMap(std::ostream& out) const {
                 if (isDataOvl(r.ovl)) {
                     // __bank(n) variables: where they are kept
                     uint32_t kept = ovlAt_[r.ovl - 1] + r.destOffset;
-                    snprintf(buf, sizeof(buf), "    BANK  %s - $%04X  (%u bytes of __bank variables)\n",
+                    buf = strprintf("    BANK  %s - $%04X  (%u bytes of __bank variables)\n",
                              far(kept).c_str(), (kept + r.srcLen - 1) & 0xFFFF, r.srcLen);
                 } else if (r.ovl) {
                     uint32_t start = ovlBase_ + r.destOffset, kept = ovlAt_[r.ovl - 1] + r.destOffset;
-                    snprintf(buf, sizeof(buf), "    TEXT  $%04X - $%04X  (%u bytes; overlay %s, kept in %s - $%04X)\n",
+                    buf = strprintf("    TEXT  $%04X - $%04X  (%u bytes; overlay %s, kept in %s - $%04X)\n",
                              start, start + r.srcLen - 1, r.srcLen, ovlNames_[r.ovl - 1].c_str(), far(kept).c_str(),
                              (kept + r.srcLen - 1) & 0xFFFF);
                 } else {
                     uint32_t start = textBase_ + r.destOffset;
-                    snprintf(buf, sizeof(buf), "    TEXT  $%04X - $%04X  (%u bytes)\n", start, start + r.srcLen - 1, r.srcLen);
+                    buf = strprintf("    TEXT  $%04X - $%04X  (%u bytes)\n", start, start + r.srcLen - 1, r.srcLen);
                 }
                 out << buf;
             }
         } else if (input.obj.tlen > 0 && input.ovl) {
             uint32_t start = ovlBase_ + input.textOffset, kept = ovlAt_[input.ovl - 1] + input.textOffset;
-            snprintf(buf, sizeof(buf), "    TEXT  $%04X - $%04X  (%u bytes; kept in %s - $%04X)\n",
+            buf = strprintf("    TEXT  $%04X - $%04X  (%u bytes; kept in %s - $%04X)\n",
                      start, start + input.obj.tlen - 1, input.obj.tlen, far(kept).c_str(),
                      (kept + input.obj.tlen - 1) & 0xFFFF);
             out << buf;
         } else if (input.obj.tlen > 0) {
             uint32_t start = textBase_ + input.textOffset;
-            snprintf(buf, sizeof(buf), "    TEXT  $%04X - $%04X  (%u bytes)\n",
+            buf = strprintf("    TEXT  $%04X - $%04X  (%u bytes)\n",
                      start, start + input.obj.tlen - 1, input.obj.tlen);
             out << buf;
         }
         if (input.obj.dlen > 0) {
             uint32_t start = dataBase_ + input.dataOffset;
-            snprintf(buf, sizeof(buf), "    DATA  $%04X - $%04X  (%u bytes)\n",
+            buf = strprintf("    DATA  $%04X - $%04X  (%u bytes)\n",
                      start, start + input.obj.dlen - 1, input.obj.dlen);
             out << buf;
         }
         if (input.bssKeptLen > 0) {
             uint32_t start = bssBase_ + input.bssOffset;
-            snprintf(buf, sizeof(buf), "    BSS   $%04X - $%04X  (%u bytes)\n",
+            buf = strprintf("    BSS   $%04X - $%04X  (%u bytes)\n",
                      start, start + input.bssKeptLen - 1, input.bssKeptLen);
             out << buf;
         }
         if (input.obj.zlen > 0) {
             uint32_t start = zpBase_ + input.zpOffset;
-            snprintf(buf, sizeof(buf), "    ZP    $%04X - $%04X  (%u bytes)\n",
+            buf = strprintf("    ZP    $%04X - $%04X  (%u bytes)\n",
                      start, start + input.obj.zlen - 1, input.obj.zlen);
             out << buf;
         }
@@ -4689,11 +4706,11 @@ void O45Linker::writeMap(std::ostream& out) const {
     std::sort(sorted.begin(), sorted.end());
 
     for (const auto& [addr, name] : sorted) {
-        char buf[120];
+        std::string buf;
         auto srcIt = symbolSource_.find(name);
         auto weakIt = symbolWeak_.find(name);
         const char* weakTag = (weakIt != symbolWeak_.end() && weakIt->second) ? " [weak]" : "";
-        snprintf(buf, sizeof(buf), "  $%04X  %-30s %s%s",
+        buf = strprintf("  $%04X  %-30s %s%s",
                  addr, name.c_str(),
                  srcIt != symbolSource_.end() ? srcIt->second.c_str() : "",
                  weakTag);
@@ -4722,9 +4739,7 @@ void O45Linker::writeMap(std::ostream& out) const {
             auto ra = realAddr_.find(name);
             if (o != symOvl_.end() && o->second && ra != realAddr_.end())
             {
-                char b[64];
-                snprintf(b, sizeof(b), "  [stub: overlay %s, $%04X]", ovlNames_[o->second - 1].c_str(), ra->second);
-                out << b;
+                out << strprintf("  [stub: overlay %s, $%04X]", ovlNames_[o->second - 1].c_str(), ra->second);
             }
         }
 
@@ -4760,14 +4775,14 @@ void O45Linker::writeMap(std::ostream& out) const {
             std::sort(os.begin(), os.end());
             out << "  overlay " << ovlNames_[i] << " (" << far(ovlAt_[i]) << ")\n";
             for (const auto& [a, n] : os) {
-                char buf[200], stub[24] = "";
+                std::string buf, stub;
                 auto srcIt = symbolSource_.find(n);
                 auto st = ovlStubs_.find(n);
-                if (st != ovlStubs_.end()) snprintf(stub, sizeof(stub), "  (stub $%04X)", st->second);
+                if (st != ovlStubs_.end()) stub = strprintf("  (stub $%04X)", st->second);
                 // (a __bank variable's address is where it is kept, #349)
-                snprintf(buf, sizeof(buf), "    $%04X  %-30s %-14s %s%s\n", a, n.c_str(),
+                buf = strprintf("    $%04X  %-30s %-14s %s%s\n", a, n.c_str(),
                          far(isDataOvl((int)i + 1) ? a : ovlAt_[i] + (a - ovlBase_)).c_str(),
-                         srcIt != symbolSource_.end() ? srcIt->second.c_str() : "", stub);
+                         srcIt != symbolSource_.end() ? srcIt->second.c_str() : "", stub.c_str());
                 out << buf;
             }
         }
@@ -4808,10 +4823,8 @@ void O45Linker::writeMap(std::ostream& out) const {
             if (entry.ovl) continue;   // (Overlay Lines)
             auto key = std::make_pair(entry.file, entry.line);
             if (seen.insert(key).second) {
-                char buf[256];
-                snprintf(buf, sizeof(buf), "  $%04X  %s:%d\n",
+                out << strprintf("  $%04X  %s:%d\n",
                          entry.address, entry.file.c_str(), entry.line);
-                out << buf;
             }
         }
         // (the overlays' lines run at the same addresses: one list per overlay)
@@ -4824,9 +4837,7 @@ void O45Linker::writeMap(std::ostream& out) const {
                 if (!seen.insert(std::make_pair(entry.file, entry.line)).second) continue;
                 if (!header) { out << "\nOverlay Lines\n-------------\n"; header = true; }
                 if (first) { out << "  overlay " << ovlNames_[i] << " (" << far(ovlAt_[i]) << ")\n"; first = false; }
-                char buf[256];
-                snprintf(buf, sizeof(buf), "    $%04X  %s:%d\n", entry.address, entry.file.c_str(), entry.line);
-                out << buf;
+                out << strprintf("    $%04X  %s:%d\n", entry.address, entry.file.c_str(), entry.line);
             }
         }
     }

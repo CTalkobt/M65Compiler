@@ -429,6 +429,20 @@ grep -q '^  m = 0 : rem @mouse,2, 0$' "$D/c8p.bas" && grep -q '^  char 1 + int(y
     pass "--convert=basic8 of a .prg: \$40 \$FE \$4D is @MODE, \$FE \$1A \$9F @WINDOWOPEN (coordinates from the window's corner), \$40 \$E0 @CHAR; loaded at \$7001" ||
     fail "--convert=basic8 .prg: $(cat "$D/c8p.bas" "$D/c8p.err")"
 
+# each dialect's header line names it and its --convert option (#711)
+printf '10 print "hi"\n' > "$D/hdr.txt"
+hdr_ok=1
+for want in "basic7|BASIC 7.0 (C128)" "basic35|BASIC 3.5 (C16 / Plus/4)" "simons|Simons' BASIC (C64)" "tsbneo|TSBneo (C64)" \
+            "basic8|BASIC 8 (C128)"; do
+    dia=${want%%|*} name=${want#*|}
+    $B --convert=$dia "$D/hdr.txt" -o "$D/hdr_$dia.bas" 2> /dev/null &&
+    [ "$(grep -m1 "^' converted from" "$D/hdr_$dia.bas")" \
+        = "$(printf "%s" "' converted from $name by basic45 --convert=$dia")$(case $dia in simons|tsbneo) ;; *) printf ' (PAL timing)';; esac): check the warnings" ] ||
+        { hdr_ok=0; echo "  --convert=$dia header: $(grep -m1 "converted from" "$D/hdr_$dia.bas")"; }
+done
+[ $hdr_ok = 1 ] && pass "--convert: each dialect's header names it and its option (TSBneo --convert=tsbneo, #711)" ||
+    fail "--convert headers: a dialect named wrongly"
+
 # DIRECTORY: DIR and the ECTORY token ($FE $29), as BASIC 65 crunches it; decompiled as it was typed
 printf 'start:\n  directory "x*",u8\n' > "$D/dir.bas"
 $B "$D/dir.bas" -o "$D/dir.prg" > "$D/dir.log" 2>&1 && [ "$(xxd -s 6 -l 3 -p "$D/dir.prg")" = "eefe29" ] &&

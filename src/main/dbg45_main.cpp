@@ -201,8 +201,10 @@ struct Cli {
         if (cmd == "l" || cmd == "list") {
             auto bt = d.backtrace();
             if (bt.empty() || frame >= bt.size() || !bt[frame].line) { printf("error: no source here\n"); return true; }
-            int at = bt[frame].line->line;
-            for (int l = std::max(1, at - 4); l <= at + 5; l++) {
+            int at = bt[frame].line->line, last = d.sourceLineCount(bt[frame].line->file);
+            if (last == 0) { printf("error: cannot read the source file\n"); return true; }
+            // (up to the file's last line, #712)
+            for (int l = std::max(1, at - 4); l <= std::min(at + 5, last); l++) {
                 std::string s = d.sourceLine(bt[frame].line->file, l);
                 printf("%s%d\t%s\n", l == at ? "=>" : "  ", l, s.c_str());
             }

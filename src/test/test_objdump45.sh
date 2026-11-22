@@ -944,6 +944,33 @@ else
     fail "the attic RAM overlay program did not build"
 fi
 
+# ln45's overlay messages and map lines are not cut at a buffer's size
+# (#709): the program above the region, in full; a map symbol line with a
+# long object path ends with the path
+C=$BUILD/odovlmsg/a_directory_name_long_enough_to_pass_the_old_map_line_buffer
+rm -rf $BUILD/odovlmsg; mkdir -p $C
+ovok=1
+for f in main ovl_a ovl_b; do
+    ./bin/cc45 -O2 -c src/test-resources/overlay/$f.c -o $C/$f.o45 >/dev/null 2>&1 || ovok=0
+done
+if [ $ovok = 1 ]; then
+    err=$(./bin/ln45 -basic -t A000 -o $C/hi.prg $C/main.o45 $C/ovl_a.o45 $C/ovl_b.o45 lib/build/c45.lib 2>&1)
+    assert_contains "ln45: the program above the overlay region, the whole message" "$err" \
+        "code overlays: the program ends at \$CB00, above the overlay region \$AE00-\$AFB9 (the largest overlay's 442 bytes, placed below the stack's share): move more code into overlays or shrink the stack's share (--stack-size)"
+    err=$(./bin/ln45 -basic -t 6000 --overlay-map -o $C/hi.prg $C/main.o45 $C/ovl_a.o45 $C/ovl_b.o45 lib/build/c45.lib 2>&1)
+    assert_contains "ln45: the program above the mapped overlays' window, the whole message" "$err" \
+        "code overlays: the program ends at \$8C00, above the overlay region \$6000-\$61B9 (the largest overlay's 442 bytes, in the window MAP points at \$6000-\$7FFF): move more code into overlays"
+    if ./bin/ln45 -basic -M $C/ok.map -o $C/ok.prg $C/main.o45 $C/ovl_a.o45 $C/ovl_b.o45 lib/build/c45.lib >/dev/null 2>&1; then
+        line=$(grep '^  \$[0-9A-F]*  _a_add ' $C/ok.map)
+        assert_contains "ln45 -M: a symbol line keeps a long object path" "$line" "$C/ovl_a.o45  [uses:"
+        assert_contains "ln45 -M: ... and its stub" "$line" "[stub: overlay a, \$AE00]"
+    else
+        fail "the overlay program did not link"
+    fi
+else
+    fail "the overlay program did not build"
+fi
+
 echo "objdump45 tests: $passed passed, $failed failed"
 echo "========================================"
 

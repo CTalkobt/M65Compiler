@@ -98,19 +98,19 @@ far_ptr_t strcpy__fpfp(far_ptr_t dst, far_ptr_t src) {
  * strcmp (<0, 0, >0 by the first differing unsigned byte)
  * ========================================================================== */
 
-int strcmp__pcpc(const char *str1, const char *str2) {
+signed int strcmp__pcpc(const char *str1, const char *str2) {
     return strcmp((char *)str1, (char *)str2);
 }
 
-int strcmp__fppc(far_ptr_t str1, const char *str2) {
+signed int strcmp__fppc(far_ptr_t str1, const char *str2) {
     return far_strcmp(str1, str2);
 }
 
-int strcmp__pcfp(const char *str1, far_ptr_t str2) {
+signed int strcmp__pcfp(const char *str1, far_ptr_t str2) {
     return -far_strcmp(str2, str1);
 }
 
-int strcmp__fpfp(far_ptr_t str1, far_ptr_t str2) {
+signed int strcmp__fpfp(far_ptr_t str1, far_ptr_t str2) {
     unsigned char a[CHUNK], b[CHUNK];
     unsigned long pos = 0;
     for (;;) {
@@ -152,14 +152,14 @@ far_ptr_t strcat__fpfp(far_ptr_t dst, far_ptr_t src) {
  * memcmp
  * ========================================================================== */
 
-int memcmp__pvpvz(const void *ptr1, const void *ptr2, size_t len) {
+signed int memcmp__pvpvz(const void *ptr1, const void *ptr2, size_t len) {
     return memcmp((void *)ptr1, (void *)ptr2, len);
 }
 
 /* Compare len bytes; the far ones are read in chunks (a NULL local side is
  * the other far one) */
-static int cmp_chunks(far_ptr_t f1, const unsigned char *l1, far_ptr_t f2, const unsigned char *l2,
-                      size_t len) {
+static signed int cmp_chunks(far_ptr_t f1, const unsigned char *l1, far_ptr_t f2, const unsigned char *l2,
+                             size_t len) {
     unsigned char a[CHUNK], b[CHUNK];
     size_t off = 0;
     while (off < len) {
@@ -176,15 +176,15 @@ static int cmp_chunks(far_ptr_t f1, const unsigned char *l1, far_ptr_t f2, const
     return 0;
 }
 
-int memcmp__fpvz(far_ptr_t ptr1, const void *ptr2, size_t len) {
+signed int memcmp__fpvz(far_ptr_t ptr1, const void *ptr2, size_t len) {
     return cmp_chunks(ptr1, 0, far_make(BANK0, 0), (const unsigned char *)ptr2, len);
 }
 
-int memcmp__pvfz(const void *ptr1, far_ptr_t ptr2, size_t len) {
+signed int memcmp__pvfz(const void *ptr1, far_ptr_t ptr2, size_t len) {
     return cmp_chunks(far_make(BANK0, 0), (const unsigned char *)ptr1, ptr2, 0, len);
 }
 
-int memcmp__fpfz(far_ptr_t ptr1, far_ptr_t ptr2, size_t len) {
+signed int memcmp__fpfz(far_ptr_t ptr1, far_ptr_t ptr2, size_t len) {
     return cmp_chunks(ptr1, 0, ptr2, 0, len);
 }
 

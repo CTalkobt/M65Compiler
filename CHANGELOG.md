@@ -4,6 +4,63 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### cc45: typeof keeps a global's signedness, and is taken wherever a type is (#707)
+
+- `typeof(g)` of a file-scope `signed char g` was unsigned: the `signed` taken before the declaration was parsed was
+  not in the type `typeof` reads (a local, or a `signed int` global by chance, kept it). Every file-scope variable's
+  type is now recorded with its signedness.
+- `typeof` is taken at file scope, in a cast, in a `for` statement's declaration and as a function's result, as well
+  as in a declaration inside a function; `typeof(T *)` keeps the pointer; `typeof(&x)`, `typeof(*p)`, `typeof(p[i])`
+  and `typeof((T)e)` give their types (other expressions are still `int`). Runtime test `test_typeof_xemu.c`.
+
+### al45, cl45, af45: what is ignored is said (#708)
+
+- al45 warns about an option it does not know, as cl45 does, and goes on: *"al45: warning: unknown option '--foo'
+  ignored"* (it took the argument as the input file's name, so `--foo` or `--option=...` went unnoticed).
+- `.cc45-lint.yml` (the shared core, `Config::apply`): an option name no tool reads, a `mega65-stack-frame-limit`
+  that is not a whole number, a rule id neither linter has (`overrides`, `asm_rules`) and a glob matching no rule
+  (`c_checks.enabled`) are warnings naming the file, the line and the key, the rest of the file applied:
+  *"cl45: warning: ./.cc45-lint.yml:3: options: mega65-stack-frame-limit: '1k' is not a number; 256 is used"* (the
+  default is then used, where `1k` was read as 1 and `big` as 256 without a word). So are `--severity=` /
+  `--disable=` / `--checks=` naming no rule, and af45's `--option=` with an unknown option (a configuration's
+  warnings once, however many files af45 formats). The exit status does not change.
+- One file serves both linters, so the rule ids and options checked against are al45's and cl45's together: the
+  rules' registration (from `AsmLint.cpp`, `AsmLintFlow.cpp`, `AsmStyle.cpp`, `CLint.cpp`) is in
+  `src/main/LintRules.cpp`, in `lib45-common` with the core (`lint::knownRules()`, `lint::knownOptions()`).
+- Tests in `test_al45.sh`, `test_cl45.sh`, `test_af45.sh` and the `lint` validation category; al45.md, cl45.md,
+  af45.md and lint.md describe the warnings.
+
+### ln45: overlay messages and map lines no longer cut off (#709)
+
+- "code overlays: the program ends at $X, above the overlay region ..." came out cut at 159 characters ("... or
+  shrink the sta"); it is whole now, and names the region's range and what its size is: `above the overlay region
+  $AE00-$AFB9 (the largest overlay's 442 bytes, placed below the stack's share): move more code into overlays or
+  shrink the stack's share (--stack-size)` (mapped: `in the window MAP points at $6000-$7FFF`, without the stack
+  advice, which does not move the window).
+- The other messages and `-M` map lines built in fixed-size buffers are built as strings (`strprintf`): a symbol
+  line with a long object path, a section, overlay or file name were cut too.
+
+### Far memory: signed comparison results (#710)
+
+- `far_cmp`, `far_diff`, `far_strcmp` and the far `strcmp__*` / `memcmp__*` forms of `<far_string.h>` are declared
+  `signed int` (headers and library): in cc45's default mode a plain `int` is unsigned, so `far_cmp(a, b) < 0`
+  never held. `test_far_ops_xemu.c` and `test_far_string_xemu.c` (now compiled in the default mode) check the signs.
+- `far_ops.h`'s comments: `far_add` / `far_sub` work on the linear address and carry into the next bank, and
+  `far_diff` works across banks (they said "stays in same bank" / "must be same bank"); `far_memcpy_smart` /
+  `far_memcpy_stream` are `far_memcpy`. The behaviour is unchanged.
+
+### basic45 --convert=tsbneo: the header names TSBneo (#711)
+
+- The comment a `--convert=tsbneo` conversion starts with said "converted from Simons' BASIC (C64) by basic45
+  --convert=simons"; it is now "converted from TSBneo (C64) by basic45 --convert=tsbneo". `test_basic45.sh` checks
+  each dialect's header (basic7, basic35, simons, tsbneo, basic8); basic45.md's TSBneo listing shows the new one.
+
+### dbg45: `list` stops at the file's last line (#712)
+
+- **Fixed: `list` near the end of a file printed lines past its last one** (lines 18 and 19 of a 17-line `sum.c`,
+  blank): the listing ends at the file's last line; a source file dbg45 cannot read is now `error: cannot read the
+  source file` instead of empty lines. Test: `test_dbg45.sh` lists near the end of `t.c`.
+
 ### Documentation: what the audit found missing (#644)
 
 - New pages for a new user (#701): [troubleshooting](doc/guide/troubleshooting.md) (each symptom reproduced, its
@@ -29,7 +86,6 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
   samples, font45 colour fonts and `font_load`, asmCvt45 `--stats`/`--validate`), explicit `-O2` in the Docker
   examples.
 - Problems found on the way, documented as they behave: #707-#716.
-
 ### Getting-started tutorials (#694, #695, #696)
 
 - `doc/guide/`: [C with cc45](doc/guide/getting-started-c.md) (a first program; xemu, a D81, a MEGA65; several
