@@ -1,4 +1,7 @@
 node_modules/
-dist/
+# dist/ is tracked (the built server and extension); these are the build's copies of the server
+vscode-extension/dist/server.js
+vscode-extension/dist/server.js.map
+vscode-extension/dist/data/
 *.tsbuildinfo
 *.vsix
