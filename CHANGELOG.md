@@ -4,6 +4,14 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### ca45: the base-page warning for jmp / jsr through a page-0 pointer (#714)
+
+- `jmp ($xx)`, `jmp ($xx,x)`, `jsr ($xx)` and `jsr ($xx,x)` read their pointer at absolute `$00xx`, ignoring the base
+  page register, without a warning. ca45 now warns as for `ldz $xx` ("'jmp ($40)' has no base-page mode: its pointer
+  is read at absolute $0040, which ignores the base page register"), and al45's `mega65-no-bp-mode` reports it. An
+  address written with its leading zeros (`jmp ($0040)`, `phw $0040`) stays absolute on purpose, without a warning;
+  the docs that listed `phw $00xx` as warned about now say `phw $xx`. troubleshooting.md shows the new warning.
+
 ### asmCvt45 --validate: labels found wherever they are; --stats with --validate (#713)
 
 - `--validate` counted a label only when it was alone on its line (`name:`), so a correct ca65 → acme conversion of

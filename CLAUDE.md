@@ -197,7 +197,7 @@ overlay is kept in bank n (`far.n`); placed by `placeOverlayStore`; test `src/te
   `__isr_depth`, so `__bp_prog` returns to the handler's page after ROM calls.
 - **Pitfalls** (ca45 warns "has no base-page mode"): instructions without a
   base-page form ignore B — `ldz $xx` (use `ldq`, or `lda`+`taz`),
-  `lda/sta $xx,y`, `jmp ($xx)`, `phw $00xx`. `.extern` ZP symbols assemble as
+  `lda/sta $xx,y`, `jmp`/`jsr ($xx)`, `phw $xx`. `.extern` ZP symbols assemble as
   absolute, so library `.s45` files define ZP temps as constants.
 - `#pragma cc45 no_zp_save` / `set_bp <decimal>` affect only `-S` (standalone) output.
 

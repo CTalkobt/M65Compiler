@@ -26,7 +26,7 @@ count = $40
 start:
         ldz count
         lda count,y
-        rts
+        jmp (count)
 ```
 
 <!-- guide: run -->
@@ -34,21 +34,23 @@ start:
 $ ca45 bp.s45 -o bp.bin
 bp.s45:4:13: warning: 'ldz $40' has no base-page mode: assembled as absolute $0040, which ignores the base page register
 bp.s45:5:13: warning: 'lda $40,y' has no base-page mode: assembled as absolute $0040,y, which ignores the base page register
+bp.s45:6:14: warning: 'jmp ($40)' has no base-page mode: its pointer is read at absolute $0040, which ignores the base page register
 ```
 
 The linter reports the same as the rule `mega65-no-bp-mode` (`al45 bp.s45`; [al45.md](../bin/al45.md)).
 
-The instructions: `ldz $xx`, `lda $xx,y` / `sta $xx,y` (only `ldx`/`stx` have a base-page `,y`). What to write
-instead:
+The instructions: `ldz $xx`, `lda $xx,y` / `sta $xx,y` (only `ldx`/`stx` have a base-page `,y`), `phw $xx` (pushes
+the word at absolute `$00xx`), and `jmp ($xx)` / `jmp ($xx,x)` / `jsr ($xx)` / `jsr ($xx,x)` (the pointer read at
+absolute `$00xx`, page 0 of bank 0). What to write instead:
 
 | Instead of | Write |
 |------------|-------|
 | `ldz $40` | `lda $40` then `taz`, or `ldq $40` (all four registers) |
 | `lda $40,y` | `lda $40,x` (with the index in X), or a pointer: `lda ($40),y` |
+| `jmp ($40)` | the pointer copied to a pointer outside page 0 first, then `jmp (vec)` |
 
-Without a warning, because the instruction has no one-byte form at all: `jmp ($xx)` (always `jmp ($00xx)`, page
-0 of bank 0) and `phw $00xx` (pushes the word at absolute `$00xx`). Read a base-page pointer into registers
-first.
+An address written with its leading zeros (`ldz $0040`, `phw $0040`, `jmp ($0040)`) is absolute on purpose (page
+0 of bank 0, as the ROM's variables are) and is not warned about.
 
 `.extern` symbols in the base page are assembled as absolute addresses too (ca45 does not know they are in the
 base page): the library's `.s45` files define their base-page temporaries as constants (`tmp = $F6`).
