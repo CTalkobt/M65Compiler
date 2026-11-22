@@ -88,6 +88,31 @@ else
     fail "al45 --suggest-clobbers: $(head -6 $D/sug.txt)"
 fi
 
+# #708: an option al45 does not know is a warning, as in cl45 (it took it as
+# the input file's name); so is what the configuration names that nothing
+# reads: an unknown option or rule id, a glob matching no rule. cl45's rule
+# ids are known too (one file serves both linters)
+C=$D/cfg708
+mkdir -p $C
+cp $F/no_bp_mode.s45 $C/a.s45
+printf 'options:\n  mega65-style-coment-column: 30\noverrides:\n  mega65-stack-frame-limit: error\nasm_rules:\n  - id: mega65-no-bp-mod\n    severity: error\n' > $C/.cc45-lint.yml
+$AL $C/a.s45 > $D/w708.txt 2>&1; rc=$?
+rm -f $C/.cc45-lint.yml
+$AL --foo --option=mega65-style-comment-column=30 $C/a.s45 > $D/w708b.txt 2>&1; rc2=$?
+$AL $C/a.s45 --bar > $D/w708c.txt 2>&1; rc3=$?
+if [ $rc = 0 ] && [ $rc2 = 0 ] && [ $rc3 = 0 ] &&
+   grep -qF "al45: warning: $C/.cc45-lint.yml:2: options: unknown option 'mega65-style-coment-column' ignored" $D/w708.txt &&
+   grep -qF "al45: warning: $C/.cc45-lint.yml:6: asm_rules: unknown rule 'mega65-no-bp-mod' ignored" $D/w708.txt &&
+   ! grep -q "stack-frame-limit" $D/w708.txt && grep -q "\[mega65-no-bp-mode\]" $D/w708.txt &&
+   grep -qF "al45: warning: unknown option '--foo' ignored" $D/w708b.txt &&
+   grep -qF "al45: warning: unknown option '--option=mega65-style-comment-column=30' ignored" $D/w708b.txt &&
+   grep -q "\[mega65-no-bp-mode\]" $D/w708b.txt &&
+   grep -qF "al45: warning: unknown option '--bar' ignored" $D/w708c.txt && grep -q "\[mega65-no-bp-mode\]" $D/w708c.txt; then
+    pass "al45: unknown options on the command line and in the configuration, unknown rule ids: warnings (#708)"
+else
+    fail "al45 #708 warnings: rc $rc $rc2 $rc3: $(head -4 $D/w708.txt $D/w708b.txt $D/w708c.txt)"
+fi
+
 echo ""
 echo "al45 tests: $passed passed, $failed failed"
 [ $failed = 0 ]

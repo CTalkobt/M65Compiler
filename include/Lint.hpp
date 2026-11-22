@@ -56,6 +56,9 @@ struct Config {
     std::map<std::string, std::string> messages;   // message per id
     std::map<std::string, std::string> options;    // mega65-...: value
     std::vector<std::string> sources;          // the files read (for -v)
+    // what was ignored, "file:line: ..." (#708): an unknown option or rule id,
+    // a glob matching no rule, an option value that is not a number
+    std::vector<std::string> warnings;
     // a file's settings over these; false (and err) on an error in it
     bool apply(const Yaml& y, const std::string& file, std::string& err);
     bool loadFile(const std::string& path, std::string& err);
@@ -63,7 +66,24 @@ struct Config {
     bool loadDefaults(const std::string& dir, std::string& err);
     // --checks=LIST / --disable=ID[,ID] / --profile=P / --severity=ID=LEVEL
     bool applyOption(const std::string& arg, std::string& err);
+    // the warnings on os as "<tool>: warning: ..." (each once per Config)
+    void printWarnings(std::ostream& os, const std::string& tool);
+private:
+    size_t warningsPrinted_ = 0;
+    void option(const std::string& where, const std::string& key, const Yaml& v);
+    void ruleId(const std::string& where, const std::string& id);
+    void ruleGlob(const std::string& where, const std::string& glob);
 };
+
+// Every rule id of al45 and cl45 (one configuration serves both) and the
+// options the rules read (LintRules.cpp)
+const std::set<std::string>& knownRules();
+struct OptionInfo {
+    const char* id;
+    const char* dflt;   // (what is used when it is not set)
+    bool number;        // a value that must be a whole number (a warning, and the default, when not)
+};
+const std::vector<OptionInfo>& knownOptions();
 
 class Engine {
 public:

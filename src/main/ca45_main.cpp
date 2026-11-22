@@ -695,6 +695,9 @@ int main(int argc, char** argv) {
                 initialSymbols[define] = "1";
                 predefinedSymbols[define] = 1;
             }
+        } else if (lintMode && arg.size() > 1 && arg[0] == '-') {
+            // (as cl45, #708: ca45 takes such an argument as the input file's name)
+            std::cerr << "al45: warning: unknown option '" << arg << "' ignored" << std::endl;
         } else {
             input_file = arg;
         }
@@ -720,6 +723,7 @@ int main(int argc, char** argv) {
         bool ok = lintConfigFile.empty() ? lintEngine.config.loadDefaults(dir, err)
                                          : lintEngine.config.loadFile(lintConfigFile, err);
         for (const auto& a : lintCli) ok = ok && lintEngine.config.applyOption(a, err);
+        lintEngine.config.printWarnings(std::cerr, "al45");
         if (!ok) {
             std::cerr << "al45: error: " << err << std::endl;
             return 1;

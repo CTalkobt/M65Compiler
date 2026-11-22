@@ -799,6 +799,7 @@ int main(int argc, char** argv) {
         bool ok = lintConfigFile.empty() ? lintEngine.config.loadDefaults(dir, err)
                                          : lintEngine.config.loadFile(lintConfigFile, err);
         for (const auto& a : lintCli) ok = ok && lintEngine.config.applyOption(a, err);
+        lintEngine.config.printWarnings(std::cerr, "cl45");
         if (!ok) {
             std::cerr << "cl45: error: " << err << std::endl;
             return 1;
