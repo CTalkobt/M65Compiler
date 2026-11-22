@@ -101,6 +101,28 @@ bool isStringExpr(const std::string& e) {
     return false;
 }
 
+// Whether expression e is a string (return <expr>'s ZRET$, #680): no
+// comparison outside parentheses and strings (that is a number), and its first
+// operand a string literal or a name ending in $ (a variable, an array, LEFT$...)
+bool isStringValue(const std::string& e) {
+    int depth = 0;
+    bool q = false;
+    for (char c : e) {
+        if (c == '"') q = !q;
+        if (q) continue;
+        if (c == '(') depth++;
+        else if (c == ')') depth--;
+        else if (depth == 0 && (c == '=' || c == '<' || c == '>')) return false;
+    }
+    size_t i = e.find_first_not_of(" \t(");
+    if (i == std::string::npos) return false;
+    if (e[i] == '"') return true;
+    if (!std::isalpha((unsigned char)e[i])) return false;
+    size_t j = i;
+    while (j < e.size() && (std::isalnum((unsigned char)e[j]) || e[j] == '_')) j++;
+    return j < e.size() && e[j] == '$';
+}
+
 // Whether word (lower case) is in text as a whole word, outside strings
 bool hasWord(const std::string& text, const char* word) {
     size_t n = strlen(word);
@@ -206,9 +228,13 @@ BasicStructuredResult lowerBasicStructured(const std::string& fullSource,
     // the __endprocN: line just written with nothing run after it, and the
     // line of the GOTO that jumps to it: the next proc's skip is that GOTO
     int chainEnd = -1, chainGoto = -1;
+    // (the compiled procs' text, #682: each line's proc)
+    std::vector<std::string> lineProc;
+    std::string curProc;
     auto emit = [&](const std::string& line, int from) {
         lines.push_back(line);
         r.origin.push_back(from);
+        lineProc.push_back(curProc);
         std::string t = trim(line);
         if (t.empty() || isComment(t)) return;
         chainEnd = chainGoto = -1;
@@ -234,6 +260,7 @@ BasicStructuredResult lowerBasicStructured(const std::string& fullSource,
     // source (their lines left empty) and lowered as a text of their own
     std::map<std::string, std::vector<std::string>> procParams;   // lower-case name -> params
     std::map<std::string, int> compiledK;                         // lower-case name -> k
+    bool usesZbuf = false;                                        // a compiled proc's string result (#680)
     std::string source;
     {
         std::istringstream in(fullSource);
@@ -329,6 +356,12 @@ BasicStructuredResult lowerBasicStructured(const std::string& fullSource,
                     }
                     auto pp = procParams.find(lower(name));
                     auto ck = compiledK.find(lower(name));
+                    if (unit && ck == compiledK.end()) {
+                        error(lineNum, "call " + name + ": a compiled proc calls only compiled procs (" + name +
+                                       " is not one)");
+                        i = e - 1;
+                        continue;
+                    }
                     std::string assigns;
                     bool argsOk = false;
                     if (pp == procParams.end()) {
@@ -343,7 +376,11 @@ BasicStructuredResult lowerBasicStructured(const std::string& fullSource,
                             assigns += pp->second[k] + " = " + args[k] + " : ";
                     }
                     if (unit) {
-                        error(lineNum, "call " + name + ": a compiled proc cannot call a proc");
+                        // a compiled proc's call of a compiled proc (#681): a
+                        // GOSUB inside their program, the result in ZRET
+                        std::string zr = !to.empty() && trim(to.substr(0, to.find('('))).back() == '$' ? "zret$" : "zret";
+                        res += assigns + zr + (zr == "zret" ? " = 0" : " = \"\"") + " : gosub __cp_" + name;
+                        if (!to.empty()) res += " : " + to + " = " + zr;
                     } else if (ck != compiledK.end() && argsOk) {
                         // a compiled proc (#577): one WPOKE of the block's
                         // words, the proc's number and the result's kind, the
@@ -353,24 +390,32 @@ BasicStructuredResult lowerBasicStructured(const std::string& fullSource,
                         if (!to.empty()) {
                             std::string base = to.substr(0, to.find('('));
                             char sfx = trim(base).back();
-                            if (sfx == '$' || sfx == '&') error(lineNum, "call " + name + " to " + to +
-                                                                         ": a compiled proc's result is a number (a float or % variable)");
-                            kind = sfx == '%' ? 2 : 1;
+                            if (sfx == '&') error(lineNum, "call " + name + " to " + to +
+                                                       ": a compiled proc's result is a float, % or string variable");
+                            kind = sfx == '%' ? 2 : sfx == '$' ? 3 : 1;
                         }
+                        // (a string result, #680: into ZBUF$'s characters, made
+                        // 255 long by __mixbuf when it is not; then LEFT$)
+                        if (kind == 3) { res += "gosub __mixbuf : "; usesZbuf = true; }
                         // (the block in bank 0: BANK 128, SYS's, maps ROM
                         // over the code's RAM for POKE; the SYS in BANK 128,
                         // as --link's)
                         res += assigns + "bank 0 : wpoke {__bas_psel}, " + std::to_string(ck->second + 256 * kind);
-                        if (kind || !args.empty()) res += ", " + (kind ? "pointer(" + to + ")" : std::string("0"));
+                        if (kind || !args.empty())
+                            res += ", " + (kind == 3 ? std::string("pointer(zbuf$)") : kind ? "pointer(" + to + ")" : std::string("0"));
                         for (size_t k = 0; k < args.size(); k++) res += ", pointer(" + pp->second[k] + ")";
                         // (an error in the proc: its message printed, its
                         // number back in A; the program ends at __mixerr)
-                        res += " : bank 128 : sys {__bas_mixed} : rreg zerr : on sgn(zerr) goto __mixerr";
+                        res += " : bank 128 : sys {__bas_mixed} : rreg zerr";
+                        if (kind == 3) res += ", zlen";
+                        res += " : on sgn(zerr) goto __mixerr";
+                        if (kind == 3) res += " : " + to + " = left$(zbuf$, zlen)";
                     } else {
                         // (zret 0 first: a proc that ends without return
                         // <expr> gives 0, as a compiled one does)
-                        res += assigns + (to.empty() ? "" : "zret = 0 : ") + "gosub " + name;
-                        if (!to.empty()) res += " : " + to + " = zret";
+                        std::string zr = !to.empty() && trim(to.substr(0, to.find('('))).back() == '$' ? "zret$" : "zret";
+                        res += assigns + (to.empty() ? "" : zr + (zr == "zret" ? " = 0 : " : " = \"\" : ")) + "gosub " + name;
+                        if (!to.empty()) res += " : " + to + " = " + zr;
                     }
                     i = e - 1;
                     continue;
@@ -418,7 +463,11 @@ BasicStructuredResult lowerBasicStructured(const std::string& fullSource,
                 }
                 std::string ex = trim(code.substr(v0, v1 - v0));
                 if (!inProc) error(lineNum, "return " + ex + ": a value is returned only from a proc");
-                res += unit ? "return " + ex + (v1 < code.size() ? " " : "") : "zret = " + ex + " : return" + (v1 < code.size() ? " " : "");
+                // (a compiled proc's: ZRET too, for a compiled caller's
+                // GOSUB, #681; RETURN ZRET leaves to BASIC at the top)
+                // (a string: ZRET$, #680)
+                std::string zr = isStringValue(ex) ? "zret$" : "zret";
+                res += zr + " = " + ex + " : return" + (unit ? " " + zr : "") + (v1 < code.size() ? " " : "");
                 i = v1 - 1;
                 continue;
             }
@@ -600,10 +649,11 @@ BasicStructuredResult lowerBasicStructured(const std::string& fullSource,
                 std::vector<std::string> ps;
                 if (m[2].matched && !trim(m[3].str()).empty()) ps = splitTop(m[3].str());
                 for (const auto& p : ps)
-                    if (p.empty() || p.back() == '$' || p.back() == '&' || p.find('(') != std::string::npos)
-                        error(lineNum, "proc " + m[1].str() + " compiled: a parameter is a float or % variable, not " + p);
+                    if (p.empty() || p.back() == '&' || p.find('(') != std::string::npos)
+                        error(lineNum, "proc " + m[1].str() + " compiled: a parameter is a float, % or string variable, not " + p);
                 if (!stack.empty()) error(lineNum, "proc inside a block");
                 stack.push_back(Block{'p', nextId++, false, lineNum, 0, ""});
+                curProc = lower(m[1].str());
                 labelAlone();
                 // (a label of its own: the line is reached, by the entry)
                 emit("__cp_" + m[1].str() + ":", lineNum);
@@ -728,6 +778,60 @@ BasicStructuredResult lowerBasicStructured(const std::string& fullSource,
     }
     if (inAsm) error(asmLine, "asm without endasm");
     if (unit && !r.asmText.empty()) error(1, "asm, incbin: not in a compiled proc");
+    // a compiled proc's jumps (#682): to its own labels only (its program is
+    // the compiled procs alone: the interpreted program's labels are not in
+    // it, another compiled proc is reached by call)
+    if (unit) {
+        std::map<std::string, std::string> labelProc;   // lower-case label -> its proc
+        static const std::regex defRe(R"(^\s*([A-Za-z_]\w*)\s*:)");
+        for (size_t k = 0; k < lines.size(); k++) {
+            std::smatch dm;
+            if (std::regex_search(lines[k], dm, defRe) && !basic45IsReservedWord(dm[1].str()))
+                labelProc[lower(dm[1].str())] = lineProc[k];
+        }
+        static const std::regex jumpRe(R"(\b(goto|go\s+to|gosub|then|else|trap|restore|resume)\s+([A-Za-z_]\w*(\s*,\s*[A-Za-z_]\w*)*))",
+                                       std::regex::icase);
+        static const std::regex nameRe(R"([A-Za-z_]\w*)");
+        for (size_t k = 0; k < lines.size(); k++) {
+            // (strings and REM / DATA text left out)
+            std::string t, l = lines[k];
+            bool q = false;
+            for (size_t c = 0; c < l.size(); c++) {
+                if (l[c] == '"') q = !q;
+                if (!q && (c == 0 || !std::isalnum((unsigned char)l[c - 1])) &&
+                    (lower(l.substr(c, 4)) == "rem " || lower(l.substr(c, 5)) == "data "))
+                    break;
+                t += q ? ' ' : l[c];
+            }
+            std::smatch jm;
+            for (size_t from = 0; from < t.size() && std::regex_search(t.cbegin() + from, t.cend(), jm, jumpRe);) {
+                std::string kw = lower(jm[1].str());
+                std::string list = jm[2].str();
+                size_t listAt = from + jm.position(2);
+                size_t after = from + jm.position(0) + jm.length(0);
+                // (the next search from the list: THEN GOTO x reads GOTO x)
+                from = listAt;
+                // (THEN / ELSE x = ...: an assignment, not a label)
+                size_t nx = t.find_first_not_of(" \t", after);
+                if ((kw == "then" || kw == "else") && nx != std::string::npos && (t[nx] == '=' || t[nx] == '('))
+                    continue;
+                for (auto nt = std::sregex_iterator(list.begin(), list.end(), nameRe); nt != std::sregex_iterator(); ++nt) {
+                    std::string name = nt->str();
+                    if (basic45IsReservedWord(name)) break;   // (THEN PRINT, RESUME NEXT ...)
+                    if (name.compare(0, 5, "__cp_") == 0) continue;   // (a call of a compiled proc, #681)
+                    auto lp = labelProc.find(lower(name));
+                    std::string shown = name.compare(0, 4, "__l") == 0 ? "." + name.substr(name.find('_', 3) + 1) : name;
+                    if (lp == labelProc.end())
+                        error(r.origin[k], kw + " " + shown + ": a compiled proc cannot jump out of itself (" + shown +
+                                           " is not one of its labels)");
+                    else if (lp->second != lineProc[k])
+                        error(r.origin[k], kw + " " + shown + ": " + shown + " is in compiled proc " + lp->second +
+                                           " (call it)");
+                    if (kw == "then" || kw == "else" || kw == "trap" || kw == "restore" || kw == "resume") break;
+                }
+            }
+        }
+    }
     for (const auto& b : stack)
         error(b.line, b.kind == 'i' ? "if block without endif" :
                       b.kind == 's' ? "select without endselect" : "proc without endproc");
@@ -735,6 +839,15 @@ BasicStructuredResult lowerBasicStructured(const std::string& fullSource,
     if (mode == BasicLowerMode::Interpreted && !compiledK.empty()) {
         lines.push_back("__mixerr: end");
         r.origin.push_back(lineNum);
+        // (a string result's buffer, #680)
+        // (by concatenation: in BASIC's string space, bank 1, not a literal in
+        // the program's text; no RPT$, which ROM 920413's interpreter lacks)
+        if (usesZbuf)
+            lines.push_back("__mixbuf: if len(zbuf$) < 255 then zbuf$ = \"\" : for zi = 1 to 17 : zbuf$ = zbuf$ + \"" +
+                            std::string(15, ' ') + "\" : next");
+        if (usesZbuf) r.origin.push_back(lineNum);
+        if (usesZbuf) lines.push_back("return");
+        if (usesZbuf) r.origin.push_back(lineNum);
     }
     for (const auto& l : lines) r.text += l + "\n";
     return r;

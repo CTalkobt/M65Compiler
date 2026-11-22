@@ -4,6 +4,20 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### basic45: compiled procs: strings, calls between them, jumps reported (#680, #681, #682)
+
+- **Strings** (#680): `proc f(s$) compiled` takes a string (its characters copied from BASIC's string space by
+  its descriptor's `POINTER`), and `call f(x) to v$` takes a string result: written into the characters of a
+  255-character `ZBUF$` the call keeps (BASIC's string space untouched), then `v$ = LEFT$(ZBUF$, n)`. A string
+  for a number's caller, or the other way, is `?TYPE MISMATCH`. `return "text"` in any proc goes through `ZRET$`.
+- **Calls between compiled procs** (#681): `call g(x) to v` in a compiled proc is a `GOSUB` inside their program;
+  `return <expr>` there is that `GOSUB`'s return (the compiler counts the `GOSUB`s open, `__bas_pdep`), at the
+  top it goes back to BASIC. Recursion as BASIC's (global variables). Calling an interpreted proc is an error.
+- **Jumps** (#682): a `GOTO`, `GOSUB`, `ON`, `THEN` / `ELSE`, `TRAP`, `RESTORE` or `RESUME` from a compiled proc
+  to a label outside it is an error at its line, naming the label (another compiled proc's: "call it").
+- Library: `basic_mixed.s45`'s `__bas_vgets` / `__bas_vputs` (strings by `POINTER`; the length back in X).
+- Tests: `test_basic45_mixed_xemu.bas` (14 checks, as is, `--minify`, `--compile`), `test_basic45.sh`.
+
 ### pack45 --best: never longer than the greedy stream
 
 - `--best`'s parse counted a literal block's header byte once a run of literals, but a block holds at most 64

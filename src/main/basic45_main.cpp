@@ -1277,8 +1277,10 @@ int main(int argc, char* argv[]) {
                    << ".global __bas_mixon\n"
                    << "__bas_mixed:\n    pha\n    lda #<_main\n    sta ___bc_target\n"
                    << "    lda #>_main\n    sta ___bc_target + 1\n    pla\n    jsr __basic_call\n"
-                   << "    lda $FE\n    bne @ok\n    lda $FD\n    rts\n@ok:\n    lda #0\n    rts\n"
-                   << ".segment \"data\"\n__bas_mixon: .byte 1\n"
+                   // (X: a string result's length, #680)
+                   << "    lda $FE\n    bne @ok\n    lda $FD\n    rts\n@ok:\n    lda #0\n    ldx __bas_plen\n    rts\n"
+                   << ".global __bas_plen\n"
+                   << ".segment \"data\"\n__bas_mixon: .byte 1\n__bas_plen: .byte 0\n"
                    << "__bas_psel: .byte 0\n__bas_pkind: .byte 0\n__bas_pres: .word 0\n__bas_parg:";
                 for (size_t k = 0; k < std::max<size_t>(lowered.compiledArgs, 1); k++) th << (k ? ", 0" : " .word 0");
                 th << "\n.segment \"code\"\n";
