@@ -351,6 +351,9 @@ these. Keep the default `BINDIR`/`LIBDIR`/`INCDIR` (relative to `PREFIX`);
 with others, set `CC45_INCLUDE` and `CC45_LIB`.
 
 ## Documentation
+New to the suite? Start with a tutorial: [C with cc45](doc/guide/getting-started-c.md),
+[BASIC with basic45](doc/guide/getting-started-basic45.md) or [the other tools](doc/guide/getting-started-tools.md).
+
 In addition to the Markdown files in the `doc/` directory (index: [doc/README.md](doc/README.md)), you can generate and view standard Unix man pages for every tool:
 
 ```bash

@@ -9,6 +9,7 @@ Documents are separated by their function and scope:
 - **[`bin/`](bin/)**: Program-specific user guides, syntax references, and CLI manuals for the toolchain binaries.
 - **[`architecture/`](architecture/)**: Design specifications, calling conventions, file formats, the standard library and compiler development details (coverage, benchmarking, Docker).
   - **[`architecture/bug/`](architecture/bug/)**: Technical bug reports, root cause analyses, and solutions.
+- **[`guide/`](guide/README.md)**: Tutorials for getting started: C with cc45, BASIC with basic45, and the other tools.
 - **[`examples/`](examples/README.md)**: The example programs, each described with a link to its source and a screenshot.
 - **[`ref/`](ref/README.md)**: Release checklist and planning documents.
 - **`archive/`**: Historical session notes and phase reports (not maintained).
@@ -37,6 +38,12 @@ Documents are separated by their function and scope:
 | `asmCvt45` | Assembly source format converter | [bin/asmCvt45.md](bin/asmCvt45.md) |
 
 Shared configuration files (`~/.config/m65/<tool>.conf`): [bin/CONFIGURATION.md](bin/CONFIGURATION.md).
+
+## Getting Started
+
+- [C with cc45](guide/getting-started-c.md) — a first program to a running one in xemu, on a disk and on a MEGA65; several files; what differs from other C compilers; the hardware; debugging
+- [BASIC with basic45](guide/getting-started-basic45.md) — BASIC 65 without line numbers, disks, converting old programs, compiling to machine code, calling C
+- [The other tools](guide/getting-started-tools.md) — the assembler, linker and archiver, the inspectors, the linters, disk images, packing, fonts, music, converting assembly, sending to hardware
 
 ## Examples
 
@@ -81,6 +88,7 @@ All documentation must follow these directory rules to keep it clean and avoid b
 
 ### 1. File Placement & Naming
 - **No files in the root `doc/` directory** other than this `README.md`. The only subdirectories are `bin/`, `architecture/`, `examples/`, `ref/` and `archive/`.
+- **`doc/guide/`** contains the tutorials, markdown only (`.md`, no subdirectories). Their commands are run by `src/test/test_guides.py` (`make test`): see [guide/README.md](guide/README.md).
 - **`doc/examples/`** contains `README.md` (the examples) and `images/` (their screenshots, `.png`, made by `examples/capture_screens.py`).
 - **`doc/bin/`** contains only documentation for toolchain binaries. Allowed files:
   - `ar45.md` (Archiver)
