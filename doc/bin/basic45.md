@@ -1282,7 +1282,7 @@ l32: if rwindow(2) = 80 then print chr$(27) + "x";
 
 ```
 tsb.txt: warning: line 10: COLOUR with one colour: the border (TSBneo)
-' converted from Simons' BASIC (C64) by basic45 --convert=simons: check the warnings
+' converted from TSBneo (C64) by basic45 --convert=tsbneo: check the warnings
 ' the first line: Simons' BASIC's 40-column screen
 ' after the END: subroutines the conversion added (the waits before PLAY, 40/80 columns, closing a screen)
   gosub l52
@@ -1296,8 +1296,7 @@ l52: if rwindow(2) = 80 then print chr$(27) + "x";
   return
 ```
 
-TSBneo's `AT(row, column)` became `CURSOR column, row`; its header line names `--convert=simons`, the conversion
-`tsbneo` builds on.
+TSBneo's `AT(row, column)` became `CURSOR column, row`.
 
 **BASIC 8** (`--convert=basic8`):
 

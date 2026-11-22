@@ -2686,7 +2686,8 @@ void convertSimons(std::vector<DecompiledLine>& lines, const BasicDecompileOptio
             for (auto& pc : l.pieces)
                 if (!pc.isKw)
                     for (size_t q; (q = pc.text.find(ph)) != std::string::npos;) pc.text.replace(q, ph.size(), var(key));
-    notes.push_back("converted from Simons' BASIC (C64) by basic45 --convert=simons: check the warnings");
+    notes.push_back(o.tsbneo ? "converted from TSBneo (C64) by basic45 --convert=tsbneo: check the warnings"
+                             : "converted from Simons' BASIC (C64) by basic45 --convert=simons: check the warnings");
 }
 
 // ---- BASIC 8 -------------------------------------------------------------------

@@ -4,6 +4,12 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### basic45 --convert=tsbneo: the header names TSBneo (#711)
+
+- The comment a `--convert=tsbneo` conversion starts with said "converted from Simons' BASIC (C64) by basic45
+  --convert=simons"; it is now "converted from TSBneo (C64) by basic45 --convert=tsbneo". `test_basic45.sh` checks
+  each dialect's header (basic7, basic35, simons, tsbneo, basic8); basic45.md's TSBneo listing shows the new one.
+
 ### Documentation: what the audit found missing (#644)
 
 - New pages for a new user (#701): [troubleshooting](doc/guide/troubleshooting.md) (each symptom reproduced, its
