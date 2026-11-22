@@ -6,6 +6,7 @@ A modern development toolchain for the MEGA65 (45GS02) home computer. It consist
 
 - **cc45** — C compiler (C source to assembly or `.o45` relocatable objects)
 - **ca45** — 45GS02 assembler (assembly to binary or `.o45` relocatable objects)
+- **libca45** — the assembler as a C++ library (`libca45.a`, `include/ca45/ca45.hpp`: `ca45::assemble`, `ca45::assembleLine`), which ca45 itself links; not built on macOS
 - **al45** — Assembly linter: ca45's front end over a source file, `mega65-*` rules, no output (a link to ca45)
 - **af45** — Assembly formatter: lays a source file out as al45's style rules describe, whitespace only (a link to ca45)
 - **cl45** — C linter: cc45's front end and code generator over a file as it is compiled, no output (a link to cc45)
@@ -33,25 +34,27 @@ The compilation process follows a multi-pass pipeline (`cc45 file.c -o file.prg`
 2.  **ca45 (Assembly to Object)**: Processes the assembly output, resolves symbols, manages stack offsets for procedures, and emits a relocatable `.o45` object (or, for assembly written by hand, a binary directly).
 3.  **ln45 (Objects to Program)**: Links the objects with the members it needs of the standard library (`c45.lib`, whose `crt0` is the startup code) into a `.prg`.
 
-## Design Philosophy
-- **Procedural Abstraction**: Function calls are treated as first-class citizens with named parameters and automated stack cleanup.
-- **Hierarchical Scoping**: Supports nested local scopes for labels and variables within procedures and `{}` blocks, preventing namespace pollution and allowing safe label reuse.
-- **Optimizations**: Includes advanced compiler optimizations such as:
-    - **Strength Reduction**: Converts expensive operations (e.g., multiplication by a power of 2) into faster equivalents (e.g., bit shifts).
-    - **Constant Propagation**: Substitutes variables with known constant values into expressions at compile time. The optimizer is **branch-aware**, performing constant state merging across `if`/`else` paths to ensure safe invalidation on reassignments.
-    - **ZP-Safe Standard Library**: A program runs in a base page of its own (crt0 moves the base page register, so the ROM's page 0 is untouched), and the standard library's temporaries (`$F6`-`$FC`) are disjoint from the compiler's register pool (`$30`-`$7F`) and the parameter block (`$10`-`$2F`); see [calling conventions](doc/architecture/calling-conventions.md).
-
-    - **Dead Variable Elimination**: Removes stack allocation and initialization for local variables that are initialized with constants and not subsequently used in the function.
-- **Volatile Keyword Support**: The `volatile` keyword is fully supported, preventing unintended compiler optimizations on variables that may be changed by external factors (e.g., hardware, interrupts).
-- **MEGA65 First**: Special emphasis is placed on supporting the 45GS02 instruction set enhancements, including a high-level expression engine (`expr`) that handles constant folding and register arithmetic.
-- **Compatibility**: Supports KickAssembler-style syntax (comments, `* =`, `.cpu`) for easier porting of existing MEGA65 codebases.
-- **Inline Assembly**: Standard C `asm()` and `__asm__()` support for direct hardware control from C source.
-- **Compound Literals**: C99 compound literals for anonymous temporary values: `(struct Point){1, 2}`, `(int){42}`, `(int[]){1,2,3}`.
-- **Bitfields**: C-standard bitfield support in structs and unions with automatic packing into 8-bit or 16-bit storage units. Single-bit `__bit` variables are set and cleared with the 45GS02's TSB/TRB (SMB/RMB in the base page).
-- **32-bit Long Type**: Native `long` and `unsigned long` support using the 45GS02 Q register (AXYZ). All arithmetic, comparison, shift, and bitwise operations leverage native Q instructions.
-- **Explicit Casts**: C-style cast expressions `(type)expr`; constant casts are folded. (cc45 does not warn about implicit narrowing.)
-- **ZP Calling Convention**: Zero-page parameter passing (`-fzpcall`, the default; `-fno-zpcall` selects the stack convention) for faster function calls. Parameters are placed in a fixed ZP region (`$10`-`$2F`) instead of the stack, eliminating TSX overhead. Includes caller-save semantics, address-of spill, and per-function metadata (`.zp_uses`, `.zp_clobbers`, `.reg_clobbers`) in `.o45` objects for interprocedural optimization.
-- **Extensibility**: The toolchain uses a visitor-based architecture in C++, making it easy to add new optimizations, language features, or hardware targets.
+## Design
+- **The 45GS02's own instructions**: 32-bit `long` arithmetic on the Q register, 28-bit far pointers through
+  `[bp],z`, the movable base page, the 16-bit stack, DMA for copies and fills; not 6502 code with a 45GS02
+  label on it.
+- **Fast calls by default**: arguments in the base page (the ZP convention), and static storage instead of a
+  stack frame for every function that is not recursive (SAC), with ln45 overlaying the storage of functions
+  never active at once; the stack convention for the rest, and ln45 bridging calls between the two
+  ([calling conventions](doc/architecture/calling-conventions.md)).
+- **A program that leaves the machine alone**: it runs in a base page of its own, so the ROM's page 0 is
+  untouched, and returns to BASIC with its exit status.
+- **Larger than bank 0**: code overlays and `__far` functions kept in banks 4-5 or attic RAM, brought in by
+  DMA or MAP when called; `__bank(n)` data.
+- **C, with extensions where the hardware wants them**: C99/C11 and the GCC extensions most code uses,
+  plus `__zp`, `__bit`, `__far` / `__near` pointers, `__interrupt`, fixed point, struct methods and
+  operator overloading, `__jsr` for ROM calls ([cc45](doc/bin/cc45.md)). One deliberate difference: plain
+  `char`/`int`/`long` are unsigned unless declared `signed` (`-fsigned-default` for standard C).
+- **One toolchain**: compiler, assembler, linker and librarian share one object format (`.o45`) with
+  function attributes the linker checks; linters, a formatter, inspectors, a debugger, disk images, data
+  packing, fonts and music are tools of the same suite. C++17; zlib bundled, SQLite and FUSE optional (for disk45).
+- **Checked on the machine**: the runtime tests (over a thousand, each in both calling conventions) and the
+  GCC torture tests run in the xemu MEGA65 emulator.
 
 ## General Usage
 
@@ -336,9 +339,13 @@ The install targets build everything (including `lib`) automatically. Installed 
 | Component | Path |
 |-----------|------|
 | Binaries | `$(PREFIX)/bin/` |
-| Libraries (`c45.lib`, `c45_zp.lib`, `c45_stack.lib`, `crt0*.o45`) | `$(PREFIX)/lib/cc45/` |
-| C headers | `$(PREFIX)/include/cc45/` |
-| Man pages | `$(PREFIX)/share/man/man1/` |
+| `cp45`, `cl45` (links to `cc45`), `al45`, `af45` (links to `ca45`) | `$(PREFIX)/bin/` |
+| Libraries (`c45.lib`, `c45_zp.lib`, `c45_stack.lib`, `crt0*.o45`), tune45's player `tuneplay.o45` | `$(PREFIX)/lib/cc45/` |
+| objdump45's symbol files (`c64.sym`, `mega65.sym`) | `$(PREFIX)/lib/cc45/symbols/` |
+| C headers (with `sys/` and `tgi/`) | `$(PREFIX)/include/cc45/` |
+| `libca45.a` (not on macOS) | `$(PREFIX)/lib/` |
+| `ca45.hpp` (libca45's header) | `$(PREFIX)/include/ca45/` |
+| Man pages (`make man` first) | `$(PREFIX)/share/man/man1/` |
 
 After `make install_local`, ensure `~/.local/bin` is on your `PATH`.
 
@@ -353,6 +360,9 @@ with others, set `CC45_INCLUDE` and `CC45_LIB`.
 ## Documentation
 New to the suite? Start with a tutorial: [C with cc45](doc/guide/getting-started-c.md),
 [BASIC with basic45](doc/guide/getting-started-basic45.md) or [the other tools](doc/guide/getting-started-tools.md).
+When something goes wrong: [troubleshooting](doc/guide/troubleshooting.md). The terms the pages use:
+[glossary](doc/guide/glossary.md). Editors (the language server, the VS Code extension and its debugger):
+[doc/guide/ide.md](doc/guide/ide.md). Working on the suite itself: [CONTRIBUTING.md](CONTRIBUTING.md).
 
 In addition to the Markdown files in the `doc/` directory (index: [doc/README.md](doc/README.md)), you can generate and view standard Unix man pages for every tool:
 
