@@ -239,6 +239,7 @@ src/test/            test drivers (test_xemu.sh, test_cc_interop.sh, run_gte_all
 doc/bin/             one reference page per tool
 doc/architecture/    reference docs; doc/archive and doc/architecture/bug are history
 doc/examples/        the examples with screenshots (examples/capture_screens.py)
+doc/guide/           the getting-started tutorials (C, basic45, the other tools; run by src/test/test_guides.py)
 ```
 
 ## Build System
@@ -484,7 +485,10 @@ functions that no library implements: kept for the future, their contents inside
   `Logger::stream(LogLevel::DEBUG)`; `-v` … `-vvvv` on stderr as `[tool:LEVEL] …`; tools
   with positional arguments `Logger::takeFlags`), never `std::cout`; the level must not
   change the output (`src/test/test_logging.sh`).
-- Docs: `python3 src/test/check_docs.py` validates the doc tree layout.
+- Docs: `python3 src/test/check_docs.py` validates the doc tree layout. The tutorials in `doc/guide/` are run as
+  written by `src/test/test_guides.py` (`make test`): `<!-- guide: ... -->` comments mark the files, the commands
+  (their output as shown) and the xemu screens to check (`doc/guide/README.md`); a change to a tool's output can
+  fail a tutorial.
 
 ## Debugging Tips
 

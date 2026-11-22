@@ -24,8 +24,17 @@ def check_structure():
             if entry.name != "README.md":
                 errors.append(f"File '{entry.name}' should not be in the doc/ root. Please move it to doc/bin/ or doc/architecture/.")
         elif entry.is_dir():
-            if entry.name not in {"bin", "architecture", "archive", "ref", "examples"}:
-                errors.append(f"Unexpected subdirectory '{entry.name}' in doc/. Only 'bin', 'architecture', 'archive', 'ref' and 'examples' are allowed.")
+            if entry.name not in {"bin", "architecture", "archive", "ref", "examples", "guide"}:
+                errors.append(f"Unexpected subdirectory '{entry.name}' in doc/. Only 'bin', 'architecture', 'archive', 'ref', 'examples' and 'guide' are allowed.")
+
+    # doc/guide: the tutorials (markdown only, no subdirectories; their commands are run by test_guides.py)
+    guide_dir = os.path.join(DOC_DIR, "guide")
+    if os.path.isdir(guide_dir):
+        for entry in os.scandir(guide_dir):
+            if entry.is_dir():
+                errors.append(f"Subdirectory 'doc/guide/{entry.name}' is not allowed: doc/guide/ holds the tutorials' pages.")
+            elif not entry.name.endswith(".md"):
+                errors.append(f"Non-markdown file 'doc/guide/{entry.name}' is not allowed in doc/guide/.")
 
     # doc/examples: README.md and images/ (the examples' screenshots, .png)
     ex_dir = os.path.join(DOC_DIR, "examples")

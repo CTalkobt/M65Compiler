@@ -4,6 +4,19 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### Getting-started tutorials (#694, #695, #696)
+
+- `doc/guide/`: [C with cc45](doc/guide/getting-started-c.md) (a first program; xemu, a D81, a MEGA65; several
+  files and a Makefile; what differs from other C compilers; `<mega65.h>` / `<conio.h>`; a dbg45 session; cl45),
+  [BASIC with basic45](doc/guide/getting-started-basic45.md) (labels, long names, block `IF`, procedures, the
+  preprocessor; `--list`, `--decompile`, `--disk`, `--convert`; `--compile` and its speed; `--link`) and
+  [the other tools](doc/guide/getting-started-tools.md) (ca45, ln45, ar45, nm45, objdump45, al45, af45, disk45,
+  pack45, font45, tune45, asmCvt45, deploy45, and a program using several of them together); linked from
+  README.md and doc/README.md.
+- `src/test/test_guides.py` (a step of `make test`) runs the pages as written: HTML comments mark the files to
+  write, the commands to run (each must succeed and print the output shown) and the programs to run in xemu
+  (their screens checked); `doc/guide/README.md` describes them. `check_docs.py` allows `doc/guide/`.
+
 ### basic45 --compile: LOG10, LOG2, HASBIT, RDISK and RSPRSYS (#693)
 
 - The five functions BASIC 65 has that `--compile` still rejected are compiled, as b65.src computes them:
