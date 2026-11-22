@@ -57,6 +57,10 @@ EXAMPLES = {
     "tgi_patterns_640": "examples/c/tgi_demo/tgi_patterns640.prg",
     "map_decode": "examples/c/map_decode/map_decode.prg",
     "tunes": "examples/c/tunes/tunes.prg",
+    "drums": "examples/c/drums/drums.prg",
+    "overlays": ("examples/c/overlays/ovldemo.prg", "examples/c/overlays/ovldemo.d81"),
+    "mapped_overlays": ("examples/c/mapped_overlays/mapdemo.prg", "examples/c/mapped_overlays/mapdemo.d81"),
+    "far_functions": ("examples/c/far_functions/fardemo.prg", "examples/c/far_functions/fardemo.d81"),
     "glamlambs": ("examples/c/glamlambs/glamlambs.prg", "examples/c/glamlambs/glamlambs.d81"),
     "rtc_clock": "examples/c/rtc_clock/rtc_clock.prg",
     "keyboard_viewer": "examples/c/keyboard_viewer/keyboard_viewer.prg",
@@ -65,6 +69,9 @@ EXAMPLES = {
     # the library checks print nothing: one picture stands for them all
     "test_strlen": "examples/c/stdlib/string_h/test_strlen.prg",
     "c_routines": "examples/basic/c_routines/menu.prg",
+    # the examples disks' menus (make -C examples/disk disks)
+    "disk_games": ("examples/disk/games_menu.prg", "examples/disk/games.d81"),
+    "disk_demos": ("examples/disk/demos_menu.prg", "examples/disk/demos.d81"),
 }
 
 

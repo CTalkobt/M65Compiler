@@ -10,7 +10,6 @@
 ROOT = ../../..
 CC45 = $(ROOT)/bin/cc45
 LN45 = $(ROOT)/bin/ln45
-CRT0 = $(ROOT)/lib/build/crt0.o45
 STDLIB = $(ROOT)/lib/build/c45.lib
 INCLUDES = -I$(ROOT)/lib/include
 
@@ -23,8 +22,8 @@ all: $(TARGET)
 convert.o45: convert.c
 	$(CC45) -O2 $(INCLUDES) -c convert.c -o convert.o45
 
-$(TARGET): convert.o45 $(CRT0) $(STDLIB)
-	$(LN45) -basic -o $(TARGET) $(CRT0) convert.o45 $(STDLIB)
+$(TARGET): convert.o45 $(STDLIB)
+	$(LN45) -basic -o $(TARGET) convert.o45 $(STDLIB)
 
 clean:
 	rm -f convert.o45 convert.o45.s45 $(TARGET)

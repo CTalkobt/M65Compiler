@@ -50,7 +50,7 @@ static void show(const char *what, unsigned long value, unsigned long want) {
 int main(void) {
     char text[] = "hello far world";
 
-    printf("\x93" "__far functions: kept in bank 5,\n");
+    printf("\x93" "far functions: kept in bank 5,\n");   /* (no "__": PETSCII has no underscore) */
     printf("run in the window at $%04x\n\n", (unsigned int)__ovl_region);
 
     show("primes below 1000", primes_below(1000), 168);
