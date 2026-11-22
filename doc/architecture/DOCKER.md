@@ -52,9 +52,9 @@ Environment: `CC45_INCLUDE=/usr/local/include/cc45` (header search path for `cc4
 
 ```bash
 docker run --rm cc45 cc45 --version
-docker run --rm -v $(pwd):/work cc45 cc45 /work/hello.c -o /work/hello.prg      # compile + link
-docker run --rm -v $(pwd):/work cc45 cc45 -S /work/hello.c -o /work/hello.s45   # assembly only
-docker run --rm -v $(pwd):/work cc45 cc45 -c /work/main.c -o /work/main.o45     # object only
+docker run --rm -v $(pwd):/work cc45 cc45 -O2 /work/hello.c -o /work/hello.prg      # compile + link
+docker run --rm -v $(pwd):/work cc45 cc45 -O2 -S /work/hello.c -o /work/hello.s45   # assembly only
+docker run --rm -v $(pwd):/work cc45 cc45 -O2 -c /work/main.c -o /work/main.o45     # object only
 docker run --rm -v $(pwd):/work cc45 ln45 -basic /work/main.o45 /work/util.o45 -l c45.lib -o /work/game.prg
 docker run --rm -v $(pwd):/work cc45 disk45 create /work/game.d81
 docker run --rm -v $(pwd):/work cc45 disk45 list /work/game.d81

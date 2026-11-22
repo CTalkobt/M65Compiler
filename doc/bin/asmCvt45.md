@@ -56,6 +56,63 @@ asmCvt45 --stats -t acme input.s45
 asmCvt45 --validate -t ca65 input.s45
 ```
 
+### `--stats` and `--validate` output
+
+Both print to stdout instead of the converted source, a block per input file after an empty line; exit status 0, or 1 when a file could not be converted. Given together, `--stats` is done and `--validate` is not. On `src/test-resources/asmCvt45/native_ca65.s65` (a ca65 program in ca65's idioms: `.proc`, `@` and `:` labels, two `.macro`/`.define`s):
+
+```
+$ asmCvt45 --stats -t acme native_ca65.s65
+
+File: native_ca65.s65
+Conversion: ca65 → acme
+
+Source Metrics:
+  Lines:        54
+  Labels:       12
+  Instructions: 22
+  Directives:   15
+  Symbols:      0
+  Comments:     1
+  Macros:       2
+
+Target Metrics:
+  Lines:        58
+  Labels:       12
+  Instructions: 22
+  Directives:   15
+  Symbols:      0
+  Comments:     6
+
+Loss Analysis:
+  ⚠ Macros lost:      2 (always lost in conversion)
+
+Preservation:
+  Instructions: 100.0%
+  Metadata:     100.0%
+  Overall:      100.0%
+  Rating:       ✓ GOOD (minimal loss)
+```
+
+- **Source / Target Metrics**: the statements of the parsed file and of the converted one, by kind (labels, instructions, directives; symbols: the parsed module's symbol table). Lines and Comments are counted in the text (newlines; `;` characters, so a `;` in a string counts too). Macros are the source's lines starting with `.macro`, `macro` or `.define`.
+- **Loss Analysis** (only when something is lost): for each kind, how many fewer the target has (`Labels lost:`, `Instructions lost:`, `Directives lost:`, `Comments lost:`, `Symbols lost:`), and the macros, counted as lost always: a converted file has them expanded. `Unsupported Directives:` lists, a `•` line each, directives the target cannot hold (ACME: `o45`, `func_flags`; KickAssembler: `zp_uses`, `zp_clobbers`; Oscar: `cpu`, `o45`).
+- **Preservation**: Instructions, the share of instructions kept; Metadata, of labels, directives, comments and symbols; Overall, of all five. Rating: `✓ GOOD (minimal loss)` from 95%, `⚠ FAIR (some loss)` from 80%, `✗ POOR (significant loss)` below.
+
+`--validate` converts to the target, parses that and writes it back in the source's format, and compares:
+
+```
+$ asmCvt45 --validate -t acme native_ca65.s65
+
+Results:
+  Labels preserved:    1/12
+  Symbols preserved:   0/0
+  Directives preserved: 15/15
+  Comments preserved:  0/1
+  Overall preservation: 57.1%
+  Status: ✗ LOSSY
+```
+
+The block does not name the file (several files: their blocks in order). Labels: the source's labels whose name ends a line of the round-tripped text (`name:` alone on its line: a label followed by an instruction on its line is not found, hence `1/12` here); Symbols: the source's symbols in the target's table; Directives: all of them when the source and the target have as many, else 0; Comments: all of them when the two texts have as many `;`, else 0. Overall: the preserved share of the four together; `✓ LOSSLESS` from 95%, else `✗ LOSSY`. These are rough counts, not a check of the bytes: to know that a conversion assembles to the same program, assemble both and compare ([the guide](../architecture/asmCvt45-guide.md#checking-a-conversion)).
+
 ## Configuration File (`.asmCvt45rc`)
 
 asmCvt45 looks for `.asmCvt45rc` in the current directory and then in each parent directory, and uses the first one found (a `.cvtasmrc`, the file's name when the tool was `cvt_asm`, is read too). Lines starting with `;` or `#` are comments; settings are `key = value` in sections. Command-line options override them.

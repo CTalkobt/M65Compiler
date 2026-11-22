@@ -292,6 +292,23 @@ disk45 edit <image> <track> <sector>
 
 A full-screen sector editor: the sector's 256 bytes as hex (16 a row, with their characters), the byte under the cursor in reverse. The arrow keys move; two hex digits set the byte under the cursor (the first changes its high half) and move on; `n` / `p` (Page Down / Page Up) go to the next / previous sector (the cursor stays); `w` writes the image; `q` quits, asking for a second `q` when there are unwritten changes. Keys piped in work the same without the screen (`printf 'ABwq' | disk45 edit x.d64 18 0`), which is how `test_disk45.sh` tests it.
 
+`disk45 edit game.d81 40 0` on a D81's header sector, after → four times (to `$04`, the disk name) and `4E4557` (`NEW`) then `w`: the bytes typed are in place, the cursor (here in `[ ]`, reverse on the screen) has moved on to `$07`, and the status line says the image was written:
+
+```
+game.d81  track 40 sector 0
+
+00: 28 03 44 00 4E 45 57 [47] 41 4D 45 A0 A0 A0 A0 A0  (.D.NEW[G]AME
+10: A0 A0 A0 A0 A0 A0 4D 47 A0 33 44 A0 A0 00 00 00        MG 3D  ...
+20: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00  ................
+…
+F0: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00  ................
+
+arrows move, hex digits set the byte, n/p next/previous sector, w write, q quit
+written
+```
+
+Before the `w` the title line ends `(changed)`. The same keys piped in (`printf '\033[C\033[C\033[C\033[C4E4557wq' | disk45 edit game.d81 40 0`) make the same image, printing nothing; `disk45 list` then shows `0 "NEWGAME" MG`. Piped keys without a `w` print `disk45 edit: changes not written (no w)` on stderr.
+
 #### diff / compare
 
 ```
@@ -299,6 +316,30 @@ disk45 diff <image1> <image2> [--sectors]
 ```
 
 Compare two images. By default the files, subdirectories included (`DIR/NAME`): `- NAME` only in the first, `+ NAME` only in the second, `~ NAME: size a -> b crc X -> Y` changed (type, size, CRC-32 of the contents), and a different disk name or ID. `--sectors` (`-s`) compares every sector of two images of the same geometry and lists those that differ (`41/1: 256 bytes differ (first at $00)`). Exit status 0 when they are the same, 1 when they differ, 2 on an error. The images may be of different formats for the file comparison (`disk45 diff game.d64 game.d81`).
+
+`v2.d81` is `v1.d81` with `GAME` replaced by a larger file, `NOTES` removed, `README` and `LEVELS/L2` added and the ID changed:
+
+```
+$ disk45 diff v1.d81 v2.d81
+~ GAME: size 119 -> 316 crc EEA8C8AA -> 0C253A5A
+- NOTES (PRG, 1 blocks)
++ LEVELS/L2 (PRG, 1 blocks)
++ README (PRG, 2 blocks)
+~ disk name/ID: "MY GAME" MG -> "MY GAME" M2
+5 difference(s)
+$ disk45 diff v1.d81 v2.d81 --sectors
+40/0: 1 byte differ (first at $17)
+40/1: 1 byte differ (first at $05)
+40/2: 3 bytes differ (first at $05)
+40/3: 8 bytes differ (first at $1E)
+41/0: 255 bytes differ (first at $00)
+…
+10 sector(s) differ
+$ disk45 diff v1.d81 v1.d81
+The files are the same
+```
+
+(exit status 1, 1, 0). The header (40/0), the BAM (40/1, 40/2) and the directory (40/3) change with any file; the rest are the files' sectors.
 
 #### bam / map
 
@@ -498,6 +539,47 @@ rm /tmp/cbm/OLD.prg             # remove file
 fusermount3 -u /tmp/cbm         # unmount (disk45 then exits)
 ```
 
+A CMD partition (`disk.d2m:N` or `:NAME`) or a zip member (`archive.zip:member.d81`) is mounted as any other image; an emulated partition and a zip member are written back into their container after each change (the zip's member deflated again, the others kept):
+
+```
+$ disk45 create fd.d2m -P native:WORK,1581:GAMES
+Created D2M (CMD FD-2000 HD) image: fd.d2m (12 tracks, 786432 bytes)
+$ disk45 add fd.d2m:2 avg.prg AVG
+Added "AVG" (119 bytes, PRG)
+$ disk45 mount fd.d2m:GAMES mnt &
+Mounting fd.d2m:GAMES on mnt (read-write)
+$ ls mnt
+AVG.prg
+$ cp hello.txt mnt/readme.txt
+$ fusermount3 -u mnt
+$ disk45 list fd.d2m:2
+0 "GAMES" CC
+1	"AVG"	PRG
+1	"README.TXT"	PRG
+3158 blocks free.
+
+$ zip -q pack.zip disk1.d81 disk2.d64
+$ disk45 mount pack.zip:disk1.d81 mnt &
+Mounting pack.zip:disk1.d81 on mnt (read-write)
+$ ls mnt mnt/LEVELS
+mnt:
+GAME.prg
+LEVELS
+NOTES.prg
+
+mnt/LEVELS:
+L1.prg
+$ cp hello.txt mnt/new.txt
+$ fusermount3 -u mnt
+$ disk45 list pack.zip:disk1.d81
+0 "MY GAME" MG
+1	"GAME"	PRG
+1	"NOTES"	PRG
+1	"LEVELS"	CBM
+1	"NEW.TXT"	PRG
+3155 blocks free.
+```
+
 ### MEGA65 SD Card Images
 
 ```
@@ -582,7 +664,7 @@ GEOS files on D64, D71, D81, D65 and D80/D82 images ([GEOS.TXT](https://ist.uwat
 
 ### Catalog (Collection Indexing)
 
-SQLite index of image collections with a CRC32 of each file's contents. It is in a disk45 built with SQLite: the Makefile detects SQLite's headers and says at the start of a build whether the catalog is in (`make check-deps` names the package to install; `make HAVE_SQLITE=` builds without it). Without SQLite `disk45 catalog` prints `disk45 catalog is not available: this disk45 was built without SQLite` and returns 1, and the usage text says so. Every subcommand accepts `--db <file>`; the default database is `~/.disk45-catalog.db`. Running `disk45 catalog` alone prints the subcommand list.
+SQLite index of image collections with a CRC32 of each file's contents. It is in a disk45 built with SQLite: the Makefile detects SQLite's headers and says at the start of a build whether the catalog is in (`make check-deps` names the package to install; `make HAVE_SQLITE=` builds without it). Without SQLite `disk45 catalog` prints `disk45 catalog is not available: this disk45 was built without SQLite` and returns 1, and the usage text says so. Every subcommand accepts `--db <file>`; the default database is `~/.disk45-catalog.db` (`disk45-catalog.db` in the current directory when `HOME` is not set; [CONFIGURATION.md](CONFIGURATION.md)). Running `disk45 catalog` alone prints the subcommand list.
 
 Indexed: every disk image format disk45 reads (`.d64 .d71 .d81 .d65 .d80 .d82 .d90 .d60 .d1m .d2m .d4m .dnp .x64 .g64 .g71 .nib .nbz .t64 .tap .ark .arc .sda .lnx .p00 .cvt`, also with `.gz`, and Zipcode sets by their `1!` file), and the disk images inside containers: each image in a `.zip` and each disk image file on a MEGA65 SD card image is indexed as its own image, with the path `pack.zip:disk.d64` or `card.img:/GAMES/X.D81` (paths that disk45's other commands open too). A GEOS file's CRC32 and size are those of its Convert (CVT) form (its info block and every VLIR record), and `search` marks it `(GEOS Application, VLIR)`; a catalog made by an older disk45 gains the column on the next build.
 

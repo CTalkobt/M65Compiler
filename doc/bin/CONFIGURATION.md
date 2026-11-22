@@ -16,6 +16,12 @@ This document describes the configuration files and environment variables the to
 
 `ln45`, `ar45`, `nm45`, `objdump45`, `basic45`, `disk45`, `pack45`, `font45`, `tune45`, `dbg45` and `deploy45` read no configuration file (`deploy45` takes its hosts, serial port and tool paths from the environment: [deploy45](deploy45.md)).
 
+Files a tool keeps without being asked:
+
+| Tool | File | What |
+|------|------|------|
+| `disk45 catalog` | `~/.disk45-catalog.db` (`$HOME/.disk45-catalog.db`; `disk45-catalog.db` in the current directory when `HOME` is not set) | The SQLite catalog every `catalog` subcommand uses unless it is given `--db <file>` (see [disk45](disk45.md#catalog-collection-indexing)) |
+
 Configuration arguments are placed in front of the command-line arguments and parsed with them, so for options that set a value (`-O2`, `-fzpcall`/`-fno-zpcall`, ...) the command line wins because it comes later.
 
 ## cc45 / cp45: `~/.config/m65/cc45.conf`
@@ -94,7 +100,7 @@ See [asmCvt45](asmCvt45.md#configuration-file-asmcvt45rc). `asmCvt45 --init-conf
 | `CC45_DUMP_IR` | cc45 | Non-empty and not starting with `0`: print the optimized IR module to stderr during code generation |
 | `CC45_OPMARK` | cc45 | Set: a `; @op …` comment before each IR instruction's code in the assembly (see [cc45](cc45.md#environment-variables)) |
 | `TMPDIR` | cc45 | Where cc45 makes its private directory of temporary files (`cc45-XXXXXX`; default `/tmp`) |
-| `HOME` | cc45, cp45, cl45, ca45, al45, af45 | Locates `~/.config/m65/` (ca45 falls back to the password database) |
+| `HOME` | cc45, cp45, cl45, ca45, al45, af45, disk45 | Locates `~/.config/m65/` (ca45 falls back to the password database); disk45: the catalog's default database, `~/.disk45-catalog.db` |
 
 ## Creating, Checking and Disabling a Configuration
 

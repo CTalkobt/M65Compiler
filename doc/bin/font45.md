@@ -176,6 +176,83 @@ font_install(0x3000UL, 2048, 0x40000UL);       /* (after loading it to $3000) */
 font_select(0x40000UL);
 ```
 
+A **segment display** needs no input: `--segments` draws it, here a 7-segment font's digits alone (`--range`):
+
+```
+$ font45 convert --segments 7 --size 24 --bpp 2 --range 48-57 -o seg7.c
+font45: 7-segment: a fixed font, 2 bpp, codes 48-57, 24 rows, 1212 bytes -> seg7.c
+$ font45 list seg7.c
+glyphs:   10 (codes 48-57)
+height:   24 (baseline 24)
+widest:   17
+widths:
+  48:17 49:17 50:17 51:17 52:17 53:17 54:17 55:17 56:17 57:17
+```
+
+A **glyph set** of the same, pre-drawn into characters: with `--fcm` the 2-bit levels become palette entries 16-18 (`--palette 16,3`: the unlit segments 16, the lit ones 18), each digit 3 x 3 full-colour characters; with `--ncm`, nibble-colour characters whose levels are a character's colours 1-3:
+
+```
+$ font45 convert --segments 16 --size 24 --bpp 2 --fcm --palette 16,3 --range 48-57 -o score.c
+font45: 16-segment: a fixed glyph set, FCM characters 3 x 3 a glyph, codes 48-57, 5824 bytes -> score.c
+$ font45 convert --segments 7 --size 16 --ncm --palette 1,3 --range 48-57 -o lcd.c
+font45: 7-segment: a fixed glyph set, NCM characters 1 x 2 a glyph, codes 48-57, 1344 bytes -> lcd.c
+```
+
+`score.h` gives the set's shape (`list` does not read a glyph set back: `font45: score.c: a glyph set (FCM / NCM characters): not read back`):
+
+```c
+/* score: a fixed glyph set, FCM characters 3 x 3 a glyph, codes 48-57 (font45) */
+#define SCORE_SIZE 5824
+#define SCORE_HEIGHT 24
+#define SCORE_BASELINE 24
+#define SCORE_FIRST 48
+#define SCORE_LAST 57
+#define SCORE_BPP 8
+#define SCORE_COLS 3
+#define SCORE_ROWS 3
+/* font_from(&f, (unsigned long)(unsigned int)score) (<font.h>) */
+extern const unsigned char score[5824];
+```
+
+The program sets palette entries 16-18 and puts digits on a 16-bit character screen with `font_put_cells(&f, screen, row_bytes, col, row, "0042")` (`examples/c/fonts` does this with exactly this font).
+
+**`preview`** draws a font as the MEGA65 would, to look at before converting:
+
+```
+$ font45 preview seg7.c -o seg7.png --text "0123"
+font45: seg7.c: 10 glyphs -> seg7.png
+$ font45 preview RussoOne-Regular.ttf --size 16 --bpp 2 --proportional --scale 3 --text "Score 1200" -o russo.png
+font45: RussoOne-Regular.ttf: 191 glyphs -> russo.png
+```
+
+`seg7.png` (1224 x 224) is the ten digits on their cells, the dim unlit segments grey, then `0123` below; `russo.png`
+(774 x 714) the font's 191 glyphs from the space to `ÿ`, 16 to a row, and the sample line.
+
+A font **packed** for loading from the disk (`--pack`: where it unpacks to; `--load-at`: a load address in front):
+
+```
+$ font45 convert RussoOne-Regular.ttf --size 16 --bpp 2 --proportional --pack 0x50000 --load-at 0x0000 -o body.bin
+font45: RussoOne-Regular.ttf: a proportional font, 2 bpp, codes 32-218, 16 rows, packed to unpack at $50000 (12167 bytes), 2419 bytes -> body.bin
+```
+
+`font_load` loads it from the program's drive to the address given and, seeing a pack45 stream, unpacks it to
+`$50000` (the 12167 bytes `--bin` alone writes):
+
+```c
+#include <font.h>
+#include <load.h>
+
+int main(void) {
+    const font_t *f = font_load("body.bin", 8, 0x40000UL);  /* loaded to $40000, unpacked to $50000 */
+    if (!f) return 1;
+    font_ramp(1, 3);                    /* levels 1-3: palette entries 1-3 */
+    font_draw_bitmap(f, 0x40000UL, 320, 10, 20, "Hello");   /* (the packed file there is spent) */
+    return f->height;                   /* 16 */
+}
+```
+
+(`cc45 -O2 fl.c -o fl.prg`, with `BODY.BIN` on its disk: exit status 16.) A font not packed loads the same way, used where it was loaded.
+
 ## Third-party code
 
 `stb_truetype.h`, `stb_image.h` and `stb_image_write.h` (`third_party/stb`, public domain or MIT; the commit is in its
