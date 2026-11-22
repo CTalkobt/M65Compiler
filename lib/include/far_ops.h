@@ -64,14 +64,19 @@ void far_memzero(far_ptr_t ptr, size_t len);
  * Pointer Arithmetic
  * ========================================================================== */
 
-/* Add offset to far pointer (stays in same bank) */
+/* Add offset to far pointer: on the linear address (bank << 16 | offset),
+ * so an offset past $FFFF carries into the next bank; the library takes
+ * offset as signed, -32768..32767 */
 far_ptr_t far_add(far_ptr_t ptr, int offset);
 
-/* Subtract offset from far pointer (stays in same bank) */
+/* Subtract offset from far pointer (on the linear address: borrows from the
+ * bank below) */
 far_ptr_t far_sub(far_ptr_t ptr, int offset);
 
-/* Difference between two far pointers (must be same bank) */
-int far_diff(far_ptr_t ptr1, far_ptr_t ptr2);
+/* ptr1 - ptr2 in bytes, on the linear addresses (the pointers may be in
+ * different banks); signed: negative when ptr1 is below ptr2, within
+ * -32768..32767 */
+signed int far_diff(far_ptr_t ptr1, far_ptr_t ptr2);
 
 /* Increment pointer by 1 byte */
 far_ptr_t far_inc(far_ptr_t ptr);
@@ -83,8 +88,10 @@ far_ptr_t far_dec(far_ptr_t ptr);
  * Comparison and Validation
  * ========================================================================== */
 
-/* Compare two far pointers (equal, less than, greater than) */
-int far_cmp(far_ptr_t ptr1, far_ptr_t ptr2);
+/* Compare two far pointers by linear address: far_cmp gives -1, 0 or 1
+ * (signed, so far_cmp(a, b) < 0 holds in cc45's default unsigned mode);
+ * far_eq / far_lt / far_gt give 1 or 0 */
+signed int far_cmp(far_ptr_t ptr1, far_ptr_t ptr2);
 int far_eq(far_ptr_t ptr1, far_ptr_t ptr2);
 int far_lt(far_ptr_t ptr1, far_ptr_t ptr2);
 int far_gt(far_ptr_t ptr1, far_ptr_t ptr2);
@@ -117,17 +124,18 @@ void far_strcpy_to_local(char* dst, far_ptr_t src, size_t max_len);
 /* Copy null-terminated string from local to far */
 void far_strcpy_from_local(far_ptr_t dst, const char* src, size_t max_len);
 
-/* Compare null-terminated strings (one in far, one local) */
-int far_strcmp(far_ptr_t str1, const char* str2);
+/* Compare null-terminated strings (one in far, one local): <0, 0, >0 by the
+ * first differing (unsigned) byte, signed */
+signed int far_strcmp(far_ptr_t str1, const char* str2);
 
 /* ============================================================================
  * Bulk Transfer Variants (Performance Hints)
  * ========================================================================== */
 
-/* Fast copy if both in same bank, cross-bank copy otherwise */
+/* The same as far_memcpy (kept for source compatibility) */
 void far_memcpy_smart(far_ptr_t dst, far_ptr_t src, size_t len);
 
-/* Streaming copy (may be optimized by DMA hardware) */
+/* The same as far_memcpy (kept for source compatibility) */
 void far_memcpy_stream(far_ptr_t dst, far_ptr_t src, size_t len);
 
 /* memcpy/strcpy/strcmp/... for every mix of local and far pointers */

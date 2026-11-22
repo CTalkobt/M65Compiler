@@ -7,7 +7,8 @@
  *   [2] strings: far_strcpy_from_local, far_strlen, far_strcmp,
  *       far_strcpy_to_local (truncating)
  *   [3] far_add carries into the next bank ($4FFFF + 1 = $50000);
- *       far_diff, far_cmp across banks
+ *       far_diff, far_cmp across banks, their signs in cc45's default
+ *       (unsigned int) mode: < 0 holds (#710)
  *   [4] far_malloc: bank 0 (the program) gives the null pointer; bank 4
  *       blocks; far_calloc zeroes; far_free then reuse (coalescing)
  *   [5] far_realloc from bank 4 to bank 5 keeps the data
@@ -53,13 +54,16 @@ int main(void) {
     far_strcpy_from_local(p, "hello far world", 64);
     far_strcpy_to_local(s, p, 6);
     OUT[2] = far_strlen(p) == 15 && far_strcmp(p, "hello far world") == 0 &&
-             far_strcmp(p, "hello") > 0 && strcmp(s, "hello") == 0;
+             far_strcmp(p, "hello") > 0 && far_strcmp(p, "hellz") < 0 && far_strcmp(p, "help") < 0 &&
+             strcmp(s, "hello") == 0;
 
     /* [3] */
     q = far_add(far_make(BANK4, 0xFFFF), 1);
     r = far_sub(q, 2);
     OUT[3] = far_bank(q) == BANK5 && far_offset(q) == 0 && far_bank(r) == BANK4 && far_offset(r) == 0xFFFE &&
-             far_diff(q, r) == 2 && far_lt(r, q) && far_cmp(q, far_make(BANK5, 0)) == 0;
+             far_diff(q, r) == 2 && far_lt(r, q) && far_cmp(q, far_make(BANK5, 0)) == 0 &&
+             far_diff(r, q) < 0 && far_diff(r, q) == -2 && far_diff(q, r) > 0 &&
+             far_cmp(r, q) < 0 && far_cmp(q, r) > 0 && far_cmp(r, q) == -1 && !far_gt(r, q);
 
     /* [4] */
     {

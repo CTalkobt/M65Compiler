@@ -4,6 +4,15 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### Far memory: signed comparison results (#710)
+
+- `far_cmp`, `far_diff`, `far_strcmp` and the far `strcmp__*` / `memcmp__*` forms of `<far_string.h>` are declared
+  `signed int` (headers and library): in cc45's default mode a plain `int` is unsigned, so `far_cmp(a, b) < 0`
+  never held. `test_far_ops_xemu.c` and `test_far_string_xemu.c` (now compiled in the default mode) check the signs.
+- `far_ops.h`'s comments: `far_add` / `far_sub` work on the linear address and carry into the next bank, and
+  `far_diff` works across banks (they said "stays in same bank" / "must be same bank"); `far_memcpy_smart` /
+  `far_memcpy_stream` are `far_memcpy`. The behaviour is unchanged.
+
 ### Documentation: what the audit found missing (#644)
 
 - New pages for a new user (#701): [troubleshooting](doc/guide/troubleshooting.md) (each symptom reproduced, its

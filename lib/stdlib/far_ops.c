@@ -149,8 +149,8 @@ far_ptr_t far_sub(far_ptr_t ptr, int offset) {
     return far_from_linear(far_linear(ptr, -(long)offset));
 }
 
-int far_diff(far_ptr_t ptr1, far_ptr_t ptr2) {
-    return (int)(far_linear(ptr1, 0) - far_linear(ptr2, 0));
+signed int far_diff(far_ptr_t ptr1, far_ptr_t ptr2) {
+    return (signed int)(far_linear(ptr1, 0) - far_linear(ptr2, 0));
 }
 
 far_ptr_t far_inc(far_ptr_t ptr) {
@@ -161,7 +161,7 @@ far_ptr_t far_dec(far_ptr_t ptr) {
     return far_sub(ptr, 1);
 }
 
-int far_cmp(far_ptr_t ptr1, far_ptr_t ptr2) {
+signed int far_cmp(far_ptr_t ptr1, far_ptr_t ptr2) {
     unsigned long a = far_linear(ptr1, 0), b = far_linear(ptr2, 0);
     return a < b ? -1 : a > b ? 1 : 0;
 }
@@ -236,7 +236,7 @@ void far_strcpy_from_local(far_ptr_t dst, const char* src, size_t max_len) {
     dma_copy_far(far_linear(dst, (long)n), LOCAL(&z), 1);
 }
 
-int far_strcmp(far_ptr_t str1, const char* str2) {
+signed int far_strcmp(far_ptr_t str1, const char* str2) {
     unsigned char buf[CHUNK];
     size_t pos = 0;
     for (;;) {
@@ -244,7 +244,7 @@ int far_strcmp(far_ptr_t str1, const char* str2) {
         dma_copy_far(LOCAL(buf), far_linear(str1, (long)pos), CHUNK);
         for (i = 0; i < CHUNK; i++) {
             unsigned char c1 = buf[i], c2 = (unsigned char)str2[pos];
-            if (c1 != c2) return (int)c1 - (int)c2;
+            if (c1 != c2) return (signed int)c1 - (signed int)c2;
             if (c1 == 0) return 0;
             pos++;
         }
