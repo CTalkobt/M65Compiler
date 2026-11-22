@@ -10,7 +10,6 @@
 ROOT = ../../../..
 CC45 = $(ROOT)/bin/cc45
 LN45 = $(ROOT)/bin/ln45
-CRT0 = $(ROOT)/lib/build/crt0.o45
 STDLIB = $(ROOT)/lib/build/c45.lib
 INCLUDES = -I$(ROOT)/lib/include
 
@@ -22,10 +21,10 @@ TARGETS = $(addsuffix .prg,$(TESTS))
 all: $(TARGETS)
 
 %.o45: %.c
-	$(CC45) $(INCLUDES) -c $< -o $@
+	$(CC45) -O2 $(INCLUDES) -c $< -o $@
 
-%.prg: %.o45 $(CRT0) $(STDLIB)
-	$(LN45) -basic -o $@ $(CRT0) $< $(STDLIB)
+%.prg: %.o45 $(STDLIB)
+	$(LN45) -basic -o $@ $< $(STDLIB)
 
 clean:
 	rm -f *.o45 *.o45.s45 *.prg

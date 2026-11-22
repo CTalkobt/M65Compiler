@@ -422,9 +422,9 @@ makes `music.c` and `music.h` as part of the build, the samples (8-bit, in
 updates the music in its main loop, and shows each voice's note and each drum
 channel's sample. Keys: SPACE stop/play, + - tempo, RUN/STOP quit. `make play`
 plays the music on the PC (`tune45 play`); `make check` builds
-`drumscheck.prg`, a test that plays 240 frames and reports. (No screenshot
-yet: `examples/capture_screens.py` does not take one, and the program is not
-on the examples disks.)
+`drumscheck.prg`, a test that plays 240 frames and reports.
+
+![drums](images/drums.png)
 
 ### forth
 
@@ -577,6 +577,8 @@ needs into the region by DMA. The text statistics call the prime sieve's
 overlay and back; each section shows which overlay the region holds.
 `make` also builds `ovldemo.d81` with both files (`make run`).
 
+![overlays](images/overlays.png)
+
 ### mapped_overlays
 
 [Source](https://github.com/CTalkobt/M65Compiler/tree/main/examples/c/mapped_overlays) —
@@ -598,6 +600,8 @@ It ends with `MAPPED OVERLAYS: 6/6 PROVEN`. Linked as copied overlays, only
 comments in `main.c` walk through the call path. `make` builds
 `mapdemo.d81`.
 
+![mapped_overlays](images/mapped_overlays.png)
+
 ### far_functions
 
 [Source](https://github.com/CTalkobt/M65Compiler/tree/main/examples/c/far_functions) —
@@ -613,6 +617,8 @@ Three files mix resident and far code:
 Each result shows the automatic overlay (`far1`) that ran it. `make`
 builds `fardemo.d81`; the map file `fardemo.map` shows the overlays and the
 stubs.
+
+![far_functions](images/far_functions.png)
 
 ### unit_convert
 
@@ -658,11 +664,10 @@ their screen is BASIC's `READY.`.
 | test_strcmp | `strcmp` | [string_h](https://github.com/CTalkobt/M65Compiler/blob/main/examples/c/stdlib/string_h/test_strcmp.c) |
 | test_strcpy | `strcpy` | [string_h](https://github.com/CTalkobt/M65Compiler/blob/main/examples/c/stdlib/string_h/test_strcpy.c) |
 | test_strlen | `strlen` | [string_h](https://github.com/CTalkobt/M65Compiler/blob/main/examples/c/stdlib/string_h/test_strlen.c) |
+| test_min_max | `min`, `max` | [math_h](https://github.com/CTalkobt/M65Compiler/blob/main/examples/c/stdlib/math_h/test_min_max.c) |
+| test_gcd_lcm | `gcd`, `lcm` | [math_h](https://github.com/CTalkobt/M65Compiler/blob/main/examples/c/stdlib/math_h/test_gcd_lcm.c) |
 
 ![test_strlen](images/test_strlen.png)
-
-`math_h` (`gcd`/`lcm`, `min`/`max`) is built and run by its own Makefile, not
-by `make -C examples`.
 
 ## Assembly
 

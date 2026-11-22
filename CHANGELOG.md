@@ -4,6 +4,19 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### Examples: no linker warning, every example documented (#643)
+
+- The starter examples (`hello_world`, `hello_linked`, `multi_module`), `unit_convert` and the four `stdlib/`
+  checks passed the stack convention's `crt0.o45` to ln45 with the ZP library, so each build warned that it
+  overrides the library's `__bp_rom` / `__bp_prog`: they link the library's own startup code now, as the other
+  examples do (no warnings).
+- `examples/README.md` lists keyboard_viewer, sample_player, fonts, overlays, mapped_overlays and far_functions.
+- `drums`, `overlays`, `mapped_overlays` and `far_functions` have screenshots (`capture_screens.py`, which now
+  also takes the two examples disks' menus); `drums` is on the demos disk.
+- `stdlib/math_h` is built by `make -C examples` (with `-O2`); its checks are in doc/examples' table.
+- Each example's folder has a short README (what it shows, its `make` targets, a link to doc/examples).
+- far_functions' title no longer prints `__far` (PETSCII has no underscore: it showed as two arrows).
+
 ### al45 style rules and the af45 formatter (#611)
 
 - **al45** `mega65-style-*` (off by default; `--checks='mega65-style-*'` or by id in `.cc45-lint.yml`), from the
