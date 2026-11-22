@@ -58,7 +58,7 @@ asmCvt45 --validate -t ca65 input.s45
 
 ### `--stats` and `--validate` output
 
-Both print to stdout instead of the converted source, a block per input file after an empty line; exit status 0, or 1 when a file could not be converted. Given together, `--stats` is done and `--validate` is not. On `src/test-resources/asmCvt45/native_ca65.s65` (a ca65 program in ca65's idioms: `.proc`, `@` and `:` labels, two `.macro`/`.define`s):
+Both print to stdout instead of the converted source, a block per input file after an empty line; exit status 0, or 1 when a file could not be converted. Given together, both are done: the `--stats` blocks, then the `--validate` blocks (exit status 1 when either failed for a file). On `src/test-resources/asmCvt45/native_ca65.s65` (a ca65 program in ca65's idioms: `.proc`, `@` and `:` labels, two `.macro`/`.define`s):
 
 ```
 $ asmCvt45 --stats -t acme native_ca65.s65
@@ -103,15 +103,15 @@ Preservation:
 $ asmCvt45 --validate -t acme native_ca65.s65
 
 Results:
-  Labels preserved:    1/12
+  Labels preserved:    12/12
   Symbols preserved:   0/0
   Directives preserved: 15/15
   Comments preserved:  0/1
-  Overall preservation: 57.1%
-  Status: ✗ LOSSY
+  Overall preservation: 96.4%
+  Status: ✓ LOSSLESS
 ```
 
-The block does not name the file (several files: their blocks in order). Labels: the source's labels whose name ends a line of the round-tripped text (`name:` alone on its line: a label followed by an instruction on its line is not found, hence `1/12` here); Symbols: the source's symbols in the target's table; Directives: all of them when the source and the target have as many, else 0; Comments: all of them when the two texts have as many `;`, else 0. Overall: the preserved share of the four together; `✓ LOSSLESS` from 95%, else `✗ LOSSY`. These are rough counts, not a check of the bytes: to know that a conversion assembles to the same program, assemble both and compare ([the guide](../architecture/asmCvt45-guide.md#checking-a-conversion)).
+The block does not name the file (several files: their blocks in order). Labels: the source's label definitions (alone on a line or before an instruction or directive) found again by name when the round-tripped text is parsed; a name defined twice (`@loop` in two scopes) counts twice. A label the target renames is not found: KickAssembler has no `@` labels, so `-t kickassembler` writes `main__loop` for `main`'s `@loop`, and `native_ca65.s65` gives `9/12`; Symbols: the source's symbols in the target's table; Directives: all of them when the source and the target have as many, else 0; Comments: all of them when the two texts have as many `;`, else 0. Overall: the preserved share of the four together; `✓ LOSSLESS` from 95%, else `✗ LOSSY`. These are rough counts, not a check of the bytes: to know that a conversion assembles to the same program, assemble both and compare ([the guide](../architecture/asmCvt45-guide.md#checking-a-conversion)).
 
 ## Configuration File (`.asmCvt45rc`)
 

@@ -4,6 +4,15 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### asmCvt45 --validate: labels found wherever they are; --stats with --validate (#713)
+
+- `--validate` counted a label only when it was alone on its line (`name:`), so a correct ca65 → acme conversion of
+  `native_ca65.s65` reported Labels `1/12` and `✗ LOSSY`. It now compares the labels of the parsed source with those
+  of the round-tripped text parsed again (a label before an instruction counts; a name defined in two scopes counts
+  twice): `12/12`, `✓ LOSSLESS`. A label the target renames (KickAssembler's `main__loop` for `@loop`) is still
+  reported as not preserved.
+- `--stats --validate` printed only the statistics; it now prints both, the `--stats` blocks first.
+
 ### cc45: typeof keeps a global's signedness, and is taken wherever a type is (#707)
 
 - `typeof(g)` of a file-scope `signed char g` was unsigned: the `signed` taken before the declaration was parsed was
