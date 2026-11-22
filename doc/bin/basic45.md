@@ -258,8 +258,8 @@ endproc                        ' return
 | `endproc` | `RETURN` and, for a proc with a `GOTO` around it, the label after it |
 | `call name` | `GOSUB name` |
 | `call name(x, y$, ...)` | `A = x : B$ = y$ : GOSUB name` — the arguments are assigned to the parameters left to right (they are ordinary, global variables) |
-| `return <expr>` (in a proc) | `ZRET = <expr> : RETURN`: the proc's result (`ZRET` is renamed like any long name) |
-| `call name(...) to v` | `... : ZRET = 0 : GOSUB name : v = ZRET` — the result into `v` (0 when the proc ends without `return <expr>`) |
+| `return <expr>` (in a proc) | `ZRET = <expr> : RETURN`: the proc's result (`ZRET$` for a string; renamed like any long name) |
+| `call name(...) to v` | `... : ZRET = 0 : GOSUB name : v = ZRET` — the result into `v` (0, or `""` for `v$`, when the proc ends without `return <expr>`) |
 | `select <expr>` | `ZSELn = <expr>` (`ZSELn$` when the expression is a string; renamed like any long name) |
 | `case 1, 2` / `case 3 to 5` / `case is > 10` | `IF ZSELn=1 OR ZSELn=2 THEN <the case's statements> : GOTO <endselect>` on one line; a range is `>=` and `<=`, `is` takes `= <> < > <= >=`; several items are or-ed. No `GOTO` for the last case or after a statement that leaves (`GOTO`, `RETURN`). A case with a label, an `IF`, `REM`, `DATA`, `BEGIN`/`BEND` or a block in it, or whose line would pass 160 characters, keeps its own lines: `IF ZSELn<>1 AND ZSELn<>2 THEN <next case>`, the statements, `GOTO <endselect>`. An item with a comparison or `AND`/`OR`/`NOT`/`XOR` outside parentheses is tested as `(ZSELn=item)` (and `(...)=0` for the opposite) |
 | `case else` | the code when no case matched |
@@ -341,11 +341,24 @@ proc tri(m) compiled
 endproc
 ```
 
-- `proc name(a, b%) compiled` … `endproc`: the parameters are numbers (floats or `%` integers); `return <expr>`
-  ends the proc with a number; `endproc` (no `return <expr>`) gives 0. `return` alone is a `GOSUB`'s, inside the proc.
+- `proc name(a, b%, c$) compiled` … `endproc`: the parameters are floats, `%` integers or strings; `return <expr>`
+  ends the proc with a number or a string; `endproc` (no `return <expr>`) gives 0 (`""` for a string's caller).
+  `return` alone is a `GOSUB`'s, inside the proc.
 - `call name(x, y) to v` assigns the arguments to the parameters as for any proc, calls the compiled proc, and puts
-  its result into `v` (a float or `%` variable, or an array element: `to x(3)`; an integer as BASIC's: `?ILLEGAL
-  QUANTITY` outside -32768..32767). Without `to v` the result is dropped.
+  its result into `v` (a float, `%` or string variable, or an array element: `to x(3)`; an integer as BASIC's:
+  `?ILLEGAL QUANTITY` outside -32768..32767; a string for a number's caller, or a number for a string's, `?TYPE
+  MISMATCH`). Without `to v` the result is dropped.
+- **Strings** (#680): a string parameter's characters are copied from BASIC's string space (its descriptor at its
+  `POINTER`: length, address; the characters in bank 1). A string result cannot be made in BASIC's string space
+  from outside, so the call keeps a 255-character `ZBUF$` (made by a generated subroutine the first time, and
+  again after `CLR`, by concatenation: ROM 920413's interpreter has no `RPT$`): the compiled proc writes the
+  result's characters into `ZBUF$`'s own (its length unchanged, BASIC's garbage collection undisturbed), the
+  thunk returns how many, and the call takes `v$ = LEFT$(ZBUF$, n)`.
+- **Calls between compiled procs** (#681): `call g(x) to v` in a compiled proc calls compiled proc `g` by a
+  `GOSUB` inside their program (its parameters assigned, the result through `ZRET` / `ZRET$`); `return <expr>`
+  inside such a call is the `GOSUB`'s return (the compiler counts the `GOSUB`s open), at the top it goes back to
+  BASIC. Recursion works as BASIC's does: the parameters and variables are global (`call fact(acc * n, n - 1)`
+  assigns `acc` before `n` changes). A compiled proc cannot call an interpreted one (an error).
 - **The values cross by `POINTER`**: the call writes the result's and the parameters' `POINTER`s (BASIC 65's
   variable addresses: bank 0 from `$F700`, else bank 1) and the proc's number with one `WPOKE` (in `BANK 0`), then
   `SYS`es the compiled code (in `BANK 128`, as for `--link`). The compiled proc reads its parameters there
@@ -361,12 +374,15 @@ endproc
   are not the program's) and ends the program (the thunk returns the error number, the call's `RREG` reads it, and an
   `ON ... GOTO` leaves for an `END` after the last line). A `TRAP` does not catch it: BASIC 65 has no statement that
   raises an error by its number, and its error routine cannot be reached from a `SYS`.
-- Not yet: string parameters and results, a compiled proc calling a proc (`call` in one is an error), `GOTO` or
-  `GOSUB` out of it (its labels are its own: an undefined label), `asm` / `incbin` in one, `{name}` symbols in one.
+- **Jumps** (#682): a compiled proc's labels are its own. A `GOTO`, `GOSUB`, `ON … GOTO` / `GOSUB`, `THEN` /
+  `ELSE` label, `TRAP`, `RESTORE` or `RESUME` to a label outside it is an error at its line (`goto top: a compiled
+  proc cannot jump out of itself`); to another compiled proc's label too (`call` it).
+- Not yet: arrays as parameters (#683), `asm` / `incbin` in a compiled proc, `{name}` symbols in one.
 - With `--compile` (the whole program compiled) a compiled proc is an ordinary one, its parameters global as any
   proc's; the results are the same where the proc does not change its parameters.
 
-Test: `test_basic45_mixed_xemu.bas` (as is, `--minify`, `--compile`; with `--checks`), `test_basic45.sh` (the errors).
+Test: `test_basic45_mixed_xemu.bas` (as is, `--minify`, `--compile`; with `--checks`: numbers, strings, calls
+between compiled procs, recursion), `test_basic45.sh` (the errors).
 
 **With `--compile`** (`basic45 --compile --link routines.c menu.bas -o menu.prg`), the compiled program and the
 linked code are one link (`ln45 -basic`): the program already runs as C, so `SYS {name}` calls the function

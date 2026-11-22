@@ -18,7 +18,12 @@
 '   [8] many calls: the sum of 1..k over k = 1..20 (1540)
 '   [9] a result out of an integer's range: ?ILLEGAL QUANTITY (--checks) in
 '       the compiled proc ends the program (the POKE after it never runs)
-'  [10] $AA sentinel
+'  [10] a string parameter and a string result (#680): reversed
+'  [11] a string through a compiled proc's call of another (#680, #681), and
+'       the caller's variable unchanged
+'  [12] a compiled proc calling compiled procs, results back (#681)
+'  [13] a recursive compiled proc (#681): 7! by an accumulator
+'  [14] $AA sentinel
 start: a = 3 : b = 4.5
   call add(a, b) to r
   if r = 7.5 then poke 49344, 1
@@ -39,9 +44,45 @@ start: a = 3 : b = 4.5
   s = 0
   for k = 1 to 20 : call tri(k) to t : s = s + t : next
   if s = 1540 then poke 49352, 1
-  poke 49354, 170
+  call rev("hello") to r$
+  if r$ = "olleh" then poke 49354, 1
+  a$ = "ab" : call wrap(a$, 3) to r$
+  if r$ = "<ab:3>" and a$ = "ab" then poke 49355, 1
+  call hyp(3, 4) to h
+  if h = 25 then poke 49356, 1
+  call fact(1, 7) to f
+  if f = 5040 then poke 49357, 1
+  poke 49358, 170
   poke 49353, 1 : call sq(200) to n% : poke 49353, 0
   end
+
+proc rev(s$) compiled
+  t$ = ""
+  for i = 1 to len(s$) : t$ = mid$(s$, i, 1) + t$ : next
+  return t$
+endproc
+
+proc wrap(x$, k) compiled
+  call same(x$) to y$
+  return "<" + y$ + ":" + mid$(str$(k), 2) + ">"
+endproc
+
+proc same(z$) compiled
+  return z$
+endproc
+
+proc hyp(ha, hb) compiled
+  call sq(ha) to s1
+  call sq(hb) to s2
+  return s1 + s2
+endproc
+
+' (arguments are assigned left to right: acc before fk changes)
+proc fact(acc, fk) compiled
+  if fk <= 1 then return acc
+  call fact(acc * fk, fk - 1) to fr
+  return fr
+endproc
 
 proc add(p, q) compiled
   return p + q

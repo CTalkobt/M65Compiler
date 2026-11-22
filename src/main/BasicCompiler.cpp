@@ -311,6 +311,11 @@ private:
     bool mixed() const { return chainOpt_ && chainOpt_->mixed; }
     void mixedEntry();
     void mixedReturn();
+    void mixedDepth(int d) {
+        vars_["__bas_pdep"] = ir::Type::I8;
+        auto g = ir::Operand::global("__bas_pdep");
+        store(ir::Type::I8, bin(ir::Op::ADD, ir::Type::I8, load(ir::Type::I8, g), ir::Operand::imm(d & 0xFF, ir::Type::I8)), g);
+    }
     const std::vector<Line>& lines_;
     std::string source_;
     const NarrowMap& narrow_;
@@ -424,7 +429,7 @@ private:
             "__bas_left", "__bas_right", "__bas_chr", "__bas_str", "__bas_iline", "__bas_iitem", "__bas_iitemn", "__bas_get", "__bas_st", "__bas_clrch",
             "__bas_ti", "__bas_tis", "__bas_dts", "__bas_restore", "__bas_rnd", "__bas_int", "__float_sin", "__float_cos",
             "__float_tan", "__float_atn", "__float_abs", "__bas_mvget", "__bas_mvput", "__bas_mvarg",
-            "__bas_vget", "__bas_vputf", "__bas_vputi",
+            "__bas_vget", "__bas_vputf", "__bas_vputi", "__bas_vgets", "__bas_vputs",
             "__bas_sprcol", "__bas_sprclr", "__bas_sprgs", "__bas_sprcp", "__bas_sprirq"};
         // (with CMD, PRINT's output can go to a file: an error)
         if (!safe.count(f) || (cmdUsed_ && f.compare(0, 8, "__bas_pr") == 0)) raises();
@@ -4724,6 +4729,8 @@ void Compiler::mixedEntry() {
     }
     toks_ = &none;
     p_ = 0;
+    vars_["__bas_pdep"] = ir::Type::I8;
+    store(ir::Type::I8, iconst(ir::Type::I8, 0), ir::Operand::global("__bas_pdep"));
     auto sel = load(ir::Type::I8, global("__bas_psel"));
     for (size_t k = 0; k < mixed_.size(); k++) {
         std::string go = newLabel("mproc"), next = newLabel("mnext");
@@ -4734,9 +4741,20 @@ void Compiler::mixedEntry() {
             const std::string& name = mixed_[k].params[i];
             LV lv;
             lv.g = varGlobal(name, lv.k);
-            if (lv.k == VK::S) { errors.push_back({lines_[li_].num, "a compiled proc's parameter is a number: " + name}); continue; }
             auto a = addrElem(global("__bas_parg"), iconst(ir::Type::I8, (int64_t)i), 2);
             store(ir::Type::I16, load(ir::Type::I16, a), global("__bas_n"));
+            if (lv.k == VK::S) {
+                // a string (#680): its characters copied from the interpreter's
+                Val v;
+                v.k = VK::S;
+                v.slot = newSlot();
+                v.op = slotAddr(v.slot);
+                store(ir::Type::PTR, v.op, global("__bas_sr"));
+                call("__bas_vgets");
+                assignLV(lv, v);
+                slots_ = 0;
+                continue;
+            }
             store(ir::Type::I16, iconst(ir::Type::I16, lv.k == VK::I ? 1 : 0), global("__bas_m"));
             call("__bas_vget");
             Val v;
@@ -4757,8 +4775,47 @@ void Compiler::mixedEntry() {
 // ?ILLEGAL QUANTITY outside -32768..32767), then back to BASIC
 void Compiler::mixedReturn() {
     Val v = expr();
-    if (v.k == VK::S) fail("a compiled proc returns a number, not a string (?TYPE MISMATCH)");
+    // inside a GOSUB (a call of a compiled proc from one, #681, or the proc's
+    // own): the GOSUB's RETURN, the value in ZRET already (basic45's lowering)
+    {
+        std::string nested = newLabel("rnest"), top = newLabel("rtop");
+        brCond(bin(ir::Op::CMP_NE, ir::Type::I8, load(ir::Type::I8, ir::Operand::global("__bas_pdep")),
+                   ir::Operand::imm(0, ir::Type::I8)), nested, top);
+        block(nested);
+        returnStmt();
+        block(top);
+    }
     auto kind = load(ir::Type::I8, global("__bas_pkind"));
+    if (v.k == VK::S) {
+        // a string (#680) into ZBUF$ (kind 3); a number's caller: ?TYPE MISMATCH
+        std::string st = newLabel("rstr"), bad = newLabel("rbad");
+        brCond(bin(ir::Op::CMP_EQ, ir::Type::I8, kind, ir::Operand::imm(3, ir::Type::I8)), st, bad);
+        block(bad);
+        brCond(bin(ir::Op::CMP_EQ, ir::Type::I8, kind, ir::Operand::imm(0, ir::Type::I8)), "Lend", errLabel(22));
+        block(st);
+        store(ir::Type::PTR, v.op, global("__bas_sa"));
+        store(ir::Type::I16, load(ir::Type::I16, global("__bas_pres")), global("__bas_n"));
+        call("__bas_vputs");
+        freeVal(v);
+        br("Lend");
+        block(newLabel("dead"));
+        return;
+    }
+    {
+        // a number for a string's caller: ?TYPE MISMATCH; but endproc's
+        // RETURN 0, which is "" for a string's caller
+        std::string ok = newLabel("rnum"), sv = newLabel("rs0");
+        brCond(bin(ir::Op::CMP_EQ, ir::Type::I8, kind, ir::Operand::imm(3, ir::Type::I8)),
+               v.isConst && v.cval == 0 ? sv : errLabel(22), ok);
+        if (v.isConst && v.cval == 0) {
+            block(sv);
+            store(ir::Type::PTR, strLit("").op, global("__bas_sa"));
+            store(ir::Type::I16, load(ir::Type::I16, global("__bas_pres")), global("__bas_n"));
+            call("__bas_vputs");
+            br("Lend");
+        }
+        block(ok);
+    }
     std::string fl = newLabel("rflt"), nf = newLabel("rnf"), in = newLabel("rint");
     brCond(bin(ir::Op::CMP_EQ, ir::Type::I8, kind, ir::Operand::imm(1, ir::Type::I8)), fl, nf);
     block(fl);
@@ -5261,6 +5318,8 @@ void Compiler::ifStmt() {
 }
 
 void Compiler::gosubTo(size_t target) {
+    // (compiled procs, #681: the GOSUBs open, for RETURN <expr>)
+    if (mixed()) mixedDepth(1);
     std::string ret = newLabel("ret");
     pushRet(ret);
     br(lineLabel(target));
@@ -5291,6 +5350,7 @@ void Compiler::pushRet(const std::string& ret) {
 }
 
 void Compiler::returnStmt() {
+    if (mixed()) mixedDepth(-1);
     // FOR and DO entries above the GOSUB's are dropped
     if (!speed_) {
         // (the run time's pop: the address in A/X; #580)

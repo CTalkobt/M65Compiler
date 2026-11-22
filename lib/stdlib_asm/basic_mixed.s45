@@ -8,6 +8,14 @@
 ;                 -> __float_a (5 bytes) / __bas_n (the integer, low first)
 ;   __bas_vputf   __bas_n: a POINTER; __float_a written there (5 bytes)
 ;   __bas_vputi   __bas_n: a POINTER; __bas_m written there (2 bytes)
+;   __bas_vgets   __bas_n: a string's POINTER (its descriptor: length,
+;                 address low, high); its characters into __bas_sr's buffer
+;                 (a length byte, then the characters; #680)
+;   __bas_vputs   __bas_n: the POINTER of basic45's ZBUF$ (its characters
+;                 written in place: the length kept, BASIC's string space
+;                 untouched); __bas_sa: the string (a length byte, then the
+;                 characters), as many as fit; __bas_plen: how many (the
+;                 thunk gives it to the CALL, which takes LEFT$(ZBUF$, n))
 ;
 ; BASIC 65's variables (b65.src: ptrget): a scalar's value in bank 0 at
 ; $F700-$FEFF, an array's in bank 1 (POINTER's rule: an address from $F700
@@ -17,10 +25,11 @@
 .weak cc45.icallinfo
 cc45.icallinfo = 1
 
-.global __bas_vget, __bas_vputf, __bas_vputi
-.extern __bas_n, __bas_m, __float_a
+.global __bas_vget, __bas_vputf, __bas_vputi, __bas_vgets, __bas_vputs
+.extern __bas_n, __bas_m, __float_a, __bas_sr, __bas_sa, __bas_plen
 
 FP = $08                ; the variable (a 32-bit pointer)
+SP = $0C                ; the compiled program's string (16 bits)
 
 .segment "code"
 
@@ -85,5 +94,70 @@ proc __bas_vputi
     inz
     lda __bas_m
     sta [FP],z
+    rts
+endproc
+
+; FP := the descriptor's string: its length in X (0: none to read)
+proc __bas_vdesc
+    jsr __bas_vaddr
+    ldz #0
+    lda [FP],z              ; length
+    sta __bas_m
+    inz
+    lda [FP],z              ; address low
+    pha
+    inz
+    lda [FP],z              ; high
+    sta __bas_n+1
+    pla
+    sta __bas_n
+    jsr __bas_vaddr
+    ldx __bas_m
+    rts
+endproc
+
+proc __bas_vgets
+    jsr __bas_vdesc
+    lda __bas_sr
+    sta SP
+    lda __bas_sr+1
+    sta SP+1
+    ldy #0
+    txa                     ; (its flags for the BEQ: after LDY)
+    sta (SP),y
+    beq @done
+    ldz #0
+@c: lda [FP],z
+    iny
+    sta (SP),y
+    inz
+    dex
+    bne @c
+@done:
+    rts
+endproc
+
+proc __bas_vputs
+    jsr __bas_vdesc         ; X: ZBUF$'s length
+    lda __bas_sa
+    sta SP
+    lda __bas_sa+1
+    sta SP+1
+    ldy #0
+    txa
+    cmp (SP),y              ; the fewer of the two
+    bcc @n
+    lda (SP),y
+@n: sta __bas_plen
+    tax
+    beq @done
+    ldz #0
+@c: iny
+    lda (SP),y
+    sta [FP],z
+    inz
+    dex
+    bne @c
+@done:
     rts
 endproc

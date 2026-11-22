@@ -1507,7 +1507,7 @@ for mxmode in "|" "m|--minify" "c|--compile"; do
     echo "Testing test_basic45_mixed_xemu.bas $mxflags..."
     if ./bin/basic45 --strict --checks $mxflags src/test-resources/test_basic45_mixed_xemu.bas \
            -o build/test/test_basic45_mixed$mxname.prg >/dev/null 2>&1; then
-        run_xemu_test "test_basic45_mixed$mxname" "build/test/test_basic45_mixed$mxname.prg" "C0C0" 11 "01 01 01 01 01 01 01 01 01 01 AA"
+        run_xemu_test "test_basic45_mixed$mxname" "build/test/test_basic45_mixed$mxname.prg" "C0C0" 15 "01 01 01 01 01 01 01 01 01 01 01 01 01 01 AA"
     else
         echo "FAIL: test_basic45_mixed_xemu.bas $mxflags (basic45 failed)"
         failed=$((failed + 1))

@@ -648,19 +648,21 @@ mp_case() {   # file text, expected message
     out=$($B "$D/mp.bas" -o "$D/mp.prg" 2>&1)
     { [ $? = 1 ] && grep -qF "$2" <<< "$out"; } || { mp_ok=0; echo "  $2: $out"; }
 }
-mp_case 'call f(1) to a$\nend\nproc f(x) compiled\n  return x\nendproc\n' "mp.bas:1:1: error: call f to a\$: a compiled proc's result is a number"
-mp_case 'call f("a")\nend\nproc f(x$) compiled\n  print x$\nendproc\n' "mp.bas:3:1: error: proc f compiled: a parameter is a float or % variable, not x\$"
-mp_case 'call f(1)\nend\nproc f(x) compiled\n  call g\nendproc\nproc g\nendproc\n' "mp.bas:4:1: error: call g: a compiled proc cannot call a proc"
+mp_case 'call f(1) to a&\nend\nproc f(x) compiled\n  return x\nendproc\n' "mp.bas:1:1: error: call f to a&: a compiled proc's result is a float, % or string variable"
+mp_case 'call f(1)\nend\nproc f(x&) compiled\n  print x&\nendproc\n' "mp.bas:3:1: error: proc f compiled: a parameter is a float, % or string variable, not x&"
+mp_case 'call f(1)\nend\nproc f(x) compiled\n  call g\nendproc\nproc g\nendproc\n' "mp.bas:4:1: error: call g: a compiled proc calls only compiled procs (g is not one)"
 mp_case 'return 5\n' "mp.bas:1:1: error: return 5: a value is returned only from a proc"
 mp_case 'call g to v\nend\n' "mp.bas:1:1: error: call g to v: no proc g"
-mp_case 'call f(1) to v\nend\nproc f(x) compiled\n  return "a"\nendproc\n' "error: a compiled proc returns a number, not a string"
+# #682: a jump out of a compiled proc, or into another
+mp_case 'top: call f(1)\nend\nproc f(x) compiled\n  if x then goto top\nendproc\n' "mp.bas:4:1: error: goto top: a compiled proc cannot jump out of itself (top is not one of its labels)"
+mp_case 'call f(1)\nend\nproc f(x) compiled\n  on x gosub .a, g2\n.a: return\nendproc\nproc g compiled\ng2: return 1\nendproc\n' "mp.bas:4:1: error: gosub g2: g2 is in compiled proc g (call it)"
 # the call: one WPOKE of the block, the SYS, the error exit
 printf 'call f(2, 3) to v%%\nprint v%%\nend\nproc f(x, y%%) compiled\n  return x * y%%\nendproc\n' > "$D/mq.bas"
 if $B -v "$D/mq.bas" -o "$D/mq.prg" > "$D/mq.log" 2>&1; then :; else mp_ok=0; cat "$D/mq.log"; fi
 if [ $mp_ok = 1 ]; then
-    pass "compiled procs: misuse reported at its line (#577)"
+    pass "compiled procs: misuse reported at its line (#577, #682)"
 else
-    fail "compiled procs' errors (#577)"
+    fail "compiled procs' errors (#577, #682)"
 fi
 
 echo "basic45 tests: $passed passed, $failed failed"
