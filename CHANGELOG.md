@@ -4,6 +4,32 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### Documentation: what the audit found missing (#644)
+
+- New pages for a new user (#701): [troubleshooting](doc/guide/troubleshooting.md) (each symptom reproduced, its
+  messages checked by `test_guides.py`), a [glossary](doc/guide/glossary.md), [editors and IDEs](doc/guide/ide.md)
+  (the language server, the VS Code extension, the `cc45` debug type) and [CONTRIBUTING.md](CONTRIBUTING.md);
+  README: libca45, the install table as `make install` writes it, a shorter "Design" section.
+- cc45 (#702): every optimization-catalog switch; `-O3` also turns off `-ffloat-copy-call`; `-floop-idioms`; the
+  environment variables (options underneath, debugging ones of every tool); examples of `__regparm`, `__fastcall__`,
+  `__dma_copy`/`__dma_fill`, inheritance, GCC vectors, the two-pass `-fzp-plan` build, a `__bank` program,
+  `-Roptir`/`-Rcodegen`; the BNF's declarations and the extension expressions.
+- ca45 / al45 / cl45 (#703): worked examples of `.segmentOrder`, `.zpsym`/`.zar`, `.bptop`, `.split`/`.keep`/`.ref`;
+  a finding per lint rule and `--suggest-clobbers`; all seven `options:` keys. calling-conventions.md: the base-page
+  wrappers, `__rom_call`, `__jsr`, the indirect-call markers (§10), `__far`/`__bank` call paths (§11). ir.md:
+  `far_load`, `near_load`, `vec_bin`, `trampoline`.
+- ln45 / objdump45 / ar45 (#704): maps of `__far`, `__bank`, two-bank and attic overlays; `--section`,
+  `--gc-inputs`/`--print-gc`, `ln45 -g` with dbg45; objdump45 `-g`, "Link sections", `--tree`; the remaining
+  ln45 and ar45 messages, ln45's exit status and summary lines.
+- stdlib.md (#705): `far_ops.h`, `far_string.h`, `tgi.h` and `bitset.h` function by function; usage examples
+  (containers, far / attic memory, tgi, conio full colour, sprites, seam, fonts, tunes, serial, file I/O), all
+  run in xemu.
+- basic45, dbg45, deploy45, disk45, pack45, font45, tune45, asmCvt45, CONFIGURATION, DOCKER (#706): output from
+  real runs (dbg45 session and DAP exchange, `deploy45 --dry-run`, `disk45 diff`/`edit`/mounts, tune45 loops and
+  samples, font45 colour fonts and `font_load`, asmCvt45 `--stats`/`--validate`), explicit `-O2` in the Docker
+  examples.
+- Problems found on the way, documented as they behave: #707-#716.
+
 ### Getting-started tutorials (#694, #695, #696)
 
 - `doc/guide/`: [C with cc45](doc/guide/getting-started-c.md) (a first program; xemu, a D81, a MEGA65; several
