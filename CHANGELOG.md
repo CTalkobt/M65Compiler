@@ -21,6 +21,11 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 - `far_ops.h`'s comments: `far_add` / `far_sub` work on the linear address and carry into the next bank, and
   `far_diff` works across banks (they said "stays in same bank" / "must be same bank"); `far_memcpy_smart` /
   `far_memcpy_stream` are `far_memcpy`. The behaviour is unchanged.
+### basic45 --convert=tsbneo: the header names TSBneo (#711)
+
+- The comment a `--convert=tsbneo` conversion starts with said "converted from Simons' BASIC (C64) by basic45
+  --convert=simons"; it is now "converted from TSBneo (C64) by basic45 --convert=tsbneo". `test_basic45.sh` checks
+  each dialect's header (basic7, basic35, simons, tsbneo, basic8); basic45.md's TSBneo listing shows the new one.
 
 ### Documentation: what the audit found missing (#644)
 
