@@ -359,6 +359,82 @@ KERNAL and BASIC routines expect B=0, so calls to them are bracketed by:
 - `jsr __bp_prog`: restores the program's page and preserves A/X/Y/Z and
   the flags.
 
+Both are in crt0 (`lib/crt0.s45`):
+
+```
+__bp_rom:   pha / lda #0 / tab / pla / rts
+__bp_prog:  php / pha
+            lda __isr_depth         ; in an __interrupt handler: its own page
+            bne @isr
+            lda #>__zp_page
+            bra @set
+@isr:       lda #>__zp_page_isr
+@set:       tab / pla / plp
+            jmp __ovl_rom_leave     ; weak rts; mapped overlays: map the overlay again
+```
+
+The library's `putchar` (`lib/stdlib_asm/putchar.s45`) is the pattern:
+
+```
+    lda $10                 ; the character (ZP convention)
+    phz
+    jsr __bp_rom
+    jsr $FFD2               ; CHROUT
+    jsr __bp_prog
+    plz
+```
+
+The bracket switches only B: the routine runs on the program's stack (the
+16-bit one at `__stack_top` by default). That is enough for CHROUT to the
+screen and for GETIN, not for the KERNAL's disk code, which needs the page-1
+stack. `__rom_call` (`lib/stdlib_asm/rom_call.s45`, linked only when used)
+calls the routine whose address is in `___cbm_target` with B=0 *and* the
+caller's 8-bit page-1 stack (the one saved at startup), with interrupts off
+while SP changes: A, X, Y, Z and the flags go in and come back as for a
+direct `JSR` (C for PLOT), and it returns through `__bp_prog`. With
+`-fno-stack16` it is the bracket above. `__rom_calli` is the same call with
+the address in the word after the `JSR` (`jsr __rom_calli` / `.word $FFD2`:
+5 bytes instead of 13 for storing `___cbm_target` and `jsr __rom_call`);
+it returns past the word. al45's `mega65-rom-call-bp` reports a `jsr` to
+`$E000` and up outside such a bracket (`doc/bin/al45.md`).
+
+`__jsr` (cc45) is the way to call an address from C: a ROM address
+(`$C000` and up) goes through `__rom_calli`, `__jsr_raw` and a program's own
+routine through a plain `jsr`. The values go in registers and the results
+come back from them (through the library's `___jsr_x` / `___jsr_a` … bytes of
+`stdlib_asm/cbm_args.s45` when a value has no address of its own or must be
+kept after the call). From `cc45 -O2 -S`:
+
+```c
+extern void my_routine(void);
+unsigned char row;
+void show(unsigned char c) {
+    __jsr(0xFFD2, .A = c);                      /* ROM: through __rom_calli */
+    __jsr(0xFFF0, .Carry = 1, .X -> row);       /* PLOT: X into row */
+    __jsr_raw(my_routine, .A = 1);              /* direct jsr */
+}
+```
+
+```
+    lda $10
+     jsr __rom_calli
+ .word $FFD2
+     sec
+ jsr __rom_calli
+ .word $FFF0
+ stx ___jsr_x
+    lda ___jsr_x
+    sta _row
+ lda #$01
+ jsr _my_routine
+@__return:
+    rts
+```
+
+(in an object the last `jsr` / `rts` become a `jmp _my_routine`). The
+`<cbm.h>` wrappers are such calls; the syntax is in
+[cc45.md](../bin/cc45.md#calling-an-address-__jsr-__jsr_raw-__jmp).
+
 The float runtime (`lib/src/float_rom.s45`) brackets its ROM calls the same
 way, but reaches the BASIC 65 ROM's float routines through the library's own
 map switch, `__float_romcall` (`lib/stdlib_asm/float_map.s45`, #614), not the
@@ -516,7 +592,148 @@ Clobber metadata:
 - `nm45 -f file.o45` shows them, for example
   `_sub2 [stack_call leaf ... regs:AX flags:CNZV]`.
 
-## 10. Inspecting
+## 10. Calls through pointers: the call-graph markers
+
+ln45's call graph (the SAC overlay, the base-page blocks, the
+`__interrupt` checks, the overlay checks) has an edge for each direct
+`JSR` / tail `JMP`. A call through a pointer is not one, so the objects say
+what they may call that way, as absolute symbols of value 1 (no bytes):
+
+| Symbol | Exported by | Means |
+|---|---|---|
+| `cc45.icallinfo` (weak) | every object cc45 makes (`-c`) | This object marks its functions: one that does not export `cc45.icall.<f>` / `cc45.isig.<f>.*` makes no call through a pointer, and its labels not saying `cc45.fsig` are not called through pointers |
+| `cc45.icall.<f>` (global) | `<f>` calls through a pointer of unknown type (unprototyped, `void (*)()`), or has inline asm | `<f>` may call every function whose address is used |
+| `cc45.isig.<f>.<sig>` (weak) | `<f>` calls through a prototyped pointer | `<f>` may call the address-taken functions of signature `<sig>` |
+| `cc45.fsig.<f>.<sig>` (weak) | every function `<f>` | `<f>`'s own signature |
+
+`<sig>` is the parameter slots: `s`, then each slot's size joined by `_`
+(at least 2: a `char` is `2`), `v` at the end for `...`. `int f(int)` is `s2`, `int f(int, long)`
+`s2_4`, `void f(void)` `s`.
+
+ln45 (`O45Linker::buildCallGraph`):
+
+- A function with `cc45.icall.<f>` gets an edge to every function whose
+  address is used (a relocation outside a `JSR`/`JMP` operand: a table, an
+  `lda #<f`), but itself.
+- One with only `cc45.isig.<f>.<sig>` gets an edge to each address-taken
+  function whose `cc45.fsig` is `<sig>` or `any`, and to those that say no
+  signature, unless their object has `cc45.icallinfo`.
+- Every text label of an object without `cc45.icallinfo` (hand-written
+  asm, an old object) counts as `cc45.icall.<label>`. Library asm that makes
+  no such calls exports `cc45.icallinfo` itself, and marks the labels that
+  do: `rom_call.s45` exports `cc45.icallinfo` and `cc45.icall.__rom_call`.
+  A label it exports that is called through pointers says
+  `cc45.fsig.<label>.any`.
+
+So an asm object without the marker makes all its functions "call
+anything": correct, but every SAC function whose address is used then
+shares no storage with them. ln45 `-M` lists the result ("Calls Through
+Pointers"; also `-vv`). From
+
+```c
+typedef int (*op_t)(int);
+static int twice(int x) { return x * 2; }
+static int neg(int x) { return -x; }
+static void hello(void) {}
+op_t ops[2] = { twice, neg };
+void (*hook)() = hello;
+int run(int i, int v) { op_t f = ops[i]; return f(v); }
+void fire(void) { hook(); }
+int main(void) { fire(); return run(0, 1) == 2 ? 0 : 1; }
+```
+
+```text
+$ cc45 -O2 -c ptr.c -o ptr.o45 && nm45 ptr.o45 | grep 'cc45\.[if]'
+00000001 W cc45.fsig._fire.s
+00000001 W cc45.fsig._hello__ptr.s
+00000001 W cc45.fsig._main.s
+00000001 W cc45.fsig._neg__ptr.s2
+00000001 W cc45.fsig._run.s2_2
+00000001 W cc45.fsig._twice__ptr.s2
+00000001 A cc45.icall._fire
+00000001 A cc45.icall._main
+00000001 W cc45.icallinfo
+00000001 W cc45.isig._main.s2
+00000001 W cc45.isig._run.s2
+$ ln45 -basic -M ptr.map -o ptr.prg ptr.o45 lib/build/c45.lib
+$ grep -A5 '^Calls Through' ptr.map
+Calls Through Pointers
+----------------------
+  call graph: _fire calls through any pointer
+  call graph: _main calls through any pointer
+  call graph: _main calls through pointers s2
+  call graph: _run calls through pointers s2
+```
+
+(further lines: `call graph: address of _twice__ptr used, parameters s2`,
+… and the library's address-taken symbols). `_main` has both because
+`fire` and `run` are inlined into it. `_run` reaches `_twice__ptr` and
+`_neg__ptr`, not `_hello__ptr` (`s`).
+
+## 11. `__far` and `__bank` functions: the overlay call path
+
+A `__far` function is code in a code overlay (`far1`, `far2`, …: ln45 packs
+the objects' `far` text sub-segments into 8 KB mapped overlays); a
+`__bank(n)` function's overlay is kept in bank n (`far.n`). Its caller does
+not know: it calls `_f` as any function, in either convention. ln45 defines
+`_f` as a resident 6-byte stub and links the function itself at the overlay
+region:
+
+```
+_f:     jsr __ovl_calli
+        .byte id            ; the overlay's number, 1-255
+        .word f             ; the function in the region
+```
+
+(21 bytes, `sta __ovl_sa` / `lda #id` / … / `jmp __ovl_call`, with ln45
+`--overlay-fast-stubs`). `__ovl_calli` reads the id and the address after
+its return address and pulls that address off, so the caller's own return
+address is on top again; `__ovl_call` (`lib/stdlib_asm/ovl.s45`) moves it
+to the overlay return stack with the overlay to bring back, maps the
+overlay in (or copies it by DMA), and jumps to the function with its
+return address replaced by `__ovl_ret`'s. The stack is otherwise as the
+caller left it, so both conventions find their arguments (the ZP block or
+the stack) where they expect them; A, X, Y, Z go in unchanged and come back
+as the function left them, the flags too. A call from inside the same
+overlay is a direct `JSR`. A function pointer to `_f` (taken anywhere) is
+the stub's address, so calls through pointers take the same path. A SAC
+`__far` function's `_f__sac` entry is in the overlay (`$6000` below).
+
+```c
+__far int triple(int x) { return x * 3; }
+int (*fp)(int) = triple;
+int main(void) { return triple(2) + fp(1) == 9 ? 0 : 1; }
+```
+
+```text
+$ cc45 -O2 -c farfn.c -o farfn.o45
+$ ln45 -basic -M farfn.map -o farfn.prg farfn.o45 lib/build/c45.lib
+Code overlays: farfn.ov1 (11 bytes; loaded as FARFN.OV1), described in farfn.ovd
+Linked 1 object to farfn.prg (1590 bytes)
+$ grep '_triple ' farfn.map
+  $0003  cc45.sacsize._triple           farfn.o45
+  $2587  _triple                        farfn.o45  [uses:- clob:- rel:- regs:AXY]  [stub: overlay far1, $6000]
+    $6000  _triple                        bank 5 $0000   farfn.o45  (stub $2587)
+  _triple -> __mul16y
+  call graph: address of _triple used, parameters s2
+$ objdump45 -d farfn.prg
+    ...
+    212f:	20 87 25    	jsr	$2587	; <_triple>
+    ...
+00002587 <_triple>:
+    2587:	20 d4 21    	jsr	$21d4	; <__ovl_calli>
+    258a:	01 00       	ora	($00,x)
+    258c:	60          	rts
+```
+
+The stub's last three bytes are its data, disassembled as code: id `01`,
+the address `$6000`. `fp`'s initial value is `$2587`, the stub. The program
+exits 0 in xemu with `FARFN.OV1` on its `-8` disk. Limits: no
+`__interrupt` handler may be, or reach, an overlay function (the runtime is
+not reentrant: a link error); calls through overlays nest 32 deep
+(`--overlay-depth`). The rest is in [ln45](../bin/ln45.md#code-overlays).
+
+## 12. Inspecting
 
 ```bash
 mkdir -p build/tmp && cd build/tmp

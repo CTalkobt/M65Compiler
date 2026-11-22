@@ -221,6 +221,136 @@ Format rules, from `IRPrinter.cpp`:
   shown).
 - `; file:line` is appended when the instruction has a source location.
 
+### Far and near pointers, vectors, trampolines
+
+All from `CC45_DUMP_IR=1 ./bin/cc45 -O2 -S x.c`.
+
+**`far_load` / `far_store`, `near_load` / `near_store`.** A far pointer is an
+`i32` (a 28-bit address), a near pointer an `i8` (a base-page offset):
+
+```c
+unsigned char __far *fp;
+unsigned char __near *np;
+unsigned char get(void) {
+    *fp = 1;
+    *np = 2;
+    return fp[3] + *np;
+}
+```
+
+```
+fn _get() -> i8 [fastcall] {
+@entry:
+  %0 = load i32 @_fp ; farnear.c:5
+  nop void _
+  %2 = const i8 1
+  far_store i8 %2, %0 ; farnear.c:5
+  %3 = load i8 @_np ; farnear.c:6
+  nop void _
+  %5 = const i8 2
+  near_store i8 %5, %3 ; farnear.c:6
+  %6 = load i32 @_fp ; farnear.c:7
+  nop void _
+  nop void _
+  nop void _
+  %10 = far_load i8 %6 +3 ; farnear.c:7
+  %11 = load i8 @_np ; farnear.c:7
+  %12 = near_load i8 %11 ; farnear.c:7
+  nop void _
+  nop void _
+  %15 = add i8 %12, %10 ; farnear.c:7
+  nop i8 _
+  ret %15 ; farnear.c:7
+}
+```
+
+`far_store <type> <value>, <address>` / `%d = far_load <type> <address>` take
+the 32-bit address in a vreg; ` +3` before the location is a constant byte
+offset folded into the access (`fp[3]`: the `nop`s are the address
+arithmetic it replaced; IRCodeGen reads it with `[bp],z`, `ldz #3`). The
+near forms are the same with the 8-bit offset (`$00,x`). `near_addr`
+(`&` of a base-page variable as a near pointer) prints in the generic form.
+
+**`vec_bin`.** A GCC vector `+ - & | ^` of `char` or `int` elements is one
+instruction (comparisons, `*`, `/` and other element types are lowered to a
+statement per element):
+
+```c
+typedef int v4 __attribute__((vector_size(8)));
+v4 a, b, c;
+void add(void) { c = a + b; }
+```
+
+```
+fn _add() -> void [fastcall] {
+@entry:
+  %1 = addr_local %0 ; vec.c:5
+  vec_bin @_a, @_b, %1, 0, 2, 4, 0, 1 ; vec.c:5
+  %2 = addr_local %0 ; vec.c:5
+  call_void @_memcpy(@_c, %2, 8) ; vec.c:5
+  ret void
+}
+```
+
+`vec_bin <A>, <B>, <R>, <op>, <element size>, <count>, <B is a scalar>, <unrolled>`:
+the addresses of the operands and of the result (here a temporary, `%1`,
+then copied to `c`), the operator (`0` `+`, `1` `-`, `2` `&`, `3` `|`,
+`4` `^`), the element size (1 or 2), the number of elements, `1` when `B`
+is a scalar value (`a + 1`: `B` is then the value, not an address), and `1`
+when the bytes are written out instead of a loop (when `count × size × 8`
+fits `-fmax-unroll-bytes`, default 128).
+
+**`trampoline`.** A nested function whose address is taken (GCC nested
+functions):
+
+```c
+int apply(int (*f)(int), int v) { return f(v); }
+int outer(int k) {
+    int add(int x) { return x + k; }
+    return apply(add, 1);
+}
+```
+
+```
+fn _apply(ptr f, i16 v) -> i16 [fastcall] {
+@entry:
+  %2 = call_indirect %0(%1) -> i16 ; tramp.c:1
+  ret %2 ; tramp.c:1
+}
+
+fn _outer(i16 k) -> i16 [fastcall] {
+@entry:
+  %2 = get_fp ; tramp.c:5
+  %3 = trampoline target=@_outer_add, link=%2, buf=%1 ; tramp.c:5
+  nop void _
+  nop ptr _ ; tramp.c:5
+  %6 = const i16 1 ; tramp.c:5
+  %8 = call_indirect %3(%6) -> i16 ; tramp.c:1
+  nop i16 _ ; tramp.c:1
+@inline_end0:
+  ret %8 ; tramp.c:5
+}
+
+fn _outer_add(i16 x) -> i16 [fastcall] {
+@entry:
+  %1 = load_zp @__static_chain ; tramp.c:4
+  %2 = addr_uplevel levels=1, target=_outer(v0) ; tramp.c:4
+  %3 = load i16 %2 ; tramp.c:4
+  %4 = add i16 %3, %0 ; tramp.c:4
+  ret %4 ; tramp.c:4
+}
+```
+
+`%d = trampoline target=<function>, link=<static link>, buf=<buffer>`
+writes, into the buffer (a local of `outer`, `%1`), 11 bytes of code that
+set the static chain (`$06`, `__static_chain`) to the link (`get_fp`:
+`outer`'s frame) and jump to the nested function (`lda #<link` / `sta $06` /
+`lda #>link` / `sta $07` / `jmp target`); `%d` is the buffer's address, the
+pointer passed on. `apply` is inlined (`@inline_end0`), so its call through
+the pointer is in `outer`. The nested function finds `k` through the chain:
+`addr_uplevel levels=1, target=_outer(v0)` is the address of `outer`'s
+vreg 0.
+
 ## Function attributes (`ir::Function`)
 
 | Field | Set from | Effect in IRCodeGen |
