@@ -8,6 +8,9 @@ Tutorials for someone new to the suite. Each takes you through the tools step by
 | [getting-started-c.md](getting-started-c.md) | Writing C for the MEGA65 with cc45: a first program, running it in xemu, on a disk and on a MEGA65, a program in several files, what differs from other C compilers, the hardware, debugging with dbg45 |
 | [getting-started-basic45.md](getting-started-basic45.md) | BASIC 65 programs with basic45: labels instead of line numbers, structured blocks, disks, converting old programs, compiling to machine code, calling C |
 | [getting-started-tools.md](getting-started-tools.md) | The other tools: ca45, ln45 and ar45; nm45 and objdump45; the linters and the formatter; disk45; pack45, font45, tune45; asmCvt45; dbg45 and deploy45 |
+| [troubleshooting.md](troubleshooting.md) | Messages and symptoms: ca45's "has no base-page mode", ROM calls that hang, plain `int` being unsigned, ln45's heap and stack warnings, xemu without the MEGA65 ROM |
+| [glossary.md](glossary.md) | The terms the docs use (SAC, ZP convention, base page, overlays, `.ov1` / `.ovd`, far and near pointers, attic RAM...), each with its reference page |
+| [ide.md](ide.md) | Editors: the language server and the VS Code extension (diagnostics, lint, completion, the `m65.*` settings, debugging with the `cc45` debug type) |
 
 The pages assume the tools are on your `PATH` (`bin/` of a release archive or of a build, or an installed
 `PREFIX/bin`) and, for running programs, the xemu emulator (`xemu-xmega65`) with a MEGA65 ROM.
