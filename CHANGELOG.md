@@ -4,6 +4,14 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### pack45 --best: never longer than the greedy stream
+
+- `--best`'s parse counted a literal block's header byte once a run of literals, but a block holds at most 64
+  bytes: on literal-heavy data (random bytes) it chose for the wrong costs and could come out a byte or so longer
+  than the greedy stream, failing `make test`'s "pack45 round trips" now and then (its input is random). The parse
+  now weighs a block of 1 to 64 literals at each position, the format's costs exactly, so it is never longer than
+  the greedy one (cc45's 3 MB binary: 997 bytes shorter than before; the same time).
+- Test: `src/test-resources/pack45/best_literals.bin`, an input the old parse lost on, in the round trips.
 ### basic45: compiled procs in an interpreted program (#577)
 
 - **`proc name(a, b%) compiled`** … `endproc`: the proc is machine code (`--compile`'s code generator), the rest of
