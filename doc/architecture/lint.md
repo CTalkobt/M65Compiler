@@ -48,8 +48,9 @@ cc45):
   later extension and is rejected with a message for now. Rule options come
   from a top-level `options:` map, `c_checks.options` and an `asm_rules`
   entry's `options:`, all into one table keyed by option name (`Config::options`,
-  read by `Engine::option`; the last read wins); the only one so far is
-  `mega65-stack-frame-limit`. A key the reader does not know (at the top, in
+  read by `Engine::option`; the last read wins): cl45's `mega65-stack-frame-limit`
+  and the style rules' six (`asmstyle::optionsFrom`, which checks them for al45 and af45; the list:
+  [al45](../bin/al45.md#configuration-cc45-lintyml)); an option name nothing reads is ignored. A key the reader does not know (at the top, in
   `c_checks`, in an `asm_rules` entry) is an error naming the file and line
   (`Config::apply`, `src/main/Lint.cpp`).
 - **Precedence**: inline suppression > command line (`--checks=LIST`,
