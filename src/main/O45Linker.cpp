@@ -1298,7 +1298,9 @@ bool O45Linker::resolveSymbols(std::string& errorMsg) {
         } else {
             // the heap ends below the region
             auto he = globalSymbols_.find("__heap_end");
-            if (he == globalSymbols_.end() || he->second == 0 || he->second > ovlBase_) def("__heap_end", ovlBase_);
+            // (--overlay-region: the heap as it is, #685)
+            if (!ovlRegionSet_ && (he == globalSymbols_.end() || he->second == 0 || he->second > ovlBase_))
+                def("__heap_end", ovlBase_);
         }
     }
     // Check that all imports are satisfied
@@ -1940,7 +1942,7 @@ std::vector<uint8_t> O45Linker::link(std::string& errorMsg, bool isPrg) {
         auto zp = globalSymbols_.find("__zp_page");
         if (zp != globalSymbols_.end()) end = std::max(end, zp->second + 0x100);
         end = std::max(end, dataBase_ + (uint32_t)mergedData_.size());
-        if (end > ovlBase_) {
+        if (end > ovlBase_ && !ovlRegionSet_) {   // (--overlay-region: the program's own choice)
             char b[160];
             snprintf(b, sizeof b, "code overlays: the program ends at $%04X, above the overlay region at $%04X "
                      "(%u bytes below the stack's share): move more code into overlays or shrink the stack",
@@ -3179,7 +3181,7 @@ bool O45Linker::checkSections(std::string& errorMsg) {
                        "; --stack-size, cc45 -fstack-size)";
             return false;
         }
-        if (!ovlNames_.empty() && a < ovlBase_ + ovlSize_ && b > ovlBase_) {
+        if (!ovlNames_.empty() && !ovlRegionProbe_ && a < ovlBase_ + ovlSize_ && b > ovlBase_) {
             errorMsg = what + " overlaps the code overlays' region (" + hex(ovlBase_) + "-" + hex(ovlBase_ + ovlSize_ - 1) + ")";
             return false;
         }
@@ -3396,6 +3398,25 @@ bool O45Linker::placeOverlayRegion(std::string& errorMsg) {
     ovlSize_ = 0;
     for (size_t i = 0; i < ovlText_.size(); i++)
         if (!ovlData_[i]) ovlSize_ = std::max(ovlSize_, (uint32_t)ovlText_[i].size());   // (data overlays never run)
+    // --overlay-region (#685): where the program says (copied overlays only)
+    if (ovlRegionSet_) {
+        if (ovlMap_) {
+            errorMsg = std::string("code overlays: --overlay-region is for copied overlays: not with ") +
+                       (hasFar_ ? "__far functions (mapped overlays)" : "--overlay-map");
+            return false;
+        }
+        ovlBase_ = ovlRegionAddr_;
+        uint32_t room = ovlRegionEnd_ + 1 - ovlRegionAddr_;
+        if (!ovlRegionProbe_ && ovlSize_ > room) {
+            char b[200];
+            snprintf(b, sizeof b, "code overlays: the largest overlay (%u bytes) does not fit in the region "
+                     "$%04X-$%04X (%u bytes, --overlay-region)", (unsigned)ovlSize_, (unsigned)ovlRegionAddr_,
+                     (unsigned)ovlRegionEnd_, (unsigned)room);
+            errorMsg = b;
+            return false;
+        }
+        return true;
+    }
     uint32_t top = 0xBFFF, size = stackSize_;
     bool topStrong = false;
     for (const auto& input : objects_)

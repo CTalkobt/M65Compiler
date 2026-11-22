@@ -1525,6 +1525,35 @@ for maflags in "" "--minify"; do
         failed=$((failed + 1))
     fi
 done
+# #685: code overlays in a basic45 --link program (and --compile'd): kept in
+# bank 4, run in the program's own area (--overlay-region at a symbol), the
+# file put on the disk by basic45; loaded again after the program reuses
+# the area. A region too small for the largest overlay: a link error
+for bomode in "|" "c|--compile"; do
+    IFS='|' read -r boname boflags <<< "$bomode"
+    bod=build/test/basic45_ovl$boname
+    rm -rf $bod; mkdir -p $bod
+    echo "Testing test_basic45_ovl_xemu.bas $boflags..."
+    if ./bin/basic45 --strict $boflags --link src/test-resources/basic45_ovl/main.c --link src/test-resources/basic45_ovl/cold.c \
+           --overlay-store=0x40000-0x4FFFF --overlay-region=_mod_area+512 --disk $bod/bovl.d81 \
+           src/test-resources/test_basic45_ovl_xemu.bas -o $bod/bovl.prg >/dev/null 2>&1 && [ -f $bod/bovl.ov1 ]; then
+        run_xemu_test "test_basic45_ovl$boname" "$bod/bovl.prg" "C0C0" 7 "01 01 01 01 01 01 AA" -8 "$PWD/$bod/bovl.d81"
+    else
+        echo "FAIL: test_basic45_ovl_xemu.bas $boflags (basic45 --link with overlays failed)"
+        failed=$((failed + 1))
+    fi
+done
+echo "Testing basic45 --overlay-region too small..."
+if out=$(./bin/basic45 --link src/test-resources/basic45_ovl/main.c --link src/test-resources/basic45_ovl/cold.c \
+             --overlay-region=_mod_area+16 src/test-resources/test_basic45_ovl_xemu.bas -o build/test/basic45_ovl/small.prg 2>&1); then
+    echo "FAIL: basic45 --overlay-region too small (linked)"
+    failed=$((failed + 1))
+elif echo "$out" | grep -q "does not fit in the region"; then
+    passed=$((passed + 1))
+else
+    echo "FAIL: basic45 --overlay-region too small (wrong error: $out)"
+    failed=$((failed + 1))
+fi
 # --compile --link (#369): the same program compiled, its C functions called
 # directly, {name} the symbols' addresses, the asm block and incbin linked in
 for blmode in "|" "_checks|--checks"; do

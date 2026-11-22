@@ -74,6 +74,8 @@ struct Options {
     std::string mapFile;                  // --map: ln45's -M map of the --link / --compile build (#595)
     unsigned linkAlign = 256;             // --link-align=N: where the --link code starts (a power of 2)
     std::string stackPage;                // --stack-page: ln45's, for the --link / --compile build
+    std::vector<std::string> ovlArgs;     // ln45's overlay options, for the --link / --compile build (#685)
+    std::string ovlName;                  // --overlay-name: the overlay file's name on disk
     char encoding = 'u';                  // --encoding: strings without a prefix
     bool report = false;                  // --report: memory use
     bool send = false;                    // --send: to a MEGA65 (etherload / m65)
@@ -230,6 +232,10 @@ static void printUsage(const char* progName) {
     std::cout << "                      1: right after the program)" << std::endl;
     std::cout << "  --stack-page=P      The CPU stack of a --link / --compile build in page P ($17: $1700-$17FF)" << std::endl;
     std::cout << "                      or 'basic' (BASIC's own page-1 stack): ln45 --stack-page" << std::endl;
+    std::cout << "  --overlay-store=R, --overlay-staging=B, --overlay-name=N, --overlay-region=R," << std::endl;
+    std::cout << "  --pack-overlays, --overlay-fast-stubs" << std::endl;
+    std::cout << "                      The code overlays of a --link / --compile build (ln45's options): their" << std::endl;
+    std::cout << "                      files next to the output (.ov1, ...), and with --disk on the disk" << std::endl;
     std::cout << "  --decompile         Turn a BASIC .prg into basic45 source (also for a .prg input)" << std::endl;
     std::cout << "  --compile           Compile the program to machine code (a .prg run with RUN); the" << std::endl;
     std::cout << "                      input can also be a tokenized BASIC 65 .prg. -O0 .. -O4 (default -O2)" << std::endl;
@@ -407,6 +413,11 @@ static Options parseArgs(int argc, char* argv[]) {
             opts.linkAlign = (unsigned)n;
         } else if (arg.rfind("--stack-page=", 0) == 0) {
             opts.stackPage = arg.substr(13);
+        } else if (arg.rfind("--overlay-store=", 0) == 0 || arg.rfind("--overlay-staging=", 0) == 0 ||
+                   arg.rfind("--overlay-region=", 0) == 0 || arg == "--pack-overlays" || arg == "--overlay-fast-stubs") {
+            opts.ovlArgs.push_back(arg);   // (ln45's, checked there, #685)
+        } else if (arg.rfind("--overlay-name=", 0) == 0) {
+            opts.ovlName = arg.substr(15);
         } else if (arg == "--send") {
             opts.send = true;
         } else if (arg == "--send-cmd" && i + 1 < argc) {
@@ -577,6 +588,55 @@ static void printTokens() {
 }
 
 
+// Code overlays of the --link / --compile build (#685): ln45's options, its
+// files written in the build's directory tmp (ovl.ov1, ...), with the name
+// the program loads them by (--overlay-name, else the output's, as ln45's
+// default for it)
+static std::string overlayName(const Options& opts) {
+    if (!opts.ovlName.empty()) return opts.ovlName;
+    std::string base = fs::path(opts.outputFile).stem().string();
+    for (char& c : base) c = (char)std::toupper((unsigned char)c);
+    return base.substr(0, 12) + ".OV1";
+}
+
+static std::string overlayLinkArgs(const Options& opts, const fs::path& tmp) {
+    std::string a;
+    for (const auto& o : opts.ovlArgs) a += " " + shellQuote(o);
+    a += " " + shellQuote("--overlay-name=" + overlayName(opts));
+    a += " " + shellQuote("--overlay-out=" + (tmp / "ovl.ov1").string());
+    return a;
+}
+
+// The overlay files the link wrote (none: the program has no overlays),
+// copied next to the output (<output>.ov1, ..., .ovd); their names on disk
+static std::vector<std::pair<std::string, std::string>> overlayFiles;   // path, name
+
+static bool collectOverlays(const Options& opts, const fs::path& tmp) {
+    overlayFiles.clear();
+    fs::path out = fs::path(opts.outputFile);
+    std::string name = overlayName(opts);
+    std::error_code ec;
+    for (char d = '1'; d <= '9'; d++) {
+        fs::path from = tmp / (std::string("ovl.ov") + d);
+        if (!fs::exists(from)) break;
+        fs::path to = fs::path(out).replace_extension(std::string(".ov") + d);
+        fs::copy_file(from, to, fs::copy_options::overwrite_existing, ec);
+        if (ec) { std::cerr << "basic45: could not write " << to.string() << ": " << ec.message() << std::endl; return false; }
+        std::string n = name;
+        n.back() = (char)(n.back() + (d - '1'));
+        overlayFiles.push_back({to.string(), n});
+    }
+    if (fs::exists(tmp / "ovl.ovd")) {
+        fs::path to = fs::path(out).replace_extension(".ovd");
+        fs::copy_file(tmp / "ovl.ovd", to, fs::copy_options::overwrite_existing, ec);
+        if (ec) { std::cerr << "basic45: could not write " << to.string() << ": " << ec.message() << std::endl; return false; }
+    }
+    if (overlayFiles.empty() && !opts.ovlArgs.empty())
+        std::cerr << "basic45: warning: overlay options given, but the linked code has no overlays "
+                  << "(#pragma cc45 overlay(name))" << std::endl;
+    return true;
+}
+
 // --compile (#369): the tokenized program to machine code: basic45's IR,
 // cc45's passes and code generator, ca45, ln45 -basic with c45.lib. The
 // program is replaced by the linked one. where(n): the source of BASIC line n
@@ -671,12 +731,13 @@ static bool compileToMachineCode(const Options& opts, const char* argv0, std::ve
                    "assembling the compiled program") &&
               // (a 1 KB share for the CPU stack: the run time's functions are statically
               // allocated, nothing recurses; the heap, arrays and strings, gets the rest)
-              step(shellQuote(tools + "/ln45") + " -basic --stack-size=1024" +
+              step(shellQuote(tools + "/ln45") + " -basic --stack-size=1024" + overlayLinkArgs(opts, tmp) +
                        (opts.stackPage.empty() ? std::string() : " --stack-page=" + shellQuote(opts.stackPage)) +
                        (opts.mapFile.empty() ? std::string() : " -M " + shellQuote(opts.mapFile)) + " -o " +
                        shellQuote(prg) + " " + shellQuote(obj) + extra + " " + shellQuote(lib),
                    "linking the compiled program");
     if (ok) binary = readBinary(prg);
+    ok = ok && collectOverlays(opts, tmp);
     if (!getenv("BASIC45_KEEP_TMP")) fs::remove_all(tmp);
     if (ok && opts.verbose) Logger::stream(LogLevel::INFO) << "Compiled: " << binary.size() << " bytes" << std::endl;
     return ok;
@@ -973,6 +1034,10 @@ int main(int argc, char* argv[]) {
     // $1000000 + k, which the compiler makes the symbol's address (a SYS's C
     // function: a direct call)
     const bool compileLink = opts.compile && linking;
+    if ((!opts.ovlArgs.empty() || !opts.ovlName.empty()) && !linking && !opts.compile) {
+        std::cerr << "basic45: the overlay options need --link or --compile (code overlays are linked code)" << std::endl;
+        return 1;
+    }
     if (!opts.mapFile.empty() && !linking && !opts.compile)
         std::cerr << "basic45: warning: --map needs --link or --compile (nothing is linked: no map written)" << std::endl;
     std::vector<BasicChainOptions::LinkSym> linkSyms;
@@ -1355,6 +1420,7 @@ int main(int argc, char* argv[]) {
         // (--map with --compile: the compiled program's link writes it, below)
         if (!opts.mapFile.empty() && !opts.compile) cmd += " -M " + shellQuote(opts.mapFile);
         if (!opts.stackPage.empty() && !opts.compile) cmd += " --stack-page=" + shellQuote(opts.stackPage);
+        cmd += overlayLinkArgs(opts, tmp);
         for (const auto& o : objects) cmd += " " + shellQuote(o);
         cmd += " " + shellQuote(lib);
         if (!step(cmd, "linking")) return 1;
@@ -1376,6 +1442,7 @@ int main(int argc, char* argv[]) {
                     linked.addSymbol(name.substr(1), (uint16_t)v);
             }
         auto code = readBinary(codePrg);
+        if (!collectOverlays(opts, tmp)) return 1;
         if (!getenv("BASIC45_KEEP_TMP")) fs::remove_all(tmp);
         if (code.size() < 2) { std::cerr << "basic45: the linked code is empty" << std::endl; return 1; }
         uint32_t imageBase = code[0] | (code[1] << 8);
@@ -1552,6 +1619,16 @@ int main(int argc, char* argv[]) {
             return 1;
         }
         if (opts.verbose) Logger::stream(LogLevel::INFO) << "Added \"" << name << "\" to " << opts.diskImage << std::endl;
+        // the code overlays, by the name the program loads them by (#685)
+        for (const auto& [path, oname] : overlayFiles) {
+            runCommand(disk45 + " remove " + shellQuote(opts.diskImage) + " " + shellQuote(oname), &log);
+            if (runCommand(disk45 + " add " + shellQuote(opts.diskImage) + " " + shellQuote(path) + " " + shellQuote(oname),
+                           &log) != 0) {
+                std::cerr << "basic45: could not add " << oname << " to " << opts.diskImage << ":\n" << log;
+                return 1;
+            }
+            if (opts.verbose) Logger::stream(LogLevel::INFO) << "Added \"" << oname << "\" to " << opts.diskImage << std::endl;
+        }
     }
 
     // --send: to a MEGA65 (mega65-tools etherload over Ethernet, or m65 over

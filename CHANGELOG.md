@@ -4,6 +4,19 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### Code overlays for basic45 --link programs; ln45 --overlay-region (#685)
+
+- **basic45** passes ln45's overlay options to the `--link` (and `--compile`) build: `--overlay-store`,
+  `--overlay-staging`, `--overlay-name`, `--overlay-region`, `--pack-overlays`, `--overlay-fast-stubs`. The overlay
+  files go next to the output (`.ov1`, …, `.ovd`), and with `--disk` onto the disk under the name the program loads
+  them by. Without `--link` or `--compile` the options are an error.
+- **ln45 `--overlay-region=ADDR-END` / `ADDR+SIZE`**: copied overlays run at `ADDR`, an address or a symbol the
+  program defines (`_mod_area+6280`: found by a first link), instead of below the stack. The heap and stack stay as
+  they are; a region smaller than the largest overlay, outside bank 0, or with mapped overlays (`--overlay-map`,
+  `__far`) is an error.
+- Tests: `test_basic45_ovl_xemu.bas` (an overlay kept in bank 4, run in the program's own array, loaded again
+  after the program reuses it; as is and `--compile`), and a region too small (`test_xemu.sh`).
+
 ### basic45: compiled procs: array parameters, read and written in place (#683)
 
 - `proc f(a(), n) compiled` / `proc g(b%()) compiled` take the interpreted program's array: `call f(x(), 21)`
