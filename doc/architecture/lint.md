@@ -2,7 +2,7 @@
 
 Status: the shared core, al45 (phases 1-3; `doc/bin/al45.md`) and cl45
 (phases 1-2 and `make lint-lib`; `doc/bin/cl45.md`) are implemented, and the LSP server runs both (`tools/ide/lsp-server`, `m65.lint.enabled`); al45's
-style rules (#611) are planned (#199, #278, #64). The assembly half was planned on 2026-10-31; the C half on
+style rules and the formatter af45 are implemented too (#611; `doc/bin/al45.md#style-rules`, `doc/bin/af45.md`). The assembly half was planned on 2026-10-31; the C half on
 2026-11-12.
 
 Two tools on one core:
@@ -114,7 +114,7 @@ ca45's parsing options accepted (`-D`, `-I`, `.cpu`); the Makefile's
 | `mega65-io-personality` | standalone | info | VIC-III/IV registers written with no `$47 $53 → $D02F` knock in the file |
 | `mega65-rom-call-bp` | cc45 | warning | `jsr` to `$E000`+ / KERNAL vectors not bracketed by `__bp_rom`/`__bp_prog` or `__rom_call` |
 | `mega65-unnamed-proc-attrs` | all | warning | function attributes in an unnamed `proc` |
-| `mega65-style-*` | all | off | columns, comment spacing, naming (regexes in the config): later (#611; not registered: `--list-rules` does not show them) |
+| `mega65-style-*` | all | off | columns, comment spacing, naming (regexes in the config): implemented (#611; `src/main/AsmStyle.cpp`, from the source text; [al45](../bin/al45.md#style-rules)) |
 
 ### Phase 3: flow analysis: done
 `src/main/AsmLintFlow.cpp`. As built: one control-flow graph over the file
@@ -229,4 +229,4 @@ The "Needs" column is where the rule is checked, as built (above).
 
 ## Out of scope
 Cross-file analysis (ln45's), value tracking beyond "same as" for redundant
-loads, a formatter (`af45`).
+loads. (The formatter, `af45`, was out of scope here; #611 added it, on the style rules' options.)

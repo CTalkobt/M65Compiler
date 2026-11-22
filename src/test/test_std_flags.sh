@@ -9,7 +9,7 @@ pass() { passed=$((passed + 1)); }
 fail() { echo "FAIL: $1"; failed=$((failed + 1)); }
 ver=$(sed -n 's/^#define SUITE_VERSION "\(.*\)"/\1/p' include/Version.hpp)
 
-for t in cc45 cp45 cl45 ca45 al45 ln45 ar45 nm45 objdump45 basic45 disk45 asmCvt45 pack45 font45 tune45 deploy45 dbg45; do
+for t in cc45 cp45 cl45 ca45 al45 af45 ln45 ar45 nm45 objdump45 basic45 disk45 asmCvt45 pack45 font45 tune45 deploy45 dbg45; do
     for f in '-?' --help -h; do
         case "$t$f" in nm45-h|objdump45-h) continue ;; esac
         out=$(./bin/$t "$f" 2>&1 </dev/null); rc=$?

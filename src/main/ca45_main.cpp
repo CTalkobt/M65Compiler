@@ -26,6 +26,7 @@
 #include "Version.hpp"
 #include "Diagnostic.hpp"
 #include "AsmLint.hpp"
+#include "AsmStyle.hpp"
 #include "Lint.hpp"
 
 // Phase 4.1: Load configuration from config file
@@ -90,7 +91,9 @@ static void printHelpLint() {
     std::cout << "Usage: al45 [options] <input_file.s45>\n"
                  "The assembly linter: ca45's front end over a file, MEGA65 rules, no output file.\n"
                  "  -c                  Lint as a relocatable object (what ca45 -c assembles): the profile is cc45\n"
-                 "  --checks=LIST       Rules on or off: globs, '-' removes (--checks=mega65-*,-mega65-unused-label)\n"
+                 "  --checks=LIST       Rules on or off: globs, '-' removes (--checks=mega65-*,-mega65-unused-label);\n"
+                 "                      the style rules are off until named: --checks='mega65-style-*' (af45 lays a\n"
+                 "                      file out as they describe)\n"
                  "  --disable=ID[,ID]   Rules off\n"
                  "  --severity=ID=LEVEL A rule's level: off, info, warning, error\n"
                  "  --profile=P         cc45 or standalone\n"
@@ -445,6 +448,8 @@ int main(int argc, char** argv) {
     std::string programName = argv[0];
     if (programName.find_last_of("/\\") != std::string::npos)
         programName = programName.substr(programName.find_last_of("/\\") + 1);
+    // af45: the formatter (#611): a program of its own over the same files
+    if (programName == "af45") return asmstyle::formatterMain(argc, argv);
     const bool lintMode = programName == "al45";
     Logger::setTool(lintMode ? "al45" : "ca45");
     lint::Engine lintEngine;
@@ -718,6 +723,13 @@ int main(int argc, char** argv) {
         if (!ok) {
             std::cerr << "al45: error: " << err << std::endl;
             return 1;
+        }
+        {   // (the style rules' options: columns, regular expressions)
+            asmstyle::Options so;
+            if (!asmstyle::optionsFrom(lintEngine.config, so, err)) {
+                std::cerr << "al45: error: " << err << std::endl;
+                return 1;
+            }
         }
         for (const auto& f : lintEngine.config.sources) LOG_INFO("al45", "configuration " << f);
         if (!lintEngine.config.profile.empty()) lintEngine.profile = lintEngine.config.profile;

@@ -21,6 +21,7 @@ Documents are separated by their function and scope:
 | `cp45` | C preprocessor (the `cc45` binary run under the name `cp45`) | [bin/cp45.md](bin/cp45.md) |
 | `ca45` | 45GS02 assembler | [bin/ca45.md](bin/ca45.md) |
 | `al45` | Assembly linter (the `ca45` binary run under the name `al45`) | [bin/al45.md](bin/al45.md) |
+| `af45` | Assembly formatter (the `ca45` binary run under the name `af45`) | [bin/af45.md](bin/af45.md) |
 | `cl45` | C linter (the `cc45` binary run under the name `cl45`) | [bin/cl45.md](bin/cl45.md) |
 | `ln45` | Linker (`.o45` + `.lib` to PRG or flat binary) | [bin/ln45.md](bin/ln45.md) |
 | `ar45` | Archiver for `.lib` static libraries | [bin/ar45.md](bin/ar45.md) |
@@ -70,7 +71,7 @@ make install_local   # same with PREFIX=~/.local
 make man             # man pages from doc/bin/*.md (needs pandoc)
 ```
 
-`make install` puts the tools in `PREFIX/bin` (`cp45` and `cl45` as symlinks to `cc45`, `al45` to `ca45`), the three libraries in `PREFIX/lib/cc45` and the headers in `PREFIX/include/cc45`. `make test-xemu` needs `xemu-xmega65` on the `PATH`; the steps of `make test` that run programs (`test_stdlib_new.sh`, `test_examples.sh`) use it when it is there and are skipped without it.
+`make install` puts the tools in `PREFIX/bin` (`cp45` and `cl45` as symlinks to `cc45`, `al45` and `af45` to `ca45`), the three libraries in `PREFIX/lib/cc45` and the headers in `PREFIX/include/cc45`. `make test-xemu` needs `xemu-xmega65` on the `PATH`; the steps of `make test` that run programs (`test_stdlib_new.sh`, `test_examples.sh`) use it when it is there and are skipped without it.
 
 ---
 
@@ -98,6 +99,7 @@ All documentation must follow these directory rules to keep it clean and avoid b
   - `tune45.md` (Music for the tune player)
   - `dbg45.md` (Debugger)
   - `al45.md` (Assembly linter)
+  - `af45.md` (Assembly formatter)
   - `cl45.md` (C linter)
   - `CONFIGURATION.md` (Shared configuration file specification)
 - **`doc/architecture/`** contains only markdown files (`.md`); the only allowed subdirectory is `bug/`.

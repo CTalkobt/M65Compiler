@@ -7,6 +7,7 @@ A modern development toolchain for the MEGA65 (45GS02) home computer. It consist
 - **cc45** — C compiler (C source to assembly or `.o45` relocatable objects)
 - **ca45** — 45GS02 assembler (assembly to binary or `.o45` relocatable objects)
 - **al45** — Assembly linter: ca45's front end over a source file, `mega65-*` rules, no output (a link to ca45)
+- **af45** — Assembly formatter: lays a source file out as al45's style rules describe, whitespace only (a link to ca45)
 - **cl45** — C linter: cc45's front end and code generator over a file as it is compiled, no output (a link to cc45)
 - **ln45** — Linker (links `.o45` objects and `.lib` archives into flat binaries or PRG executables)
 - **ar45** — Archiver (creates `.lib` static library archives from `.o45` objects)
@@ -379,6 +380,7 @@ For detailed information on each tool, refer to:
 - [doc/bin/cc45.md](doc/bin/cc45.md) — Compiler Usage and Features
 - [doc/bin/ca45.md](doc/bin/ca45.md) — Assembler Syntax and Reference
 - [doc/bin/al45.md](doc/bin/al45.md) — Assembly Linter: Rules, Configuration, Output Formats
+- [doc/bin/af45.md](doc/bin/af45.md) — Assembly Formatter
 - [doc/bin/cl45.md](doc/bin/cl45.md) — C Linter: Rules, Suppressing, Configuration
 - [doc/bin/nm45.md](doc/bin/nm45.md) — Symbol Lister for `.o45` Object Files
 - [doc/bin/objdump45.md](doc/bin/objdump45.md) — Object File Inspector and Disassembler

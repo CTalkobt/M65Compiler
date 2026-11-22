@@ -27,7 +27,11 @@ FUSE, both optional, only for disk45):
 - **nm45** — symbol/attribute/relocation inspector for `.o45` (and ln45's `.ovd`/`.ov1` overlay files; a `.lib` is listed with `ar45 t`)
 - **al45** — the assembly linter (#64, #199): a link to ca45, chosen by program name; ca45's front end, no optimizer, no
   output; rules by `mega65-*` id (`src/main/AsmLint.cpp`; those on data flow — stale flags, stack balance, declared clobbers, wasted loads and stores — `AsmLintFlow.cpp`) over the shared core (`include/Lint.hpp`: `.cc45-lint.yml`,
-  `NOLINT`, text / JSON / SARIF); `doc/bin/al45.md`, plan and the C linter's in `doc/architecture/lint.md`
+  `NOLINT`, text / JSON / SARIF); `doc/bin/al45.md`, plan and the C linter's in `doc/architecture/lint.md`; its style rules
+  (`mega65-style-*`, off by default; the layout from the source text, `src/main/AsmStyle.cpp`, #611) are on for `make lint-lib`
+- **af45** — the assembly formatter (#611): a link to ca45, chosen by program name; lays a file out as the style rules
+  describe (labels at column 1, instructions after 4 spaces, trailing comments at column 29), whitespace only (the
+  bytes assembled do not change); `-w`, `--check`; options from `.cc45-lint.yml`; `doc/bin/af45.md`
 - **cl45** — the C linter (#199): a link to cc45, chosen by program name; cc45's front end and code generator over a
   file as it is compiled (same `-I`/`-D`/`-f`/`-O`), no output; rules on the AST as parsed, in the IRBuilder where types
   are known (`IRBuilder::lintReport`), on the unoptimized IR and on the frames (`src/main/CLint.cpp`,

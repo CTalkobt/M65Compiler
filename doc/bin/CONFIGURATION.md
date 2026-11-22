@@ -12,6 +12,7 @@ This document describes the configuration files and environment variables the to
 | `asmCvt45` | `.asmCvt45rc` in the current directory or the nearest parent directory | INI sections with `key = value` (see [asmCvt45](asmCvt45.md#configuration-file-asmcvt45rc)) |
 | `cl45` | `~/.config/m65/cc45-lint.yml`, then the first `.cc45-lint.yml` from the source file's directory upward | YAML subset (see [cl45](cl45.md#configuration-cc45-lintyml)); also `~/.config/m65/cl45.conf` (cc45's options, as `cc45.conf`: cl45 is cc45) |
 | `al45` | `~/.config/m65/cc45-lint.yml`, then the first `.cc45-lint.yml` from the source file's directory upward | YAML subset (see [al45](al45.md#configuration-cc45-lintyml)); also `~/.config/m65/ca45.conf` and `./.ca45rc` (al45 is ca45) |
+| `af45` | `~/.config/m65/cc45-lint.yml`, then the first `.cc45-lint.yml` from the file's directory upward (`--config=FILE` instead) | The style rules' `options` (see [af45](af45.md#options)); the rest is al45's |
 
 `ln45`, `ar45`, `nm45`, `objdump45`, `basic45`, `disk45`, `pack45`, `font45`, `tune45`, `dbg45` and `deploy45` read no configuration file (`deploy45` takes its hosts, serial port and tool paths from the environment: [deploy45](deploy45.md)).
 
@@ -93,7 +94,7 @@ See [asmCvt45](asmCvt45.md#configuration-file-asmcvt45rc). `asmCvt45 --init-conf
 | `CC45_DUMP_IR` | cc45 | Non-empty and not starting with `0`: print the optimized IR module to stderr during code generation |
 | `CC45_OPMARK` | cc45 | Set: a `; @op …` comment before each IR instruction's code in the assembly (see [cc45](cc45.md#environment-variables)) |
 | `TMPDIR` | cc45 | Where cc45 makes its private directory of temporary files (`cc45-XXXXXX`; default `/tmp`) |
-| `HOME` | cc45, cp45, cl45, ca45, al45 | Locates `~/.config/m65/` (ca45 falls back to the password database) |
+| `HOME` | cc45, cp45, cl45, ca45, al45, af45 | Locates `~/.config/m65/` (ca45 falls back to the password database) |
 
 ## Creating, Checking and Disabling a Configuration
 

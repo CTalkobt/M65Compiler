@@ -89,7 +89,7 @@ build() {   # build NAME: the log in $work/NAME.log, "ok"/"FAILED" in $work/NAME
         make -j4 CXX=$cxx $zlib all > /tmp/all.log 2>&1 || { grep -E ':[0-9]+:[0-9]+: (fatal )?error' /tmp/all.log | sort -u | head -40; tail -5 /tmp/all.log; echo 'make all failed'; exit 1; }
         make $zlib lib > /tmp/lib.log 2>&1 || { grep -E 'error' /tmp/lib.log | head -20; echo 'make lib failed'; exit 1; }
         echo \"tools: \$(ls bin | tr '\n' ' ')\"
-        for t in cc45 cp45 cl45 ca45 al45 ln45 ar45 nm45 objdump45 basic45 disk45 asmCvt45 pack45 font45 tune45 deploy45 dbg45; do
+        for t in cc45 cp45 cl45 ca45 al45 af45 ln45 ar45 nm45 objdump45 basic45 disk45 asmCvt45 pack45 font45 tune45 deploy45 dbg45; do
             [ -x bin/\$t ] || { echo \"bin/\$t was not built\"; exit 1; }
         done
         grep -m1 '^  zlib' /tmp/all.log

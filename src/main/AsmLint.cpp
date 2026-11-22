@@ -13,6 +13,7 @@
 #include <sstream>
 
 #include "AssemblerParser.hpp"
+#include "AsmStyle.hpp"
 
 namespace asmlint {
 
@@ -62,6 +63,7 @@ void registerRules(lint::Engine& e) {
            ".func_flags attaches to the global symbol 'proc <name>' names; in a bare 'proc' it is dropped.\n"
            "Name the function: proc <name> (and .global <name>)."});
     registerFlowRules(e);
+    asmstyle::registerRules(e);   // (mega65-style-*, off until enabled: #611)
 }
 
 namespace {
@@ -106,6 +108,7 @@ void run(lint::Engine& e, AssemblerParser& p, const std::string& mainFile, bool 
             std::stringstream ss;
             ss << in.rdbuf();
             e.scanSuppressions(f, ss.str());
+            asmstyle::check(e, f, ss.str());   // (the style rules: the text's layout, #611)
         }
     }
 
