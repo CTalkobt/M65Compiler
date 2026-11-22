@@ -735,7 +735,7 @@ int main(void) {
 
 ## 12c. Far Memory (`far_ops.h`, `far_string.h`)
 
-`stdlib/far_ops.c` and `stdlib/stdlib_overloads.c` (C, a section per function). A `far_ptr_t` (`<far_ptr.h>`) is 3 bytes, a bank and a 16-bit offset; every access is a `dma_copy_far` / `dma_fill_far` job on its linear address (`far_to_linear`: banks `$00`-`$7F` chip RAM, `(bank << 16) | offset`; `$80`-`$FF` attic RAM), so it is done when the call returns, and an offset carries into the next bank (the header's "stays in same bank" is not what the code does). A local pointer is a bank 0 address. The `int` offsets and indexes are signed in the library (−32768 … 32767; a larger value from cc45's unsigned `int` goes backwards) except the typed `far_array_*` of `far_string.h` (0 … 65535). The results declared `int` (`far_cmp`, `far_diff`, the `strcmp`/`memcmp` forms) are signed values, but plain `int` is unsigned in cc45's default mode: test them with `== 0` / `!= 0`, or cast to `signed int` before `< 0`.
+`stdlib/far_ops.c` and `stdlib/stdlib_overloads.c` (C, a section per function). A `far_ptr_t` (`<far_ptr.h>`) is 3 bytes, a bank and a 16-bit offset; every access is a `dma_copy_far` / `dma_fill_far` job on its linear address (`far_to_linear`: banks `$00`-`$7F` chip RAM, `(bank << 16) | offset`; `$80`-`$FF` attic RAM), so it is done when the call returns, and an offset carries into the next bank (`far_add`, `far_sub` and `far_diff` work on the linear address, across banks). A local pointer is a bank 0 address. The `int` offsets and indexes are signed in the library (−32768 … 32767; a larger value from cc45's unsigned `int` goes backwards) except the typed `far_array_*` of `far_string.h` (0 … 65535). The results of `far_cmp`, `far_diff`, `far_strcmp` and the far `strcmp`/`memcmp` forms are declared `signed int` (#710), so `far_cmp(a, b) < 0` holds in cc45's default mode, where a plain `int` is unsigned.
 
 **`far_ops.h`** (includes `far_string.h`):
 
@@ -748,13 +748,13 @@ int main(void) {
 | `void far_memcpy_to_local(void *dst, far_ptr_t src, size_t len)`, `void far_memcpy_from_local(far_ptr_t dst, const void *src, size_t len)` | Far to bank 0, bank 0 to far |
 | `void far_memset(far_ptr_t p, int val, size_t len)`, `void far_memzero(far_ptr_t p, size_t len)` | A DMA fill with `val`'s low byte (0) |
 | `far_ptr_t far_add(far_ptr_t p, int offset)`, `far_sub`, `far_inc(p)`, `far_dec(p)` | `p` ± `offset` (± 1) on the linear address, across banks |
-| `int far_diff(far_ptr_t a, far_ptr_t b)` | The linear `a − b`, cut to 16 bits (any banks; meaningful within ±32767) |
-| `int far_cmp(far_ptr_t a, far_ptr_t b)`; `int far_eq`, `far_lt`, `far_gt` | −1, 0, 1 by linear address; 1 / 0 |
+| `signed int far_diff(far_ptr_t a, far_ptr_t b)` | The linear `a − b`, cut to 16 bits (any banks; meaningful within ±32767) |
+| `signed int far_cmp(far_ptr_t a, far_ptr_t b)`; `int far_eq`, `far_lt`, `far_gt` | −1, 0, 1 by linear address; 1 / 0 |
 | `far_ptr_t far_array_element(far_ptr_t base, int index, size_t esize)` | `base + index · esize` (a 32-bit product: past 64 KB too) |
 | `void far_array_read(far_ptr_t base, int index, size_t esize, void *dst, size_t dst_size)`, `void far_array_write(far_ptr_t base, int index, size_t esize, const void *src, size_t src_size)` | Element `index`'s `esize` bytes to `dst` / from `src`; nothing when `dst_size` / `src_size` < `esize` |
 | `size_t far_strlen(far_ptr_t s)` | The length, reading 32-byte chunks (up to 31 bytes past the NUL are read) |
 | `void far_strcpy_to_local(char *dst, far_ptr_t src, size_t max)`, `void far_strcpy_from_local(far_ptr_t dst, const char *src, size_t max)` | At most `max − 1` characters and a NUL (longer strings cut); nothing for `max` 0 |
-| `int far_strcmp(far_ptr_t a, const char *b)` | The difference of the first differing bytes (unsigned, −255 … 255), 0 when equal |
+| `signed int far_strcmp(far_ptr_t a, const char *b)` | The difference of the first differing bytes (unsigned, −255 … 255), 0 when equal |
 
 **`far_string.h`**: the `<string.h>` functions for each mix of local and far arguments, a function per combination (cc45 has no overloading by type). The suffix names the parameters in order: `pv` `void *`, `pc` `char *`, `fp` `far_ptr_t`, `i` `int`, `st` / `z` `size_t` (in `memcmp`'s, `f` is a far one). The all-local forms (`memcpy__pvpvst`, `memset__pvist`, `strlen__pc`, `strcpy__pcpc`, `strcmp__pcpc`, `strcat__pcpc`, `memcmp__pvpvz`) call the `<string.h>` function. A function whose destination is far returns its far pointer, one whose destination is local that pointer. Strings have no length limit.
 
@@ -765,8 +765,8 @@ int main(void) {
 | `size_t strlen__fp(far_ptr_t s)` | `far_strlen` |
 | `char *strcpy__pcfp(char *dst, far_ptr_t src)`, `far_ptr_t strcpy__fppc(far_ptr_t dst, const char *src)`, `far_ptr_t strcpy__fpfp(far_ptr_t dst, far_ptr_t src)` | The string and its NUL, measured first, then one copy (no bound on the destination) |
 | `char *strcat__pcfp(char *dst, far_ptr_t src)`, `far_ptr_t strcat__fppc(far_ptr_t dst, const char *src)`, `far_ptr_t strcat__fpfp(far_ptr_t dst, far_ptr_t src)` | Appended at `dst`'s NUL |
-| `int strcmp__fppc(far_ptr_t a, const char *b)`, `int strcmp__pcfp(const char *a, far_ptr_t b)`, `int strcmp__fpfp(far_ptr_t a, far_ptr_t b)` | <0, 0, >0 by the first differing unsigned byte (the difference); far strings read 32 bytes at a time |
-| `int memcmp__fpvz(far_ptr_t a, const void *b, size_t len)`, `int memcmp__pvfz(const void *a, far_ptr_t b, size_t len)`, `int memcmp__fpfz(far_ptr_t a, far_ptr_t b, size_t len)` | The same over `len` bytes (0 for `len` 0) |
+| `signed int strcmp__fppc(far_ptr_t a, const char *b)`, `signed int strcmp__pcfp(const char *a, far_ptr_t b)`, `signed int strcmp__fpfp(far_ptr_t a, far_ptr_t b)` | <0, 0, >0 by the first differing unsigned byte (the difference); far strings read 32 bytes at a time |
+| `signed int memcmp__fpvz(far_ptr_t a, const void *b, size_t len)`, `signed int memcmp__pvfz(const void *a, far_ptr_t b, size_t len)`, `signed int memcmp__fpfz(far_ptr_t a, far_ptr_t b, size_t len)` | The same over `len` bytes (0 for `len` 0) |
 | `int16_t far_array_read_int16(far_ptr_t base, int index)`, `uint8_t far_array_read_uint8`, `uint32_t far_array_read_uint32`; `void far_array_write_int16(far_ptr_t base, int index, int16_t v)`, `far_array_write_uint8`, `far_array_write_uint32` | Element `index` (unsigned, 0 … 65535; the address in 32 bits) of an array of 2-, 1- or 4-byte elements |
 
 Allocation, banks and attic RAM are `<far_ptr.h>`'s ([§12](#12-other-library-backed-headers), [§13](#13-mega65-hardware-mega65h-and-dma-dmah)). Tests: `test_far_ops_xemu.c`, `test_far2_xemu.c`, `test_far_string_xemu.c`, `test_far_attic_xemu.c`.

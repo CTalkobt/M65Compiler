@@ -38,11 +38,12 @@ char *strcpy__pcfp(char *dst, far_ptr_t src);
 far_ptr_t strcpy__fppc(far_ptr_t dst, const char *src);
 far_ptr_t strcpy__fpfp(far_ptr_t dst, far_ptr_t src);
 
-/* strcmp: <0, 0, >0 by the first differing (unsigned) byte */
-int strcmp__pcpc(const char *str1, const char *str2);
-int strcmp__fppc(far_ptr_t str1, const char *str2);
-int strcmp__pcfp(const char *str1, far_ptr_t str2);
-int strcmp__fpfp(far_ptr_t str1, far_ptr_t str2);
+/* strcmp: <0, 0, >0 by the first differing (unsigned) byte; the results are
+ * signed int, so < 0 works in cc45's default unsigned mode */
+signed int strcmp__pcpc(const char *str1, const char *str2);
+signed int strcmp__fppc(far_ptr_t str1, const char *str2);
+signed int strcmp__pcfp(const char *str1, far_ptr_t str2);
+signed int strcmp__fpfp(far_ptr_t str1, far_ptr_t str2);
 
 /* strcat */
 char *strcat__pcpc(char *dst, const char *src);
@@ -51,10 +52,10 @@ far_ptr_t strcat__fppc(far_ptr_t dst, const char *src);
 far_ptr_t strcat__fpfp(far_ptr_t dst, far_ptr_t src);
 
 /* memcmp */
-int memcmp__pvpvz(const void *ptr1, const void *ptr2, size_t len);
-int memcmp__fpvz(far_ptr_t ptr1, const void *ptr2, size_t len);
-int memcmp__pvfz(const void *ptr1, far_ptr_t ptr2, size_t len);
-int memcmp__fpfz(far_ptr_t ptr1, far_ptr_t ptr2, size_t len);
+signed int memcmp__pvpvz(const void *ptr1, const void *ptr2, size_t len);
+signed int memcmp__fpvz(far_ptr_t ptr1, const void *ptr2, size_t len);
+signed int memcmp__pvfz(const void *ptr1, far_ptr_t ptr2, size_t len);
+signed int memcmp__fpfz(far_ptr_t ptr1, far_ptr_t ptr2, size_t len);
 
 /* Typed elements of a far array (element index; any index up to 65535) */
 int16_t far_array_read_int16(far_ptr_t base, int index);

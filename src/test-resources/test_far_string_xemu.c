@@ -11,8 +11,10 @@
  *   [5] memcmp (4 forms): equal, a difference in the second chunk, signs
  *   [6] far_array_read/write int16, uint8, uint32 (an index past 16383)
  *   [7] $AA sentinel
+ *
+ * Compiled in cc45's default mode (plain int unsigned): the strcmp__* /
+ * memcmp__* results are declared signed int, so < 0 and > 0 hold (#710).
  */
-#pragma cc45 signed_default
 
 #include <far_ops.h>
 #include <string.h>
@@ -71,7 +73,8 @@ static int t_strcmp(void) {
          strcmp__pcfp("apricot", F(0xA00)) > 0 && strcmp__pcfp("apple", F(0xA00)) == 0 &&
          strcmp__fpfp(F(0xA00), F(0xA60)) == 0 && strcmp__fpfp(F(0xA00), F(0xA20)) < 0 &&
          strcmp__fpfp(F(0xA20), F(0xA00)) > 0 && strcmp__fpfp(F(0xA40), F(0xA00)) < 0 &&
-         strcmp__pcpc("b", "a") > 0;
+         strcmp__pcpc("b", "a") > 0 && strcmp__pcpc("a", "b") < 0 &&
+         strcmp__fppc(F(0xA20), "apple") > 0 && strcmp__pcfp("app", F(0xA00)) < 0;
     /* a difference past the first 32 bytes */
     memset(a, 'm', 40);
     a[40] = 0;
@@ -105,7 +108,9 @@ static int t_memcmp(void) {
     far_write_uint8(F(0xE00), 70, 200);
     ok = ok && memcmp__fpfz(F(0xD00), F(0xE00), 100) < 0 && memcmp__fpfz(F(0xE00), F(0xD00), 100) > 0 &&
          memcmp__fpfz(F(0xD00), F(0xE00), 70) == 0 && memcmp__fpvz(F(0xE00), a, 100) > 0 &&
-         memcmp__pvfz(a, F(0xE00), 100) < 0;
+         memcmp__pvfz(a, F(0xE00), 100) < 0 && memcmp__fpvz(F(0xD00), a + 1, 10) < 0 &&
+         memcmp__pvfz(a + 1, F(0xD00), 10) > 0 && memcmp__pvpvz(a, a + 1, 10) < 0 &&
+         memcmp__pvpvz(a + 1, a, 10) > 0;
     return ok;
 }
 
