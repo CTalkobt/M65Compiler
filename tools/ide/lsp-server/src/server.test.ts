@@ -374,6 +374,12 @@ describe('language server', () => {
         assert.equal(ld[0].range.start.line, 1);
       }
 
+      // a .c file another editor opens as 'cpp' is still C
+      send({ jsonrpc: '2.0', method: 'textDocument/didOpen', params: { textDocument: { uri: uri('p.c'), languageId: 'cpp', version: 1,
+        text: 'int main(void) { return 0 }\n' } } });
+      await until(() => (diags.get(uri('p.c'))?.length ?? 0) > 0);
+      assert.equal(diags.get(uri('p.c'))![0].source, 'cc45', JSON.stringify(diags.get(uri('p.c'))));
+
       // the outline, references, members of a library struct, the assembly
       const syms = await req<{ name: string }[]>('textDocument/documentSymbol', { textDocument: { uri: uri('a.c') } });
       assert.deepEqual(syms.map((x) => x.name), ['helper', 'main']);

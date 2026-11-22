@@ -4,7 +4,7 @@ This guide covers setup of the MEGA65 C Compiler (cc45) and Assembler (ca45) Lan
 
 ## Prerequisites
 
-1. **Built LSP Server & Extension** (done in repo root):
+1. **Built LSP Server & Extension** (from the repository root):
    ```bash
    cd tools/ide
    npm install
@@ -19,8 +19,10 @@ This guide covers setup of the MEGA65 C Compiler (cc45) and Assembler (ca45) Lan
    (Or configure paths in IDE settings)
 
 3. **File types** recognized:
-   - **C source**: `.c`, `.h`
-   - **Assembly**: `.s45`, `.asm` (45GS02), `.s`, `.asm` (6502)
+   - **C source**: `.c`, `.h` (by extension, or a document whose language ID is `c` or `h`)
+   - **Assembly** (ca45, 45GS02): `.s45`, `.asm` (by extension, or the language ID `m65-asm`)
+   - `.s` and `.inc` files get hover, completion and the outline as assembly, but no diagnostics
+     (they are often another assembler's source, or fragments that do not assemble alone)
 
 ---
 
@@ -37,9 +39,8 @@ This guide covers setup of the MEGA65 C Compiler (cc45) and Assembler (ca45) Lan
 
 1. **Package the extension**:
    ```bash
-   npm install -g @vscode/vsce
    cd tools/ide/vscode-extension
-   vsce package
+   npm run package          # npx @vscode/vsce package (after npm run build)
    # Creates: mega65-cc45-ca45-0.1.0.vsix
    ```
 
@@ -52,10 +53,16 @@ This guide covers setup of the MEGA65 C Compiler (cc45) and Assembler (ca45) Lan
    {
      "m65.cc45Path": "${workspaceFolder}/bin/cc45",
      "m65.ca45Path": "${workspaceFolder}/bin/ca45",
+     "m65.lint.enabled": true,
+     "m65.cl45Path": "",
+     "m65.al45Path": "",
      "m65.diagnostics.debounceMs": 500,
-     "m65.indexer.exclude": ["node_modules", ".git", "bin", "obj", "build"]
+     "m65.indexer.exclude": ["node_modules", ".git", "bin", "obj", "build"],
+     "m65.dbg45Path": "${workspaceFolder}/bin/dbg45"
    }
    ```
+   (`cl45Path` / `al45Path` empty: the linters beside cc45 and ca45. `dbg45Path` is for the `cc45` debug
+   type, [doc/bin/dbg45.md](../../doc/bin/dbg45.md).)
 
 ### Keyboard Shortcuts
 
@@ -87,119 +94,55 @@ The extension contributes problem matchers, so a task's cc45, ca45 and ln45 erro
 
 ---
 
+## Other editors
+
+The setups below follow each editor's current documentation for adding a language server; they have not
+been tried in every editor here. All of them start the same server, `node tools/ide/lsp-server/dist/server.js`
+(stdio; `--stdio` is assumed when no transport is given), and the paths in them are placeholders for your
+checkout. A C/C++ server the editor already runs (clangd, the IDE's own) works beside this one, or takes
+over C files, depending on the editor.
+
 ## Visual Studio 2022+
 
-### Setup via LSP Client Extension
-
-1. **Install LSP Client**:
-   - Extensions → Manage Extensions
-   - Search: "LSP Client"
-   - Install "LSP Client" (by jasonwilson)
-
-2. **Configure Extension**:
-   - Tools → Options → LSP Client → LSP Client Settings
-   - Add server configuration:
-     ```json
-     {
-       "root": "${workspaceFolder}",
-       "executable": "node",
-       "arguments": [
-         "C:\\path\\to\\m65compiler\\tools\\ide\\lsp-server\\dist\\server.js"
-       ],
-       "languages": [
-         { "languageId": "c", "scheme": "file" },
-         { "languageId": "plaintext", "scheme": "file" }
-       ]
-     }
-     ```
-
-3. **Or copy the server elsewhere**: `tools\ide\lsp-server\dist` holds the server and its data (one
-   `server.js`, `data\`); copy the directory and point the arguments at its `server.js`:
-   ```bash
-   xcopy /E /I tools\ide\lsp-server\dist  %USERPROFILE%\mega65-lsp\
-   ```
-
-4. **File Associations** (Tools → Options → Text Editor → File Extensions):
-   - `.s45` → C/C++
-   - `.asm` → C/C++ (assembly)
-
-### Features
-
-- ✅ Real-time diagnostics (squiggles)
-- ✅ Hover documentation
-- ✅ Goto Definition (F12)
-- ✅ Autocomplete (Ctrl+Space)
-- ⚠️ Symbol search (limited UI)
-
-### Known Limitations
-
-- No dedicated syntax highlighting for 45GS02 assembly
-- Limited symbol picker UI
-- No multi-target debugging (use VS Code for that)
+Visual Studio has no general LSP client to point at a server: a language server is added by a VSIX
+extension of its own (an `ILanguageClient` from `Microsoft.VisualStudio.LanguageServer.Client` that starts
+`node <path>\tools\ide\lsp-server\dist\server.js --stdio` for `.c`, `.h`, `.s45`, `.asm`). None is
+provided in this repository; use VS Code, or one of the editors below.
 
 ---
 
 ## CLion / JetBrains IDEs (IntelliJ, PyCharm, Rider, etc.)
 
-### Setup via LSP Support Plugin
+### Setup via the LSP4IJ plugin
 
-1. **Enable LSP Support** (Built-in as of 2023.1):
-   - Settings → Languages & Frameworks → Language Server Protocol
-   - Check "Enable Language Server Protocol"
+JetBrains IDEs have no settings page for adding a language server by hand; the LSP4IJ plugin (by Red Hat,
+from the Marketplace) provides one.
 
-2. **Configure LSP Server**:
-   - Settings → Languages & Frameworks → LSP → Server Definitions
-   - Click **+** to add new server:
-     ```
-     Name: MEGA65 LSP
-     Extension: C, H, S45, ASM
-     Path: node
-     Arguments: ${LSP_SERVER_PATH}/dist/server.js
-     Initialization Options: {}
-     Trace Level: Verbose (for debugging)
-     ```
-   - Set `${LSP_SERVER_PATH}` = `${PROJECT_DIR}/tools/ide/lsp-server`
+1. **Install LSP4IJ**: Settings → Plugins → Marketplace → "LSP4IJ" → Install, restart.
 
-3. **Project Configuration**:
-   - File → Project Structure → Project Settings
-   - Add Run Configuration → Node.js
+2. **Add the server**: Settings → Languages & Frameworks → Language Servers → **+**
+   - *Server* tab: Name `MEGA65 LSP`; Command
      ```
-     Node executable: node
-     JavaScript file: tools/ide/lsp-server/dist/server.js
-     Working directory: ${PROJECT_DIR}
+     node /path/to/m65compiler/tools/ide/lsp-server/dist/server.js --stdio
      ```
+   - *Mappings* tab → *File name patterns*: `*.c;*.h` with language ID `c`, `*.s45;*.asm` with language
+     ID `m65-asm`
+   - *Configuration* tab: the `m65` settings below (General LSP Configuration), as JSON
 
-4. **File Type Associations**:
-   - Settings → Editor → File Types
-   - Assign `.s45`, `.asm` to "C++" type
+3. **Assembly files**: without a file type for `.s45`, map it to *Text* (Settings → Editor → File Types)
+   so the IDE opens it; the server's features do not depend on it.
 
 ### Features
 
-- ✅ Real-time diagnostics (red/yellow squiggles)
-- ✅ Hover documentation with "Ctrl+Q"
-- ✅ Goto Definition (**Ctrl+B** or **Cmd+B**)
-- ✅ Find Usages (**Alt+F7** / **Opt+F7**)
-- ✅ File structure / outline (**Ctrl+F12**)
-- ✅ Symbol Search (**Ctrl+Alt+O** / **Cmd+Opt+O**)
-- ✅ Code Completion (**Ctrl+Space**)
-
-### Keyboard Shortcuts
-
-| Action | Shortcut |
-|--------|----------|
-| Go to Definition | **Ctrl+B** (Windows/Linux), **Cmd+B** (Mac) |
-| Quick Documentation | **Ctrl+Q** (Windows/Linux), **F1** (Mac) |
-| Find Symbol | **Ctrl+Alt+O** (Windows/Linux), **Cmd+Opt+O** (Mac) |
-| Find Usages | **Alt+F7** |
-| Go to Type | **Ctrl+Shift+B** (Windows/Linux), **Cmd+Shift+B** (Mac) |
+LSP4IJ maps the server to the IDE's own actions: diagnostics, Quick Documentation (**Ctrl+Q**, Mac **F1**),
+Go to Declaration (**Ctrl+B** / **Cmd+B**), Find Usages (**Alt+F7**), File Structure (**Ctrl+F12**),
+Go to Symbol (**Ctrl+Alt+Shift+N** / **Cmd+Opt+O**) and completion (**Ctrl+Space**). LSP4IJ's log of the
+server's messages is in the *Language Servers* tool window.
 
 ### Debugging Integration
 
-For C code debugging, configure native debugger:
-- Settings → Build, Execution, Deployment → Debugger
-- Use GDB/LLDB configured for your platform
-- Set breakpoints in LSP-highlighted code
-- 45GS02 debugging in xemu: VS Code's `cc45` debug type (dbg45 `--dap`, [doc/bin/dbg45.md](../../doc/bin/dbg45.md)); JetBrains IDEs can run the same adapter with a DAP plugin
+45GS02 debugging in xemu is VS Code's `cc45` debug type (dbg45 `--dap`, [doc/bin/dbg45.md](../../doc/bin/dbg45.md)).
+LSP4IJ also has a DAP client that could run `dbg45 --dap`; that has not been tried.
 
 ---
 
@@ -221,7 +164,7 @@ For C code debugging, configure native debugger:
        "mega65-lsp": {
          "command": "node",
          "args": ["${workspaceFolder}/tools/ide/lsp-server/dist/server.js"],
-         "filetypes": ["c", "h", "s45", "asm"],
+         "filetypes": ["c", "cpp", "asm"],
          "rootPatterns": ["Makefile", ".git", "package.json"],
          "initializationOptions": {}
        }
@@ -246,6 +189,8 @@ For C code debugging, configure native debugger:
    " Trigger autocomplete
    inoremap <buffer> <silent><expr> <C-space> coc#refresh()
    ```
+
+   (`cpp`: Vim opens `.h` files as C++ unless `g:c_syntax_for_h` is set; `.s45` is `asm` by the line below.)
 
 4. **Syntax Highlighting** (optional, for 45GS02 assembly):
    ```bash
@@ -276,131 +221,108 @@ augroup lsp_install
   autocmd User lsp_setup call lsp#register_server({
     \ 'name': 'mega65-lsp',
     \ 'cmd': {srv -> ['node', $HOME . '/.local/mega65-lsp/dist/server.js']},
-    \ 'whitelist': ['c', 'h', 's45', 'asm'],
+    \ 'allowlist': ['c', 'cpp', 'asm'],
     \ })
 augroup END
+```
+
+### Alternative: Neovim's own client (0.11+)
+
+```lua
+vim.filetype.add({ extension = { s45 = 'asm' } })
+vim.lsp.config('mega65', {
+  cmd = { 'node', vim.fn.expand('~/m65compiler/tools/ide/lsp-server/dist/server.js'), '--stdio' },
+  filetypes = { 'c', 'cpp', 'asm' },
+  root_markers = { 'Makefile', '.git' },
+  settings = { m65 = { cc45Path = vim.fn.expand('~/m65compiler/bin/cc45') } },
+})
+vim.lsp.enable('mega65')
 ```
 
 ---
 
 ## Emacs
 
+### Setup via eglot (built in since Emacs 29)
+
+```lisp
+(add-to-list 'auto-mode-alist '("\\.s45\\'" . asm-mode))
+(with-eval-after-load 'eglot
+  (add-to-list 'eglot-server-programs
+               `((c-mode c-ts-mode asm-mode)
+                 . ("node" ,(expand-file-name "~/m65compiler/tools/ide/lsp-server/dist/server.js") "--stdio"))))
+```
+
+`M-x eglot` in a `.c` or `.s45` buffer starts it (or `(add-hook 'c-mode-hook #'eglot-ensure)`). Settings go in
+`eglot-workspace-configuration`: `'(:m65 (:cc45Path "/path/to/bin/cc45"))`.
+
 ### Setup via lsp-mode
 
-1. **Install lsp-mode**:
-   ```lisp
-   ;; Using use-package (in ~/.emacs.d/init.el)
-   (use-package lsp-mode
-     :ensure t
-     :hook ((c-mode . lsp)
-            (asm-mode . lsp))
-     :commands lsp)
-   ```
+```lisp
+(add-to-list 'auto-mode-alist '("\\.s45\\'" . asm-mode))
+(with-eval-after-load 'lsp-mode
+  (add-to-list 'lsp-language-id-configuration '(asm-mode . "m65-asm"))
+  (lsp-register-client
+   (make-lsp-client
+    :new-connection (lsp-stdio-connection
+                     (list "node" (expand-file-name "~/m65compiler/tools/ide/lsp-server/dist/server.js") "--stdio"))
+    :activation-fn (lsp-activate-on "c" "m65-asm")
+    :priority 1                       ; before clangd in C buffers
+    :server-id 'mega65-lsp)))
+(add-hook 'c-mode-hook #'lsp-deferred)
+(add-hook 'asm-mode-hook #'lsp-deferred)
+```
 
-2. **Configure LSP Server**:
-   ```lisp
-   (use-package lsp-clients
-     :ensure nil
-     :after lsp-mode
-     :config
-     (lsp-register-client
-       (make-lsp-client
-         :new-connection (lsp-stdio-connection '("node" "~/projects/mega65/tools/ide/lsp-server/dist/server.js"))
-         :major-modes '(c-mode asm-mode)
-         :server-id 'mega65-lsp)))
-   ```
-
-3. **Key Bindings** (in lsp-mode):
-   ```lisp
-   ;; These are defaults, customize as needed:
-   (define-key lsp-mode-map (kbd "M-.") 'lsp-find-definition)
-   (define-key lsp-mode-map (kbd "M-,") 'pop-tag-mark)
-   (define-key lsp-mode-map (kbd "C-M-<tab>") 'completion-at-point)
-   (define-key lsp-mode-map (kbd "K") 'lsp-describe-thing-at-point)
-   ```
+(`expand-file-name`: the command is not run by a shell, so a bare `~` is not expanded.)
 
 ### Features
 
-- ✅ Real-time diagnostics (flymake / flycheck)
-- ✅ Hover documentation (**M-x lsp-describe-thing-at-point**)
-- ✅ Goto Definition (**M-.**)
-- ✅ Find References (**M-x lsp-find-references**)
-- ✅ Outline (**M-x imenu** / lsp-treemacs-symbols)
-- ✅ Autocomplete (company-lsp)
-
-### Installation Notes
-
-- Install company-mode for better completion UI:
-  ```lisp
-  (use-package company
-    :ensure t
-    :hook (lsp-mode . company-mode))
-  ```
+- ✅ Real-time diagnostics (flymake; flycheck with lsp-mode)
+- ✅ Hover documentation (eldoc; `M-x eldoc-doc-buffer`, lsp-mode `M-x lsp-describe-thing-at-point`)
+- ✅ Goto Definition (**M-.**, back with **M-,**)
+- ✅ Find References (**M-?**)
+- ✅ Outline (**M-x imenu**)
+- ✅ Autocomplete (`completion-at-point`, **C-M-i**; company or corfu show it as you type)
 
 ---
 
 ## Sublime Text 4+
 
-### Setup via LSP Package
+### Setup via the LSP package
 
-1. **Install LSP Package**:
-   - Command Palette (**Ctrl+Shift+P**)
-   - "Package Control: Install Package"
-   - Search "LSP" → Install "LSP"
+1. **Install LSP**: Command Palette (**Ctrl+Shift+P**) → "Package Control: Install Package" → "LSP".
 
-2. **Configure LSP** (Preferences → Package Settings → LSP → Settings):
+2. **Configure** (Preferences → Package Settings → LSP → Settings):
    ```json
    {
      "clients": {
-       "mega65_lsp": {
+       "mega65-lsp": {
          "enabled": true,
-         "command": ["node", "${project_dir}/tools/ide/lsp-server/dist/server.js"],
-         "languages": [
-           {
-             "languageId": "c",
-             "scopes": ["source.c"],
-             "syntaxes": ["Packages/C++/C.sublime-syntax"]
-           },
-           {
-             "languageId": "m65-asm",
-             "scopes": ["source.asm"],
-             "syntaxes": ["Packages/Assembly/x86-64.sublime-syntax"]
-           }
-         ]
+         "command": ["node", "/path/to/m65compiler/tools/ide/lsp-server/dist/server.js", "--stdio"],
+         "selector": "source.c | source.asm",
+         "settings": {
+           "m65": { "cc45Path": "/path/to/m65compiler/bin/cc45", "ca45Path": "/path/to/m65compiler/bin/ca45" }
+         }
        }
      }
    }
    ```
 
-3. **File Associations** (Preferences → Settings):
-   ```json
-   {
-     "file_type_mappings": {
-       "c": "C",
-       "h": "C Header",
-       "s45": "x86-64 Assembly",
-       "asm": "x86-64 Assembly"
-     }
-   }
-   ```
+3. **Assembly files**: Sublime has no assembly syntax of its own. Install one from Package Control whose
+   scope is `source.asm…` (a 6502 or other assembly package), open a `.s45` file and choose View → Syntax →
+   *Open all with current extension as…* that syntax. `.c` and `.h` are `source.c` already.
 
-4. **Key Bindings** (Preferences → Key Bindings):
-   ```json
-   [
-     { "keys": ["f12"], "command": "lsp_symbol_definition" },
-     { "keys": ["ctrl+k", "ctrl+i"], "command": "lsp_hover" },
-     { "keys": ["ctrl+shift+r"], "command": "lsp_rename" },
-     { "keys": ["ctrl+t"], "command": "lsp_symbol_search" }
-   ]
-   ```
+4. **Key Bindings**: the LSP package's defaults are **F12** (definition), **Shift+F12** (references),
+   **F2** (rename, which this server does not provide), hover by the mouse; Preferences → Package Settings →
+   LSP → Key Bindings lists them.
 
 ### Features
 
-- ✅ Real-time diagnostics (gutter icons)
-- ✅ Hover documentation (**Ctrl+K Ctrl+I**)
+- ✅ Real-time diagnostics (gutter icons, the diagnostics panel)
+- ✅ Hover documentation
 - ✅ Goto Definition (**F12**)
-- ✅ Symbol Search (**Ctrl+T**)
-- ✅ Find References (**Shift+F12**), outline (**Ctrl+R**)
+- ✅ Symbol Search (Command Palette: "LSP: Goto Symbol in Project")
+- ✅ Find References (**Shift+F12**), outline ("LSP: Goto Symbol")
 - ✅ Autocomplete
 
 ---
@@ -477,34 +399,36 @@ Go to definition on a `.loc` line goes to the C line too.
 
 **Diagnostics not appearing:**
 1. Ensure cc45/ca45 binaries exist: `ls -la bin/cc45 bin/ca45`
-2. Run manually to test: `./bin/cc45 test.c -o test.s45`
+2. Run what the server runs: `./bin/cc45 -c test.c -o test.o45` (assembly: `./bin/ca45 -c test.s45 -o test.o45`)
 3. Check IDE console for subprocess errors
 
 **Hover/completion not working:**
-1. Verify data files exist: `ls tools/ide/lsp-server/data/*.json`
-2. Check IDE language ID matches: `c`, `h`, `m65-asm`, `asm`
+1. Verify data files exist: `ls tools/ide/lsp-server/dist/data/*.json` (copied from `lsp-server/data` by the build)
+2. Check the file is one the server takes: `.c`/`.h` (or language ID `c`/`h`), `.s45`/`.asm` (or `m65-asm`)
 3. Ensure static data files were built: `npm run build`
 
 ---
 
 ## IDE Feature Comparison
 
-| Feature | VS Code | Visual Studio | CLion | Vim | Emacs | Sublime |
-|---------|---------|---------------|-------|-----|-------|---------|
-| Diagnostics | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| Hover Docs | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| Go to Definition | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| Autocomplete | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| Symbol Search | ✅ | ⚠️ | ✅ | ✅ | ✅ | ✅ |
-| Find References | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| Outline (document symbols) | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| Member completion (`.`, `->`) | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| C ↔ assembly (Show Assembly) | ✅ | ❌ | ❌ | ⚠️ (`m65/assembly`) | ⚠️ (`m65/assembly`) | ❌ |
-| Problem matchers (build tasks) | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
-| Rename | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
-| Syntax Highlighting (Assembly) | ✅ | ⚠️ | ⚠️ | ⚠️ | ⚠️ | ⚠️ |
-| Integrated Debugging | ✅ | ✅ | ✅ | ❌ | ❌ | ❌ |
-| Setup Difficulty | Easy | Medium | Medium | Hard | Hard | Medium |
+| Feature | VS Code | JetBrains (LSP4IJ) | Vim / Neovim | Emacs | Sublime |
+|---------|---------|--------------------|--------------|-------|---------|
+| Diagnostics | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Hover Docs | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Go to Definition | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Autocomplete | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Symbol Search | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Find References | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Outline (document symbols) | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Member completion (`.`, `->`) | ✅ | ✅ | ✅ | ✅ | ✅ |
+| C ↔ assembly (Show Assembly) | ✅ | ❌ | ⚠️ (`m65/assembly`) | ⚠️ (`m65/assembly`) | ❌ |
+| Problem matchers (build tasks) | ✅ | ❌ | ❌ | ❌ | ❌ |
+| Rename | ❌ | ❌ | ❌ | ❌ | ❌ |
+| Syntax Highlighting (Assembly) | ✅ | ❌ | ⚠️ | ⚠️ | ⚠️ (a package) |
+| Integrated Debugging (dbg45) | ✅ | ⚠️ (LSP4IJ's DAP, untried) | ❌ | ❌ | ❌ |
+| Setup Difficulty | Easy | Medium | Medium | Medium | Medium |
+
+Visual Studio: none of these without an extension of its own (see above).
 
 ---
 
@@ -521,6 +445,6 @@ Go to definition on a `.loc` line goes to the C line too.
 ## Related Documentation
 
 - [LSP Server Architecture](README.md)
-- [Compiler Configuration](../../../doc/bin/cc45.md)
-- [Assembler Guide](../../../doc/bin/ca45.md)
-- [Standard Library](../../../doc/architecture/stdlib.md)
+- [Compiler Configuration](../../doc/bin/cc45.md)
+- [Assembler Guide](../../doc/bin/ca45.md)
+- [Standard Library](../../doc/architecture/stdlib.md)
