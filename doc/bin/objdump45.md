@@ -80,6 +80,28 @@ Idx Name     Size       VMA        Type       Relocs
 
 BSS and ZP sections appear with type `NOBITS`; empty sections are omitted.
 
+An object compiled with `-ffunction-sections` (ca45 `.function_sections`, `.split`) also lists its link sections, the units [ln45](ln45.md#1-library-resolution) keeps or drops:
+
+```
+$ cc45 -O2 -ffunction-sections -c util.c -o util.o45
+$ objdump45 -h util.o45
+util.o45:
+Sections:
+Idx Name     Size       VMA        Type       Relocs
+  0 TEXT     0000003A   00000000   CODE       0
+  1 BSS      0000000C   00000000   NOBITS     0
+Link sections (6; the rest of each segment is kept with any of them):
+Idx Seg   Offset     Size       Align Name
+  0 TEXT  00000000   0000000F   1     _twice
+  1 TEXT  0000000F   0000001C   1     _thrice
+  2 TEXT  0000002B   0000000F   1     _unused_helper
+  3 BSS   00000000   00000004   1     _twice__ar
+  4 BSS   00000004   00000004   1     _thrice__ar
+  5 BSS   00000008   00000004   1     _unused_helper__ar
+```
+
+`Seg` is the segment the section is in, `Offset` and `Size` its bytes there (hex), `Align` its alignment, `Name` the symbol it is named by (a function; `_f__ar` its static storage). Bytes no section covers (the object's residual) are kept whenever anything of the object is.
+
 ### Symbol Table (`-t`)
 
 ```
@@ -251,6 +273,55 @@ The undocumented opcodes have the names objdump45 uses (groepaz's), which VICE s
 
 Limitations for objects: addresses are object-relative (the not yet relocated operand bytes are shown, usually `$0000` for external references), and the DATA section is disassembled as if it were code. Disassemble the linked PRG with its map for real addresses.
 
+### Debug Information (`-g`)
+
+```c
+/* pt.c */
+struct pt { int x, y; unsigned flag : 1; };
+
+struct pt origin;
+
+int sum(struct pt *p) {
+    int s = p->x + p->y;
+    return s;
+}
+```
+
+```
+$ cc45 -O2 -c pt.c -o pt.o45
+$ objdump45 -g pt.o45
+pt.o45:
+Debug information:
+  Source files:
+    0  pt.c
+  Lines (text offset  file:line):
+    0000  pt.c:5
+    0000  pt.c:6
+    0002  pt.c:6
+    …
+    001c  pt.c:7
+    001d  pt.c:7
+    001f  pt.c:7
+  Types:
+    struct pt (6 bytes)
+      x                +0        u16
+      y                +2        u16
+      flag             +4.0.1    u16
+  Functions (label  location  length):
+    _sum                       seg:text+0       32
+  Variables (kind  scope  name  type  location):
+    global  -                  origin         struct:pt        seg:bss+0
+    local   _sum               s              u16              zp:$30
+    param   _sum               p              *struct:pt       zp:$10
+```
+
+- **Lines**: the line table (`OPT_LINEINFO`) as recorded, hex text offsets (cc45 writes an entry per instruction of a line, so a line repeats; the first entry for an address is the one the disassembly and ln45 use).
+- **Types**: struct and union layouts; a member is `+offset`, a bit-field `+offset.bit.width`; its type descriptor as in lib45.md 1.12 (`u16`, `*struct:pt`, `struct:pt`).
+- **Functions**: each function's label, its segment and offset, and its length in bytes.
+- **Variables**: kind (`global`, `static`, `local`, `param`), scope (the function's label; `-` for file scope), C name, type and location as the record has them ([lib45.md 1.12](../architecture/lib45.md#112-debug-types-and-variables-opt_debug_types-opt_debug_vars): `seg:bss+0` in the object, `zp:$30` a base-page byte, `imp:`, `abs:`, `frame:n`, `reg:AX`, `none`).
+
+cc45 writes these records whatever its options (`-g` matters only to a one-step build); `ln45 -g` collects them at the program's addresses ([ln45 Debug File](ln45.md#debug-file)). For a PRG `-g` prints nothing.
+
 ### HTML view
 
 `objdump45 --html out.html FILE...` writes one page with all the files given: objects, `.lib` archives (each
@@ -296,6 +367,59 @@ back):
 The bottom line shows the position and the path to the node. Not on a terminal (`objdump45 --tree x.o45 | less`,
 a file) the whole tree is written as indented text. The terminal is driven with standard (ANSI/VT100) sequences;
 there is no curses library to install.
+
+The text form, two spaces a level (the object of [Section Headers](#section-headers--h); trailing blanks removed):
+
+```
+$ objdump45 --tree util.o45 | cat
+util.o45  (object, o45-32, 45GS02)
+  Header
+    Format: o45-32
+    CPU: 45GS02
+    Mode: $8800
+    Option OS: 1 bytes
+    Option ASM: ca45
+    Option USER: 133 bytes
+    Option LINEINFO: 215 bytes
+    Option DEBUG_SYMBOLS: 83 bytes
+    Option DEBUG_VARS: 176 bytes
+  Segments (2)
+    TEXT  code  $0000  58 bytes    0 relocations
+    BSS   bss   $0000  12 bytes    0 relocations
+  Link sections (6)
+    TEXT  $0000  15    align 1   _twice
+    TEXT  $000f  28    align 1   _thrice
+    …
+  Symbols (30)
+          U     __bp_rom
+          U     __bp_prog
+    $0101  ABS   __sp_base [weak]
+    …
+    $0000  TEXT  _twice
+      Convention: zp_call leaf static_alloc  regs:AX flags:CNZV
+      Parameters: 2 bytes, frame 0
+      Base page: uses -, clobbers -, releases -
+    $0001  BSS   _twice__ar
+    …
+  Functions (3)
+    _thrice                     zp_call leaf static_alloc  regs:AX flags:CNZV
+    _twice                      zp_call leaf static_alloc  regs:AX flags:CNZV
+    _unused_helper              zp_call leaf static_alloc  regs:AX flags:CNZV
+  Relocations (0)
+  Checks (0 warnings, 0 notes)
+  Disassembly: TEXT  (45gs02, 58 bytes at $0000)
+    $0000 <_twice>
+      ; util.c:1
+        0000:  a5 10           lda   $10
+        0002:  18              clc
+        0003:  65 10           adc   $10
+        …
+        000e:  60              rts
+    $000f <_thrice>
+    …
+```
+
+Every node is written open; sizes and offsets in the tree are decimal unless shown with `$`.
 
 ### Checks
 
