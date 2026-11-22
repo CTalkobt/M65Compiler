@@ -1513,6 +1513,18 @@ for mxmode in "|" "m|--minify" "c|--compile"; do
         failed=$((failed + 1))
     fi
 done
+# #683: array parameters of compiled procs, read and written in place
+for maflags in "" "--minify"; do
+    maname=${maflags:+m}
+    echo "Testing test_basic45_mixarr_xemu.bas $maflags..."
+    if ./bin/basic45 --strict --checks $maflags src/test-resources/test_basic45_mixarr_xemu.bas \
+           -o build/test/test_basic45_mixarr$maname.prg >/dev/null 2>&1; then
+        run_xemu_test "test_basic45_mixarr$maname" "build/test/test_basic45_mixarr$maname.prg" "C0C0" 7 "01 01 01 01 01 01 AA"
+    else
+        echo "FAIL: test_basic45_mixarr_xemu.bas $maflags (basic45 failed)"
+        failed=$((failed + 1))
+    fi
+done
 # --compile --link (#369): the same program compiled, its C functions called
 # directly, {name} the symbols' addresses, the asm block and incbin linked in
 for blmode in "|" "_checks|--checks"; do

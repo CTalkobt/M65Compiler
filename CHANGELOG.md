@@ -4,6 +4,17 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### basic45: compiled procs: array parameters, read and written in place (#683)
+
+- `proc f(a(), n) compiled` / `proc g(b%()) compiled` take the interpreted program's array: `call f(x(), 21)`
+  passes `POINTER(x(0))`, and the compiled proc reads and writes the elements where BASIC keeps them (bank 1,
+  through 28-bit addresses; integers high byte first there), no copy. One dimension, floats and `%` integers. The
+  array's header is checked at the proc's entry (`?TYPE MISMATCH`, `?BAD SUBSCRIPT` for more than one dimension),
+  and with `--checks` each index. An argument of another type, a string array, an array parameter of an ordinary
+  proc, from one compiled proc to another, or with `--compile` are errors.
+- Library: `basic_mixed.s45`'s `__bas_xbase`, `__bas_xgetf` / `__bas_xgeti`, `__bas_xputf` / `__bas_xputi`.
+- Tests: `test_basic45_mixarr_xemu.bas` (as is, `--minify`), `test_basic45.sh` (the errors).
+
 ### basic45: compiled procs: strings, calls between them, jumps reported (#680, #681, #682)
 
 - **Strings** (#680): `proc f(s$) compiled` takes a string (its characters copied from BASIC's string space by

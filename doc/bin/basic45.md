@@ -377,12 +377,23 @@ endproc
 - **Jumps** (#682): a compiled proc's labels are its own. A `GOTO`, `GOSUB`, `ON … GOTO` / `GOSUB`, `THEN` /
   `ELSE` label, `TRAP`, `RESTORE` or `RESUME` to a label outside it is an error at its line (`goto top: a compiled
   proc cannot jump out of itself`); to another compiled proc's label too (`call` it).
-- Not yet: arrays as parameters (#683), `asm` / `incbin` in a compiled proc, `{name}` symbols in one.
+- **Arrays** (#683): `proc f(a(), n) compiled` / `proc g(b%()) compiled` take an array of the interpreted
+  program, called as `call f(x(), 21)`: the call passes `POINTER(x(0))` (an array not yet made is made, 11
+  elements, as BASIC makes one), and the compiled proc reads and writes its elements **where they are** (bank 1,
+  through their 28-bit addresses: `basic_mixed.s45`'s `__bas_xbase`, `__bas_xget*`, `__bas_xput*`; an integer high
+  byte first there). One dimension and one subscript; floats and `%` integers (a string array is an error, not yet).
+  At the proc's entry the array's header is checked: another type is `?TYPE MISMATCH`, more than one dimension
+  `?BAD SUBSCRIPT`; with `--checks` an index past its elements is `?BAD SUBSCRIPT`. The argument must be an array
+  of the parameter's type (`x()` for `a()`, `x%()` for `b%()`). An array parameter's name is the interpreted
+  array in all the compiled procs (no `DIM` of it there). Not from one compiled proc to another, and not with
+  `--compile` (an error: the whole program compiled, there is no interpreted array).
+- Not yet: string arrays, `asm` / `incbin` in a compiled proc, `{name}` symbols in one.
 - With `--compile` (the whole program compiled) a compiled proc is an ordinary one, its parameters global as any
   proc's; the results are the same where the proc does not change its parameters.
 
 Test: `test_basic45_mixed_xemu.bas` (as is, `--minify`, `--compile`; with `--checks`: numbers, strings, calls
-between compiled procs, recursion), `test_basic45.sh` (the errors).
+between compiled procs, recursion), `test_basic45_mixarr_xemu.bas` (arrays; as is and `--minify`),
+`test_basic45.sh` (the errors).
 
 **With `--compile`** (`basic45 --compile --link routines.c menu.bas -o menu.prg`), the compiled program and the
 linked code are one link (`ln45 -basic`): the program already runs as C, so `SYS {name}` calls the function
