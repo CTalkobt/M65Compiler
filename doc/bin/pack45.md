@@ -63,6 +63,20 @@ pack45: dragon-idle.wav: 44100 Hz, 2 channels, 1.48 s -> 8000 Hz (suggested), 11
 
 Packing them (`-d`) gains little (silence and fades, as fills), but loads and unpacks like any other file.
 
+[tune45 `sample`](tune45.md#sample) plays the packed file as the audio DMA would, so it can be heard before it goes on a disk; it needs the rate pack45 printed (the stream does not hold it). `growl.wav` is a buzz of 1.2 s and half a second of silence:
+
+```
+$ pack45 --sound --max-rate 12000 -d 0x40000 growl.wav growl.pak
+pack45: growl.wav: 44100 Hz, 2 channels, 1.70 s -> 4000 Hz (suggested), 6800 signed 8-bit samples; audio DMA rate $000679
+pack45: growl.wav: 6800 -> 2445 bytes (35%), unpacks to $40000; in place: load it at $41106 (offset 4358)
+$ tune45 sample growl.pak
+tune45: growl.pak: at what rate? --rate <hz> (pack45 --sound printed it)
+$ tune45 sample growl.pak --rate 4000 --wav growl-m65.wav
+playing growl.pak (packed, 2447 bytes): 6800 samples at 4000 Hz, 1.70 s (via growl-m65.wav)
+```
+
+(without `--wav`: on the speakers). The samples unpacked are those `pack45 --sound` writes without `-d`: `tune45 sample growl.raw --rate 4000` makes the same WAV. On the MEGA65, `load_unpack` (`<load.h>`) loads `growl.pak` and unpacks it to `$40000`, where an audio DMA channel plays it at the rate value `$000679`.
+
 | Format | Read |
 |--------|------|
 | WAV | PCM of 8, 16, 24 or 32 bits, 32-bit float |

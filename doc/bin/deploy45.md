@@ -105,19 +105,39 @@ The Ultimate 64's REST API over HTTP: `POST v1/runners:run_prg` (or `load_prg` w
 ```
 $ deploy45 m65ether --dry-run -i 192.168.1.50 avg.prg
 etherload -i 192.168.1.50 -5 -r avg.prg
+$ deploy45 m65ether --dry-run --c64 --no-reset avg.prg
+etherload -r avg.prg
 $ deploy45 m65serial --dry-run -l /dev/ttyUSB1 avg.prg
 m65 -l /dev/ttyUSB1 -F -r avg.prg
+$ deploy45 m65serial --dry-run -l /dev/ttyUSB1 -s 4000000 --c64 --no-run avg.prg
+m65 -l /dev/ttyUSB1 -s 4000000 -F -4 avg.prg
 $ deploy45 m65mount --dry-run -l /dev/ttyUSB1 game.d81
 mega65_ftp -l /dev/ttyUSB1 -c 'put game.d81 GAME.D81' -c 'mount GAME.D81' -c exit
 $ deploy45 m65mount --dry-run -i 192.168.1.50 game.d81
 mega65_ftp -e -i 192.168.1.50 -c 'put game.d81 GAME.D81' -c 'mount GAME.D81' -c exit
+$ deploy45 m65mount --dry-run -l /dev/ttyUSB1 --on-card MEGA65.D81
+mega65_ftp -l /dev/ttyUSB1 -c 'mount MEGA65.D81' -c exit
+$ deploy45 m65mount --dry-run -l /dev/ttyUSB1 --virtual game.d81
+m65 -l /dev/ttyUSB1 -d game.d81
 $ deploy45 u64 --dry-run -i 192.168.1.64 avg.prg
-POST http://192.168.1.64/v1/runners:run_prg (4255 bytes)
+POST http://192.168.1.64/v1/runners:run_prg (4261 bytes)
+$ deploy45 u64 --dry-run -i 192.168.1.64 --no-run --password secret avg.prg
+POST http://192.168.1.64/v1/runners:load_prg (4261 bytes) X-Password
+$ deploy45 u64 --dry-run -i 192.168.1.64 cart.crt
+POST http://192.168.1.64/v1/runners:run_crt (16464 bytes)
+$ deploy45 u64 --dry-run -i 192.168.1.64 --song 2 tune.sid
+POST http://192.168.1.64/v1/runners:sidplay?songnr=2 (4730 bytes)
 $ deploy45 u64 --dry-run -i 192.168.1.64 game.d81
 POST http://192.168.1.64/v1/drives/a:mount?type=d81&mode=readwrite (819200 bytes)
+$ deploy45 u64 --dry-run -i 192.168.1.64 --drive b game.d81
+POST http://192.168.1.64/v1/drives/b:mount?type=d81&mode=readwrite (819200 bytes)
+$ deploy45 u64 --dry-run -i 192.168.1.64 --info
+GET http://192.168.1.64/v1/info
+$ deploy45 u64 --dry-run -i 192.168.1.64 --reset
+PUT http://192.168.1.64/v1/machine:reset
 ```
 
-Every command checks the file as it would for real: one that cannot be read is an error (`cannot read …`, exit status 1; `m65mount --virtual`: read and written); `u64` reads it, for the body's size.
+The `X-Password` after a request is the header it would carry (the password itself is not printed). `--c64` with `--no-reset` gives `etherload` no mode (neither `-4` nor `-5`), and `--no-run` drops `-r`. Every command checks the file as it would for real: one that cannot be read is an error (`deploy45: cannot read nosuch.prg`, exit status 1; `m65mount --virtual`: read and written); `u64` reads it, for the body's size.
 
 ## Exit Status
 

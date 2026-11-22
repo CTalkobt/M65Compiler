@@ -75,6 +75,40 @@ A **tempo change** (`tempo:5`, in any `v` voice, taking no time) holds from that
 
 A **glide** starts the note `s` semitones below its pitch (above when `s` is negative) and from its second frame moves (distance + 2^k − 1) >> k a frame towards it, then stops there: `g4^3:12` slides up into G4 from E4, an eighth of the way a frame (`k` 1-7, default 3); `c-1^-68,2:10` falls from G#4 a quarter of the way down a frame (a kick drum).
 
+A **loop point** and **patterns** with transposition: a bar of intro, then a riff played as written, 5 semitones up, and 2 down twice, over a bass that waits out the intro with a rest:
+
+```
+instrument lead pulse 09 a6 0600 1 1
+instrument bass saw   00 f8 0800 0 0
+pattern riff: c4:2 e4:2 g4:2 e4:2
+tune song 6 loop
+v1: @lead c5:8 |: *riff | *riff+5 | *riff-2*2 |
+v2: @bass r:8 |: c3:8 | f3:8 | bb2:8 | bb2:8 |
+```
+
+```
+$ tune45 list loop.txt
+song          2 voices    89 bytes     40 ticks     4.8 s  6.00 frames/tick  loop
+             voices: v1 20 v2 14 bytes
+             instruments: lead bass
+1 tunes, 89 bytes
+```
+
+The tune plays its 40 ticks once, then from the `|:` on (tick 8) for as long as it plays: each voice's loop, from its `|:` to its end, is 32 ticks. v1's stream in `tune_song[]` is `129 0` (`@lead`), `72 8` (C5 for 8 ticks), `140` (the loop point, `$8C`), `134 80 0 1` (`*riff`: the pattern at offset 80, once), `139 80 0 1 5` (`*riff+5`), `139 80 0 2 254` (`*riff-2*2`: twice, −2), `254` (back to the loop point); the riff's 8 bytes are in the data once, at 80. The loops must be as long, whatever the voices' intros (a voice without `|:` loops from its start). Here v1 has an 8-tick intro and v2 none, so both voices are 24 ticks but their loops are not (`bad.txt`, its two instrument lines as above):
+
+```
+tune song 6 loop
+v1: @lead c5:8 |: c4:8 | e4:8 |
+v2: @bass |: c3:8 | f3:8 | g3:8 |
+```
+
+```
+$ tune45 list bad.txt
+bad.txt:3: error: tune song: the voices' loops are not as long (ticks from |: or the start to the end: v1 16, v2 24)
+```
+
+(exit status 1). Without loop points the voices themselves must be as long (`the voices are not as long (ticks: v1 …, v2 …)`).
+
 A voice plays instrument 0 (the file's first) until it names one. A duration over 255 ticks is split into a note and ties (or several rests). Errors carry the file and line: an unknown instrument, a note out of range, a glide out of range, a voice not `v1:`, `v2:`… in order, voices of one tune of different lengths (the ticks of each are listed), a bar that does not add up, a tune name that is not a C identifier.
 
 ## convert
@@ -91,6 +125,79 @@ A voice plays instrument 0 (the file's first) until it names one. A duration ove
 The data of a tune (`lib/stdlib_asm/tune.s45` reads it): a header (flags: bit 0 loops; voices; frames per tick, 8.8; the number of instruments, an instrument's bytes (17; 0 in data of before hard restart, filters and wave tables, whose instruments are 10 bytes and still play) and their table's offset; a 16-bit offset per voice's stream), the instruments it uses (17 bytes: waveform, AD, SR, pulse width, vibrato, gap, pulse-width sweep, vibrato delay, slide, hard restart, filter (mode bits 4-6, resonance 0-3), cutoff, cutoff sweep, the wave table's offset; renumbered), the wave tables they use (steps, the step to loop to or `$FF`, a waveform and semitones a step), with digi voices (their count in the flags' bits 1-3; their streams' offsets after the SID voices', then the sample table's) the sample table (9 bytes a hit, flags bit 4: its offset in the samples, its bytes, the audio DMA's rate value, its loop's start from it or `$FFFF`; 7 bytes, without the loop, in data of before loops), and a byte stream a voice (a digi voice's: `$00`-`$7F h d` hit h for d ticks, `$84 h d` any hit 0-255, `$80 d` / `$82 d` ringing on, `$81 d` stopped, `$83 v` its volume 0-255, `$8C`, `$FE`, `$FF`): `$00`-`$7F n d` note n for d ticks, `$80 d` a rest, `$81 i` instrument i, `$82 d` a tie, `$83 a b` an arpeggio, `$84 s k` the next note's glide, `$85 lo hi` the frames per tick from then (8.8), `$88 n d` a legato note, `$89 lo hi s` the pulse width and its sweep, `$8A lo hi s` the chip's cutoff and its sweep (`$83 a $80`: a two-note arpeggio), `$86 lo hi n` a pattern called n times, `$8B lo hi n t` called transposed t semitones (signed) (its offset in the tune; the voice's stream on after it), `$87` a pattern's end, `$8C` the loop point (the player keeps its place: `$FE` goes back there, and v1's has the tempo there after it in a tune with `tempo:`), `$FE` back to the start (a tune that loops), `$FF` the end.
 
 **Coded data** (`--coded`; `TunePack.hpp`; flags bit 5): the player plays it where it lies, unpacking nothing. Its streams' events are found again as patterns across all the voices (by their notes' intervals, transposed; nested two deep: a pattern's body may call another; called by number, `$86 n r`, `$8B n r t`), then each kind of field (22: the op or note, a duration, an instrument, a legato note, an arpeggio's two, a glide's two, a tempo's two, a pulse width's three, a cutoff's three, a pattern's number, times and transposition, a digi voice's op, hit and volume) is Huffman-coded in its own canonical code, bit by bit (MSB first). Each stream and pattern begins on a byte; the player keeps a voice's place as a byte's offset and a bit (a pattern's return, the loop point). The instruments: their fields in six groups (the envelope: waveform, AD, SR, gap, slide, hard restart; the pulse width and its sweep; the vibrato and its delay; the filter; the wave table; a cycle's limits), each group a dictionary of the values it takes, an instrument a byte a group (its entry): read in a few copies. The header as a plain tune's, then after the voices' offsets the code tables' offset and the pattern table's (2 bytes a pattern); byte 6-7 the instruments. The four .sid test tunes (each its whole song, looping): 6-10 KB coded against 14-24 KB plain, about as small as pack45 makes the plain data (from 5% larger to 14% smaller); a tune `create` made, 424 bytes against 2872. Its cost: the reader (`lib/stdlib_asm/tune_code.s45`, a library member of its own: 1438 bytes of code, 306 of RAM; a program with plain tunes alone links none of it: `music.h` names `tune_codec` only when a tune is coded, and a coded tune started without it plays nothing); a frame's update on those tunes 1.25-2.6 times the plain data's on average and at most 1.4 ms (40 MHz; plain at most 0.5 ms), `tune_play` 0.4 ms, `tune_seek` 1.6-3.2 times as long. So it suits long tunes where the memory they lie in is scarce; music in attic RAM is better plain. `--coded` leaves a small tune plain (the code tables cost about 100 bytes).
+
+### Music and samples loaded from the disk: `--bin --samples`
+
+`beat.txt` has a digi voice, so a `--bin` build needs `--samples`; the music goes to bank 5 and the samples to bank 4 (chip RAM, as the audio DMA needs):
+
+```
+instrument bass saw 00 f8 0800 0 0
+sample kick kick.wav
+sample hat  hat.wav rate=16000
+tune beat 6 loop 8
+v1: @bass c3:4 c3:4 | g2:4 g2:4 |
+d1: kick:2 hat:2 kick:2 hat:2 | kick:2 hat:2 kick+hat:4 |
+```
+
+```
+$ tune45 convert beat.txt --bin -o beat.bin
+beat.txt:6: warning: tune beat d1: kick (0.30 s) is cut short by the next hit 3 times (after 0.24 s at least)
+tune45: the tunes have digi voices: --samples <file> for their samples
+$ tune45 convert beat.txt --bin --samples beat.smp --load-at 0x0000 -o beat.bin
+beat.txt:6: warning: tune beat d1: kick (0.30 s) is cut short by the next hit 3 times (after 0.24 s at least)
+```
+
+(exit status 1, then 0): `beat.bin` (89 bytes) and `beat.smp` (7282: the 7280 bytes of the three hits, `kick`, `hat` and the mix `kick+hat`, after the load address). `beat.h`:
+
+```c
+#define NTUNES 1
+#define TUNE_BEAT 0
+#define TUNE_BEAT_TICKS 16
+#define TUNE_BEAT_BAR 8
+#define TUNE_SAMPLES_SIZE 7280
+
+/* beat.bin: tune_play_far(<its address> + TUNE_<NAME>_AT) */
+#define TUNE_BEAT_AT 0x0003
+/* beat.smp: in chip RAM, not across a 64 KB boundary: tune_samples(<its address>) */
+#define TUNES_SIZE 87
+```
+
+```c
+#include <audio_sid.h>
+#include <audio_digi.h>
+#include <audio_tune.h>
+#include <load.h>
+#include "beat.h"
+
+#define MUSIC   0x50000UL           /* beat.bin in bank 5 */
+#define SAMPLES 0x40000UL           /* beat.smp in bank 4: chip RAM, inside one 64 KB bank */
+
+static void wait_frame(void) {
+    while (*(volatile unsigned char *)0xD012 != 0xF8) ;
+    while (*(volatile unsigned char *)0xD012 == 0xF8) ;
+}
+
+int main(void) {
+    if (!load_far("beat.bin", 8, 0, MUSIC) || !load_far("beat.smp", 8, 0, SAMPLES))
+        return load_error;
+    sid_init();
+    digi_init();
+    tune_samples(SAMPLES);
+    tune_play_far(MUSIC + TUNE_BEAT_AT);
+    for (unsigned int f = 0; f < 150; f++) { wait_frame(); tune_update(); }
+    return 0;
+}
+```
+
+```bash
+cc45 -O2 beat.c -o beat.prg
+disk45 create beat.d81
+disk45 add beat.d81 beat.prg BEAT
+disk45 add beat.d81 beat.bin BEAT.BIN
+disk45 add beat.d81 beat.smp BEAT.SMP
+```
+
+`load_far` skips the two-byte load address, so `TUNE_BEAT_AT` and the samples' offsets count from the address given. The samples could equally be linked into the program (`-o beat.c`: `tune_sample_bank`, `tune_samples((unsigned int)tune_sample_bank)`, as `examples/c/drums` does).
 
 ## list
 

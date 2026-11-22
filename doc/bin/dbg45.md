@@ -90,18 +90,18 @@ after the prompt; at a terminal it is what you type):
 
 ```
 (dbg45) break sum
-Breakpoint 1 at $2124: sum
+Breakpoint 1 at $2127: sum
 (dbg45) info breakpoints
-1   sum at $2124
+1   sum at $2127
 (dbg45) run
 
-Breakpoint 1, sum (p=0x2b48, n=2) at sum.c:6
+Breakpoint 1, sum (p=0x2b4b, n=2) at sum.c:6
 6	    int total = 0;
 (dbg45) bt
-#0  sum (p=0x2b48, n=2) at sum.c:6
+#0  sum (p=0x2b4b, n=2) at sum.c:6
 #1  main () at sum.c:14
 (dbg45) info args
-p = 0x2b48
+p = 0x2b4b
 n = 2
 (dbg45) print *p
 *p = {x = 1, y = 2}
@@ -115,7 +115,7 @@ p[1].y = 5
 total = 0
 i = 0
 (dbg45) finish
-Run till exit from sum (p=0x2b48, n=2) at sum.c:8
+Run till exit from sum (p=0x2b4b, n=2) at sum.c:8
 main () at sum.c:14
 14	    int t = sum(pts, 2);
 (dbg45) list
@@ -127,6 +127,8 @@ main () at sum.c:14
   15	    printf("%d\n", t);
   16	    return t;
   17	}
+  18	
+  19	
 (dbg45) continue
 [program exited with status 11]
 ```
@@ -141,7 +143,13 @@ main () at sum.c:14
 
 `dbg45 --dap` handles `initialize`, `launch` (`program`, `xemu`, `xemuArgs`, `headless`, `fast`, `stopOnEntry`), `setBreakpoints`, `setFunctionBreakpoints`, `setExceptionBreakpoints` (none), `configurationDone` (starts the program), `threads` (one: the MEGA65), `stackTrace`, `scopes` (Locals, Arguments, Globals), `variables` (structs, unions and arrays expand), `evaluate`, `continue`, `next`, `stepIn`, `stepOut`, `pause` (also while the program runs), `disconnect` and `terminate`; it sends `initialized`, `stopped`, `exited`, `terminated` and `output`.
 
-To `initialize` it answers the capabilities `supportsConfigurationDoneRequest`, `supportsFunctionBreakpoints`, `supportsEvaluateForHovers` and `supportsTerminateRequest`; nothing else is announced (no conditional breakpoints, no setting of variables, no stepping back).
+To `initialize` it answers the capabilities `supportsConfigurationDoneRequest`, `supportsFunctionBreakpoints`, `supportsEvaluateForHovers` and `supportsTerminateRequest`; nothing else is announced (no conditional breakpoints, no setting of variables, no stepping back). Each message has the protocol's `Content-Length` header; the `initialize` exchange (a `disconnect` after it) on stdout:
+
+```
+{"type":"response","request_seq":1,"success":true,"command":"initialize","body":{"supportsConfigurationDoneRequest":true,"supportsFunctionBreakpoints":true,"supportsEvaluateForHovers":true,"supportsTerminateRequest":true},"seq":1}
+{"type":"event","event":"initialized","body":{},"seq":2}
+{"type":"response","request_seq":2,"success":true,"command":"disconnect","body":{},"seq":3}
+```
 
 In VS Code, the extension in `tools/ide/vscode-extension` contributes the `cc45` debug type (setting `m65.dbg45Path`, default `${workspaceFolder}/bin/dbg45`):
 

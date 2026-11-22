@@ -853,7 +853,7 @@ basic45 --compile --checks --line-numbers avg.bas -o avg.prg   # the checks, and
 basic45 --compile avg.bas -o avg.prg                           # neither
 ```
 
-With both options the program (4255 bytes) reports the three errors and their lines, as the interpreter does:
+With both options the program (4261 bytes) reports the three errors and their lines, as the interpreter does:
 
 ```
 ERROR 18 IN LINE 40
@@ -861,7 +861,7 @@ ERROR 20 IN LINE 50
 ERROR 14 IN LINE 60
 ```
 
-Without them (4133 bytes) basic45 warns when compiling, since the program has a `TRAP`:
+Without them (4139 bytes) basic45 warns when compiling, since the program has a `TRAP`:
 
 ```
 avg.bas:1:1: (line 10): warning: without --checks only the errors of files, the disk and memory reach TRAP's handler
@@ -896,27 +896,42 @@ were linked. Its parts, each cut short here:
 ```
 Memory Layout
 -------------
-  TEXT   $200D - $3247  (4667 bytes)
-  DATA   $3248 - $3262  (27 bytes)
-  BSS    $3263 - $35FF  (925 bytes)
-  (base-page blocks $4E - $55, 8 bytes; 69 asked for by 12 functions)
+  TEXT   $200D - $32B4  (4776 bytes)
+  DATA   $32B5 - $32D1  (29 bytes)
+  BSS    $32D2 - $36FF  (1070 bytes)
+
+Discarded Library Members (nothing live references them)
+--------------------------
+  …/lib/build/c45.lib(asm_float_fast.o45)
+  …/lib/build/c45.lib(asm_malloc.o45)
+  …
+
+Discarded Sections (60, 3270 bytes of text and data)
+------------------
+  …/lib/build/c45.lib(asm_basic_aref.o45): __bas_aref (550 bytes)
+  …
+
+Object Files
+------------
+  /tmp/basic45_compile_1939179/prog.o45
+    TEXT  $2168 - $233A  (467 bytes)
+    DATA  $32B5 - $32CF  (27 bytes)
+  …
 
 Call Graph
 ----------
   __bas_areff -> __bas_raise
+  __bas_chr -> __bas_srdst
   __bas_error -> __bas_gtext __bas_msgptr __bas_out __bp_prog __bp_rom __exit __float_fout __float_utof
   __bas_fdiv -> __bas_raise __float_div
-  ...
-
-Base Page
----------
-  base-page block: __bas_afree at $4e len 8
-  base-page block: __bas_chainprep at $4e len 8
-  ...
+  …
+  _main -> __bas_areff __bas_chr __bas_fdiv __bas_felgf __bas_prcr __bas_prn __bas_prsa __bas_stmt __bas_trapinit __float_itof __float_ltof
 ```
 
-`__bas_areff` is the array access of a `--bank` program (with the bank's allocator, `basic_bank.s45`);
-without `--bank` the map has `__bas_aref` in its place.
+`prog.o45` is the compiled program (`_main`), the rest the run time. `__bas_areff` is the array access of a
+`--bank` program (with the bank's allocator, `basic_bank.s45`), so the bank-0 access `__bas_aref` is discarded;
+without `--bank` the map has `__bas_aref` in its place. The map also has the symbols by address, the calls through
+pointers and the source lines.
 
 
 `basic45 --format prog.bas` prints the source with keywords in lower case, one space between words outside strings, code indented two spaces plus two per open block (`if … then`/`else`/`endif`, `proc`/`endproc`, `select`/`case`/`endselect`, `for`/`next`, `do`/`loop`) and labels in column 0. Strings, `REM` and `DATA` text, `#` lines, `'` comments (re-indented) and `asm` blocks are kept as written. With `-o` the result goes to a file. The formatted source builds to the same program, and formatting it again changes nothing.
@@ -1254,6 +1269,35 @@ l32: if rwindow(2) = 80 then print chr$(27) + "x";
 l32: if rwindow(2) = 80 then print chr$(27) + "x";
   return
 ```
+
+**TSBneo** (`--convert=tsbneo`; the warning on standard error, the rest the output):
+
+```
+10 COLOUR 6:CLS
+20 PRINT AT(5,10)"TSBNEO"
+30 IF D!PEEK(4096)=0 THEN DO
+40 PRINT "ZERO"
+50 DONE
+```
+
+```
+tsb.txt: warning: line 10: COLOUR with one colour: the border (TSBneo)
+' converted from Simons' BASIC (C64) by basic45 --convert=simons: check the warnings
+' the first line: Simons' BASIC's 40-column screen
+' after the END: subroutines the conversion added (the waits before PLAY, 40/80 columns, closing a screen)
+  gosub l52
+  border 6 : print chr$(147);
+  cursor 10, 5 : print "tsbneo"
+  if wpeek(4096) = 0 then begin
+  print "zero"
+  bend
+  end
+l52: if rwindow(2) = 80 then print chr$(27) + "x";
+  return
+```
+
+TSBneo's `AT(row, column)` became `CURSOR column, row`; its header line names `--convert=simons`, the conversion
+`tsbneo` builds on.
 
 **BASIC 8** (`--convert=basic8`):
 
