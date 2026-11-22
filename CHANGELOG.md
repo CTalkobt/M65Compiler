@@ -4,6 +4,16 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### ln45: overlay messages and map lines no longer cut off (#709)
+
+- "code overlays: the program ends at $X, above the overlay region ..." came out cut at 159 characters ("... or
+  shrink the sta"); it is whole now, and names the region's range and what its size is: `above the overlay region
+  $AE00-$AFB9 (the largest overlay's 442 bytes, placed below the stack's share): move more code into overlays or
+  shrink the stack's share (--stack-size)` (mapped: `in the window MAP points at $6000-$7FFF`, without the stack
+  advice, which does not move the window).
+- The other messages and `-M` map lines built in fixed-size buffers are built as strings (`strprintf`): a symbol
+  line with a long object path, a section, overlay or file name were cut too.
+
 ### Documentation: what the audit found missing (#644)
 
 - New pages for a new user (#701): [troubleshooting](doc/guide/troubleshooting.md) (each symptom reproduced, its
