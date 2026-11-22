@@ -138,6 +138,11 @@ private:
     std::map<std::string, DeclType> declTypes_;
     // typeof(expression): the declared type of a variable name, else int
     DeclType typeofExpr(Expression* e);
+    // A file-scope declaration's type once its 'signed'/'unsigned' (taken
+    // before parseVariableDeclaration) is applied (#707)
+    void noteDeclType(const VariableDeclaration& vd) {
+        declTypes_[vd.name] = {vd.type, vd.pointerLevel, vd.isSigned};
+    }
     std::string pendingAlias_;
     // __attribute__((vector_size(N))) / ((mode(M))): applied by
     // applyVectorMode to the declared type

@@ -498,8 +498,19 @@ std::unique_ptr<TranslationUnit> Parser::parse() {
                                      tokens[look].type == TokenType::STRUCT ||
                                      tokens[look].type == TokenType::UNION ||
                                      tokens[look].type == TokenType::ENUM ||
+                                     tokens[look].type == TokenType::TYPEOF ||
                                      (tokens[look].type == TokenType::IDENTIFIER && isTypedef(tokens[look].value)))) {
-            if (tokens[look].type == TokenType::COMPLEX) {
+            if (tokens[look].type == TokenType::TYPEOF) {
+                look++; // typeof ( ... ) at file scope (#707)
+                if (look < tokens.size() && tokens[look].type == TokenType::OPEN_PAREN) {
+                    look++; int p = 1;
+                    while (look < tokens.size() && p > 0) {
+                        if (tokens[look].type == TokenType::OPEN_PAREN) p++;
+                        else if (tokens[look].type == TokenType::CLOSE_PAREN) p--;
+                        look++;
+                    }
+                }
+            } else if (tokens[look].type == TokenType::COMPLEX) {
                 look++; // skip _Complex
                 // Skip base type: float, double, int, long double, etc.
                 if (look < tokens.size() && (tokens[look].type == TokenType::FLOAT || tokens[look].type == TokenType::DOUBLE ||
@@ -613,6 +624,7 @@ std::unique_ptr<TranslationUnit> Parser::parse() {
                     vd->isExtern = isExtern;
                     vd->isSigned = isUnsig ? false : (vd->isSigned || isSig);  // cc45: unsigned unless declared signed
                     vd->isPlainUnsigned = vd->isPlainUnsigned && !isSig && !isUnsig && !vd->isSigned;
+                    noteDeclType(*vd);   // typeof sees the signedness given here (#707)
                     // (signed/unsigned were consumed above: a function pointer's result is what they say)
                     if (vd->funcPtrSig) vd->funcPtrSig->returnIsSigned = isUnsig ? false : (vd->funcPtrSig->returnIsSigned || isSig);
                 } else if (auto* cs = dynamic_cast<CompoundStatement*>(decl.get())) {
@@ -623,6 +635,7 @@ std::unique_ptr<TranslationUnit> Parser::parse() {
                             vd2->isStatic = isStatic;
                             vd2->isSigned = isUnsig ? false : (vd2->isSigned || isSig);
                             vd2->isPlainUnsigned = vd2->isPlainUnsigned && !isSig && !isUnsig && !vd2->isSigned;
+                            noteDeclType(*vd2);   // typeof sees the signedness given here (#707)
                             if (vd2->funcPtrSig)
                                 vd2->funcPtrSig->returnIsSigned = isUnsig ? false : (vd2->funcPtrSig->returnIsSigned || isSig);
                         }
@@ -688,6 +701,7 @@ std::unique_ptr<TranslationUnit> Parser::parse() {
                         vd->isGlobal = true;
                         vd->isSigned = isUnsig ? false : (vd->isSigned || isSig);
                         vd->isPlainUnsigned = vd->isPlainUnsigned && !isSig && !isUnsig && !vd->isSigned;
+                        noteDeclType(*vd);   // typeof sees the signedness given here (#707)
                         vd->isExtern = isExtern;
                         vd->isStatic = isStatic;
                     } else if (auto* cs = dynamic_cast<CompoundStatement*>(decl.get())) {
@@ -696,6 +710,7 @@ std::unique_ptr<TranslationUnit> Parser::parse() {
                                 vd2->isGlobal = true;
                                 vd2->isSigned = isUnsig ? false : (vd2->isSigned || isSig);
                                 vd2->isPlainUnsigned = vd2->isPlainUnsigned && !isSig && !isUnsig && !vd2->isSigned;
+                                noteDeclType(*vd2);   // typeof sees the signedness given here (#707)
                                 vd2->isExtern = isExtern;
                                 vd2->isStatic = isStatic;
                             }
@@ -769,6 +784,7 @@ std::unique_ptr<TranslationUnit> Parser::parse() {
                     vd->isExtern = isExtern;
                     vd->isSigned = isUnsig ? false : (vd->isSigned || isSig || signedDefault); // implicit int follows the active default
                     vd->isPlainUnsigned = vd->isPlainUnsigned && !isSig && !isUnsig && !vd->isSigned;
+                    noteDeclType(*vd);   // typeof sees the signedness given here (#707)
                 }
                 flushPending(*unit);
                 unit->topLevelDecls.push_back(std::move(decl));
@@ -1979,7 +1995,7 @@ std::unique_ptr<Statement> Parser::parseStatement() {
             // Check if it's a declaration
             bool isDecl = false;
             if (peek().type == TokenType::INT || peek().type == TokenType::SHORT || peek().type == TokenType::LONG || peek().type == TokenType::CHAR ||
-                peek().type == TokenType::BOOL ||
+                peek().type == TokenType::BOOL || peek().type == TokenType::TYPEOF ||
                 peek().type == TokenType::UNSIGNED || peek().type == TokenType::SIGNED ||
                 peek().type == TokenType::STRUCT || peek().type == TokenType::UNION ||
                 peek().type == TokenType::VOLATILE || peek().type == TokenType::CONST || peek().type == TokenType::RESTRICT || peek().type == TokenType::AUTO || peek().type == TokenType::REGISTER || peek().type == TokenType::INLINE) {
@@ -2255,7 +2271,7 @@ std::unique_ptr<Statement> Parser::parseVariableDeclaration(bool isVolatile, boo
             type = ts.name;
             isSigned = ts.isSigned;
             addressSpace = ts.addressSpace;  // Phase 97: Extract address space
-            // skip pointer levels in typeof (already consumed by parseTypeSpecifier)
+            basePtrLevel = ts.pointerLevel;  // typeof(char *): a pointer
         } else {
             // typeof(expression): a variable's declared type, else int
             auto expr = parseExpression();
@@ -4293,7 +4309,7 @@ bool Parser::isTypeStartAt(size_t look) const {
            t == TokenType::STRUCT || t == TokenType::UNION || t == TokenType::ENUM ||
            t == TokenType::CONST || t == TokenType::VOLATILE || t == TokenType::RESTRICT ||
            t == TokenType::INT_N || t == TokenType::UINT_N || t == TokenType::ZP ||
-           t == TokenType::FAR || t == TokenType::NEAR ||
+           t == TokenType::FAR || t == TokenType::NEAR || t == TokenType::TYPEOF ||
            (t == TokenType::IDENTIFIER && isTypedef(tokens[look].value));
 }
 
@@ -4420,6 +4436,30 @@ Parser::TypeSpec Parser::parseTypeSpecifierRaw() {
             auto def = parseEnumDefinition();
             ts.name = "enum " + def->name;
         }
+    }
+    else if (match(TokenType::TYPEOF)) {
+        // typeof(type) / typeof(expr) where a type is expected (a cast, a
+        // for declaration, file scope, a function's result): the type it
+        // names, its signedness as given (#707)
+        expect(TokenType::OPEN_PAREN, "Expected '(' after typeof");
+        if (isTypeStartToken()) {
+            TypeSpec inner = parseTypeSpecifier();
+            ts.name = inner.name;
+            ts.isSigned = inner.isSigned;
+            ts.pointerLevel = inner.pointerLevel;
+            ts.arrayDims = inner.arrayDims;
+            ts.isFunctionPointer = inner.isFunctionPointer;
+            ts.funcPtrSig = inner.funcPtrSig;
+            if (inner.addressSpace) ts.addressSpace = inner.addressSpace;
+        } else {
+            auto expr = parseExpression();
+            DeclType dt = typeofExpr(expr.get());
+            ts.name = dt.type;
+            ts.isSigned = dt.isSigned;
+            ts.pointerLevel = dt.ptrLevel;
+        }
+        expect(TokenType::CLOSE_PAREN, "Expected ')' after typeof");
+        ts.isUnsigned = !ts.isSigned;   // (not a plain type: no default applied)
     }
     else if (peek().type == TokenType::IDENTIFIER && isTypedef(peek().value)) {
         std::string alias = advance().value;
@@ -4942,6 +4982,22 @@ Parser::DeclType Parser::typeofExpr(Expression* e) {
     if (auto* vr = dynamic_cast<VariableReference*>(e)) {
         auto it = declTypes_.find(vr->name);
         if (it != declTypes_.end()) return it->second;
+    } else if (auto* c = dynamic_cast<CastExpression*>(e)) {
+        return {c->targetType, c->pointerLevel, c->isSigned};
+    } else if (auto* u = dynamic_cast<UnaryOperation*>(e)) {
+        // &x: a pointer to x's type; *p: what p points to
+        auto* vr = dynamic_cast<VariableReference*>(u->operand.get());
+        if (u->op == "&" && vr && declTypes_.count(vr->name)) {
+            DeclType dt = declTypes_[vr->name];
+            dt.ptrLevel++;
+            return dt;
+        } else if (u->op == "*") {
+            DeclType dt = typeofExpr(u->operand.get());
+            if (dt.ptrLevel > 0) { dt.ptrLevel--; return dt; }
+        }
+    } else if (auto* a = dynamic_cast<ArrayAccess*>(e)) {
+        DeclType dt = typeofExpr(a->arrayExpr.get());   // p[i]: what p points to
+        if (dt.ptrLevel > 0) { dt.ptrLevel--; return dt; }
     }
     return {"int", 0, true};
 }
