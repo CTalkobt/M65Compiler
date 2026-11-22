@@ -78,6 +78,7 @@ public:
     bool readMemory(uint32_t addr, size_t n, std::vector<uint8_t>& out) { return mon.read(addr, n, out); }
     bool evaluateVar(const DbgVar& v, size_t frame, Dbg45Value& out, std::string& err);
     std::string sourceLine(int file, int line);
+    int sourceLineCount(int file);                    // 0: the source file cannot be read
     std::string location(const Dbg45Frame& f);       // "sum (p=...) at file.c:20"
 
 private:
@@ -88,6 +89,7 @@ private:
     long exitAddr_ = -1;
     std::set<uint16_t> active_;                       // breakpoints in xemu
     std::map<int, std::vector<std::string>> sources_;
+    const std::vector<std::string>* sourceLines(int file);
 
     void syncBreakpoints(const std::set<uint16_t>& temp);
     Stop runUntilStop(const std::set<uint16_t>& temp, std::string& err);

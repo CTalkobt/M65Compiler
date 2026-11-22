@@ -369,8 +369,8 @@ Dbg45::Stop Dbg45::stepLine(bool over, std::string& err) {
     return STEP;
 }
 
-std::string Dbg45::sourceLine(int file, int line) {
-    if (file < 0 || file >= (int)dbg.files.size()) return "";
+const std::vector<std::string>* Dbg45::sourceLines(int file) {
+    if (file < 0 || file >= (int)dbg.files.size()) return nullptr;
     auto it = sources_.find(file);
     if (it == sources_.end()) {
         std::vector<std::string> lines;
@@ -384,7 +384,17 @@ std::string Dbg45::sourceLine(int file, int line) {
         for (std::string l; std::getline(in, l); ) lines.push_back(l);
         it = sources_.emplace(file, lines).first;
     }
-    return line >= 1 && line <= (int)it->second.size() ? it->second[line - 1] : "";
+    return &it->second;
+}
+
+std::string Dbg45::sourceLine(int file, int line) {
+    const std::vector<std::string>* lines = sourceLines(file);
+    return lines && line >= 1 && line <= (int)lines->size() ? (*lines)[line - 1] : "";
+}
+
+int Dbg45::sourceLineCount(int file) {
+    const std::vector<std::string>* lines = sourceLines(file);
+    return lines ? (int)lines->size() : 0;
 }
 
 // ---------------------------------------------------------------------------

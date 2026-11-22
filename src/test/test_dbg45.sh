@@ -39,7 +39,7 @@ cp src/test-resources/test_debug_file_xemu.c $T/t.c
 timeout 180 ./bin/dbg45 --xemu "$XEMU" --headless --timeout 30 --batch \
     -ex "break t.c:31" -ex start -ex next -ex step -ex continue -ex "info locals" -ex next \
     -ex "print a.next->x" -ex "break sum" -ex continue -ex bt -ex "print *p" -ex "print p->y" -ex "info args" \
-    -ex up -ex "print b" -ex down -ex finish -ex "delete" -ex "break 21" -ex continue -ex "print calls" \
+    -ex up -ex "print b" -ex down -ex finish -ex list -ex "delete" -ex "break 21" -ex continue -ex "print calls" \
     -ex "print s" -ex "delete" -ex continue \
     $T/t.prg > $T/session.txt 2>&1
 python3 - $T/session.txt <<'EOF' || fail "the command-line session ($T/session.txt)"
@@ -65,6 +65,8 @@ want = [
     r'b = \{x = 4, y = 6, next = 0x0000\}',
     r'#0  sum',
     r'Run till exit from sum', r'main \(\) at t\.c:35',
+    # list: up to the file's last line, 38 (#712)
+    r'  31\t    b\.x = 4;', r'=>35\t    total = sum', r'  38\t}\n\(dbg45\) delete',
     r'Breakpoint 3 at \$[0-9a-f]{4}: t\.c:21',
     r'Breakpoint 3, sum \(p=0x[0-9a-f]{4}\) at t\.c:21',
     r'calls = 1',

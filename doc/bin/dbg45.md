@@ -53,7 +53,7 @@ As gdb names them; RETURN at the prompt repeats the last command (at a terminal;
 | `frame` (`f`) [N], `up` [N], `down` [N] | Select a frame (variables are read in it); `frame` alone shows the selected one |
 | `print` (`p`) EXPR | A value: a variable, `*e`, `&e`, `e.member`, `e->member`, `e[i]`, numbers (`$hex`) |
 | `x` ADDR [N] | N bytes of memory (16 without N; ADDR: `$hex` or an expression: a pointer's target, another variable's own address) |
-| `list` (`l`) | The source around the selected frame's line (4 lines before it, 5 after; `=>` marks it) |
+| `list` (`l`) | The source around the selected frame's line (4 lines before it, 5 after, within the file; `=>` marks it) |
 | `kill` | End xemu |
 | `quit` (`q`) | Quit |
 | `help` (`h`) | The usage text and this list |
@@ -127,8 +127,6 @@ main () at sum.c:14
   15	    printf("%d\n", t);
   16	    return t;
   17	}
-  18	
-  19	
 (dbg45) continue
 [program exited with status 11]
 ```

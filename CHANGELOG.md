@@ -4,6 +4,12 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### dbg45: `list` stops at the file's last line (#712)
+
+- **Fixed: `list` near the end of a file printed lines past its last one** (lines 18 and 19 of a 17-line `sum.c`,
+  blank): the listing ends at the file's last line; a source file dbg45 cannot read is now `error: cannot read the
+  source file` instead of empty lines. Test: `test_dbg45.sh` lists near the end of `t.c`.
+
 ### Documentation: what the audit found missing (#644)
 
 - New pages for a new user (#701): [troubleshooting](doc/guide/troubleshooting.md) (each symptom reproduced, its
