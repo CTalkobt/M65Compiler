@@ -4,6 +4,19 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### basic45 --compile: LOG10, LOG2, HASBIT, RDISK and RSPRSYS (#693)
+
+- The five functions BASIC 65 has that `--compile` still rejected are compiled, as b65.src computes them:
+  `LOG10` / `LOG2` are `LOG` times the ROM's own constants (the same five bytes); `HASBIT(address, bit)` reads the
+  byte as `PEEK` does (-1 or 0; a bit over 7 is ?ILLEGAL QUANTITY); `RSPRSYS(0)` the sprites' hires mode
+  (`$D054` bit 4).
+- `RDISK(0)` is the KERNAL's end minus start address of the last load, read as the ROM reads it: a signed 16-bit
+  number (32768 bytes and more are negative) and only the argument's low byte checked (`RDISK(256)` is
+  `RDISK(0)`); a compiled `BSAVE` leaves them as the KERNAL's SAVE does (`RDISK(0)` 0). `RDISK(1)` / `RDISK(2)`
+  are the KERNAL's device and secondary address.
+- Test `test_basic_compile_fns_xemu.bas` (compiled only: xemu's ROM, V920413, lacks all but `LOG10`; the expected
+  logarithms are the interpreter's).
+
 ### Examples: no linker warning, every example documented (#643)
 
 - The starter examples (`hello_world`, `hello_linked`, `multi_module`), `unit_convert` and the four `stdlib/`

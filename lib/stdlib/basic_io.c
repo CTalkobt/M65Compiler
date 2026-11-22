@@ -8,6 +8,7 @@
  *     from bank 0. The KERNAL's error raises BASIC's of that number.
  *   _bas_close: CLOSE __bas_n.
  *   _bas_st: ST (the KERNAL's I/O status, READST) into __bas_n.
+ *   _bas_rdisk: RDISK(__bas_n) into __bas_n (rdisk).
  * As BASIC 65's DOS statements (b65.src: dopen, append, dclose, dosprs,
  * sendp's tabld, Read_DS, Get_DS):
  *   _bas_dosN: the DOS statement N, a function each (a program links those it
@@ -65,6 +66,9 @@ unsigned char _bas_clen, _bas_cdev, _bas_csa;
 
 #define DEFDRV (*(volatile unsigned char *)0x1106)      /* the default drive */
 #define KFA (*(volatile unsigned char __far *)0xBAUL)    /* the KERNAL's device (fa) */
+#define KSA (*(volatile unsigned char __far *)0xB9UL)    /* its secondary address (sa) */
+#define KSAL ((volatile unsigned char __far *)0xA9UL)      /* LOAD / SAVE's start (sal, 4 bytes) */
+#define KEAL ((volatile unsigned char __far *)0xADUL)      /* and end (eal) */
 
 static unsigned char ds[40];     /* DS$: a length, up to 39 characters (0: none read) */
 static unsigned char dosfa;      /* the DOS statement's unit */
@@ -685,6 +689,11 @@ void _bas_dos15(void) {
         cbm_k_bsout((unsigned char)_bas_dofl);
         cbm_k_bsout((unsigned char)(_bas_dofl >> 8));
         for (q = (unsigned char __far *)p; p < end; p++) cbm_k_bsout(*q++);
+        /* (sal and eal both the end, as the KERNAL's SAVE leaves them: RDISK(0) 0) */
+        KSAL[0] = KEAL[0] = (unsigned char)end;
+        KSAL[1] = KEAL[1] = (unsigned char)(end >> 8);
+        KSAL[2] = KEAL[2] = (unsigned char)(end >> 16);
+        KSAL[3] = KEAL[3] = (unsigned char)(end >> 24);
         cbm_clrchn();
         __jsr(0xFFC3, .A = 0, .Carry = 0);
         break;
@@ -906,6 +915,18 @@ void _bas_close(void) {
 
 void _bas_st(void) {
     _bas_n = (unsigned char)cbm_readst();
+}
+
+/* RDISK(__bas_n's low byte) (b65.src rdisk): 0 the bytes the last LOAD or
+ * SAVE moved, eal - sal in 16 bits read as a signed number (givayf: 32768 and
+ * more negative, as the ROM gives them); 1 the KERNAL's device (fa), 2 its
+ * secondary address (sa; _getlfs's X and Y); from 3 ?ILLEGAL QUANTITY */
+void _bas_rdisk(void) {
+    unsigned char p = (unsigned char)_bas_n;
+    if (p >= 3) kerr(14);
+    else if (p == 1) _bas_n = KFA;
+    else if (p == 2) _bas_n = KSA;
+    else _bas_n = (int)((KEAL[0] | (unsigned)KEAL[1] << 8) - (KSAL[0] | (unsigned)KSAL[1] << 8));
 }
 
 void _bas_chainprep(void) {

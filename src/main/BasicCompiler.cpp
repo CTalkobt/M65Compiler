@@ -67,7 +67,7 @@ enum : int {
     T_BOX = 0xE1, T_CIRCLE = 0xE2, T_ELLIPSE = 0xFE30, T_POLYGON = 0xFE2F, T_PAINT = 0xDF, T_VIEWPORT = 0xFE31, T_GCOPY = 0xFE32, T_CUT = 0xE4, T_PASTE = 0xE3, T_SYS = 0x9E, T_MOUNT = 0xFE49, T_POINTER = 0xCE0A, T_SOUND = 0xDA, T_BOOT = 0xFE1B, T_VERIFY = 0x95, T_BIT = 0xFE4E, T_TYPE = 0xFE27, T_DISK = 0xFE40, T_CHDIR = 0xFE4B, T_UNLOCK = 0xFE4F, T_LOCK = 0xFE50, T_MKDIR = 0xFE51, T_FONT = 0xFE46, T_DECBIN = 0xCE11, T_RUN = 0x8A, T_FGOTO = 0xFE47, T_FGOSUB = 0xFE48, T_USING = 0xFB, T_PLAY = 0xFE04, T_TEMPO = 0xFE05, T_VOL = 0xDB, T_FILTER = 0xFE03, T_ENVELOPE = 0xFE0A, T_RPLAY = 0xCE0F, T_JOY = 0xCF, T_POT = 0xCE02, T_LPEN = 0xCE04, T_MOUSE = 0xFE3E, T_RMOUSE = 0xFE3F, T_USR = 0xB7, T_FRE = 0xB8, T_RREG = 0xFE09, T_DMA = 0xFE1F, T_EDMA = 0xFE21, T_LOADIFF = 0xFE43, T_SAVEIFF = 0xFE44, T_CHAR = 0xE0, T_GRAPHIC = 0xDE, T_RGRAPHIC = 0xCC, T_RPEN = 0xD0, T_PIXEL = 0xCE0C, T_RPALETTE = 0xCE0D,
     T_COLOR = 0xE7, T_FOREGROUND = 0xFE39, T_BACKGROUND = 0xFE3B, T_BORDER = 0xFE3C, T_HIGHLIGHT = 0xFE3D,
     T_CURSOR = 0xFE41, T_RCURSOR = 0xFE42, T_WINDOW = 0xFE1A, T_FAST = 0xFE25, T_SPEED = 0xFE26,
-    T_PALETTE = 0xFE34, T_VSYNC = 0xFE54, T_OFF = 0xFE24, T_RCOLOR = 0xCD, T_RWINDOW = 0xCE09, T_RSPEED = 0xCE0E,
+    T_PALETTE = 0xFE34, T_VSYNC = 0xFE54, T_OFF = 0xFE24, T_RCOLOR = 0xCD, T_RWINDOW = 0xCE09, T_RSPEED = 0xCE0E, T_LOG10 = 0xCE08, T_HASBIT = 0xCE13, T_RDISK = 0xCE15, T_LOG2 = 0xCE16, T_RSPRSYS = 0xCE17,
     T_IMPORT = 0xDD, T_FREEZER = 0xFE4A,
     T_TRON = 0xD8, T_TROFF = 0xD9, T_MEM = 0xFE23,
 };
@@ -1414,6 +1414,68 @@ private:
         case T_FRE: return floatFn("__bas_fre");
         case T_LOG: return floatFn("__bas_log");
         case T_EXP: return floatFn("__bas_exp");
+        case T_LOG10: case T_LOG2: {
+            // LOG(x) times the ROM's 1 / LOG(10) or 1 / LOG(2) (b65.src log10,
+            // log2_func: .real 0.4342944819 / 1.4426950408, the same 5 bytes)
+            Val l = floatFn("__bas_log");
+            Val c; c.k = VK::F; c.op = fconst(kw == T_LOG10 ? 0.4342944819 : 1.4426950408);
+            Val r; r.k = VK::F; r.op = bin(ir::Op::FMUL, ir::Type::F32, l.op, c.op);
+            return r;
+        }
+        case T_HASBIT: {
+            // HASBIT(address, bit): -1 when the bit (0-7, else ?ILLEGAL
+            // QUANTITY) of the byte is set, else 0 (b65.src hasbit: the byte
+            // read first, as PEEK reads it)
+            expectCh('(');
+            Val a = expr();
+            ir::Operand b = peekAt(memAddr(a), 1);
+            expectCh(',');
+            Val n = expr();
+            expectCh(')');
+            ir::Operand bit = toByte(n);
+            raiseIf(bin(ir::Op::CMP_GEU, ir::Type::I8, bit, ir::Operand::imm(8, ir::Type::I8)), 14);
+            auto one = bin(ir::Op::AND, ir::Type::I8, bin(ir::Op::SHR, ir::Type::I8, b, bit), ir::Operand::imm(1, ir::Type::I8));
+            Val r; r.k = VK::I; r.bound = 1;
+            r.op = sext(un(ir::Op::NEG, ir::Type::I8, one), ir::Type::I8, ir::Type::I16);
+            return r;
+        }
+        case T_RDISK: {
+            // RDISK(0-2): the last LOAD's or SAVE's byte count, the KERNAL's
+            // device, its secondary address (b65.src rdisk; basic_io.c). Only
+            // the argument's low byte counts (facint's facq4: RDISK(256) is
+            // RDISK(0)), as in the ROM
+            Val a = parenExpr();
+            ir::Operand lo;
+            if (a.k == VK::S) fail("a number expected, not a string (?TYPE MISMATCH)");
+            if (a.isConst) lo = iconst(ir::Type::I8, (int64_t)(uint8_t)(int64_t)std::floor(a.cval));
+            else if (a.k == VK::I) lo = trunc(a.op, ir::Type::I8);
+            else if (a.k == VK::B) lo = un(ir::Op::NEG, ir::Type::I8, a.op);
+            else {
+                // (INT, then the integer's low byte)
+                store(ir::Type::F32, a.op, global("__float_a"));
+                call("__bas_int");
+                auto d = vreg(ir::Type::I32);
+                ir::Inst in; in.op = ir::Op::FTOI; in.dest = d; in.src1 = load(ir::Type::F32, global("__float_a"));
+                in.resultType = ir::Type::I32; emit(in);
+                lo = trunc(d, ir::Type::I8);
+            }
+            nArg(lo);
+            call("__bas_rdisk");
+            Val r; r.k = VK::I; r.bound = 32768; r.op = load(ir::Type::I16, global("__bas_n"));
+            return r;
+        }
+        case T_RSPRSYS: {
+            // RSPRSYS(0): 1 when the sprites are in hires mode (SPRH640,
+            // $D054 bit 4), else 0; any other argument ?ILLEGAL QUANTITY
+            Val a = parenExpr();
+            ir::Operand n = toByte(a);
+            raiseIf(bin(ir::Op::CMP_NE, ir::Type::I8, n, ir::Operand::imm(0, ir::Type::I8)), 14);
+            auto v = load(ir::Type::I8, iconst(ir::Type::PTR, 0xD054));
+            auto one = bin(ir::Op::AND, ir::Type::I8, bin(ir::Op::SHR, ir::Type::I8, v, ir::Operand::imm(4, ir::Type::I8)),
+                           ir::Operand::imm(1, ir::Type::I8));
+            Val r; r.k = VK::I; r.bound = 1; r.op = zext(one, ir::Type::I8, ir::Type::I16);
+            return r;
+        }
         case T_SIN: return floatFn("__float_sin");
         case T_COS: return floatFn("__float_cos");
         case T_TAN: return floatFn("__float_tan");

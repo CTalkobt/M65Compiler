@@ -996,6 +996,26 @@ else
     echo "FAIL: test_basic_compile8_xemu.bas (basic45 or basic45 --compile --checks failed)"
     failed=$((failed + 1))
 fi
+# test_basic_compile_fns_xemu.bas (#693): LOG10, LOG2, HASBIT, RDISK, RSPRSYS on a
+# disk (an empty D81 per run); compiled only (xemu's ROM, V920413, lacks all but LOG10)
+BCF_EXP="01 01 01 01 01 01 AA"
+if ./bin/basic45 --compile --checks src/test-resources/test_basic_compile_fns_xemu.bas -o build/test/test_basic_compile_fns.prg >/dev/null 2>&1 &&
+   ./bin/basic45 --compile --checks -O0 src/test-resources/test_basic_compile_fns_xemu.bas -o build/test/test_basic_compile_fns_O0.prg >/dev/null 2>&1 &&
+   ./bin/basic45 --compile --checks --speed src/test-resources/test_basic_compile_fns_xemu.bas -o build/test/test_basic_compile_fns_speed.prg >/dev/null 2>&1; then
+    for bcf in "" O0 speed; do
+        bcfn="test_basic_compile_fns${bcf:+_$bcf}"
+        rm -f "build/test/$bcfn.d81"
+        if ./bin/disk45 create "build/test/$bcfn.d81" -n "BCF" >/dev/null 2>&1; then
+            run_xemu_test "$bcfn" "build/test/$bcfn.prg" "C0C0" 7 "$BCF_EXP" -8 "$PWD/build/test/$bcfn.d81"
+        else
+            echo "FAIL: $bcfn (disk45 create failed)"
+            failed=$((failed + 1))
+        fi
+    done
+else
+    echo "FAIL: test_basic_compile_fns_xemu.bas (basic45 --compile --checks failed)"
+    failed=$((failed + 1))
+fi
 # test_basic_compile9_xemu.bas: SPRITE, SPRCOLOR, MOVSPR (positions, TO,
 # angle # speed: moved by the interrupt hook), RSPRITE, RSPCOLOR, RSPPOS,
 # SPRSAV, COLLISION, BUMP; the same four ways
