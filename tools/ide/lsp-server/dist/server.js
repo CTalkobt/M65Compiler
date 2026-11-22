@@ -42,9 +42,9 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
 ));
 var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: true }), mod);
 
-// ../../../../../../tools/ide/node_modules/vscode-languageserver/lib/common/utils/is.js
+// ../node_modules/vscode-languageserver/lib/common/utils/is.js
 var require_is = __commonJS({
-  "../../../../../../tools/ide/node_modules/vscode-languageserver/lib/common/utils/is.js"(exports2) {
+  "../node_modules/vscode-languageserver/lib/common/utils/is.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.boolean = boolean;
@@ -86,9 +86,9 @@ var require_is = __commonJS({
   }
 });
 
-// ../../../../../../tools/ide/node_modules/vscode-jsonrpc/lib/common/is.js
+// ../node_modules/vscode-jsonrpc/lib/common/is.js
 var require_is2 = __commonJS({
-  "../../../../../../tools/ide/node_modules/vscode-jsonrpc/lib/common/is.js"(exports2) {
+  "../node_modules/vscode-jsonrpc/lib/common/is.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.boolean = boolean;
@@ -122,9 +122,9 @@ var require_is2 = __commonJS({
   }
 });
 
-// ../../../../../../tools/ide/node_modules/vscode-jsonrpc/lib/common/messages.js
+// ../node_modules/vscode-jsonrpc/lib/common/messages.js
 var require_messages = __commonJS({
-  "../../../../../../tools/ide/node_modules/vscode-jsonrpc/lib/common/messages.js"(exports2) {
+  "../node_modules/vscode-jsonrpc/lib/common/messages.js"(exports2) {
     "use strict";
     var __createBinding = exports2 && exports2.__createBinding || (Object.create ? (function(o, m, k, k2) {
       if (k2 === void 0) k2 = k;
@@ -507,9 +507,9 @@ var require_messages = __commonJS({
   }
 });
 
-// ../../../../../../tools/ide/node_modules/vscode-jsonrpc/lib/common/linkedMap.js
+// ../node_modules/vscode-jsonrpc/lib/common/linkedMap.js
 var require_linkedMap = __commonJS({
-  "../../../../../../tools/ide/node_modules/vscode-jsonrpc/lib/common/linkedMap.js"(exports2) {
+  "../node_modules/vscode-jsonrpc/lib/common/linkedMap.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.LRUCache = exports2.LinkedMap = exports2.Touch = void 0;
@@ -891,9 +891,9 @@ var require_linkedMap = __commonJS({
   }
 });
 
-// ../../../../../../tools/ide/node_modules/vscode-jsonrpc/lib/common/disposable.js
+// ../node_modules/vscode-jsonrpc/lib/common/disposable.js
 var require_disposable = __commonJS({
-  "../../../../../../tools/ide/node_modules/vscode-jsonrpc/lib/common/disposable.js"(exports2) {
+  "../node_modules/vscode-jsonrpc/lib/common/disposable.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.Disposable = void 0;
@@ -909,9 +909,9 @@ var require_disposable = __commonJS({
   }
 });
 
-// ../../../../../../tools/ide/node_modules/vscode-jsonrpc/lib/common/ral.js
+// ../node_modules/vscode-jsonrpc/lib/common/ral.js
 var require_ral = __commonJS({
-  "../../../../../../tools/ide/node_modules/vscode-jsonrpc/lib/common/ral.js"(exports2) {
+  "../node_modules/vscode-jsonrpc/lib/common/ral.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
     var _ral;
@@ -934,9 +934,9 @@ var require_ral = __commonJS({
   }
 });
 
-// ../../../../../../tools/ide/node_modules/vscode-jsonrpc/lib/common/events.js
+// ../node_modules/vscode-jsonrpc/lib/common/events.js
 var require_events = __commonJS({
-  "../../../../../../tools/ide/node_modules/vscode-jsonrpc/lib/common/events.js"(exports2) {
+  "../node_modules/vscode-jsonrpc/lib/common/events.js"(exports2) {
     "use strict";
     var __importDefault = exports2 && exports2.__importDefault || function(mod) {
       return mod && mod.__esModule ? mod : { "default": mod };
@@ -1071,9 +1071,9 @@ var require_events = __commonJS({
   }
 });
 
-// ../../../../../../tools/ide/node_modules/vscode-jsonrpc/lib/common/cancellation.js
+// ../node_modules/vscode-jsonrpc/lib/common/cancellation.js
 var require_cancellation = __commonJS({
-  "../../../../../../tools/ide/node_modules/vscode-jsonrpc/lib/common/cancellation.js"(exports2) {
+  "../node_modules/vscode-jsonrpc/lib/common/cancellation.js"(exports2) {
     "use strict";
     var __createBinding = exports2 && exports2.__createBinding || (Object.create ? (function(o, m, k, k2) {
       if (k2 === void 0) k2 = k;
@@ -1200,9 +1200,9 @@ var require_cancellation = __commonJS({
   }
 });
 
-// ../../../../../../tools/ide/node_modules/vscode-jsonrpc/lib/common/sharedArrayCancellation.js
+// ../node_modules/vscode-jsonrpc/lib/common/sharedArrayCancellation.js
 var require_sharedArrayCancellation = __commonJS({
-  "../../../../../../tools/ide/node_modules/vscode-jsonrpc/lib/common/sharedArrayCancellation.js"(exports2) {
+  "../node_modules/vscode-jsonrpc/lib/common/sharedArrayCancellation.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.SharedArrayReceiverStrategy = exports2.SharedArraySenderStrategy = void 0;
@@ -1279,9 +1279,9 @@ var require_sharedArrayCancellation = __commonJS({
   }
 });
 
-// ../../../../../../tools/ide/node_modules/vscode-jsonrpc/lib/common/semaphore.js
+// ../node_modules/vscode-jsonrpc/lib/common/semaphore.js
 var require_semaphore = __commonJS({
-  "../../../../../../tools/ide/node_modules/vscode-jsonrpc/lib/common/semaphore.js"(exports2) {
+  "../node_modules/vscode-jsonrpc/lib/common/semaphore.js"(exports2) {
     "use strict";
     var __importDefault = exports2 && exports2.__importDefault || function(mod) {
       return mod && mod.__esModule ? mod : { "default": mod };
@@ -1353,9 +1353,9 @@ var require_semaphore = __commonJS({
   }
 });
 
-// ../../../../../../tools/ide/node_modules/vscode-jsonrpc/lib/common/messageReader.js
+// ../node_modules/vscode-jsonrpc/lib/common/messageReader.js
 var require_messageReader = __commonJS({
-  "../../../../../../tools/ide/node_modules/vscode-jsonrpc/lib/common/messageReader.js"(exports2) {
+  "../node_modules/vscode-jsonrpc/lib/common/messageReader.js"(exports2) {
     "use strict";
     var __createBinding = exports2 && exports2.__createBinding || (Object.create ? (function(o, m, k, k2) {
       if (k2 === void 0) k2 = k;
@@ -1595,9 +1595,9 @@ ${JSON.stringify(Object.fromEntries(headers))}`));
   }
 });
 
-// ../../../../../../tools/ide/node_modules/vscode-jsonrpc/lib/common/messageWriter.js
+// ../node_modules/vscode-jsonrpc/lib/common/messageWriter.js
 var require_messageWriter = __commonJS({
-  "../../../../../../tools/ide/node_modules/vscode-jsonrpc/lib/common/messageWriter.js"(exports2) {
+  "../node_modules/vscode-jsonrpc/lib/common/messageWriter.js"(exports2) {
     "use strict";
     var __createBinding = exports2 && exports2.__createBinding || (Object.create ? (function(o, m, k, k2) {
       if (k2 === void 0) k2 = k;
@@ -1753,9 +1753,9 @@ var require_messageWriter = __commonJS({
   }
 });
 
-// ../../../../../../tools/ide/node_modules/vscode-jsonrpc/lib/common/messageBuffer.js
+// ../node_modules/vscode-jsonrpc/lib/common/messageBuffer.js
 var require_messageBuffer = __commonJS({
-  "../../../../../../tools/ide/node_modules/vscode-jsonrpc/lib/common/messageBuffer.js"(exports2) {
+  "../node_modules/vscode-jsonrpc/lib/common/messageBuffer.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.AbstractMessageBuffer = void 0;
@@ -1904,9 +1904,9 @@ ${header}`);
   }
 });
 
-// ../../../../../../tools/ide/node_modules/vscode-jsonrpc/lib/common/connection.js
+// ../node_modules/vscode-jsonrpc/lib/common/connection.js
 var require_connection = __commonJS({
-  "../../../../../../tools/ide/node_modules/vscode-jsonrpc/lib/common/connection.js"(exports2) {
+  "../node_modules/vscode-jsonrpc/lib/common/connection.js"(exports2) {
     "use strict";
     var __createBinding = exports2 && exports2.__createBinding || (Object.create ? (function(o, m, k, k2) {
       if (k2 === void 0) k2 = k;
@@ -3070,9 +3070,9 @@ ${JSON.stringify(message, null, 4)}`);
   }
 });
 
-// ../../../../../../tools/ide/node_modules/vscode-jsonrpc/lib/common/api.js
+// ../node_modules/vscode-jsonrpc/lib/common/api.js
 var require_api = __commonJS({
-  "../../../../../../tools/ide/node_modules/vscode-jsonrpc/lib/common/api.js"(exports2) {
+  "../node_modules/vscode-jsonrpc/lib/common/api.js"(exports2) {
     "use strict";
     var __importDefault = exports2 && exports2.__importDefault || function(mod) {
       return mod && mod.__esModule ? mod : { "default": mod };
@@ -3284,7 +3284,7 @@ var require_api = __commonJS({
   }
 });
 
-// ../../../../../../tools/ide/node_modules/vscode-languageserver-types/lib/esm/main.js
+// ../node_modules/vscode-languageserver-types/lib/esm/main.js
 var main_exports = {};
 __export(main_exports, {
   AnnotatedTextEdit: () => AnnotatedTextEdit,
@@ -3375,7 +3375,7 @@ __export(main_exports, {
 });
 var DocumentUri, URI, integer, uinteger, Position, Range, Location, LocationLink, Color, ColorInformation, ColorPresentation, FoldingRangeKind, FoldingRange, DiagnosticRelatedInformation, DiagnosticSeverity, DiagnosticTag, CodeDescription, Diagnostic, Command, TextEdit, ChangeAnnotation, ChangeAnnotationIdentifier, AnnotatedTextEdit, TextDocumentEdit, CreateFile, RenameFile, DeleteFile, WorkspaceEdit, TextEditChangeImpl, SnippetTextEdit, ChangeAnnotations, WorkspaceChange, TextDocumentIdentifier, VersionedTextDocumentIdentifier, OptionalVersionedTextDocumentIdentifier, LanguageKind, TextDocumentItem, MarkupKind, MarkupContent, CompletionItemKind, InsertTextFormat, CompletionItemTag, InsertReplaceEdit, InsertTextMode, ApplyKind, CompletionItemLabelDetails, CompletionItem, CompletionList, MarkedString, Hover, ParameterInformation, SignatureInformation, DocumentHighlightKind, DocumentHighlight, SymbolKind, SymbolTag, SymbolInformation, WorkspaceSymbol, DocumentSymbol, CodeActionKind, CodeActionTriggerKind, CodeActionContext, CodeActionTag, CodeAction, CodeLens, FormattingOptions, DocumentLink, SelectionRange, SemanticTokenTypes, SemanticTokenModifiers, SemanticTokens, InlineValueText, InlineValueVariableLookup, InlineValueEvaluatableExpression, InlineValueContext, InlayHintKind, InlayHintLabelPart, InlayHint, StringValue, InlineCompletionItem, InlineCompletionList, InlineCompletionTriggerKind, SelectedCompletionInfo, InlineCompletionContext, WorkspaceFolder, EOL, TextDocument, FullTextDocument, Is;
 var init_main = __esm({
-  "../../../../../../tools/ide/node_modules/vscode-languageserver-types/lib/esm/main.js"() {
+  "../node_modules/vscode-languageserver-types/lib/esm/main.js"() {
     "use strict";
     (function(DocumentUri2) {
       function is(value) {
@@ -4853,9 +4853,9 @@ var init_main = __esm({
   }
 });
 
-// ../../../../../../tools/ide/node_modules/vscode-languageserver-protocol/lib/common/messages.js
+// ../node_modules/vscode-languageserver-protocol/lib/common/messages.js
 var require_messages2 = __commonJS({
-  "../../../../../../tools/ide/node_modules/vscode-languageserver-protocol/lib/common/messages.js"(exports2) {
+  "../node_modules/vscode-languageserver-protocol/lib/common/messages.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.CM = exports2.ProtocolNotificationType = exports2.ProtocolNotificationType0 = exports2.ProtocolRequestType = exports2.ProtocolRequestType0 = exports2.RegistrationType = exports2.MessageDirection = void 0;
@@ -4936,9 +4936,9 @@ var require_messages2 = __commonJS({
   }
 });
 
-// ../../../../../../tools/ide/node_modules/vscode-languageserver-protocol/lib/common/utils/is.js
+// ../node_modules/vscode-languageserver-protocol/lib/common/utils/is.js
 var require_is3 = __commonJS({
-  "../../../../../../tools/ide/node_modules/vscode-languageserver-protocol/lib/common/utils/is.js"(exports2) {
+  "../node_modules/vscode-languageserver-protocol/lib/common/utils/is.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.boolean = boolean;
@@ -4980,9 +4980,9 @@ var require_is3 = __commonJS({
   }
 });
 
-// ../../../../../../tools/ide/node_modules/vscode-languageserver-protocol/lib/common/protocol.implementation.js
+// ../node_modules/vscode-languageserver-protocol/lib/common/protocol.implementation.js
 var require_protocol_implementation = __commonJS({
-  "../../../../../../tools/ide/node_modules/vscode-languageserver-protocol/lib/common/protocol.implementation.js"(exports2) {
+  "../node_modules/vscode-languageserver-protocol/lib/common/protocol.implementation.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.ImplementationRequest = void 0;
@@ -4997,9 +4997,9 @@ var require_protocol_implementation = __commonJS({
   }
 });
 
-// ../../../../../../tools/ide/node_modules/vscode-languageserver-protocol/lib/common/protocol.typeDefinition.js
+// ../node_modules/vscode-languageserver-protocol/lib/common/protocol.typeDefinition.js
 var require_protocol_typeDefinition = __commonJS({
-  "../../../../../../tools/ide/node_modules/vscode-languageserver-protocol/lib/common/protocol.typeDefinition.js"(exports2) {
+  "../node_modules/vscode-languageserver-protocol/lib/common/protocol.typeDefinition.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.TypeDefinitionRequest = void 0;
@@ -5014,9 +5014,9 @@ var require_protocol_typeDefinition = __commonJS({
   }
 });
 
-// ../../../../../../tools/ide/node_modules/vscode-languageserver-protocol/lib/common/protocol.workspaceFolder.js
+// ../node_modules/vscode-languageserver-protocol/lib/common/protocol.workspaceFolder.js
 var require_protocol_workspaceFolder = __commonJS({
-  "../../../../../../tools/ide/node_modules/vscode-languageserver-protocol/lib/common/protocol.workspaceFolder.js"(exports2) {
+  "../node_modules/vscode-languageserver-protocol/lib/common/protocol.workspaceFolder.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.DidChangeWorkspaceFoldersNotification = exports2.WorkspaceFoldersRequest = void 0;
@@ -5038,9 +5038,9 @@ var require_protocol_workspaceFolder = __commonJS({
   }
 });
 
-// ../../../../../../tools/ide/node_modules/vscode-languageserver-protocol/lib/common/protocol.configuration.js
+// ../node_modules/vscode-languageserver-protocol/lib/common/protocol.configuration.js
 var require_protocol_configuration = __commonJS({
-  "../../../../../../tools/ide/node_modules/vscode-languageserver-protocol/lib/common/protocol.configuration.js"(exports2) {
+  "../node_modules/vscode-languageserver-protocol/lib/common/protocol.configuration.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.ConfigurationRequest = void 0;
@@ -5055,9 +5055,9 @@ var require_protocol_configuration = __commonJS({
   }
 });
 
-// ../../../../../../tools/ide/node_modules/vscode-languageserver-protocol/lib/common/protocol.colorProvider.js
+// ../node_modules/vscode-languageserver-protocol/lib/common/protocol.colorProvider.js
 var require_protocol_colorProvider = __commonJS({
-  "../../../../../../tools/ide/node_modules/vscode-languageserver-protocol/lib/common/protocol.colorProvider.js"(exports2) {
+  "../node_modules/vscode-languageserver-protocol/lib/common/protocol.colorProvider.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.ColorPresentationRequest = exports2.DocumentColorRequest = void 0;
@@ -5079,9 +5079,9 @@ var require_protocol_colorProvider = __commonJS({
   }
 });
 
-// ../../../../../../tools/ide/node_modules/vscode-languageserver-protocol/lib/common/protocol.foldingRange.js
+// ../node_modules/vscode-languageserver-protocol/lib/common/protocol.foldingRange.js
 var require_protocol_foldingRange = __commonJS({
-  "../../../../../../tools/ide/node_modules/vscode-languageserver-protocol/lib/common/protocol.foldingRange.js"(exports2) {
+  "../node_modules/vscode-languageserver-protocol/lib/common/protocol.foldingRange.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.FoldingRangeRefreshRequest = exports2.FoldingRangeRequest = void 0;
@@ -5103,9 +5103,9 @@ var require_protocol_foldingRange = __commonJS({
   }
 });
 
-// ../../../../../../tools/ide/node_modules/vscode-languageserver-protocol/lib/common/protocol.declaration.js
+// ../node_modules/vscode-languageserver-protocol/lib/common/protocol.declaration.js
 var require_protocol_declaration = __commonJS({
-  "../../../../../../tools/ide/node_modules/vscode-languageserver-protocol/lib/common/protocol.declaration.js"(exports2) {
+  "../node_modules/vscode-languageserver-protocol/lib/common/protocol.declaration.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.DeclarationRequest = void 0;
@@ -5120,9 +5120,9 @@ var require_protocol_declaration = __commonJS({
   }
 });
 
-// ../../../../../../tools/ide/node_modules/vscode-languageserver-protocol/lib/common/protocol.selectionRange.js
+// ../node_modules/vscode-languageserver-protocol/lib/common/protocol.selectionRange.js
 var require_protocol_selectionRange = __commonJS({
-  "../../../../../../tools/ide/node_modules/vscode-languageserver-protocol/lib/common/protocol.selectionRange.js"(exports2) {
+  "../node_modules/vscode-languageserver-protocol/lib/common/protocol.selectionRange.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.SelectionRangeRequest = void 0;
@@ -5137,9 +5137,9 @@ var require_protocol_selectionRange = __commonJS({
   }
 });
 
-// ../../../../../../tools/ide/node_modules/vscode-languageserver-protocol/lib/common/protocol.progress.js
+// ../node_modules/vscode-languageserver-protocol/lib/common/protocol.progress.js
 var require_protocol_progress = __commonJS({
-  "../../../../../../tools/ide/node_modules/vscode-languageserver-protocol/lib/common/protocol.progress.js"(exports2) {
+  "../node_modules/vscode-languageserver-protocol/lib/common/protocol.progress.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.WorkDoneProgressCancelNotification = exports2.WorkDoneProgressCreateRequest = exports2.WorkDoneProgress = void 0;
@@ -5169,9 +5169,9 @@ var require_protocol_progress = __commonJS({
   }
 });
 
-// ../../../../../../tools/ide/node_modules/vscode-languageserver-protocol/lib/common/protocol.callHierarchy.js
+// ../node_modules/vscode-languageserver-protocol/lib/common/protocol.callHierarchy.js
 var require_protocol_callHierarchy = __commonJS({
-  "../../../../../../tools/ide/node_modules/vscode-languageserver-protocol/lib/common/protocol.callHierarchy.js"(exports2) {
+  "../node_modules/vscode-languageserver-protocol/lib/common/protocol.callHierarchy.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.CallHierarchyOutgoingCallsRequest = exports2.CallHierarchyIncomingCallsRequest = exports2.CallHierarchyPrepareRequest = void 0;
@@ -5200,9 +5200,9 @@ var require_protocol_callHierarchy = __commonJS({
   }
 });
 
-// ../../../../../../tools/ide/node_modules/vscode-languageserver-protocol/lib/common/protocol.semanticTokens.js
+// ../node_modules/vscode-languageserver-protocol/lib/common/protocol.semanticTokens.js
 var require_protocol_semanticTokens = __commonJS({
-  "../../../../../../tools/ide/node_modules/vscode-languageserver-protocol/lib/common/protocol.semanticTokens.js"(exports2) {
+  "../node_modules/vscode-languageserver-protocol/lib/common/protocol.semanticTokens.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.SemanticTokensRefreshRequest = exports2.SemanticTokensRangeRequest = exports2.SemanticTokensDeltaRequest = exports2.SemanticTokensRequest = exports2.SemanticTokensRegistrationType = exports2.TokenFormat = void 0;
@@ -5250,9 +5250,9 @@ var require_protocol_semanticTokens = __commonJS({
   }
 });
 
-// ../../../../../../tools/ide/node_modules/vscode-languageserver-protocol/lib/common/protocol.showDocument.js
+// ../node_modules/vscode-languageserver-protocol/lib/common/protocol.showDocument.js
 var require_protocol_showDocument = __commonJS({
-  "../../../../../../tools/ide/node_modules/vscode-languageserver-protocol/lib/common/protocol.showDocument.js"(exports2) {
+  "../node_modules/vscode-languageserver-protocol/lib/common/protocol.showDocument.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.ShowDocumentRequest = void 0;
@@ -5267,9 +5267,9 @@ var require_protocol_showDocument = __commonJS({
   }
 });
 
-// ../../../../../../tools/ide/node_modules/vscode-languageserver-protocol/lib/common/protocol.linkedEditingRange.js
+// ../node_modules/vscode-languageserver-protocol/lib/common/protocol.linkedEditingRange.js
 var require_protocol_linkedEditingRange = __commonJS({
-  "../../../../../../tools/ide/node_modules/vscode-languageserver-protocol/lib/common/protocol.linkedEditingRange.js"(exports2) {
+  "../node_modules/vscode-languageserver-protocol/lib/common/protocol.linkedEditingRange.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.LinkedEditingRangeRequest = void 0;
@@ -5284,9 +5284,9 @@ var require_protocol_linkedEditingRange = __commonJS({
   }
 });
 
-// ../../../../../../tools/ide/node_modules/vscode-languageserver-protocol/lib/common/protocol.fileOperations.js
+// ../node_modules/vscode-languageserver-protocol/lib/common/protocol.fileOperations.js
 var require_protocol_fileOperations = __commonJS({
-  "../../../../../../tools/ide/node_modules/vscode-languageserver-protocol/lib/common/protocol.fileOperations.js"(exports2) {
+  "../node_modules/vscode-languageserver-protocol/lib/common/protocol.fileOperations.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.WillDeleteFilesRequest = exports2.DidDeleteFilesNotification = exports2.DidRenameFilesNotification = exports2.WillRenameFilesRequest = exports2.DidCreateFilesNotification = exports2.WillCreateFilesRequest = exports2.FileOperationPatternKind = void 0;
@@ -5341,9 +5341,9 @@ var require_protocol_fileOperations = __commonJS({
   }
 });
 
-// ../../../../../../tools/ide/node_modules/vscode-languageserver-protocol/lib/common/protocol.moniker.js
+// ../node_modules/vscode-languageserver-protocol/lib/common/protocol.moniker.js
 var require_protocol_moniker = __commonJS({
-  "../../../../../../tools/ide/node_modules/vscode-languageserver-protocol/lib/common/protocol.moniker.js"(exports2) {
+  "../node_modules/vscode-languageserver-protocol/lib/common/protocol.moniker.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.MonikerRequest = exports2.MonikerKind = exports2.UniquenessLevel = void 0;
@@ -5372,9 +5372,9 @@ var require_protocol_moniker = __commonJS({
   }
 });
 
-// ../../../../../../tools/ide/node_modules/vscode-languageserver-protocol/lib/common/protocol.typeHierarchy.js
+// ../node_modules/vscode-languageserver-protocol/lib/common/protocol.typeHierarchy.js
 var require_protocol_typeHierarchy = __commonJS({
-  "../../../../../../tools/ide/node_modules/vscode-languageserver-protocol/lib/common/protocol.typeHierarchy.js"(exports2) {
+  "../node_modules/vscode-languageserver-protocol/lib/common/protocol.typeHierarchy.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.TypeHierarchySubtypesRequest = exports2.TypeHierarchySupertypesRequest = exports2.TypeHierarchyPrepareRequest = void 0;
@@ -5401,9 +5401,9 @@ var require_protocol_typeHierarchy = __commonJS({
   }
 });
 
-// ../../../../../../tools/ide/node_modules/vscode-languageserver-protocol/lib/common/protocol.inlineValue.js
+// ../node_modules/vscode-languageserver-protocol/lib/common/protocol.inlineValue.js
 var require_protocol_inlineValue = __commonJS({
-  "../../../../../../tools/ide/node_modules/vscode-languageserver-protocol/lib/common/protocol.inlineValue.js"(exports2) {
+  "../node_modules/vscode-languageserver-protocol/lib/common/protocol.inlineValue.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.InlineValueRefreshRequest = exports2.InlineValueRequest = void 0;
@@ -5425,9 +5425,9 @@ var require_protocol_inlineValue = __commonJS({
   }
 });
 
-// ../../../../../../tools/ide/node_modules/vscode-languageserver-protocol/lib/common/protocol.inlayHint.js
+// ../node_modules/vscode-languageserver-protocol/lib/common/protocol.inlayHint.js
 var require_protocol_inlayHint = __commonJS({
-  "../../../../../../tools/ide/node_modules/vscode-languageserver-protocol/lib/common/protocol.inlayHint.js"(exports2) {
+  "../node_modules/vscode-languageserver-protocol/lib/common/protocol.inlayHint.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.InlayHintRefreshRequest = exports2.InlayHintResolveRequest = exports2.InlayHintRequest = void 0;
@@ -5456,9 +5456,9 @@ var require_protocol_inlayHint = __commonJS({
   }
 });
 
-// ../../../../../../tools/ide/node_modules/vscode-languageserver-protocol/lib/common/protocol.diagnostic.js
+// ../node_modules/vscode-languageserver-protocol/lib/common/protocol.diagnostic.js
 var require_protocol_diagnostic = __commonJS({
-  "../../../../../../tools/ide/node_modules/vscode-languageserver-protocol/lib/common/protocol.diagnostic.js"(exports2) {
+  "../node_modules/vscode-languageserver-protocol/lib/common/protocol.diagnostic.js"(exports2) {
     "use strict";
     var __createBinding = exports2 && exports2.__createBinding || (Object.create ? (function(o, m, k, k2) {
       if (k2 === void 0) k2 = k;
@@ -5541,9 +5541,9 @@ var require_protocol_diagnostic = __commonJS({
   }
 });
 
-// ../../../../../../tools/ide/node_modules/vscode-languageserver-protocol/lib/common/protocol.notebook.js
+// ../node_modules/vscode-languageserver-protocol/lib/common/protocol.notebook.js
 var require_protocol_notebook = __commonJS({
-  "../../../../../../tools/ide/node_modules/vscode-languageserver-protocol/lib/common/protocol.notebook.js"(exports2) {
+  "../node_modules/vscode-languageserver-protocol/lib/common/protocol.notebook.js"(exports2) {
     "use strict";
     var __createBinding = exports2 && exports2.__createBinding || (Object.create ? (function(o, m, k, k2) {
       if (k2 === void 0) k2 = k;
@@ -5767,9 +5767,9 @@ var require_protocol_notebook = __commonJS({
   }
 });
 
-// ../../../../../../tools/ide/node_modules/vscode-languageserver-protocol/lib/common/protocol.inlineCompletion.js
+// ../node_modules/vscode-languageserver-protocol/lib/common/protocol.inlineCompletion.js
 var require_protocol_inlineCompletion = __commonJS({
-  "../../../../../../tools/ide/node_modules/vscode-languageserver-protocol/lib/common/protocol.inlineCompletion.js"(exports2) {
+  "../node_modules/vscode-languageserver-protocol/lib/common/protocol.inlineCompletion.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.InlineCompletionRequest = void 0;
@@ -5784,9 +5784,9 @@ var require_protocol_inlineCompletion = __commonJS({
   }
 });
 
-// ../../../../../../tools/ide/node_modules/vscode-languageserver-protocol/lib/common/protocol.textDocumentContent.js
+// ../node_modules/vscode-languageserver-protocol/lib/common/protocol.textDocumentContent.js
 var require_protocol_textDocumentContent = __commonJS({
-  "../../../../../../tools/ide/node_modules/vscode-languageserver-protocol/lib/common/protocol.textDocumentContent.js"(exports2) {
+  "../node_modules/vscode-languageserver-protocol/lib/common/protocol.textDocumentContent.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.TextDocumentContentRefreshRequest = exports2.TextDocumentContentRequest = void 0;
@@ -5807,9 +5807,9 @@ var require_protocol_textDocumentContent = __commonJS({
   }
 });
 
-// ../../../../../../tools/ide/node_modules/vscode-languageserver-protocol/lib/common/protocol.js
+// ../node_modules/vscode-languageserver-protocol/lib/common/protocol.js
 var require_protocol = __commonJS({
-  "../../../../../../tools/ide/node_modules/vscode-languageserver-protocol/lib/common/protocol.js"(exports2) {
+  "../node_modules/vscode-languageserver-protocol/lib/common/protocol.js"(exports2) {
     "use strict";
     var __createBinding = exports2 && exports2.__createBinding || (Object.create ? (function(o, m, k, k2) {
       if (k2 === void 0) k2 = k;
@@ -6535,9 +6535,9 @@ var require_protocol = __commonJS({
   }
 });
 
-// ../../../../../../tools/ide/node_modules/vscode-languageserver-protocol/lib/common/connection.js
+// ../node_modules/vscode-languageserver-protocol/lib/common/connection.js
 var require_connection2 = __commonJS({
-  "../../../../../../tools/ide/node_modules/vscode-languageserver-protocol/lib/common/connection.js"(exports2) {
+  "../node_modules/vscode-languageserver-protocol/lib/common/connection.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.createProtocolConnection = createProtocolConnection;
@@ -6551,9 +6551,9 @@ var require_connection2 = __commonJS({
   }
 });
 
-// ../../../../../../tools/ide/node_modules/vscode-languageserver-protocol/lib/common/api.js
+// ../node_modules/vscode-languageserver-protocol/lib/common/api.js
 var require_api2 = __commonJS({
-  "../../../../../../tools/ide/node_modules/vscode-languageserver-protocol/lib/common/api.js"(exports2) {
+  "../node_modules/vscode-languageserver-protocol/lib/common/api.js"(exports2) {
     "use strict";
     var __createBinding = exports2 && exports2.__createBinding || (Object.create ? (function(o, m, k, k2) {
       if (k2 === void 0) k2 = k;
@@ -6593,9 +6593,9 @@ var require_api2 = __commonJS({
   }
 });
 
-// ../../../../../../tools/ide/node_modules/vscode-languageserver/lib/common/utils/uuid.js
+// ../node_modules/vscode-languageserver/lib/common/utils/uuid.js
 var require_uuid = __commonJS({
-  "../../../../../../tools/ide/node_modules/vscode-languageserver/lib/common/utils/uuid.js"(exports2) {
+  "../node_modules/vscode-languageserver/lib/common/utils/uuid.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.empty = void 0;
@@ -6685,9 +6685,9 @@ var require_uuid = __commonJS({
   }
 });
 
-// ../../../../../../tools/ide/node_modules/vscode-languageserver/lib/common/progress.js
+// ../node_modules/vscode-languageserver/lib/common/progress.js
 var require_progress = __commonJS({
-  "../../../../../../tools/ide/node_modules/vscode-languageserver/lib/common/progress.js"(exports2) {
+  "../node_modules/vscode-languageserver/lib/common/progress.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.ProgressFeature = exports2.WorkDoneProgressReporter = void 0;
@@ -6859,9 +6859,9 @@ var require_progress = __commonJS({
   }
 });
 
-// ../../../../../../tools/ide/node_modules/vscode-languageserver/lib/common/configuration.js
+// ../node_modules/vscode-languageserver/lib/common/configuration.js
 var require_configuration = __commonJS({
-  "../../../../../../tools/ide/node_modules/vscode-languageserver/lib/common/configuration.js"(exports2) {
+  "../node_modules/vscode-languageserver/lib/common/configuration.js"(exports2) {
     "use strict";
     var __createBinding = exports2 && exports2.__createBinding || (Object.create ? (function(o, m, k, k2) {
       if (k2 === void 0) k2 = k;
@@ -6933,9 +6933,9 @@ var require_configuration = __commonJS({
   }
 });
 
-// ../../../../../../tools/ide/node_modules/vscode-languageserver/lib/common/workspaceFolder.js
+// ../node_modules/vscode-languageserver/lib/common/workspaceFolder.js
 var require_workspaceFolder = __commonJS({
-  "../../../../../../tools/ide/node_modules/vscode-languageserver/lib/common/workspaceFolder.js"(exports2) {
+  "../node_modules/vscode-languageserver/lib/common/workspaceFolder.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.WorkspaceFoldersFeature = void 0;
@@ -6982,9 +6982,9 @@ var require_workspaceFolder = __commonJS({
   }
 });
 
-// ../../../../../../tools/ide/node_modules/vscode-languageserver/lib/common/callHierarchy.js
+// ../node_modules/vscode-languageserver/lib/common/callHierarchy.js
 var require_callHierarchy = __commonJS({
-  "../../../../../../tools/ide/node_modules/vscode-languageserver/lib/common/callHierarchy.js"(exports2) {
+  "../node_modules/vscode-languageserver/lib/common/callHierarchy.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.CallHierarchyFeature = void 0;
@@ -7018,9 +7018,9 @@ var require_callHierarchy = __commonJS({
   }
 });
 
-// ../../../../../../tools/ide/node_modules/vscode-languageserver/lib/common/semanticTokens.js
+// ../node_modules/vscode-languageserver/lib/common/semanticTokens.js
 var require_semanticTokens = __commonJS({
-  "../../../../../../tools/ide/node_modules/vscode-languageserver/lib/common/semanticTokens.js"(exports2) {
+  "../node_modules/vscode-languageserver/lib/common/semanticTokens.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.SemanticTokensBuilder = exports2.SemanticTokensDiff = exports2.SemanticTokensFeature = void 0;
@@ -7259,9 +7259,9 @@ var require_semanticTokens = __commonJS({
   }
 });
 
-// ../../../../../../tools/ide/node_modules/vscode-languageserver/lib/common/showDocument.js
+// ../node_modules/vscode-languageserver/lib/common/showDocument.js
 var require_showDocument = __commonJS({
-  "../../../../../../tools/ide/node_modules/vscode-languageserver/lib/common/showDocument.js"(exports2) {
+  "../node_modules/vscode-languageserver/lib/common/showDocument.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.ShowDocumentFeature = void 0;
@@ -7277,9 +7277,9 @@ var require_showDocument = __commonJS({
   }
 });
 
-// ../../../../../../tools/ide/node_modules/vscode-languageserver/lib/common/fileOperations.js
+// ../node_modules/vscode-languageserver/lib/common/fileOperations.js
 var require_fileOperations = __commonJS({
-  "../../../../../../tools/ide/node_modules/vscode-languageserver/lib/common/fileOperations.js"(exports2) {
+  "../node_modules/vscode-languageserver/lib/common/fileOperations.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.FileOperationsFeature = void 0;
@@ -7322,9 +7322,9 @@ var require_fileOperations = __commonJS({
   }
 });
 
-// ../../../../../../tools/ide/node_modules/vscode-languageserver/lib/common/linkedEditingRange.js
+// ../node_modules/vscode-languageserver/lib/common/linkedEditingRange.js
 var require_linkedEditingRange = __commonJS({
-  "../../../../../../tools/ide/node_modules/vscode-languageserver/lib/common/linkedEditingRange.js"(exports2) {
+  "../node_modules/vscode-languageserver/lib/common/linkedEditingRange.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.LinkedEditingRangeFeature = void 0;
@@ -7342,9 +7342,9 @@ var require_linkedEditingRange = __commonJS({
   }
 });
 
-// ../../../../../../tools/ide/node_modules/vscode-languageserver/lib/common/typeHierarchy.js
+// ../node_modules/vscode-languageserver/lib/common/typeHierarchy.js
 var require_typeHierarchy = __commonJS({
-  "../../../../../../tools/ide/node_modules/vscode-languageserver/lib/common/typeHierarchy.js"(exports2) {
+  "../node_modules/vscode-languageserver/lib/common/typeHierarchy.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.TypeHierarchyFeature = void 0;
@@ -7378,9 +7378,9 @@ var require_typeHierarchy = __commonJS({
   }
 });
 
-// ../../../../../../tools/ide/node_modules/vscode-languageserver/lib/common/inlineValue.js
+// ../node_modules/vscode-languageserver/lib/common/inlineValue.js
 var require_inlineValue = __commonJS({
-  "../../../../../../tools/ide/node_modules/vscode-languageserver/lib/common/inlineValue.js"(exports2) {
+  "../node_modules/vscode-languageserver/lib/common/inlineValue.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.InlineValueFeature = void 0;
@@ -7405,9 +7405,9 @@ var require_inlineValue = __commonJS({
   }
 });
 
-// ../../../../../../tools/ide/node_modules/vscode-languageserver/lib/common/foldingRange.js
+// ../node_modules/vscode-languageserver/lib/common/foldingRange.js
 var require_foldingRange = __commonJS({
-  "../../../../../../tools/ide/node_modules/vscode-languageserver/lib/common/foldingRange.js"(exports2) {
+  "../node_modules/vscode-languageserver/lib/common/foldingRange.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.FoldingRangeFeature = void 0;
@@ -7433,9 +7433,9 @@ var require_foldingRange = __commonJS({
   }
 });
 
-// ../../../../../../tools/ide/node_modules/vscode-languageserver/lib/common/inlayHint.js
+// ../node_modules/vscode-languageserver/lib/common/inlayHint.js
 var require_inlayHint = __commonJS({
-  "../../../../../../tools/ide/node_modules/vscode-languageserver/lib/common/inlayHint.js"(exports2) {
+  "../node_modules/vscode-languageserver/lib/common/inlayHint.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.InlayHintFeature = void 0;
@@ -7465,9 +7465,9 @@ var require_inlayHint = __commonJS({
   }
 });
 
-// ../../../../../../tools/ide/node_modules/vscode-languageserver/lib/common/diagnostic.js
+// ../node_modules/vscode-languageserver/lib/common/diagnostic.js
 var require_diagnostic = __commonJS({
-  "../../../../../../tools/ide/node_modules/vscode-languageserver/lib/common/diagnostic.js"(exports2) {
+  "../node_modules/vscode-languageserver/lib/common/diagnostic.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.DiagnosticFeature = void 0;
@@ -7497,9 +7497,9 @@ var require_diagnostic = __commonJS({
   }
 });
 
-// ../../../../../../tools/ide/node_modules/vscode-languageserver/lib/common/textDocuments.js
+// ../node_modules/vscode-languageserver/lib/common/textDocuments.js
 var require_textDocuments = __commonJS({
-  "../../../../../../tools/ide/node_modules/vscode-languageserver/lib/common/textDocuments.js"(exports2) {
+  "../node_modules/vscode-languageserver/lib/common/textDocuments.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.TextDocuments = void 0;
@@ -7670,9 +7670,9 @@ var require_textDocuments = __commonJS({
   }
 });
 
-// ../../../../../../tools/ide/node_modules/vscode-languageserver/lib/common/notebook.js
+// ../node_modules/vscode-languageserver/lib/common/notebook.js
 var require_notebook = __commonJS({
-  "../../../../../../tools/ide/node_modules/vscode-languageserver/lib/common/notebook.js"(exports2) {
+  "../node_modules/vscode-languageserver/lib/common/notebook.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.NotebookDocuments = exports2.NotebookSyncFeature = void 0;
@@ -7939,9 +7939,9 @@ var require_notebook = __commonJS({
   }
 });
 
-// ../../../../../../tools/ide/node_modules/vscode-languageserver/lib/common/moniker.js
+// ../node_modules/vscode-languageserver/lib/common/moniker.js
 var require_moniker = __commonJS({
-  "../../../../../../tools/ide/node_modules/vscode-languageserver/lib/common/moniker.js"(exports2) {
+  "../node_modules/vscode-languageserver/lib/common/moniker.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.MonikerFeature = void 0;
@@ -7964,9 +7964,9 @@ var require_moniker = __commonJS({
   }
 });
 
-// ../../../../../../tools/ide/node_modules/vscode-languageserver/lib/common/inlineCompletion.js
+// ../node_modules/vscode-languageserver/lib/common/inlineCompletion.js
 var require_inlineCompletion = __commonJS({
-  "../../../../../../tools/ide/node_modules/vscode-languageserver/lib/common/inlineCompletion.js"(exports2) {
+  "../node_modules/vscode-languageserver/lib/common/inlineCompletion.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.InlineCompletionFeature = void 0;
@@ -7988,9 +7988,9 @@ var require_inlineCompletion = __commonJS({
   }
 });
 
-// ../../../../../../tools/ide/node_modules/vscode-languageserver/lib/common/textDocumentContent.js
+// ../node_modules/vscode-languageserver/lib/common/textDocumentContent.js
 var require_textDocumentContent = __commonJS({
-  "../../../../../../tools/ide/node_modules/vscode-languageserver/lib/common/textDocumentContent.js"(exports2) {
+  "../node_modules/vscode-languageserver/lib/common/textDocumentContent.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.TextDocumentContentFeature = void 0;
@@ -8015,9 +8015,9 @@ var require_textDocumentContent = __commonJS({
   }
 });
 
-// ../../../../../../tools/ide/node_modules/vscode-languageserver/lib/common/server.js
+// ../node_modules/vscode-languageserver/lib/common/server.js
 var require_server = __commonJS({
-  "../../../../../../tools/ide/node_modules/vscode-languageserver/lib/common/server.js"(exports2) {
+  "../node_modules/vscode-languageserver/lib/common/server.js"(exports2) {
     "use strict";
     var __createBinding = exports2 && exports2.__createBinding || (Object.create ? (function(o, m, k, k2) {
       if (k2 === void 0) k2 = k;
@@ -8814,9 +8814,9 @@ var require_server = __commonJS({
   }
 });
 
-// ../../../../../../tools/ide/node_modules/vscode-languageserver/lib/node/files.js
+// ../node_modules/vscode-languageserver/lib/node/files.js
 var require_files = __commonJS({
-  "../../../../../../tools/ide/node_modules/vscode-languageserver/lib/node/files.js"(exports2) {
+  "../node_modules/vscode-languageserver/lib/node/files.js"(exports2) {
     "use strict";
     var __createBinding = exports2 && exports2.__createBinding || (Object.create ? (function(o, m, k, k2) {
       if (k2 === void 0) k2 = k;
@@ -9082,9 +9082,9 @@ var require_files = __commonJS({
   }
 });
 
-// ../../../../../../tools/ide/node_modules/vscode-jsonrpc/lib/node/ril.js
+// ../node_modules/vscode-jsonrpc/lib/node/ril.js
 var require_ril = __commonJS({
-  "../../../../../../tools/ide/node_modules/vscode-jsonrpc/lib/node/ril.js"(exports2) {
+  "../node_modules/vscode-jsonrpc/lib/node/ril.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
     var util_1 = require("util");
@@ -9240,9 +9240,9 @@ var require_ril = __commonJS({
   }
 });
 
-// ../../../../../../tools/ide/node_modules/vscode-jsonrpc/lib/node/main.js
+// ../node_modules/vscode-jsonrpc/lib/node/main.js
 var require_main = __commonJS({
-  "../../../../../../tools/ide/node_modules/vscode-jsonrpc/lib/node/main.js"(exports2) {
+  "../node_modules/vscode-jsonrpc/lib/node/main.js"(exports2) {
     "use strict";
     var __createBinding = exports2 && exports2.__createBinding || (Object.create ? (function(o, m, k, k2) {
       if (k2 === void 0) k2 = k;
@@ -9542,9 +9542,9 @@ var require_main = __commonJS({
   }
 });
 
-// ../../../../../../tools/ide/node_modules/vscode-languageserver-protocol/lib/node/main.js
+// ../node_modules/vscode-languageserver-protocol/lib/node/main.js
 var require_main2 = __commonJS({
-  "../../../../../../tools/ide/node_modules/vscode-languageserver-protocol/lib/node/main.js"(exports2) {
+  "../node_modules/vscode-languageserver-protocol/lib/node/main.js"(exports2) {
     "use strict";
     var __createBinding = exports2 && exports2.__createBinding || (Object.create ? (function(o, m, k, k2) {
       if (k2 === void 0) k2 = k;
@@ -9573,9 +9573,9 @@ var require_main2 = __commonJS({
   }
 });
 
-// ../../../../../../tools/ide/node_modules/vscode-languageserver/lib/common/api.js
+// ../node_modules/vscode-languageserver/lib/common/api.js
 var require_api3 = __commonJS({
-  "../../../../../../tools/ide/node_modules/vscode-languageserver/lib/common/api.js"(exports2) {
+  "../node_modules/vscode-languageserver/lib/common/api.js"(exports2) {
     "use strict";
     var __createBinding = exports2 && exports2.__createBinding || (Object.create ? (function(o, m, k, k2) {
       if (k2 === void 0) k2 = k;
@@ -9622,9 +9622,9 @@ var require_api3 = __commonJS({
   }
 });
 
-// ../../../../../../tools/ide/node_modules/vscode-languageserver/lib/node/main.js
+// ../node_modules/vscode-languageserver/lib/node/main.js
 var require_main3 = __commonJS({
-  "../../../../../../tools/ide/node_modules/vscode-languageserver/lib/node/main.js"(exports2) {
+  "../node_modules/vscode-languageserver/lib/node/main.js"(exports2) {
     "use strict";
     var __createBinding = exports2 && exports2.__createBinding || (Object.create ? (function(o, m, k, k2) {
       if (k2 === void 0) k2 = k;
@@ -9913,7 +9913,7 @@ var path6 = __toESM(require("path"));
 // src/documents.ts
 var import_node = __toESM(require_main3());
 
-// ../../../../../../tools/ide/node_modules/vscode-languageserver-textdocument/lib/esm/main.js
+// ../node_modules/vscode-languageserver-textdocument/lib/esm/main.js
 var FullTextDocument2 = class _FullTextDocument {
   constructor(uri, languageId, version, content) {
     this._uri = uri;
@@ -10578,7 +10578,7 @@ var DocumentManager = class {
     return e > col ? e : col + 1;
   }
   detectLanguage(languageId, filePath) {
-    if (languageId === "c" || languageId === "h") {
+    if (languageId === "c" || languageId === "h" || /\.[ch]$/i.test(filePath)) {
       return "c";
     }
     if (languageId === "m65-asm" || filePath.endsWith(".s45") || filePath.endsWith(".asm")) {

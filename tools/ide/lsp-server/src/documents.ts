@@ -219,7 +219,8 @@ export class DocumentManager {
   }
 
   private detectLanguage(languageId: string, filePath: string): 'c' | 'asm' | 'unknown' {
-    if (languageId === 'c' || languageId === 'h') {
+    // By extension too: other editors open .c/.h as 'cpp' or their own names
+    if (languageId === 'c' || languageId === 'h' || /\.[ch]$/i.test(filePath)) {
       return 'c';
     }
     if (languageId === 'm65-asm' || filePath.endsWith('.s45') || filePath.endsWith('.asm')) {
