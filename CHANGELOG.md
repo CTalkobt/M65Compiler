@@ -4,6 +4,20 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### Code overlays: a smaller resident runtime (#689)
+
+- The runtime is split: `ovl.s45` (calls, copying, state) and, only when needed, `ovl_load.s45` (the files'
+  loader and `__rom_call`), `ovl_map.s45` (mapped overlays), `ovl_jmp.s45` (`setjmp`). The return stack is
+  written by ln45 after the stubs. A return-stack overflow or a missing file ends the program through crt0's
+  `__abort` (exit status `$FFFE`), not `abort()` (no `raise`).
+- **ln45 `--overlay-no-load`**: the program loads the overlay files itself (no loader, no `__ovl_file`); not with
+  `--pack-overlays` or an attic RAM store. **`--overlay-depth=N`**: the return stack's depth (1-255, default 32,
+  4 bytes each). basic45 passes both through.
+- A `basic45 --link` program with one copied overlay: 2708 bytes of bank 0 before, 2286 now, 2165 with
+  `--overlay-depth=2`, 1564 with `--overlay-no-load` too.
+- Tests: `test_basic45_ovlnl_xemu.bas` (its own `BLOAD`; as is and `--compile`), the overlay test overflowing
+  `--overlay-depth=8` (exit status `$FFFE`), and the options' errors (`test_xemu.sh`).
+
 ### Code overlays for basic45 --link programs; ln45 --overlay-region (#685)
 
 - **basic45** passes ln45's overlay options to the `--link` (and `--compile`) build: `--overlay-store`,

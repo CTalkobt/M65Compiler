@@ -397,6 +397,10 @@ public:
     // overlay call stubs of 21 bytes, a few cycles faster than the 6-byte ones (#332)
     void setOverlayFastStubs(bool on) { ovlFastStubs_ = on; }
     void setPackOverlays(bool on) { packOverlays_ = on; }
+    // --overlay-no-load: the program loads the overlay files itself (no
+    // loader, ovl_load.s45, #689); --overlay-depth: the return stack's
+    void setOverlayNoLoad(bool on) { ovlNoLoad_ = on; }
+    void setOverlayDepth(int n) { ovlDepth_ = n; }
     void setOverlayFileName(const std::string& n) { ovlFileName_ = n; }
     const std::vector<std::vector<uint8_t>>& overlayFiles() const { return ovlFiles_; }
     const std::vector<uint8_t>& overlayDescription() const { return ovlDesc_; }   // the .ovd file
@@ -807,6 +811,14 @@ private:
     // --pack-overlays (#345): the overlay files packed (Pack45.hpp), each
     // file's record in __ovl_file at ovlFileRecOff_ (an offset in mergedText_)
     bool packOverlays_ = false;
+    bool ovlNoLoad_ = false;   // --overlay-no-load (#689)
+    int ovlDepth_ = 32;        // --overlay-depth (#689)
+    bool ovlJmpLinked_ = false;
+    uint32_t ovlRstkAddr_ = 0;   // the overlay return stack (generateOverlayStubs)
+    static std::string ovlRstkName(int k) {
+        static const char* n[4] = {"__ovl_rlo", "__ovl_rhi", "__ovl_rid", "__ovl_rwt"};
+        return n[k];
+    }   // ovl_jmp.s45 linked (the program has setjmp)
     std::vector<size_t> ovlFileRecOff_;
     std::vector<std::string> packNotes_;   // what was not packed, and why (verbose)
     // a function whose block shares bytes with a function active together

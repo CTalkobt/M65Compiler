@@ -1,0 +1,43 @@
+; ovl_jmp.s45 — setjmp / longjmp across code overlay calls: ovl.s45's part
+; for them, linked by ln45 only when the program has overlays and setjmp
+; (#689; crt0's weak versions otherwise).
+;
+; setjmp/longjmp (setjmp.s45; jmp_buf at $10/$11): setjmp saves the overlay
+; return stack's depth and the overlay in the region in env[6], env[7];
+; longjmp puts them back -- the calls it leaves are dropped, and the
+; overlay setjmp was called from (if any) is brought back before execution
+; continues there. A, Y (and in __ovl_jrestore X, Z) are changed, $10-$13 kept.
+
+; no calls through pointers here (ln45's call graph)
+.weak cc45.icallinfo
+cc45.icallinfo = 1
+
+.global __ovl_jsave, __ovl_jrestore, __ovl_jmp
+.extern __ovl_rsp, __ovl_cur, __ovl_load
+
+.segment "code"
+; (what ln45 pulls this member in by: crt0 defines weak __ovl_jsave too)
+__ovl_jmp:
+proc __ovl_jsave
+    ldy #6
+    lda __ovl_rsp
+    sta ($10),y
+    iny
+    lda __ovl_cur
+    sta ($10),y
+    rts
+endproc
+
+proc __ovl_jrestore
+    ldy #6
+    lda ($10),y
+    sta __ovl_rsp
+    iny
+    lda ($10),y
+    beq @done               ; (none was in yet: the code there is resident)
+    cmp __ovl_cur
+    beq @done
+    jsr __ovl_load
+@done:
+    rts
+endproc
