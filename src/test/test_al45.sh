@@ -113,6 +113,18 @@ else
     fail "al45 #708 warnings: rc $rc $rc2 $rc3: $(head -4 $D/w708.txt $D/w708b.txt $D/w708c.txt)"
 fi
 
+# #714: jmp / jsr through a page-0 pointer ($xx, ($xx,x)) warn as ldz $xx does; $00xx and pointers above page 0 do not
+printf '        .org $2000\nptr = $50\n        jmp ($40)\n        jsr ($41,x)\n        jmp (ptr)\n        jmp ($0040)\n        jmp ($1234)\n        jsr (vec)\n        phw $0040\nvec:    .word 0\n' > $D/j714.s45
+./bin/ca45 $D/j714.s45 -o $D/j714.bin > $D/j714a.txt 2>&1
+$AL $D/j714.s45 > $D/j714b.txt 2>&1
+if [ "$(grep -c "has no base-page mode: its pointer is read at absolute" $D/j714a.txt)" = 3 ] &&
+   grep -q ":3:.*'jmp (\$40)'" $D/j714a.txt && grep -q ":4:.*'jsr (\$41,x)'" $D/j714a.txt && grep -q ":5:.*'jmp (\$50)'" $D/j714a.txt &&
+   [ "$(grep -c "\[mega65-no-bp-mode\]" $D/j714b.txt)" = 3 ]; then
+    pass "jmp / jsr (\$xx) and (\$xx,x): ca45 warns, al45's mega65-no-bp-mode agrees; (\$0040), (\$1234), phw \$0040 do not (#714)"
+else
+    fail "#714 jmp (\$xx) warnings: $(cat $D/j714a.txt $D/j714b.txt)"
+fi
+
 echo ""
 echo "al45 tests: $passed passed, $failed failed"
 [ $failed = 0 ]

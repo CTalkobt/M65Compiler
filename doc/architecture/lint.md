@@ -116,7 +116,7 @@ ca45's parsing options accepted (`-D`, `-I`, `.cpu`); the Makefile's
 |---|---|---|---|
 | `mega65-unreachable` | all | warning | code after `jmp`/`bra`/`rts`/`rti`/`rtn` with no label |
 | `mega65-unused-label` | all | info | a local label never referenced |
-| `mega65-no-bp-mode` | all | warning | `ldz $xx`, `lda/sta $xx,y`, `jmp ($xx)`, `phw $00xx` (no base-page form: ca45's warning as a rule) |
+| `mega65-no-bp-mode` | all | warning | `ldz $xx`, `lda/sta $xx,y`, `jmp`/`jsr ($xx)`, `phw $xx` (no base-page form: ca45's warning as a rule) |
 | `mega65-page1-stack` | all | warning | `$0100,x` stack reads under the 16-bit stack (reported in the cc45 profile, or in a file that does `cle`) |
 | `mega65-dma-trigger-order` | all | warning | `$D700`/`$D705` written before the list address bytes in the same straight-line code |
 | `mega65-io-personality` | standalone | info | VIC-III/IV registers written with no `$47 $53 → $D02F` knock in the file |

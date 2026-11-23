@@ -4,6 +4,33 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### ca45: a flat binary's segments at their addresses (#715)
+
+- In a flat binary each segment, in segment order, went at its address only when that was past what had been
+  written so far, else straight after it, where its labels did not point, with no error (`.segmentOrder data, code`
+  with code at `$1000` and data at `$1100`: the code at `$1102`, `start` still `$1000`); a `.segment` statement could
+  add stray zero bytes. Each segment's bytes now go at their own addresses (the file starts at the lowest address
+  written, gaps are zeros); segments over the same addresses are an error ("flat binary: segment 'data' at
+  $1002-$1002 overlaps segment 'code' at $1000-$1002"); a segment with no `.org` of its own is written after the
+  others, as before. Objects (`-c`) are unchanged.
+
+### ca45: the base-page warning for jmp / jsr through a page-0 pointer (#714)
+
+- `jmp ($xx)`, `jmp ($xx,x)`, `jsr ($xx)` and `jsr ($xx,x)` read their pointer at absolute `$00xx`, ignoring the base
+  page register, without a warning. ca45 now warns as for `ldz $xx` ("'jmp ($40)' has no base-page mode: its pointer
+  is read at absolute $0040, which ignores the base page register"), and al45's `mega65-no-bp-mode` reports it. An
+  address written with its leading zeros (`jmp ($0040)`, `phw $0040`) stays absolute on purpose, without a warning;
+  the docs that listed `phw $00xx` as warned about now say `phw $xx`. troubleshooting.md shows the new warning.
+
+### asmCvt45 --validate: labels found wherever they are; --stats with --validate (#713)
+
+- `--validate` counted a label only when it was alone on its line (`name:`), so a correct ca65 → acme conversion of
+  `native_ca65.s65` reported Labels `1/12` and `✗ LOSSY`. It now compares the labels of the parsed source with those
+  of the round-tripped text parsed again (a label before an instruction counts; a name defined in two scopes counts
+  twice): `12/12`, `✓ LOSSLESS`. A label the target renames (KickAssembler's `main__loop` for `@loop`) is still
+  reported as not preserved.
+- `--stats --validate` printed only the statistics; it now prints both, the `--stats` blocks first.
+
 ### cc45: typeof keeps a global's signedness, and is taken wherever a type is (#707)
 
 - `typeof(g)` of a file-scope `signed char g` was unsigned: the `signed` taken before the declaration was parsed was

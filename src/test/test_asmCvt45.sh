@@ -358,5 +358,17 @@ fi
 timeout 30 $CVT --parallel -t acme -o "$T/par/" "$T/p1.s45" "$T/nofile.s45" >/dev/null 2>&1
 [ $? = 1 ] && pass "--parallel: a missing input is exit status 1" || fail "--parallel with a missing input"
 
+# --validate: labels before an instruction count, a name in two scopes twice; renamed ones are not found (#713)
+NC=src/test-resources/asmCvt45/native_ca65.s65
+V=$($CVT --validate -t acme "$NC" 2>/dev/null)
+K=$($CVT --validate -t kickassembler "$NC" 2>/dev/null)
+grep -q 'Labels preserved:    12/12' <<< "$V" && grep -q 'LOSSLESS' <<< "$V" && grep -q 'Labels preserved:    9/12' <<< "$K" &&
+    pass "--validate: ca65 -> acme keeps 12/12 labels; kickassembler's renamed @ labels 9/12" ||
+    fail "--validate labels (acme: $(grep Labels <<< "$V"), kickassembler: $(grep Labels <<< "$K"))"
+SV=$($CVT --stats --validate -t acme "$NC" 2>/dev/null)
+[ $? = 0 ] && grep -q '^Source Metrics:' <<< "$SV" && grep -q 'Labels preserved:    12/12' <<< "$SV" &&
+    [ "$(grep -n '^Source Metrics:' <<< "$SV" | cut -d: -f1)" -lt "$(grep -n '^Results:' <<< "$SV" | cut -d: -f1)" ] &&
+    pass "--stats --validate: both reports, --stats first" || fail "--stats --validate: $SV"
+
 echo "asmCvt45 tests: $passed passed, $failed failed"
 [ "$failed" -eq 0 ]

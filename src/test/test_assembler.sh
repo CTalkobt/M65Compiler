@@ -1844,6 +1844,28 @@ if ./bin/ca45 $W635/dir.s45 -o $W635/dir.bin 2>$W635/dir.err >/dev/null && [ "$(
     ok635 ".zp, .init and the striped-array metadata directives warn"
 else bad635 "ignored directives: $(cat $W635/dir.err)"; fi
 
+# #715: a flat binary's segments at their own addresses whatever the segment order; overlapping ones an error;
+# a segment with no .org of its own still goes after the others
+T715=build/test/seg715; mkdir -p $T715; ok715=1
+for ord in "code, data" "data, code"; do
+    printf "        .segmentOrder $ord\n        .segment \"code\"\n        .org \$1000\nstart:  lda msg\n        rts\n        .segment \"data\"\n        .org \$1100\nmsg:    .byte 1, 2\n" > $T715/two.s45
+    ./bin/ca45 $T715/two.s45 -o $T715/two.prg >/dev/null 2>&1 || ok715=0
+    [ "$(stat -c %s $T715/two.prg 2>/dev/null)" = 260 ] && [ "$(xxd -p -l 6 $T715/two.prg)" = 0010ad001160 ] &&
+        [ "$(xxd -p -s 258 $T715/two.prg)" = 0102 ] || ok715=0
+done
+printf '        .segmentOrder data, code\n        .segment "code"\n        .org $1000\n        lda #1\n        rts\n        .segment "data"\n        .org $1002\n        .byte 9\n' > $T715/ov.s45
+./bin/ca45 $T715/ov.s45 -o $T715/ov.prg > $T715/ov.txt 2>&1 && ok715=0
+grep -qF "flat binary: segment 'data' at \$1002-\$1002 overlaps segment 'code' at \$1000-\$1002" $T715/ov.txt || ok715=0
+printf '        .segmentOrder code, data\n        .segment "code"\n        .org $1000\n        lda msg\n        rts\n        .segment "data"\nmsg:    .byte 1, 2\n' > $T715/noorg.s45
+./bin/ca45 $T715/noorg.s45 -o $T715/noorg.bin >/dev/null 2>&1 && [ "$(xxd -p $T715/noorg.bin)" = ad0000600102 ] || ok715=0
+if [ $ok715 = 1 ]; then
+    echo "SUCCESS: flat binary: segments at their addresses in either order, an overlap an error, one without .org after (#715)"
+    passed=$((passed + 1))
+else
+    echo "FAIL: flat binary segment placement (#715): $(cat $T715/ov.txt; xxd -p $T715/noorg.bin)"
+    failed=$((failed + 1))
+fi
+
 if [ $failed -eq 0 ]; then
     echo "All assembler feature tests passed!"
     exit 0

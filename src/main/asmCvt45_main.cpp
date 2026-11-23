@@ -260,23 +260,14 @@ static int countComments(const AsmIR::Module& module) {
     return count;
 }
 
-// Extract labels from output text
-static std::set<std::string> extractLabels(const std::string& output) {
-    std::set<std::string> labels;
-    std::istringstream iss(output);
-    std::string line;
-    while (std::getline(iss, line)) {
-        // Simple heuristic: lines ending with ':' are likely labels
-        if (!line.empty() && line.back() == ':') {
-            std::string label = line;
-            // Remove leading/trailing whitespace
-            label.erase(0, label.find_first_not_of(" \t"));
-            label.pop_back(); // Remove trailing ':'
-            if (!label.empty()) {
-                labels.insert(label);
-            }
-        }
-    }
+// A module's labels by name, with how many times each is defined (a local label
+// such as ca65's @loop can be defined in several scopes), wherever they are in
+// the source: alone on a line or before an instruction or directive (the
+// parser makes each a LABEL)
+static std::map<std::string, int> labelNames(const AsmIR::Module& module) {
+    std::map<std::string, int> labels;
+    for (const auto& stmt : module.statements)
+        if (stmt.type == AsmIR::Statement::Type::LABEL && !stmt.label.empty()) labels[stmt.label]++;
     return labels;
 }
 
@@ -731,13 +722,21 @@ static bool validateRoundTrip(const std::string& inputFile,
         return false;
     }
 
-    // Count preserved elements
-    auto origLabels = extractLabels(source);
-    auto roundTripLabels = extractLabels(roundTripOutput);
-    for (const auto& label : origLabels) {
-        if (roundTripLabels.count(label)) {
-            stats.preservedLabels++;
-        }
+    // The round trip's labels: its output parsed again as the original format
+    auto backModule = backParser->parse(roundTripOutput);
+    if (backParser->hasErrors()) {
+        std::cerr << "Error: Failed to parse the round-trip output\n";
+        return false;
+    }
+
+    // Count preserved elements: each definition of a label found again
+    auto origLabels = labelNames(origModule);
+    auto roundTripLabels = labelNames(backModule);
+    stats.totalLabels = 0;
+    for (const auto& [label, n] : origLabels) {
+        stats.totalLabels += n;
+        auto it = roundTripLabels.find(label);
+        if (it != roundTripLabels.end()) stats.preservedLabels += std::min(n, it->second);
     }
 
     // Count preserved symbols
@@ -860,6 +859,7 @@ int main(int argc, char** argv) {
     }
 
     // Conversion statistics mode
+    bool statsFailed = false;
     if (statsMode) {
         int failureCount = 0;
         int successCount = 0;
@@ -957,10 +957,11 @@ int main(int argc, char** argv) {
                       << failureCount << " failed\n";
         }
 
-        return (failureCount > 0) ? 1 : 0;
+        statsFailed = failureCount > 0;
+        if (!validateMode) return statsFailed ? 1 : 0;
     }
 
-    // Round-trip validation mode
+    // Round-trip validation mode (also after --stats when both are given)
     if (validateMode) {
         int failureCount = 0;
         int successCount = 0;
@@ -1004,7 +1005,7 @@ int main(int argc, char** argv) {
             Logger::stream(LogLevel::INFO) << "Round-trip validation complete: " << successCount << " succeeded, " << failureCount << " failed\n";
         }
 
-        return (failureCount > 0) ? 1 : 0;
+        return (failureCount > 0 || statsFailed) ? 1 : 0;
     }
 
     // Phase 4a: Clear cache if requested

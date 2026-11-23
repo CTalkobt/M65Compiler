@@ -2614,6 +2614,41 @@ int AssemblerParser::calculateInstructionSize(const Instruction& instr, uint32_t
         }
     }
 
+    // JMP / JSR through a pointer, (a) and (a,x): the pointer is read at an
+    // absolute address, so one in page 0 written $xx ignores the base page
+    // register as LDZ $xx does (#714; $00xx, four digits, is absolute on purpose)
+    if ((instr.mnemonic == "jmp" || instr.mnemonic == "jsr") && instr.operandTokenIndex >= 0 &&
+        (instr.mode == AddressingMode::INDIRECT || instr.mode == AddressingMode::ABSOLUTE_INDIRECT ||
+         instr.mode == AddressingMode::BASE_PAGE_X_INDIRECT || instr.mode == AddressingMode::ABSOLUTE_X_INDIRECT)) {
+        int ti = instr.operandTokenIndex;
+        while (ti < (int)tokens.size() && tokens[ti].type == AssemblerTokenType::OPEN_PAREN) ti++;
+        bool xIdx = instr.mode == AddressingMode::BASE_PAGE_X_INDIRECT || instr.mode == AddressingMode::ABSOLUTE_X_INDIRECT;
+        bool explicitAbs = ti < (int)tokens.size() && tokens[ti].type == AssemblerTokenType::HEX_LITERAL &&
+                           tokens[ti].value.size() >= 4;
+        if (ti < (int)tokens.size() && !explicitAbs && !zpYWarned_.count(ti)) {
+            try {
+                uint32_t val = evaluateExpressionAt(ti, scopePrefix);
+                bool reloc = operandNamesRelocatable(ti, scopePrefix);
+                if (!reloc && tokens[ti].type == AssemblerTokenType::IDENTIFIER) {
+                    std::string symName = scopePrefix + tokens[ti].value;
+                    if (!symbolTable.count(symName)) symName = tokens[ti].value;
+                    reloc = isRelocatableSymbol(symName) || isRelocatableSymbolIn(tokens[ti].value, scopePrefix);
+                }
+                if (val <= 0xFF && !reloc && !zpSymAt(val) && exprSymbolsDefined(ti, scopePrefix)) {
+                    zpYWarned_.insert(ti);
+                    const auto& tok = tokens[ti];
+                    char buf[192];
+                    std::snprintf(buf, sizeof(buf),
+                        "'%s ($%02X%s)' has no base-page mode: its pointer is read at absolute $00%02X, "
+                        "which ignores the base page register",
+                        instr.mnemonic.c_str(), val, xIdx ? ",x" : "", val);
+                    if (lintMode) lintNotes.push_back({"mega65-no-bp-mode", tokenFile(tok), tok.line, tok.column, buf});
+                    else addWarning(formatDiagnostic(tokenFile(tok), tok.line, tok.column, Severity::Warning, buf));
+                }
+            } catch (...) {}
+        }
+    }
+
     int size = 1;
     bool isQuad = (instr.mnemonic.size() > 1 && instr.mnemonic.back() == 'q' && instr.mnemonic != "beq" && instr.mnemonic != "bne" && instr.mnemonic != "bra" && instr.mnemonic != "bsr");
 

@@ -333,6 +333,9 @@ public:
     void emitByte(uint8_t b);
     void emitWord(uint16_t w);
     void setAddress(uint32_t addr);
+    // Continue at addr (forward or backward) without writing a gap: a flat
+    // binary's next piece, placed at its address afterwards (#715)
+    void restartAt(uint32_t addr) { currentAddress = addr; addressSet = true; }
     uint32_t getAddress() const { return currentAddress; }
 
     // Stack-base relocation tracking for O45 emission.
