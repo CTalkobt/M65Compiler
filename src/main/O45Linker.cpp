@@ -1188,7 +1188,12 @@ bool O45Linker::resolveSymbols(std::string& errorMsg) {
                 if (n.size() <= 5 || n.compare(n.size() - 5, 5, "__zar") != 0 || globalSymbols_.count(n)) continue;
                 auto it = zarOffset_.find(n.substr(0, n.size() - 5));
                 // (no cc45.zarsize.<f>: no bytes reserved, other blocks may take them, #716)
-                if (it == zarOffset_.end() && warnStream_)
+                bool sized = false;
+                for (const auto& o : objects_)
+                    for (const auto& exp : o.obj.exports)
+                        if (exp.offset > 0 && exp.name.size() == n.size() + 8 && exp.name.rfind("cc45.zarsize.", 0) == 0 &&
+                            exp.name.compare(13, std::string::npos, n, 0, n.size() - 5) == 0) sized = true;
+                if (!sized && warnStream_ && zarUnsizedWarned_.insert(n).second)
                     *warnStream_ << "ln45: warning: '" << n << "' (in " << input.filename << "): no cc45.zarsize."
                                  << n.substr(0, n.size() - 5) << " gives the size of its base-page block, so no bytes"
                                  << " are reserved for it and other blocks may use them" << std::endl;

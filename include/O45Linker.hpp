@@ -547,6 +547,7 @@ private:
 
     // Warning stream (nullptr to suppress)
     std::ostream* warnStream_ = &std::cerr;
+    std::set<std::string> zarUnsizedWarned_;   // <f>__zar without cc45.zarsize.<f> warned about (#716)
     bool warnOverride_ = true;
 
     // Thunk mode and generated thunks
