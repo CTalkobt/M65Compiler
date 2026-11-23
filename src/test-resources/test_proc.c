@@ -1,4 +1,4 @@
-int printf(char *s);
+int printf(char *s, ...);
 
 int add_stuff(int val) {
     int x = 1;

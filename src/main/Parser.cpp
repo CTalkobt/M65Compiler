@@ -1195,6 +1195,7 @@ std::unique_ptr<FunctionDeclaration> Parser::parseFunctionDeclaration() {
     }
 
     std::vector<Parameter> params;
+    bool paramTypes = false;   // a parameter type list, not () or K&R names (#721)
 
     // For complex declarators, parameters were already parsed above
     // The next parens (e.g., (int, int)) are the signature of returned function pointer
@@ -1203,6 +1204,7 @@ std::unique_ptr<FunctionDeclaration> Parser::parseFunctionDeclaration() {
         // Handle (void) as empty parameter list
         if (peek().type == TokenType::VOID && pos + 1 < tokens.size() && tokens[pos + 1].type == TokenType::CLOSE_PAREN) {
             advance(); // consume 'void'
+            paramTypes = true;
         }
         else if (peek().type != TokenType::CLOSE_PAREN) {
         auto markParamPos = [](Parameter& p, const Token& t) {
@@ -1223,6 +1225,7 @@ std::unique_ptr<FunctionDeclaration> Parser::parseFunctionDeclaration() {
             {
                 auto ts = parseTypeSpecifier();
                 if (ts.valid) {
+                    paramTypes = true;
                     pSpace = ts.addressSpace;
                     pType = ts.name;
                     pIsSigned = ts.isSigned;
@@ -1565,6 +1568,7 @@ std::unique_ptr<FunctionDeclaration> Parser::parseFunctionDeclaration() {
         func->isRegparm = isRegparm;
         func->isPrototype = true;
         func->isVariadic = isVariadic;
+        func->hasParamTypes = paramTypes || isVariadic;
         func->isAlwaysInline = pendingAlwaysInline_;
         func->alignment = takePendingAlign();
         func->purity = pendingPurity_; pendingPurity_ = 0;
@@ -1601,6 +1605,7 @@ std::unique_ptr<FunctionDeclaration> Parser::parseFunctionDeclaration() {
     func->isNaked = isNaked;
     func->isRegparm = isRegparm;
     func->isVariadic = isVariadic;
+    func->hasParamTypes = paramTypes || isVariadic;
     func->isInline = isInline;
     func->isAlwaysInline = pendingAlwaysInline_;
     func->alignment = takePendingAlign();

@@ -956,10 +956,10 @@ done
 if [ $ovok = 1 ]; then
     err=$(./bin/ln45 -basic -t A000 -o $C/hi.prg $C/main.o45 $C/ovl_a.o45 $C/ovl_b.o45 lib/build/c45.lib 2>&1)
     assert_contains "ln45: the program above the overlay region, the whole message" "$err" \
-        "code overlays: the program ends at \$CB00, above the overlay region \$AE00-\$AFB9 (the largest overlay's 442 bytes, placed below the stack's share): move more code into overlays or shrink the stack's share (--stack-size)"
+        "code overlays: the program ends at \$CB00, above the overlay region \$AE00-\$AFB5 (the largest overlay's 438 bytes, placed below the stack's share): move more code into overlays or shrink the stack's share (--stack-size)"
     err=$(./bin/ln45 -basic -t 6000 --overlay-map -o $C/hi.prg $C/main.o45 $C/ovl_a.o45 $C/ovl_b.o45 lib/build/c45.lib 2>&1)
     assert_contains "ln45: the program above the mapped overlays' window, the whole message" "$err" \
-        "code overlays: the program ends at \$8C00, above the overlay region \$6000-\$61B9 (the largest overlay's 442 bytes, in the window MAP points at \$6000-\$7FFF): move more code into overlays"
+        "code overlays: the program ends at \$8C00, above the overlay region \$6000-\$61B5 (the largest overlay's 438 bytes, in the window MAP points at \$6000-\$7FFF): move more code into overlays"
     if ./bin/ln45 -basic -M $C/ok.map -o $C/ok.prg $C/main.o45 $C/ovl_a.o45 $C/ovl_b.o45 lib/build/c45.lib >/dev/null 2>&1; then
         line=$(grep '^  \$[0-9A-F]*  _a_add ' $C/ok.map)
         assert_contains "ln45 -M: a symbol line keeps a long object path" "$line" "$C/ovl_a.o45  [uses:"
@@ -973,6 +973,22 @@ fi
 
 echo "objdump45 tests: $passed passed, $failed failed"
 echo "========================================"
+
+# #733: files of different lengths are not identical; #734: -b with a non-number an error, not an abort
+printf abc > $BUILD/d733a.bin; printf abcd > $BUILD/d733b.bin; printf abXd > $BUILD/d733c.bin
+D1=$(./bin/objdump45 -D $BUILD/d733a.bin $BUILD/d733b.bin 2>&1)
+D2=$(./bin/objdump45 -D $BUILD/d733a.bin $BUILD/d733c.bin 2>&1)
+D3=$(./bin/objdump45 -D $BUILD/d733b.bin $BUILD/d733b.bin 2>&1)
+if ! grep -q 'Files are identical' <<< "$D1" && grep -q 'The first 3 bytes are identical; .*d733b.bin has 1 more' <<< "$D1" &&
+   grep -q 'Total differences: 2 bytes (1 in the first 3, 1 past the end of the shorter file)' <<< "$D2" &&
+   grep -q 'Files are identical' <<< "$D3"; then
+    pass "-D: different lengths are differences, not 'identical' (#733)"
+else fail "-D lengths (#733): $D1 / $D2"; fi
+./bin/objdump45 -d -b zz $BUILD/d733a.bin > $BUILD/d734.txt 2>&1; rc=$?
+if [ $rc = 1 ] && grep -q "objdump45: -b: 'zz' is not an address" $BUILD/d734.txt &&
+   ./bin/objdump45 -d -b '$2000' $BUILD/d733a.bin >/dev/null 2>&1; then
+    pass "-b: a non-number is an error, exit 1 (#734)"
+else fail "-b zz (#734): rc $rc $(cat $BUILD/d734.txt)"; fi
 
 if [ $failed -eq 0 ]; then
     exit 0

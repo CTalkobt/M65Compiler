@@ -4,6 +4,22 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### Bugs from the November documentation check (#721, #722, #724, #727, #728, #733, #734, #735, #740)
+
+- cc45: a call's argument count is checked against a prototype (`too many arguments to 'f': 3 given, 2 expected`,
+  `too few ...`; `f(void)` takes none); `()` declarations, K&R definitions and a variadic function's extra arguments
+  are not checked (#721). Two test programs that declared `printf(char *s)` and passed it more now say `...`.
+- cp45: a `#pragma` (or `_Pragma`) in a skipped `#if` group is ignored (#724).
+- cc45: no more unused 4-byte `<fn>__struct_buf` before every `long`-returning function (#727): 4 bytes less code
+  per such function (`src/test-resources/overlay/`'s overlay `a` is 438 bytes, was 442).
+- disk45: `add`'s `-s` / `-b` / `--track` and `dump` / `edit`'s track and sector take `$` / `0x` hex like the other
+  numbers, and a bad one is an error; they were read with `atoi`, hex silently 0 (#735).
+- objdump45 `-D`: files of different lengths are no longer reported identical; the bytes past the shorter file's end
+  count as differences (#733).
+- Bad option values are errors, not aborts (uncaught `std::stoul` / `std::stoi`): cc45 `--prg-base` (now also takes
+  `$3000`, #722), ca45 `-D<name>=<value>` (#728), objdump45 `-b` (#734), asmCvt45's `.asmCvt45rc` `default_threads`
+  (a warning, #740). objdump45's help and the `.o45` reader's errors no longer offer `.o65` input (#734).
+
 ### Documentation: every page checked against the tools again (November)
 
 - `doc/bin/`, `doc/architecture/`, `doc/guide/`, `doc/examples/` and `doc/README.md` checked against the source and the

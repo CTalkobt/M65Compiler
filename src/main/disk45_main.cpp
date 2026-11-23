@@ -952,7 +952,7 @@ static int cmdAdd(int argc, char** argv) {
             std::string a = argv[i];
             auto num = [&](int& dst) {
                 if (i + 1 >= argc) return false;
-                dst = std::atoi(argv[++i]);
+                dst = (int)argNum(argv[++i]);   // ($ / 0x hex too, #735)
                 return true;
             };
             if (a == "-s" && num(place.interleave)) continue;
@@ -1585,8 +1585,8 @@ static int cmdDump(int argc, char** argv) {
 
     if (argc >= 3) {
         // Dump specific track/sector
-        int track = std::atoi(argv[1]);
-        int sector = std::atoi(argv[2]);
+        int track = (int)argNum(argv[1]);   // ($ / 0x hex too, #735)
+        int sector = (int)argNum(argv[2]);
         const uint8_t* data = img->sectorData(track, sector);
         if (!data) {
             std::cerr << "Error: invalid track " << track << " sector " << sector << "\n";
@@ -1595,7 +1595,7 @@ static int cmdDump(int argc, char** argv) {
         hexDumpSector(data, track, sector);
     } else if (argc == 2) {
         // Dump all sectors on a track
-        int track = std::atoi(argv[1]);
+        int track = (int)argNum(argv[1]);
         int spt = img->sectorsOnTrack(track);
         if (spt == 0) {
             std::cerr << "Error: invalid track " << track << "\n";
@@ -2705,7 +2705,7 @@ static int cmdEdit(int argc, char** argv) {
     if (argc < 3) { std::cerr << "Usage: disk45 edit <image> <track> <sector>\n"; return 1; }
     auto img = DiskImage::load(argv[0]);
     if (!img) { std::cerr << "Error: failed to load " << argv[0] << "\n"; return 1; }
-    int t = std::atoi(argv[1]), sec = std::atoi(argv[2]);
+    int t = (int)argNum(argv[1]), sec = (int)argNum(argv[2]);   // ($ / 0x hex too, #735)
     if (!img->sectorData(t, sec)) { std::cerr << "Error: no sector " << t << "/" << sec << "\n"; return 1; }
     bool tty = isatty(0) && isatty(1);
     struct termios saved{};

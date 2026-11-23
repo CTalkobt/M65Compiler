@@ -115,7 +115,7 @@ The block does not name the file (several files: their blocks in order). Labels:
 
 ## Configuration File (`.asmCvt45rc`)
 
-asmCvt45 looks for `.asmCvt45rc` in the current directory and then in each parent directory, and uses the first one found (a `.cvtasmrc`, the file's name when the tool was `cvt_asm`, is read too). Lines starting with `;` or `#` are comments; settings are `key = value` in sections, the value the rest of the line: a comment after a value is part of it (`default_format = ca45 ; x` asks for the format `ca45 ; x`), so put comments on lines of their own. Booleans are `true`, `1` or `yes`, anything else false; a `default_threads` that is not a number stops asmCvt45 (`std::invalid_argument`). Unknown keys and sections are ignored. Command-line options override them.
+asmCvt45 looks for `.asmCvt45rc` in the current directory and then in each parent directory, and uses the first one found (a `.cvtasmrc`, the file's name when the tool was `cvt_asm`, is read too). Lines starting with `;` or `#` are comments; settings are `key = value` in sections, the value the rest of the line: a comment after a value is part of it (`default_format = ca45 ; x` asks for the format `ca45 ; x`), so put comments on lines of their own. Booleans are `true`, `1` or `yes`, anything else false; a `default_threads` that is not a number is a warning (`asmCvt45: warning: .asmCvt45rc: default_threads = 'x' is not a number of threads; 0 (auto) is used`). Unknown keys and sections are ignored. Command-line options override them.
 
 ```ini
 [general]

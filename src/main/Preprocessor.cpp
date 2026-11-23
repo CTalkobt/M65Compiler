@@ -1810,8 +1810,13 @@ std::string Preprocessor::processInternal(const std::string& source, const std::
                 }
                 output << "\n";
             } else if (cmd == "#pragma") {
-                pragmaLine_ = lineNum;
-                handlePragma(ss, output, currentFile);
+                // (in a skipped group a pragma is not processed, #724)
+                if (isConditionTrue()) {
+                    pragmaLine_ = lineNum;
+                    handlePragma(ss, output, currentFile);
+                } else {
+                    output << "\n";
+                }
             } else {
                 output << "\n";
             }

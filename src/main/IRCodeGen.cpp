@@ -5247,20 +5247,9 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
     frameAddrCacheValid_ = true;  // Initialize cache validity for new function
     currentInstIdx_ = 0;
 
-    // For struct-returning functions, emit static buffer in data section
-    // This buffer will hold the struct value before it's returned
-    std::string structBufferName;
-    if (fn.returnType == ir::Type::I32) {
-        // Could be a 4-byte struct - emit a static buffer
-        // Check if this looks like a struct (all structs we support are I32)
-        structBufferName = fn.name + "__struct_buf";
-        // Emit buffer declaration (will be resolved to actual address by assembler/linker)
-        emitBlank();
-        emit("; Static buffer for struct return from " + fn.name);
-        emit(structBufferName + ":");
-        emit(".byte 0, 0, 0, 0");
-        emitBlank();
-    }
+    // (no buffer for a 32-bit result: structs are returned through __sret,
+    // and the 4 bytes this emitted before every long-returning function were
+    // never used, #727)
 
     // __naked: emit only proc label + body + endproc, no prologue/epilogue
     if (fn.isNaked) {

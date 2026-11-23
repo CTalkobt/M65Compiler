@@ -1054,6 +1054,19 @@ else
         pass "catalog build names an SD card image it scans" || fail "catalog build of an SD card image prints no Scanning line"
 fi
 
+# #735: add's placement numbers and dump / edit's track and sector take $ / 0x hex; a bad one an error
+H735="$TMPDIR/h735.d81"; printf 'x' > "$TMPDIR/h735.prg"
+$DISK45 create "$H735" >/dev/null 2>&1
+$DISK45 add "$H735" "$TMPDIR/h735.prg" P -s 0x0A --track '$10' -b 3 >/dev/null 2>&1
+if $DISK45 chain "$H735" P 2>/dev/null | grep -q '^  16/3$' && $DISK45 dump "$H735" '$28' 0 2>/dev/null | grep -q 'Track 40, Sector 0' &&
+   $DISK45 dump "$H735" 0x28 2>/dev/null | grep -q 'Track 40, Sector 0' &&
+   ! $DISK45 dump "$H735" zz 0 >/dev/null 2>&1 && $DISK45 dump "$H735" zz 0 2>&1 | grep -q "'zz' is not a number" &&
+   ! $DISK45 add "$H735" "$TMPDIR/h735.prg" R --track 1x >/dev/null 2>&1; then
+    pass "add -s/-b/--track and dump's track/sector take \$ / 0x hex, a bad number an error (#735)"
+else
+    fail "hex placement / dump numbers (#735): $($DISK45 chain "$H735" P 2>&1 | tr '\n' ' ')"
+fi
+
 # ============================================================================
 echo ""
 echo "disk45 tests: $passed passed, $failed failed"

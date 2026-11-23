@@ -7433,6 +7433,15 @@ void IRBuilder::visit(FunctionCall& node) {
             const auto& params = fit->second->parameters;
             // (a struct result's hidden pointer is not an argument here)
             size_t skip = !params.empty() && params[0].name == "__sret" ? 1 : 0;
+            // a prototype's parameter count (C17 6.5.2.2p2: a constraint, #721)
+            if (fit->second->hasParamTypes) {
+                size_t want = params.size() - skip, got = node.arguments.size();
+                if (got < want || (got > want && !fit->second->isVariadic))
+                    errors_.push_back(formatDiagnostic(node.sourceFile, node.line, node.column, Severity::Error,
+                        std::string(got > want ? "too many" : "too few") + " arguments to '" + declaredName + "': " +
+                        std::to_string(got) + " given, " + (fit->second->isVariadic ? "at least " : "") +
+                        std::to_string(want) + " expected"));
+            }
             for (size_t i = 0; i < node.arguments.size() && i + skip < params.size(); i++) {
                 const auto& par = params[i + skip];
                 // (fixed point, #72; __fx32_mul / __fx32_div take the integers)
