@@ -2091,6 +2091,35 @@ for jtest in test_jsr test_cbm; do
     done
 done
 
+# Test: crt0_mega65(_zp).o45 named with the program sets 40 MHz (FAST and
+# VFAST), keeping the registers' other bits (#741: a library member never
+# replaces crt0's weak _init_features, so the object is linked by name)
+for imode in "zp|" "stack|-fno-zpcall"; do
+    IFS='|' read -r iname iflags <<< "$imode"
+    isrc=lib/crt0_mega65_zp.s45; [ $iname = stack ] && isrc=lib/crt0_mega65.s45
+    echo "Testing test_mega65_init_xemu.c ($iname)..."
+    if compile_link_test src/test-resources/test_mega65_init_xemu.c "build/test/test_mega65_init_${iname}_xemu.prg" "$iflags" "$isrc"; then
+        # the call crt0 makes resolves to the object's _init_features, not
+        # crt0's weak rts (the machine is at 40 MHz before crt0 runs, so the
+        # run alone cannot tell)
+        ilib=lib/build/c45.lib; [ $iname = stack ] && ilib=lib/build/c45_stack.lib
+        ./bin/ln45 -basic -M "build/test/test_mega65_init_${iname}.map" -o "build/test/test_mega65_init_${iname}_map.prg" \
+            "build/test/test_mega65_init_${iname}_xemu.o45" "build/test/test_mega65_init_${iname}_xemu_$(basename $isrc .s45).o45" $ilib >/dev/null 2>&1
+        if grep -E '^  \$[0-9A-F]+  _init_features ' "build/test/test_mega65_init_${iname}.map" | grep -q 'crt0_mega65' &&
+           ! grep -E '^  \$[0-9A-F]+  _init_features ' "build/test/test_mega65_init_${iname}.map" | grep -q 'weak'; then
+            echo "SUCCESS: test_mega65_init $iname: crt0's _init_features is the named object's"
+            passed=$((passed + 1))
+        else
+            echo "FAIL: test_mega65_init $iname: _init_features is not the named object's"
+            failed=$((failed + 1))
+        fi
+        run_xemu_test "test_mega65_init_$iname" "build/test/test_mega65_init_${iname}_xemu.prg" "C0C0" 5 "01 01 01 01 AA"
+    else
+        echo "FAIL: test_mega65_init_xemu.c $iname (compilation/linking failed)"
+        failed=$((failed + 1))
+    fi
+done
+
 # Test: conversions to _Bool (0 or 1 from int, long, pointer, float, a
 # cast, an argument, a return value) and 1-byte stores
 for blmode in "zp|" "stack|-fno-zpcall"; do

@@ -1,12 +1,19 @@
-; crt0_mega65.s — MEGA65 Platform Init (strong override of _init_features)
+; crt0_mega65.s45 — MEGA65 platform init, for both libraries: c45_stack.lib
+; (stack convention) and, included by crt0_mega65_zp.s45, c45.lib (ZP)
+
+; MEGA65 platform init: a strong _init_features, which crt0 calls before
+; main. crt0 has a weak one (rts) of its own, and a library member is only
+; linked for a symbol nothing defines, so this one is not pulled out of
+; c45.lib / c45_stack.lib: name the object on the command line to use it
+; (#741), before or after the library:
+;   ln45 -basic -o prog.prg crt0_mega65.o45 main.o45 c45.lib
+;   cc45 -O2 main.c -o prog.prg -Wl,<lib dir>/crt0_mega65.o45
+; A program's own _init_features replaces it the same way.
 ;
-; Provides a strong _init_features that:
-;   1. Enables MEGA65 I/O at $D000
-;   2. Sets CPU to full speed (40 MHz)
-;   3. Relocates stack to page $01 (16-bit SP via CLE)
-;
-; Link with crt0.o45 to activate:
-;   ln45 -prg crt0.o45 crt0_mega65.o45 main.o45 -o program.prg
+; It sets the CPU to 40 MHz as BASIC 65's SPEED does (b65.src): FAST
+; ($D031 bit 6) and VFAST ($D054 bit 6) set, the other bits kept, with the
+; VIC-IV hot registers off around it (a write to $D031 would otherwise reset
+; VIC-IV video settings). The I/O knock is crt0's (before its DMA).
 
 ; no calls through pointers here (ln45's call graph)
 .weak cc45.icallinfo
@@ -14,13 +21,20 @@ cc45.icallinfo = 1
 
 .global _init_features
 
-.segment "init"
+; (in the code, not the "init" sub-segment: ln45 puts that first, where the
+; BASIC stub's SYS jumps, and crt0's start-up must be there; in "init" this
+; routine ran in its place and returned to BASIC, #741)
+.code
 
 _init_features:
-    ; GS knock already done in crt0.s (before DMA)
-
-    ; Set CPU speed to 40 MHz
+    lda $d05d
+    pha
+    lda #$80
+    trb $d05d               ; hot registers off
     lda #$40
-    sta $D054
-
+    tsb $d054               ; VFAST = 1
+    tsb $d031               ; FAST = 1: 40 MHz
+    pla
+    and #$80
+    tsb $d05d               ; the hot register bit as it was
     rts
