@@ -4,6 +4,16 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### ca45: a flat binary's segments at their addresses (#715)
+
+- In a flat binary each segment, in segment order, went at its address only when that was past what had been
+  written so far, else straight after it, where its labels did not point, with no error (`.segmentOrder data, code`
+  with code at `$1000` and data at `$1100`: the code at `$1102`, `start` still `$1000`); a `.segment` statement could
+  add stray zero bytes. Each segment's bytes now go at their own addresses (the file starts at the lowest address
+  written, gaps are zeros); segments over the same addresses are an error ("flat binary: segment 'data' at
+  $1002-$1002 overlaps segment 'code' at $1000-$1002"); a segment with no `.org` of its own is written after the
+  others, as before. Objects (`-c`) are unchanged.
+
 ### ca45: the base-page warning for jmp / jsr through a page-0 pointer (#714)
 
 - `jmp ($xx)`, `jmp ($xx,x)`, `jsr ($xx)` and `jsr ($xx,x)` read their pointer at absolute `$00xx`, ignoring the base

@@ -85,7 +85,6 @@ static std::vector<uint8_t> encodeFloat(double val) {
 }
 
 std::vector<uint8_t> AssemblerGenerator::generate(AssemblerParser* parser, bool isPrg) {
-    std::vector<uint8_t> binary;
     uint32_t start = parser->getFirstOrgAddress();
 
     // For PRG files with no explicit .org, check for BASIC_UPSTART directive
@@ -98,19 +97,57 @@ std::vector<uint8_t> AssemblerGenerator::generate(AssemblerParser* parser, bool 
         }
     }
 
-    if (isPrg && start != 0xFFFFFFFF) {
-        binary.push_back((uint8_t)(start & 0xFF));
-        binary.push_back((uint8_t)(start >> 8));
-    }
-    M65Emitter e(binary, parser->getZPStart()); e.setSpBase(parser->getSpBase()); e.setScratchZP(parser->getScratchZP());
+    // Each segment's bytes are generated in segment order, then placed at
+    // their addresses: a segment below one written before it goes where its
+    // labels point, gaps are zeros, overlapping pieces are an error (#715)
+    std::vector<uint8_t> body;
+    M65Emitter e(body, parser->getZPStart()); e.setSpBase(parser->getSpBase()); e.setScratchZP(parser->getScratchZP());
     if (start != 0xFFFFFFFF) {
         e.setAddress(start);
     }
-    generate(parser, e);
+    std::vector<Piece> pieces{{0, e.getAddress(), ""}};
+    generate(parser, e, "", &pieces);
+
+    struct Placed { uint32_t address; size_t from, to; std::string segment; };
+    std::vector<Placed> placed, floating;
+    for (size_t i = 0; i < pieces.size(); ++i) {
+        size_t to = i + 1 < pieces.size() ? pieces[i + 1].index : body.size();
+        if (to > pieces[i].index)
+            (pieces[i].floating ? floating : placed).push_back({pieces[i].address, pieces[i].index, to, pieces[i].segment});
+    }
+    std::stable_sort(placed.begin(), placed.end(), [](const Placed& a, const Placed& b) { return a.address < b.address; });
+    uint32_t base = start;
+    if (!placed.empty() && (base == 0xFFFFFFFF || placed.front().address < base)) base = placed.front().address;
+    if (base == 0xFFFFFFFF) base = 0;
+    auto hex = [](uint32_t v) { char b[16]; std::snprintf(b, sizeof(b), "$%04X", (unsigned)v); return std::string(b); };
+    auto name = [](const std::string& s) { return "segment '" + (s.empty() ? std::string("default") : s) + "'"; };
+    for (size_t i = 1; i < placed.size(); ++i) {
+        const auto& a = placed[i - 1];
+        const auto& b = placed[i];
+        uint32_t aEnd = a.address + (uint32_t)(a.to - a.from);
+        if (b.address < aEnd)
+            throw std::runtime_error("flat binary: " + name(b.segment) + " at " + hex(b.address) + "-" +
+                hex(b.address + (uint32_t)(b.to - b.from) - 1) + " overlaps " + name(a.segment) + " at " +
+                hex(a.address) + "-" + hex(aEnd - 1));
+    }
+
+    std::vector<uint8_t> binary;
+    if (isPrg && start != 0xFFFFFFFF) {
+        binary.push_back((uint8_t)(base & 0xFF));
+        binary.push_back((uint8_t)(base >> 8));
+    }
+    size_t origin = binary.size();
+    for (const auto& pl : placed) {
+        size_t at = origin + (pl.address - base);
+        if (binary.size() < at) binary.resize(at, 0);
+        binary.insert(binary.end(), body.begin() + (long)pl.from, body.begin() + (long)pl.to);
+    }
+    for (const auto& pl : floating) binary.insert(binary.end(), body.begin() + (long)pl.from, body.begin() + (long)pl.to);
     return binary;
 }
 
-void AssemblerGenerator::generate(AssemblerParser* parser, M65Emitter& e, const std::string& singleSegment) {
+void AssemblerGenerator::generate(AssemblerParser* parser, M65Emitter& e, const std::string& singleSegment,
+                                  std::vector<Piece>* pieces) {
     std::shared_ptr<AssemblerParser::ProcContext> currentPass2Proc;
     std::vector<std::shared_ptr<AssemblerParser::ProcContext>> pass2ProcStack;
 
@@ -146,10 +183,33 @@ void AssemblerGenerator::generate(AssemblerParser* parser, M65Emitter& e, const 
         if (seg->startAddress == 0xFFFFFFFF) continue; // Skip segments with no content
 
         bool isDeadCode = false;
+        bool segStarted = false;
         for (auto& stmt : parser->statements) {
             if (stmt->segmentName != segName) continue;
 
-            if (stmt->address > e.getAddress()) {
+            if (pieces) {
+                // A flat binary: a segment's first bytes, or bytes .org'd back,
+                // start a piece at their own address; a gap inside a segment
+                // is zeros. A segment with no .org of its own (its labels from
+                // 0) floats: written after the placed pieces. (Only statements
+                // with bytes count: a .segment statement carries the previous
+                // segment's address.)
+                if (stmt->size > 0 && !stmt->deleted) {
+                    if (!segStarted || stmt->address < e.getAddress()) {
+                        bool floating = !seg->hasOrg;
+                        if (!segStarted && !floating && pieces->size() == 1 && pieces->front().segment.empty() &&
+                            stmt->address == e.getAddress())
+                            pieces->front().segment = segName;   // the start: this segment's own .org
+                        else {
+                            pieces->push_back({e.getBinary() ? e.getBinary()->size() : 0, stmt->address, segName, floating});
+                            e.restartAt(stmt->address);
+                        }
+                    } else if (stmt->address > e.getAddress()) {
+                        e.setAddress(stmt->address);
+                    }
+                    segStarted = true;
+                }
+            } else if (stmt->address > e.getAddress()) {
                 e.setAddress(stmt->address);
             }
 
