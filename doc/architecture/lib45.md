@@ -89,13 +89,13 @@ option_data   (option_length - 2 bytes)   ; at most 253 bytes
 | `$12`  | `OPT_DEBUG_SYMBOLS`| yes, for `proc`s | displayed | Procedure parameter names/offsets (1.8) |
 | `$13`  | `OPT_SAC_PARAMS`   | no | no | Reserved for SAC parameter metadata |
 | `$14`  | `OPT_SECTIONS`     | with `.function_sections` / `-ffunction-sections` | ln45 (drops unreachable sections), nm45 `-S`, objdump45 `-h` | Section table for per-function linking (1.10) |
-| `$15`  | `OPT_SECTREF`      | with `.function_sections` (relocations; not exports yet) | reader (checked), nm45 `-S` | Section of a relocation target or an export (1.10) |
+| `$15`  | `OPT_SECTREF`      | with `.function_sections` (relocations and `.ref` imports; not exports yet) | ln45, reader (checked), nm45 `-S` | Section of a relocation target or an export (1.10) |
 | `$16`  | `OPT_WEAKUSE`      | when the code uses a weak absolute symbol it defines | ln45 | Weak absolute symbols used at their value (1.11) |
 | `$17`  | `OPT_DEBUG_TYPES`  | with `.dbg_type` (cc45: always) | ln45 `-g`, objdump45 `-g` | Struct / union layouts (1.12) |
 | `$18`  | `OPT_DEBUG_VARS`   | with `.dbg_var` or line info (cc45: always) | ln45 `-g`, objdump45 `-g` | Variables: kind, scope, C name, type, location (1.12) |
-| `$50`  | `OPT_IPO_HINTS`    | no | ln45 | Cross-module optimisation hints (1.9) |
+| `$50`  | `OPT_IPO_HINTS`    | no | parsed by the reader, unused | Cross-module optimisation hints (1.9) |
 
-Unknown options are skipped. `OPT_IPO_HINTS`, when a writer has hints, is written before the other options.
+Unknown options are skipped.
 
 ### 1.6 Sub-Segment Attributes (`OPT_SEGATTR`)
 
@@ -159,7 +159,7 @@ per function:
   specCount × { argCount (1), argCount × int64 LE, frequency (1, percent) }
 ```
 
-Defined in the writer API and parsed by ln45; no tool currently writes it.
+Parsed by `O45Reader` (into `O45File::ipoHints`), which nothing then uses; its serializer is in `O45WriterPhases.cpp` (`lib45-phases.a`, which no tool links), so no tool writes it.
 
 ---
 
@@ -188,7 +188,7 @@ key      (4 bytes)  ; LE: the relocation's site offset (kinds 0/1), or the expor
 section  (2 bytes)  ; LE: the section; $FFFF = the residual of the target segment
 ```
 
-An internal relocation's target section is the one containing the value stored at its site (less the segment base) — except where an `OPT_SECTREF` entry says otherwise: a pointer one past the end of a section, an address with a negative addend, a low byte (`R_LOW`) whose full value is not stored. An export at a section boundary that belongs to the earlier section gets an entry too.
+An internal relocation's target section is the one containing the value stored at its site (less the segment base) — except where an `OPT_SECTREF` entry says otherwise: a pointer one past the end of a section, an address with a negative addend, a low byte (`R_LOW`) whose full value is not stored. An export at a section boundary that belongs to the earlier section would get a kind 2 entry (the reader takes it; ca45 does not write it yet).
 
 Kind 3 (`key` = an import index; ca45 `.ref`): the section needs that import's definition although no relocation uses it — ln45 links the definition only while the section is kept.
 
@@ -380,7 +380,7 @@ paramSize     (1 byte)      ; parameter bytes (used for thunks)
 frameSize     (2 bytes LE)  ; activation record / frame size
 ```
 
-The masks are the base-page addresses themselves (`$00`–`$FF`, #360), as ranges: 9 bytes plus 2 a range. ca45 writes this record. The older `$FA` record (19 bytes) had three 32-bit masks, bit *n* = `cc45.zeroPageStart + 1 + n`, with the base not recorded (ln45 assumed `$09`, nm45 `$03`) and only 32 bytes of the page; it is still read, with ca45's default base `$03`.
+The masks are the base-page addresses themselves (`$00`–`$FF`, #360), as ranges: 10 bytes with the marker, plus 2 a range. ca45 writes this record. The older `$FA` record (19 bytes) had three 32-bit masks, bit *n* = `cc45.zeroPageStart + 1 + n`, with the base not recorded (ln45 assumed `$09`, nm45 `$03`) and only 32 bytes of the page; it is still read, with ca45's default base `$03`.
 
 | Bit | Constant | Meaning |
 |-----|----------|---------|
@@ -453,11 +453,12 @@ cc45 objects also contain:
 | `_f__sac` | TEXT | Body of SAC function `f` after its parameter copy |
 | `_f__param_x` | BSS | Static parameter slot `x` of SAC function `f` |
 | `_f__ar`, `cc45.sacsize._f` | BSS, absolute | SAC function `f`'s static storage block and its size (ln45's [SAC overlay](../bin/ln45.md#sac-overlay)) |
-| `cc45.zarsize.<f>`, import `<f>__zar` | absolute | Size of `f`'s base-page block; its operands are relocated against `<f>__zar`, which ln45 defines ([base-page blocks](../bin/ln45.md#base-page-blocks)) |
+| `cc45.zarsize.<f>`, import `<f>__zar` | absolute | Size of `f`'s base-page block; its operands are relocated against `<f>__zar` (an import ca45's `.zar` declares, #716), which ln45 defines; without the size ln45 reserves no bytes for the block and warns ([base-page blocks](../bin/ln45.md#base-page-blocks)) |
 | `cc45.zc.<storage symbol>` | absolute | A candidate for the program-wide base-page plan (`ln45 --zp-plan-out`) |
 | `cc45.zpvar.<sym>`, `cc45.zpinit.<sym>` | absolute, DATA | A `__zp` variable's size (ln45 defines `<sym>`) and its initial value ([`__zp` variables](../bin/ln45.md#__zp-variables)) |
 | `cc45.sectsize.NAME`, `cc45.section.NAME`, `cc45.sectvar.NAME.<sym>`, `cc45.sectinit.<sym>` | weak absolute, weak absolute, absolute, DATA | A `__section`: this object's bytes of it, its address when declared, a variable's offset in the object's part, a variable's initial value ([`__section` variables](../bin/ln45.md#__section-variables)) |
 | `cc45.overlay.<name>` | absolute | The object's code is in code overlay `<name>` ([Code Overlays](../bin/ln45.md#code-overlays)) |
+| `cc45.unpackfmt.<N>.<line>.<file in hex>` | weak absolute (1) | A pack45 stream of format N that the file unpacks at that line (`<unpack.h>`); ln45 warns when no linked object defines `___unpack_formatN` (#666, [ln45 Diagnostics](../bin/ln45.md#diagnostics)) |
 | `cc45.zpcall.<callee>` | weak absolute | A stack-mode object calls `<callee>` with the ZP convention (`__fastcall__`) |
 | `cc45.noescape.<sym>`, `cc45.nesc.<caller>.<callee>` | — | `__noescape` data kept with an overlay's code, and where its address is passed to a function (ln45's checks) |
 | `cc45.mode_zp` / `cc45.mode_stack` | weak absolute (1) | Calling convention of the object (used by ln45) |

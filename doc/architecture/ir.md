@@ -363,7 +363,8 @@ vreg 0.
 | `isRecurse` | `#pragma cc45 recurse` | opts the function out of SAC |
 | `isFar`, `bank`, `section` | `__far`, `__bank(n)`, `__section("NAME")` | the text sub-segment the code is emitted in (`far`, `far.n`, `sect.NAME`) |
 | `noOptimize`, `optOverrides`, `argLists` | `#pragma cc45 optimize(off)` / `optimize(...)`, `-fzp-args` | no IR pass and `.noopt_start`/`.noopt_end`; per-function pass switches; the SAC entry copies parameters through `__zp_args` / `__sac_args` lists |
-| `restrictVregs`, `memoryVregs`, `registerVregs` | `restrict` parameters; volatile / address-taken variables; `register` | what the passes may assume, and where IRCodeGen places the vreg |
+| `restrictVregs`, `memoryVregs`, `volatileVregs`, `registerVregs` | `restrict` parameters; volatile / address-taken variables (`volatileVregs`: those declared `volatile`, every read a read, #659); `register` | what the passes may assume, and where IRCodeGen places the vreg |
+| `ptrSig`, `isMethod` | the parameter slots (`IRBuilder::ptrSigKey`); a struct method | ln45's call-graph markers (`cc45.fsig.<f>.<sig>`); emitted weak |
 | `isNested`, `staticLinkVreg` | GCC nested functions | static chain |
 | `align`, `retAddrSlot`, `addressTakenLabels` | `aligned(N)`, `__builtin_return_address`, `&&label` | — |
 
@@ -374,10 +375,13 @@ Variadic functions use SAC too (see
 [calling-conventions.md](calling-conventions.md#35-variadic-functions)).
 
 `ir::Module` also carries `globals` (with constant-initializer images,
-address space, alignment, `section`, `bank`), `strings`, `externs` (with
-`zpExterns`, `externSizes`), `pureFunctions`, `volatileGlobals`, `fileAsm`
-(file-scope `asm`), debug information (`debugGlobals`, `debugTypes`) and the
-file's settings: `saveZP`, `setBP`, `stackTop`, `stackSize`, `bssFill`,
+address space, alignment, `section`, `bank`), `sections` (`#pragma
+section`), `strings`, `externs` (with `zpExterns`, `externSizes`),
+`pureFunctions`, `volatileGlobals`, `fileAsm` (file-scope `asm`),
+`unpackSites` (the pack45 formats the file unpacks, for ln45's
+`cc45.unpackfmt.*`, #666), the float `printf` / `scanf` needs
+(`floatVarArg`, `floatSprintfArg`, `floatScanfArg`, `callsVscanf`), debug
+information (`debugGlobals`, `debugTypes`) and the file's settings: `saveZP`, `setBP`, `stackTop`, `stackSize`, `bssFill`,
 `fastFloat`, `overlay`, `maxUnrollBytes`.
 
 ## IRBuilder coverage

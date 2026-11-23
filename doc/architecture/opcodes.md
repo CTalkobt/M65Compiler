@@ -164,7 +164,7 @@ Expanded by ca45 into native code; operand forms, register usage and current lim
 | Frame/parameter access (compiler) | `lda.fp sta.fp ldax.fp stax.fp lday.fp stay.fp ldaz.fp staz.fp ldaxyz.fp staxyz.fp move.fp`, `inc.16f dec.16f`, `ld*/st*/leax .param` and `.local`, `struct_elem` |
 | 16-bit arithmetic/logic | `add.16 sub.16 add.s16 sub.s16`, `and.16 ora.16 eor.16`, `cmp.16`/`cpw`, `cmp.s16`, `neg.16 not.16 neg.s16`, `abs.16 abs.s16`, `lsl.16 lsr.16 asr.16 rol.16 ror.16` (+ `.s16`), `asw`/`row .ax` |
 | 32-bit | `add.32 sub.32` (+`.s32`), `and.32 ora.32 eor.32`, `cmp.32 cmp.s32`, `neg.32 not.32 abs.32` (+`.s32`), `lsl.32 lsr.32 asr.32 rol.32 ror.32` (+`.s32`), `sxt.16` |
-| Hardware math (`$D768`–`$D77F`) | `mul`/`div` `.8 .16 .24 .32`, `mul.s16 div.s16 mod.16 mod.s16`, `mul.s32 div.s32 mod.32 mod.s32` |
+| Hardware math (`$D768`–`$D77F`; `div` waits on `$D70F`) | `mul`/`div` `.8 .16 .24 .32`, `mul.s16 div.s16 mod.16 mod.s16`, `mul.s32 div.s32 mod.32 mod.s32` |
 | Bit fields | `bfext bfext16 bfext32`, `bfins bfins16 bfins32` and their `.sp`/`.ind` forms |
 | Registers | `swap`, `push`, `pop`, `zero`, `sxt.8`, `chkzero.8/16`, `chknonzero.8/16`, `select`, `ptrderef` |
 | Expressions | `expr target, expression` |

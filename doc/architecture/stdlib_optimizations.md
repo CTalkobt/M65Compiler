@@ -63,7 +63,7 @@ The digits gathered as a whole number (up to 10 significant digits, the rest onl
 - `sinf`, `cosf`, `tanf`, `atanf`, `logf`, `expf`, `sqrtf`, `fabsf` copy the argument into `__float_a` and call the BASIC 65 ROM routine through `float_rom.s45` (which switches to base page 0 around the ROM call); there are no tables or series in the library.
 - Every ROM routine is entered through `__float_romcall` (`stdlib_asm/float_map.s45`, #614): the library's own map switch (`$4000-$7FFF` to the ROM, the map at `$011C` put back afterwards), about 110 cycles a call against 260 through the KERNAL's JSRFAR.
 - With `cc45 -ffast-float=1` (or `-Ospeed`) the compiler's `+ - * /` and comparisons call the RAM routines of `stdlib_asm/float_fast.s45` (`__ffast_add` …) instead of the ROM's; the math functions above still use the ROM.
-- `powf` = `expf(y * logf(|x|))`; `log10f`/`log2f` scale `logf`; `ldexpf` multiplies by 2 in a loop (|n| iterations); `frexpf` halves/doubles in a loop; `truncf` goes through `long` for |x| < 2^31.
+- `powf` = `expf(y * logf(|x|))`; `log10f` scales `logf`; `ldexpf` and `frexpf` change the exponent byte (no loop, exact); `log2f` is `frexpf`'s exponent plus `logf` of the fraction (exact for powers of two); `truncf` goes through `long` for |x| < 2^31.
 - Speed is bounded by the ROM routines.
 
 ### printf family — `stdlib_asm/__vformat.s45`

@@ -295,13 +295,13 @@ Debug information:
   Source files:
     0  pt.c
   Lines (text offset  file:line):
-    0000  pt.c:5
     0000  pt.c:6
-    0002  pt.c:6
+    0000  pt.c:7
+    0002  pt.c:7
     …
-    001c  pt.c:7
-    001d  pt.c:7
-    001f  pt.c:7
+    001c  pt.c:8
+    001d  pt.c:8
+    001f  pt.c:8
   Types:
     struct pt (6 bytes)
       x                +0        u16
@@ -527,16 +527,19 @@ Format: LineNum [TOKENS...]
 ### Compare two builds
 
 ```
-$ objdump45 -D old.prg new.prg
-Binary Diff: old.prg vs new.prg
-Size: 10592 bytes vs 10656 bytes
+$ objdump45 -D p1.prg p2.prg
+Binary Diff: p1.prg vs p2.prg
+Size: 389 bytes vs 346 bytes
 
-Offset $008C: [61→A1] [62→A2] [63→A3] [64→A4] ...
+Offset $0053: [84→59]
+Offset $0069: [84→59]
+Size difference: p1.prg is 389 bytes, p2.prg is 346 bytes
 
-Total differences: 9939 bytes
+
+Total differences: 2 bytes
 ```
 
-Identical files print `Files are identical`; offsets are file offsets (a PRG's load-address bytes included).
+(the two programs of [ln45's `--gc-inputs` example](ln45.md#dropping-unused-code---gc-inputs--u---print-gc)). Only the bytes both files have are compared, a run of differences within 16 bytes of each other on one line; files of different sizes add the `Size difference:` line. Identical files print `Files are identical` — so do files that differ only in their length, after the `Size difference:` line. Offsets are file offsets (a PRG's load-address bytes included).
 
 ### Compare optimisation levels
 

@@ -64,7 +64,7 @@ For the options cc45 accepts see [cc45](cc45.md) (`cc45 -?`). Besides the `-O` l
 
 ### ca45 per-pass flags
 
-`-P<Name>` enables and `-PNo<Name>` disables an assembler optimisation (names are case-sensitive). `-O0` turns all of them off; `-O1`, `-O2` (default) and `-O3` turn all of them on.
+`-P<Name>` enables and `-PNo<Name>` disables an assembler optimisation (names are case-sensitive). `-O0` turns all of them off; `-O1`, `-O2` (default) and `-O3` turn all of them on (any other `-O` suffix, `-O4` included, is `-O2`).
 
 | Name | Pass |
 |------|------|
@@ -72,7 +72,7 @@ For the options cc45 accepts see [cc45](cc45.md) (`cc45 -?`). Besides the `-O` l
 | `TailCall` | JSR + RTS → JMP |
 | `BranchInvert` | Inverted branch instead of branch over BRA |
 | `JmpBra` | JMP → BRA |
-| `NoOpBra` | Remove BRA to the next instruction (`-PNoOpBra` is read as "no `OpBra`" and changes nothing, so after `-O0` the pass cannot be turned on by name; its off form is `-PNoNoOpBra`) |
+| `NoOpBra` | Remove BRA to the next instruction (the whole name is tried first: `-PNoOpBra` turns this pass on, `-PNoNoOpBra` off) |
 | `CmpElimination` | Remove redundant compares |
 | `RedundantLoad` | Remove loads of values already in a register |
 | `DeadStore` | Remove dead stores |
@@ -82,6 +82,7 @@ For the options cc45 accepts see [cc45](cc45.md) (`cc45 -?`). Besides the `-O` l
 | `StoreLoadPair` | Store/load pair optimisation |
 | `FCmpOpt` | Float compare optimisation |
 | `TSXRedundant` | Remove redundant TSX |
+| `QuadMove` | Four byte loads/stores (`sta`/`stx`/`sty`/`stz`, `lda`/`ldx`/`ldy`/`ldz`) → one `stq` / `ldq` |
 
 ca45 also accepts `StrengthReduction`, `AlgebraicSimplify`, `TypeNarrowing`, `BranchFold`, `CSE`, `LICM`, `CopyChains` and `AddrElemFusion`, but they have no effect in the assembler. Unknown names are ignored silently.
 
@@ -100,7 +101,7 @@ See [asmCvt45](asmCvt45.md#configuration-file-asmcvt45rc). `asmCvt45 --init-conf
 | `CC45_DUMP_IR` | cc45 | Non-empty and not starting with `0`: print the optimized IR module to stderr during code generation |
 | `CC45_OPMARK` | cc45 | Set: a `; @op …` comment before each IR instruction's code in the assembly (see [cc45](cc45.md#environment-variables)) |
 | `TMPDIR` | cc45 | Where cc45 makes its private directory of temporary files (`cc45-XXXXXX`; default `/tmp`) |
-| `HOME` | cc45, cp45, cl45, ca45, al45, af45, disk45 | Locates `~/.config/m65/` (ca45 falls back to the password database); disk45: the catalog's default database, `~/.disk45-catalog.db` |
+| `HOME` | cc45, cp45, cl45, ca45, al45, af45, disk45, deploy45 | Locates `~/.config/m65/` (ca45 falls back to the password database); disk45: the catalog's default database, `~/.disk45-catalog.db`; deploy45: the mega65-tools programs, looked for in `~/mega65-tools/bin/` and `~/mega65-tools/` after `PATH` |
 
 ## Creating, Checking and Disabling a Configuration
 
@@ -109,7 +110,7 @@ mkdir -p ~/.config/m65
 printf -- '-O2\n' > ~/.config/m65/cc45.conf
 ```
 
-No tool prints the arguments it loaded. To check the effect, compare outputs with and without the file, or run with a different `HOME`:
+No tool prints the arguments it loaded (cl45, al45 and af45 with `-v` name the `.cc45-lint.yml` files they read: `[cl45:INFO] configuration …`). To check the effect, compare outputs with and without the file, or run with a different `HOME`:
 
 ```bash
 HOME=/tmp/empty cc45 -c main.c      # no cc45.conf/ca45.conf

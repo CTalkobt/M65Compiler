@@ -106,6 +106,8 @@ Both return the number of bytes written, or `UNPACK_ERROR` (`0xFFFFFFFFUL`, the 
 UNPACK_FORMAT2;             /* format 2 only: a format 1 stream gives UNPACK_ERROR */
 ```
 
+A stream whose format byte cc45 can see (an array initialized in the file, `#embed` too, given to `unpack()` / `unpack_to()`; `load_unpack()` of a literal name whose file is beside the source or in an `-I` directory) but whose decoder the program does not link is reported: by [cl45](cl45.md)'s `mega65-unpack-format` in the file with `main()`, and by ln45 for the whole program (`ln45: warning: format 2 stream unpacked at FILE:LINE, but the program links no format 2 decoder (UNPACK_FORMAT2; at file scope, <unpack.h>): unpack() returns UNPACK_ERROR for it`).
+
 The library's own users take what they need: `font_load` (fonts are packed in format 1) and the overlay loader of `ln45 --pack-overlays` (`ovl_unpack.s45`) link format 1 themselves; `load_unpack` unpacks whatever formats the program linked.
 
 ### A file on the disk, unpacked in place

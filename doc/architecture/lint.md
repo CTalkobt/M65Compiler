@@ -116,7 +116,7 @@ ca45's parsing options accepted (`-D`, `-I`, `.cpu`); the Makefile's
 |---|---|---|---|
 | `mega65-unreachable` | all | warning | code after `jmp`/`bra`/`rts`/`rti`/`rtn` with no label |
 | `mega65-unused-label` | all | info | a local label never referenced |
-| `mega65-no-bp-mode` | all | warning | `ldz $xx`, `lda/sta $xx,y`, `jmp`/`jsr ($xx)`, `phw $xx` (no base-page form: ca45's warning as a rule) |
+| `mega65-no-bp-mode` | all | warning | `ldz $xx`, `lda/sta $xx,y`, `jmp`/`jsr ($xx)` and `($xx,x)`, `phw $xx` (no base-page form: ca45's warning as a rule) |
 | `mega65-page1-stack` | all | warning | `$0100,x` stack reads under the 16-bit stack (reported in the cc45 profile, or in a file that does `cle`) |
 | `mega65-dma-trigger-order` | all | warning | `$D700`/`$D705` written before the list address bytes in the same straight-line code |
 | `mega65-io-personality` | standalone | info | VIC-III/IV registers written with no `$47 $53 → $D02F` knock in the file |
@@ -196,10 +196,10 @@ The "Needs" column is where the rule is checked, as built (above).
 | `mega65-dma-trigger-order` | warning | IR | a store to `$D700`/`$D705` before the list address bytes (`$D701`/`$D702`/`$D704`) in the same block |
 | `mega65-io-not-volatile` | warning | AST | an access to `$D000`-`$DFFF` (a constant address cast to a pointer, or a `mega65.h` register) through a non-`volatile` pointer |
 | `mega65-io-personality` | info (standalone) | IR | VIC-III/IV registers written with no knock (crt0 does it for linked programs) |
-| `mega65-isr-rom-call` | warning | IR call graph | an `__interrupt` handler, or a function only it reaches, calling the ROM / KERNAL (`<cbm.h>` wrappers, `__jsr` to `$E000`+) |
+| `mega65-isr-rom-call` | warning (cc45) | IR call graph | an `__interrupt` handler, or a function only it reaches, calling the ROM / KERNAL (`<cbm.h>` wrappers, `__jsr` to `$E000`+) |
 | `mega65-stack-frame-limit` | warning | frames | a stack frame larger than `mega65-stack-frame-limit` (default 256) |
 | `mega65-recursion-frame` | info | IR call graph | a function on a call cycle (it gets a stack frame instead of static allocation) |
-| `mega65-sac-interrupt` | warning | IR call graph | a static-allocation function reachable from an `__interrupt` handler in the same file (ln45 rejects it at link time) |
+| `mega65-sac-interrupt` | warning (cc45) | IR call graph | a static-allocation function reachable from an `__interrupt` handler in the same file (ln45 rejects it at link time) |
 | `mega65-narrow-param` | info | IRBuilder | an `int` parameter that every call passes 0-255 (cc45's note, through `lintOr`) |
 | `mega65-wide-arith` | info | IR pattern | `long` arithmetic whose operands and result fit 16 bits |
 | `mega65-signedness` | warning | IRBuilder, constant folder | a plain (unsigned) `int`/`char` compared with a negative constant or assigned one (`char c = -1` is 255), a division or `>>` whose result differs from standard C's |

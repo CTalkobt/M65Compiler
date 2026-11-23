@@ -30,12 +30,17 @@ It prints `Passed:`/`Failed:` counts and exits 1 if any check failed. Results ar
 
 ## Gaps Not Yet Covered
 
-These were planned but are not in either test:
+Some of what was planned for the shell script is tested elsewhere:
 
-- reading malformed or truncated `.o45` files and error recovery;
-- every relocation type (`R_LOW`, `R_HIGH`, `R_ADDR16`, `R_ADDR24`, …) applied by the linker, and objects with hundreds of relocations;
-- linker error paths (undefined and duplicate symbols);
-- archive operations through `ar45` (`c`, `t`, `x`, `s`, `a`, `d`) and selective member extraction by `ln45 -l`.
+- `bin/test_o45` checks the relocation encoding (`R_LOW`, `R_HIGH` with its extra byte, `R_LOWX`, long deltas), that a duplicate export is rejected, that a truncated `OPT_SECTIONS` record is refused, and links library members (`Ar45Archive`) with section garbage collection;
+- `bin/test_validation linker` (`src/test/test_validation_linker.cpp`, a step of `make test`) checks the linker's undefined and duplicate symbol errors;
+- `src/test/test_ar45.sh` (a step of `make test`) runs `ar45 c` and `ar45 a` (objects and non-object files).
+
+Not in any of them:
+
+- reading malformed or truncated `.o45` files in general, and error recovery;
+- every relocation type (`R_ADDR16`, `R_ADDR24`, …) applied by the linker, and objects with hundreds of relocations;
+- the other `ar45` operations (`t`, `x`, `s`, `d`) and selective member extraction by `ln45 -l`.
 
 ## Adding Checks
 

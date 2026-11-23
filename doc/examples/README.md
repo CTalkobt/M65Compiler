@@ -2,8 +2,9 @@
 
 The programs in [`examples/`](https://github.com/CTalkobt/M65Compiler/tree/main/examples),
 each with what it shows and its screen 2.5 seconds after it starts (xemu-xmega65,
-real speed). Build them all with `make -C examples` (or `make` in one example's
-directory; most have `make run` to start xemu). The pictures are made by
+real speed; sprite_demo's after 18 seconds, fonts' after 8). Build them all with
+`make -C examples` (or `make` in one example's directory; most have `make run`
+to start xemu). The pictures are made by
 [`examples/capture_screens.py`](https://github.com/CTalkobt/M65Compiler/blob/main/examples/capture_screens.py)
 (run from the project root after building the examples).
 
@@ -16,7 +17,7 @@ programs that print text and return to BASIC.
 `make -C examples/disk` builds every example and puts them on two D81 disk
 images with [disk45](../bin/disk45.md) (`create`, an `add` for each program,
 `validate` and `list`): `examples/disk/games.d81`, "CC45 GAMES" (invaders,
-rogue, hanger and Glam Lambs with its music), and `examples/disk/demos.d81`,
+rogue, hanger and Glam Lambs with its music and pictures), and `examples/disk/demos.d81`,
 "CC45 DEMOS" (the rest, with the code overlays the overlay examples load).
 Each disk's programs, their names on it and their lines in the menu are in
 [`games.txt`](https://github.com/CTalkobt/M65Compiler/blob/main/examples/disk/games.txt)
@@ -143,7 +144,7 @@ data and the registers.
 
 [Source](https://github.com/CTalkobt/M65Compiler/tree/main/examples/c/keyboard_viewer) —
 The MEGA65 keyboard drawn with conio; every frame each key of the 8x8
-matrix is read with `key_pressed()` (several at once, SHIFT and CTRL too)
+matrix is read with `<input.h>`'s `input_pressed()` (several at once, SHIFT and CTRL too)
 and a held key shows reversed in yellow. Below, conio's `kbhit()` and the
 characters `getch()` returns, with their PETSCII codes. It is the
 interactive test of `kbhit`/`getch` (headless xemu can't press keys): run it
@@ -172,7 +173,7 @@ move, `>` goes down. `make check` tests levels from fixed seeds
 
 [Source](https://github.com/CTalkobt/M65Compiler/tree/main/examples/c/hanger) —
 Hangman with a different victim each level: a human, a cat, a duck, a
-giraffe, an elephant and an octopus (6 to 9 wrong letters allowed). Each
+giraffe, an elephant and an octopus (6 to 9 parts: the 6th to 9th wrong letter hangs it). Each
 wrong letter adds a part, and a hanged animal's eyes are crossed out. One
 player guesses the computer's words (3 lives; solve a word to move on to the
 next animal) or two players type secret words for each other. The words are
@@ -181,8 +182,8 @@ wordfreq ranking; `make_words.py`), sorted by the misses of a player who
 guesses letters in order of English frequency and cut into six tiers, one per
 level. The pictures are drawn with PIL shapes in `gen_gfx.py` and cut into
 8x8 character cells (in 80 columns a pixel is half as wide as it is tall, so
-the shapes are drawn in square units and squeezed). Each level's glyphs, up
-to 182, are copied into a character set in bank 4 with `dma_copy_far` when it
+the shapes are drawn in square units and squeezed). Each level's glyphs (105
+to 170, in room for 182) are copied into a character set in bank 4 with `dma_copy_far` when it
 starts. Each stage of the drawing is stored as the cells it changes. The
 generated `gfx.h` and `words.h` are in the repository, so the example builds
 without Python (`make gfx` remakes them). The screen is built in two buffers
@@ -234,8 +235,9 @@ another block of characters a letter at a time by `font_draw_fcm`. The
 counter is a 16-segment display's digits (`--segments 16 --fcm`, a glyph
 set), unlit segments dim, put by `font_put_cells` each frame. conio's own
 text is in an 8x8 charset made from the same font (`--charset screencode
---center`, `font_install`, `font_select`). Any key quits; `make check` runs
-50 frames, reads the title's cells and colours back and reports.
+--center`, `font_install`, `font_select`). Any key quits; `make check` builds
+`fontscheck.prg`, which runs 50 frames, reads the title's cells and glyph
+bytes back and reports.
 
 ![fonts](images/fonts.png)
 
@@ -342,8 +344,8 @@ is a picture in the VIC-IV's full-colour characters (8 x 8 pixels a
 character, any of 256 colours a pixel) on a screen of two-byte cells
 (`<seam.h>`), the score and message lines text on the same screen.
 `gen_salon.py` draws it with Python's PIL (`make salon`; its output,
-`salon.h`, `salon1.dat` and `salon2.dat`, is in the repository): 1,042
-characters (65 KB) after identical cells are shared, loaded from the disk as
+`salon.h`, `salon1.dat` and `salon2.dat`, is in the repository): 1,221
+characters (76 KB) after identical cells are shared, loaded from the disk as
 `GLAMSALON` (bank 4) and `GLAMSALON2` (bank 5, with the screen, the looks and
 the palette) with `cbm_load_far`. The dye and the lipstick are palette
 entries (sixteen shades of wool, eight of lipstick, rewritten from tables by
@@ -392,7 +394,7 @@ on the PC.
 ### tunes
 
 [Source](https://github.com/CTalkobt/M65Compiler/tree/main/examples/c/tunes) —
-The pfest game's music (its `music.txt`: 12 tunes on three voices, 2.6 KB)
+The pfest game's music (its `music.txt`: 12 tunes on three voices, 2.8 KB)
 played by the library's tune player, `<audio_tune.h>`. `tune45 convert`
 turns the text into `music.c` and `music.h` as part of the build. The music
 plays from a raster interrupt, as a game's would: `tune_update` runs in an
@@ -548,7 +550,7 @@ The same build (`cc45 -c`, then `ln45`) with a few library calls (`itoa`,
 [Source](https://github.com/CTalkobt/M65Compiler/tree/main/examples/c/ext_tour) —
 cc45's extensions to C, one per line: each is a short function that uses
 it (struct methods and operators, `break N`, `continue <value>`, `repeat`,
-`__likely`, `__pure`, `__zp`, `__cpu`/`__flags`, `__bit`/`__bits`, `__jsr`, `#pragma section`/`__section`, `__fastcall__`, string
+`__unlikely` / `__builtin_expect`, `__pure`, `__zp`, `__cpu`/`__flags`, `__bit`/`__bits`, `__jsr`, `#pragma section`/`__section`, `__fastcall__`, string
 encodings, `optimize(off)`, `__noescape`, vectors, `long long`/`__int(N)`,
 `_Complex`, builtins, `#pragma weak`, `push_macro`) and checks its result.
 The uses are marked `EXT:` in the source. `make check` builds it with both
@@ -624,7 +626,7 @@ stubs.
 
 [Source](https://github.com/CTalkobt/M65Compiler/tree/main/examples/c/unit_convert) —
 Miles/kilometres conversion in 32-bit fixed point (`long`), with `sprintf` and
-`sscanf`.
+`puts`.
 
 ![unit_convert](images/unit_convert.png)
 
@@ -650,8 +652,9 @@ next part.
 ## Library checks
 
 These programs check standard library functions and return 0 (in A, and as
-the exit status at `$FD/$FE`) when they all pass; they print nothing, so
-their screen is BASIC's `READY.`.
+the exit status at `$FD/$FE`) when they all pass; most print nothing, so
+their screen is BASIC's `READY.` (test_gets and test_ftoa print what they
+check).
 
 | Program | Checks | Source |
 |---------|--------|--------|

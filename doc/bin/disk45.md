@@ -17,14 +17,14 @@ The format is chosen from the file extension; an unrecognised extension is treat
 
 `disk45 sd` works on MEGA65 SD card images (FAT32 with the MEGA65 system partition, see [MEGA65 SD Card Images](#mega65-sd-card-images)).
 
-Running `disk45` with no arguments or an unknown command prints the usage summary (exit status 1). `disk45 --version` (or `-v` as the only argument) prints the version; `-v` … `-vvvv` with a command turn on the log (see the [Command Summary](#command-summary)).
+Running `disk45` with no arguments or an unknown command (`Unknown command: x`) prints the usage summary on stderr (exit status 1). `-?`, `-h` or `--help` anywhere among the arguments prints it with exit status 0, `-V` or `--version` anywhere (or `-v` as the only argument) the version line (`disk45 v1.1.0.dev (…)`); not after `sd`, which has a help of its own (`disk45 sd --help`). `-v` … `-vvvv` with a command turn on the log (see the [Command Summary](#command-summary)).
 
 ## Commands
 
 Each command accepts only its own options: one it does not have is an error that names those it has
 (`Error: disk45 create has no option --name (its options: -n <value> -i <value> ...)`), as is an option given
 without its value. A name or pattern that starts with `-` goes after `--` (`disk45 list game.d81 -- "-x*"`).
-Numbers are decimal, `0x` or `$` hex. (`sd`, `catalog`, `mount` and `edit` check their own arguments.)
+Numbers are decimal, `0x` or `$` hex, a bad one an error (`Error: 'zz' is not a number`); not yet `add`'s placement numbers (`-s`, `-b`, `--track`) and the track and sector of `dump` and `edit`, which are read as decimal only (anything else counts as 0). (`sd`, `catalog`, `mount` and `edit` check their own arguments.)
 
 ### File Operations
 
@@ -38,7 +38,7 @@ Create a new, empty image or archive. An existing file is overwritten.
 
 | Option | Description |
 |--------|-------------|
-| `-n name` | Disk name (default `CC45 DISK` for disk images; archives use a fixed name such as `ARK ARCHIVE`) |
+| `-n name` | Disk name (default `CC45 DISK` for D64/D71/D81/D65/X64/G64/G71, `CBM DISK` for D80/D82, `CBM HD` for D90/D60, `CMD DISK` for CMD images (a D1M/D2M/D4M's default partition is named `PARTITION 1`); archives use a fixed name such as `ARK ARCHIVE`) |
 | `-i id` | 2-character disk ID (default `CC`) |
 | `--geos` | Format for GEOS (D64/D71): `GEOS format V1.0` at `$AD` of the BAM sector and a border sector (searched from 19/0 upwards, then from 1/0), as [GEOS.TXT](https://ist.uwaterloo.ca/~schepers/formats/GEOS.TXT) describes. |
 | `-t tracks` | Track count larger than the format default (e.g. 36-40 for an extended D64). The image is padded with the extra tracks, but the BAM is not extended, so files are not allocated there. |
@@ -161,15 +161,14 @@ disk45 extract-all backup.d81 ./text/ "*" -p
 disk45 copy <src_image> <pattern> <dst_image> [-r|--recursive]
 ```
 
-Copy files matching `pattern` between images of any formats, keeping the file type. The destination must already exist (create it first). Files whose name already exists in the destination are skipped with a warning. A subdirectory that matches is passed over with a note, or with `-r` made in the destination (if it is not there) and copied with everything in it; the destination must be a format with subdirectories.
+Copy the root-directory entries matching `pattern` between images of any formats, keeping the file type (each one copied is listed, then `Copied N file(s) [and N directories] from SRC to DST`; no match is an error). The destination must already exist (create it first). Files whose name already exists in the destination are skipped with a warning. A subdirectory that matches is passed over with a note (`ASSETS/ is a directory: not copied (copy -r copies it)`), or with `-r` made in the destination (if it is not there) and copied with everything in it, whatever the pattern; the destination must be a format with subdirectories.
 
 ```bash
 disk45 create new.d81
 disk45 copy old.d64 "*" new.d81
 disk45 copy games.d81 "LEVEL*" backup.d64
+disk45 copy games.d81 "*" new.d81 -r     # subdirectories too
 ```
-
-Only the root directory is copied; with `*`, a subdirectory entry is copied as an empty `CBM` entry.
 
 #### convert
 
@@ -259,7 +258,7 @@ Check BAM consistency of a sector-based image: files found, sectors used by file
 disk45 repair <image> [--dry]
 ```
 
-Rebuild the BAM from the file chains: every sector in use (as `validate` counts them) is marked used, every other one free. `--dry` (or `-n`) prints what would change and writes nothing. Broken chains and cross-links are reported as warnings; the files are not changed. A fresh image of every writable format needs no change (`test_disk45.sh`).
+Rebuild the BAM from the file chains: every sector in use (as `validate` counts them) is marked used, every other one free. `--dry` (or `-n`) prints what would change and writes nothing (a read-only format needs it; an archive has no BAM and is an error). With nothing to change it prints `The BAM matches the files`. Broken chains and cross-links are reported as warnings; the files are not changed. A fresh image of every writable format needs no change (`test_disk45.sh`).
 
 ```
 $ disk45 repair game.d64 --dry
@@ -351,7 +350,7 @@ Visual sector allocation map per track (`.` = free, `#` = allocated) with free/t
 
 ### Block-Level Operations
 
-These work on sector-based images. Track, sector and offset are decimal; every number (also `bpoke`'s and `bfill`'s byte values) can be given as `0x` or `$` hex too (a leading `0` is octal); anything else is an error ("'zz' is not a number").
+These work on sector-based images. Track, sector and offset are decimal; every number (also `bpoke`'s and `bfill`'s byte values) can be given as `0x` or `$` hex too (a leading `0` is octal); anything else is an error ("'zz' is not a number"). The exception is `dump`, whose track and sector are decimal only.
 
 #### dump / hex
 
@@ -359,7 +358,7 @@ These work on sector-based images. Track, sector and offset are decimal; every n
 disk45 dump <image> [track] [sector]
 ```
 
-Hex dump with ASCII. No arguments: the header/BAM sector (track 18 or 40, sector 0). A track only: every sector of that track.
+Hex dump with ASCII. No arguments: sector 0 of the header track (`BAM / Header:`; 18/0 on a D64/D71, 40/0 on a D81/D65, 39/0 on a D80/D82; on a D90/D60 it is 76/0 and on a CMD native partition 1/0, the boot block, not the header). A track only: every sector of that track.
 
 #### bread
 
@@ -375,7 +374,7 @@ Read a raw 256-byte sector into a file, or hex-dump it if no file is given.
 disk45 bwrite <image> <track> <sector> <input_file>
 ```
 
-Write a raw sector from the first 256 bytes of a file.
+Write a raw sector from the first 256 bytes of a file (a shorter file leaves the rest of the sector as it was).
 
 #### bpeek
 
@@ -442,7 +441,7 @@ Print a record (1-based) as hex and as text.
 disk45 rel-write <image> <name> <record_num> <data...>
 ```
 
-Write a record. Each data argument is a number (decimal, `0x` hex) or a string in literal double quotes (pass `'"HELLO"'` from the shell). Data is zero-padded to the record length; more data than the record holds is an error, as is a record past the end (DOS extends a REL file when a program writes past it; `rel-write` does not).
+Write a record. Each data argument is a byte as a number (decimal, `0x` or `$` hex) or a string in literal double quotes (pass `'"HELLO"'` from the shell), whose bytes are written as they are (no PETSCII conversion). Data is zero-padded to the record length; more data than the record holds is an error, as is a record past the end (DOS extends a REL file when a program writes past it; `rel-write` does not).
 
 #### rel-list
 
@@ -520,7 +519,7 @@ Make sure a directory has at least N free entry slots, adding sectors (8 slots e
 disk45 mount <image> <mountpoint> [-ro|--readonly] [fuse options...]
 ```
 
-Mount an image as a Linux directory using FUSE3. Only available when disk45 was built with libfuse3 (the Makefile detects it with `pkg-config fuse3`, and says at the start of a build whether it is in; the command then appears in the usage text; a disk45 built without it lists `mount` there as not in the build, and `disk45 mount` prints `disk45 mount is not available: this disk45 was built without FUSE 3` and returns 1). Before mounting, disk45 asks for what the machine must have and names what is missing (`Error: disk45 mount cannot run here: …`, exit status 1): `/dev/fuse` (the kernel's fuse module; absent in most containers) and, for anyone but root, the `fusermount3` helper of the distribution's `fuse3` package on the `PATH`. The prebuilt Linux archives' disk45 has libfuse 3 linked in, so those two are all it needs. disk45 stays in the foreground until unmounted; extra arguments are passed to FUSE.
+Mount an image as a Linux directory using FUSE3. Only available when disk45 was built with libfuse3 (the Makefile detects it with `pkg-config fuse3`, and says at the start of a build whether it is in; the command then appears in the usage text; a disk45 built without it lists `mount` there as not in the build, and `disk45 mount` prints `Error: disk45 mount is not available: this disk45 was built without FUSE 3` and returns 1). Before mounting, disk45 asks for what the machine must have and names what is missing (`Error: disk45 mount cannot run here: …`, exit status 1): `/dev/fuse` (the kernel's fuse module; absent in most containers) and, for anyone but root, the `fusermount3` helper of the distribution's `fuse3` package on the `PATH`. The prebuilt Linux archives' disk45 has libfuse 3 linked in, so those two are all it needs. disk45 stays in the foreground until unmounted; extra arguments are passed to FUSE.
 
 - Files appear with type extensions (`GAME.prg`, `README.seq`). CBM subdirectories appear as directories at any depth (`SUB/INNER/NOTE.seq`): files in them are created, written, renamed and deleted as in the root, `mkdir`/`rmdir` create and remove (empty) subdirectories, and `mv` moves a file between directories (a directory is renamed but not moved: `EXDEV`).
 - Read/write: create, write, truncate, rename and delete files; the image is saved after every change. A new file's type comes from its extension (`.prg`, `.seq`, `.usr`, `.rel`; others become PRG); names are limited to 16 characters.
@@ -596,7 +595,7 @@ disk45 sd check <card.img>
 disk45 sd config <card.img> [config options]
 ```
 
-`sd create` refuses to overwrite an existing file without `-f` (`--force`). `sd extract` without a host file name writes the card file's own name into the current directory. The subcommands have aliases: `ls`/`dir` (list), `put` (add), `get` (extract), `remove`/`delete` (rm), `rename` (mv), `validate` (check); `on`/`off` values may also be `1`/`0` or `yes`/`no`. Unlike the other disk45 commands, `sd` rejects an option it does not know (`Error: unknown option --x`). `disk45 sd --help` prints the list.
+`sd create` refuses to overwrite an existing file without `-f` (`--force`). `sd extract` without a host file name writes the card file's own name into the current directory. The subcommands have aliases: `ls`/`dir` (list), `put` (add), `get` (extract), `remove`/`delete` (rm), `rename` (mv), `validate` (check); `on`/`off` values may also be `1`/`0` or `yes`/`no`. `sd create` and `sd config` reject an option they do not know (`Error: unknown option --x`); the other subcommands take a `-` argument as a name (`sd add`'s only option is `-f`). `sd list` leaves out hidden entries and marks a fragmented file `(fragmented)`. `disk45 sd --help` (or `-h`) prints the list; `-V` / `--version` are not answered after `sd`.
 
 An SD card image is what xemu uses (`~/.local/share/xemu-lgb/mega65/mega65.img`, or `-sdimg`) and what `dd` reads from or writes to a real MEGA65 card: an MBR partition table, a FAT32 data partition (type `$0B`/`$0C`) and the MEGA65 system partition (type `$41`). The image is read and written sector by sector, so multi-gigabyte cards are fine. `sd create` makes a sparse file.
 
@@ -664,7 +663,7 @@ GEOS files on D64, D71, D81, D65 and D80/D82 images ([GEOS.TXT](https://ist.uwat
 
 ### Catalog (Collection Indexing)
 
-SQLite index of image collections with a CRC32 of each file's contents. It is in a disk45 built with SQLite: the Makefile detects SQLite's headers and says at the start of a build whether the catalog is in (`make check-deps` names the package to install; `make HAVE_SQLITE=` builds without it). Without SQLite `disk45 catalog` prints `disk45 catalog is not available: this disk45 was built without SQLite` and returns 1, and the usage text says so. Every subcommand accepts `--db <file>`; the default database is `~/.disk45-catalog.db` (`disk45-catalog.db` in the current directory when `HOME` is not set; [CONFIGURATION.md](CONFIGURATION.md)). Running `disk45 catalog` alone prints the subcommand list.
+SQLite index of image collections with a CRC32 of each file's contents. It is in a disk45 built with SQLite: the Makefile detects SQLite's headers and says at the start of a build whether the catalog is in (`make check-deps` names the package to install; `make HAVE_SQLITE=` builds without it). Without SQLite `disk45 catalog` prints `Error: disk45 catalog is not available: this disk45 was built without SQLite` and returns 1, and the usage text says so. Every subcommand accepts `--db <file>`; the default database is `~/.disk45-catalog.db` (`disk45-catalog.db` in the current directory when `HOME` is not set; [CONFIGURATION.md](CONFIGURATION.md)). Running `disk45 catalog` alone prints the subcommand list.
 
 Indexed: every disk image format disk45 reads (`.d64 .d71 .d81 .d65 .d80 .d82 .d90 .d60 .d1m .d2m .d4m .dnp .x64 .g64 .g71 .nib .nbz .t64 .tap .ark .arc .sda .lnx .p00 .cvt`, also with `.gz`, and Zipcode sets by their `1!` file), and the disk images inside containers: each image in a `.zip` and each disk image file on a MEGA65 SD card image is indexed as its own image, with the path `pack.zip:disk.d64` or `card.img:/GAMES/X.D81` (paths that disk45's other commands open too). A GEOS file's CRC32 and size are those of its Convert (CVT) form (its info block and every VLIR record), and `search` marks it `(GEOS Application, VLIR)`; a catalog made by an older disk45 gains the column on the next build.
 
@@ -926,7 +925,7 @@ auto prg = disk->readFile("GAME");
 | `CmdImage` | `CmdImage.hpp` | D1M, D2M, D4M, DNP |
 | `G64Image`, `G71Image` | `G64Image.hpp` (`GcrTracks.hpp`, `Gcr.hpp`) | G64, G71 |
 | `X64Image` | `X64Image.hpp` | X64 |
-| `NibImage` | `NibImage.hpp` | NIB |
+| `NibImage` | `NibImage.hpp` | NIB, NBZ |
 | `TapImage` | `TapImage.hpp` | TAP |
 | `T64Image` | `T64Image.hpp` | T64 |
 | `ArkImage` | `ArkImage.hpp` | ARK |
@@ -936,6 +935,7 @@ auto prg = disk->readFile("GAME");
 | `SdCardImage` | `SdCardImage.hpp` | MEGA65 SD card (MBR, FAT32, system partition; `disk45 sd`) |
 | `P00Image` | `P00Image.hpp` | P00/S00/U00/R00 |
 | `ZipcodeImage` | `ZipcodeImage.hpp` | Zipcode 4-pack |
+| `ZipArchive` | `ZipArchive.hpp` | `.zip` members (read, replaced deflated) |
 
 ## Command Summary
 
@@ -977,7 +977,8 @@ auto prg = disk->readFile("GAME");
 | `batch` | `--batch` | Run commands from a file |
 | `-a2p` | `--ascii-to-petscii` | ASCII→PETSCII filter |
 | `-p2a` | `--petscii-to-ascii` | PETSCII→ASCII filter |
-| `--version` | `-v` | Print version (`-v` as the only argument; with a command it is the log level) |
+| `--version` | `-V`, `-v` | Print version, anywhere among the arguments (`-v` only as the only argument; with a command it is the log level) |
+| `--help` | `-h`, `-?` | The usage summary, anywhere among the arguments (exit status 0) |
 | `--tap-timing=c64\|vic20\|c16` | | Anywhere among the arguments: the pulse ratios TAP images are decoded with (default: the TAP header's platform) |
 | `-v` … `-vvvv`, `-v0` | | Anywhere else among the arguments: log on stderr as `[disk45:LEVEL] …` (the toolchain's format, `include/Logger.hpp`); cumulative, at most `-vvvv`; `-v0` off: the images opened and written with their name and free sectors (`-v`), the partition, zip or SD card member opened (`-vv`) |
 

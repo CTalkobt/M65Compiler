@@ -6,7 +6,7 @@
 **Status when written**: "v1.0.10" in `CLAUDE.md`; the tools' version string (`include/Version.hpp`) is `1.0.4`  
 **Documentation (2026-10-11)**: ~38,000 lines of Markdown under `doc/`, of which ~7,300 in the 11 tool manuals in `doc/bin/`
 
-The tools added after the period covered (`pack45`, `font45`, `tune45`, `deploy45`, `dbg45`, the linters `al45` and `cl45`) and later changes to the test and release process are not described here; see [../README.md](../README.md) for the current tool list.
+The tools added after the period covered (`pack45`, `font45`, `tune45`, `deploy45`, `dbg45`, the linters `al45` and `cl45`, the formatter `af45`) and later changes to the test and release process are not described in the narrative; [Part 16](#part-16-after-the-narrative-2026-08-23-to-2026-11-22) lists them briefly, and [../README.md](../README.md) has the current tool list.
 
 This is a narrative of how the project was developed with LLM assistance. The prompt patterns and lessons are the author's account and are not verifiable from the source tree; the facts about the toolchain itself (tools, features, sizes) were checked against the code on 2026-10-11 and corrected where needed.
 
@@ -246,7 +246,7 @@ This was a complex multi-phase feature that exemplified how Claude excels at arc
    - Result: Generalized infrastructure
 
 5. **Phase 95-96**: "Add performance analysis and special cases (unions, pointers, FAM)"
-   - Result: the `__striped` feature (the 35-50% code reduction figure is the design estimate from that phase; it has not been re-measured)
+   - Result: the `__striped` design (the 35-50% code reduction figure is the design estimate from that phase; it has not been re-measured). Today `__striped` is a reserved keyword: accepted on array declarations, the layout unchanged ([../bin/cc45.md](../bin/cc45.md#__striped), [striped-arrays.md](striped-arrays.md))
 
 **Key Prompt Pattern Used**:
 ```
@@ -264,7 +264,7 @@ Show:
 
 ### Cross-Module Optimization (Phase 91)
 
-This phase had the highest complexity-to-implementation ratio. The breakthrough came from a specific prompt pattern:
+This phase had the highest complexity-to-implementation ratio. (Its code, with the other "phase" analyses, is now in `lib45-phases.a`, which `make all` builds but no tool links: see [cross-module-optimization.md](cross-module-optimization.md).) The breakthrough came from a specific prompt pattern:
 
 **Prompt Pattern #7: Multi-phase Refinement**
 ```
@@ -1017,19 +1017,33 @@ A complete C compiler toolchain for the MEGA65:
 
 - **Code Size**: measured per program, see [PERFORMANCE_VALIDATION.md](PERFORMANCE_VALIDATION.md); static allocation and the ZP convention are the largest factors
 - **Compilation Speed**: well under a second for small programs (0.26 s compile + link for a small stdlib test program)
-- **Runtime**: 45GS02 code; the CRT switches the CPU to 40 MHz at startup
+- **Runtime**: 45GS02 code; the CRT leaves the CPU speed as it finds it (its `_init_features` hook is a weak `rts`; the library member `crt0_mega65` that would set 40 MHz is not linked)
 - **Library**: ~330 exported C-level functions and objects in `c45.lib` (see [stdlib.md](stdlib.md))
 
 ### Future Directions
 
 Potential enhancements documented in project roadmap:
 
-1. **Phase 120+**: Cross-module optimization coordination
-2. **Debugger Integration**: DWARF debug symbols
-3. **IDE Support**: LSP implementation for VS Code / JetBrains
+1. **Phase 120+**: Cross-module optimization coordination (the phase code exists, in `lib45-phases.a`, unlinked)
+2. **Debugger Integration**: DWARF debug symbols (since done another way: `cc45 -g` / `ln45 -g` write a JSON debug file, `<prog>.dbg`, that `dbg45` reads, #202)
+3. **IDE Support**: LSP implementation for VS Code / JetBrains (since done for VS Code: `tools/ide/lsp-server` and `tools/ide/vscode-extension`)
 4. **Performance Tuning**: Profile-guided optimization
 5. **Target Extensions**: Multi-target compiler (65816, 6809)
 6. **Advanced Optimization**: Machine learning for code layout
+
+---
+
+## Part 16: After the Narrative (2026-08-23 to 2026-11-22)
+
+The narrative above ends on 2026-08-23. Development went on in the same way (an issue per feature, a branch and pull request per issue, a runtime test in xemu for each change), now tracked by GitHub issue number rather than phase number. In brief, from CHANGELOG.md and the git log:
+
+- **Releases**: v1.0.5 (tagged 2026-09-26), v1.0.6 (2026-10-14) and v1.1.0 (2026-10-16); the tree is `1.1.0.dev` since, with the changes under CHANGELOG.md's `[Unreleased]`.
+- **Testing moved to xemu**: the runtime tests (`*_xemu.c`, results at `$C0C0`) run on `xemu-xmega65` in parallel (`make test-xemu`, `XEMU_JOBS`); mmemu is no longer used for tests (`bench-optimizer` is the one exception). The GCC torture tests pass in both calling conventions.
+- **Code layout and memory** (October): code overlays, copied or mapped (`#pragma cc45 overlay`), `__far` functions in automatic overlays, `__bank(n)` variables, far and near pointers (#68, #69), the program-wide base-page plan (#304).
+- **New tools** (October and November): `tune45` (#314, `.sid` playback #393), `dbg45` with debug information in objects (#202), `pack45` with `<unpack.h>` (#345), `deploy45` (#145), `font45` (#466), the linters `cl45` and `al45` (#199) and the formatter `af45` (#611); `objdump45 --html` / `--tree` / `--json` (#201).
+- **basic45 `--compile`** (#369): BASIC 65 programs to machine code through cc45's IR, then `--bank=N` (#580) and compiled procs in an interpreted program (#577).
+- **Distribution**: Docker images with xemu and `m65run` (#99, [DOCKER.md](DOCKER.md)), zlib bundled so the build needs only a compiler and make (#620), prebuilt release archives (#621) and images on the GitHub Container Registry from the next release on (#625).
+- **Documentation**: an audit of every page against the source (2026-10-11, again in November), the c-bench-64 comparison with the other 6502 compilers ([benchmarks.md](benchmarks.md), #129), and getting-started tutorials in `doc/guide/` that `make test` runs as written (#694, #695, #696).
 
 ---
 
