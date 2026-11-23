@@ -173,6 +173,18 @@ bool O45Linker::resolveLibraries(std::string& errorMsg) {
             for (const auto& exp : input.obj.exports)
                 if (!exp.isWeak() && exp.segmentId() != SEG_ABSOLUTE) progDef.emplace(exp.name, input.filename);
         }
+        // (a name a linked object defines weakly, as crt0 does _init_features,
+        // whose strong library definition is in a member the link did not
+        // pull in: the program's replaces only the weak default, as
+        // crt0_mega65.o45 named with the program does, #741. A program's
+        // own putchar, which nothing defines weakly, still warns; so does a
+        // strong member that was linked anyway.)
+        std::set<std::string> linkedMembers, weakDef;
+        for (const auto& input : objects_) {
+            if (input.filename.find(".lib(") != std::string::npos) linkedMembers.insert(input.filename);
+            for (const auto& exp : input.obj.exports)
+                if (exp.isWeak()) weakDef.insert(exp.name);
+        }
         std::set<std::string> warned;
         for (const auto& input : objects_) {
             if (input.filename.find(".lib(") == std::string::npos) continue;
@@ -194,7 +206,7 @@ bool O45Linker::resolveLibraries(std::string& errorMsg) {
                     }
                     if (!libDef.empty()) break;
                 }
-                if (libDef.empty()) continue;
+                if (libDef.empty() || (weakDef.count(imp.name) && !linkedMembers.count(libDef))) continue;
                 warned.insert(imp.name);
                 *warnStream_ << "ln45: warning: '" << imp.name << "' of " << d->second << " overrides the library's ("
                              << libDef << "), which " << input.filename << " uses" << std::endl;

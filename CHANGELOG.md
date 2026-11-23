@@ -4,6 +4,20 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### crt0_mega65: the 40 MHz init works when linked by name (#741)
+
+- `crt0_mega65.o45` / `crt0_mega65_zp.o45` (a strong `_init_features`) are used by naming the object with the
+  program, before or after the library (`ln45 -basic -o prog.prg crt0_mega65_zp.o45 main.o45 c45.lib`,
+  `cc45 ... -Wl,<lib dir>/crt0_mega65_zp.o45`). Their copies in the archives are never pulled in (crt0's weak
+  `_init_features` is already there), which stays so: ln45's library rules are unchanged.
+- Linked that way the program did not run: the routine was in the `init` sub-segment, which ln45 places first, where
+  the BASIC stub's `SYS` jumps, so it ran in crt0's place and returned to BASIC. It is in the code now.
+- It sets 40 MHz as BASIC 65's `SPEED` does: FAST (`$D031` bit 6) and VFAST (`$D054` bit 6), the other bits kept,
+  the VIC-IV hot registers off around it (it wrote `$40` to `$D054`: VFAST only, the register's other bits cleared).
+- ln45 no longer warns "overrides the library's" for a name a linked object defines weakly (crt0's
+  `_init_features`), so linking the object (or a program's own `init_features()`) is quiet.
+- Test: `test_mega65_init_xemu.c` (both conventions).
+
 ### Messages, help text and comments from the November documentation check (#730, #731, #732, #737, #738, #742, #743)
 
 - ca45: a message already naming its file and line is no longer wrapped or prefixed again (`Error parsing
