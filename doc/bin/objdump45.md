@@ -30,7 +30,7 @@ At least one display option (`-f`, `-h`, `-t`, `-r`, `-s`, `-d`, `-g`, `-a`, `-b
 | `-d` | Disassemble (an object's TEXT and DATA sections; the code of a PRG/binary) |
 | `-g` | An object's debug information: its source files and line table, the struct / union layouts and the variables (kind, scope, name, type, location; lib45.md 1.12) |
 | `-a` | All of `-f -h -t -r -s -d -g` |
-| `-b ADDR` | Base address for raw binaries (default `$0000`); overrides the load address of a `.prg`. `$C000` and `0xC000` are hex; a plain number is decimal (`2048`), and a leading `0` makes it octal |
+| `-b ADDR` | Base address for raw binaries (default `$0000`); overrides the load address of a `.prg`. `$C000` and `0xC000` are hex; a plain number is decimal (`2048`), and a leading `0` makes it octal; anything else is an error (`objdump45: -b: 'zz' is not an address ...`, exit status 1) |
 | `-m FILE` | Load symbols and source lines from an `ln45 -M` map file for PRG/binary disassembly. For `foo.prg`, `foo.map` is used automatically when it exists, else `foo.dbg` (ln45 `-g`: function names and source lines). With code overlays, a call into an overlay is labelled with the function's name at its stub; the overlays' own symbols are in the `.ovd` file |
 | `-S FILE` | Name ROM routines and I/O registers from a symbol file (again for more; see [Symbol files](#symbol-files)): `jsr CHROUT ; $ffd2`. `-S c64` and `-S mega65` are the shipped sets, the CPU's by default; `-S none` uses none |
 | `--source` | A PRG or binary as ca45 source that assembles back to its bytes (see [Assemblable source](#assemblable-source)); `--entry ADDR` (again for more) code a pointer reaches, `--data A-B` a range that is data |
@@ -536,10 +536,10 @@ Offset $0069: [84→59]
 Size difference: p1.prg is 389 bytes, p2.prg is 346 bytes
 
 
-Total differences: 2 bytes
+Total differences: 45 bytes (2 in the first 346, 43 past the end of the shorter file)
 ```
 
-(the two programs of [ln45's `--gc-inputs` example](ln45.md#dropping-unused-code---gc-inputs--u---print-gc)). Only the bytes both files have are compared, a run of differences within 16 bytes of each other on one line; files of different sizes add the `Size difference:` line. Identical files print `Files are identical` — so do files that differ only in their length, after the `Size difference:` line. Offsets are file offsets (a PRG's load-address bytes included).
+(the two programs of [ln45's `--gc-inputs` example](ln45.md#dropping-unused-code---gc-inputs--u---print-gc)). The bytes both files have are compared, a run of differences within 16 bytes of each other on one line; files of different sizes add the `Size difference:` line, and the bytes past the end of the shorter file count as differences (`Total differences: 45 bytes (2 in the first 346, 43 past the end of the shorter file)`; when the shared bytes are equal, `The first 346 bytes are identical; p1.prg has 43 more`, #733). Only identical files print `Files are identical`. Offsets are file offsets (a PRG's load-address bytes included).
 
 ### Compare optimisation levels
 

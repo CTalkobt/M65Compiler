@@ -687,9 +687,18 @@ int main(int argc, char** argv) {
                 std::string valStr = define.substr(eq + 1);
                 initialSymbols[name] = valStr;
                 uint32_t val = 0;
-                if (valStr.substr(0, 1) == "$") val = std::stoul(valStr.substr(1), nullptr, 16);
-                else if (valStr.substr(0, 1) == "%") val = std::stoul(valStr.substr(1), nullptr, 2);
-                else val = std::stoul(valStr);
+                // ($hex, %binary or decimal; a std::stoul exception ended ca45, #728)
+                std::string digits = valStr;
+                int base = 10;
+                if (!digits.empty() && digits[0] == '$') { digits = digits.substr(1); base = 16; }
+                else if (!digits.empty() && digits[0] == '%') { digits = digits.substr(1); base = 2; }
+                size_t used = 0;
+                try { val = (uint32_t)std::stoul(digits, &used, base); } catch (...) { used = 0; }
+                if (digits.empty() || used != digits.size()) {
+                    std::cerr << (lintMode ? "al45" : "ca45") << ": error: -D" << name << "=" << valStr
+                              << ": the value must be a number ($hex, %binary or decimal)" << std::endl;
+                    return 1;
+                }
                 predefinedSymbols[name] = val;
             } else {
                 initialSymbols[define] = "1";

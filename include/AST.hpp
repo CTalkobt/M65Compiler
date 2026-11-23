@@ -532,6 +532,9 @@ public:
     bool isPrototype = false;
     bool isStatic = false;
     bool isVariadic = false;
+    // a parameter type list was written ((void), (int a), (int, ...)), not
+    // () or K&R names: calls are checked against it (#721)
+    bool hasParamTypes = false;
     bool isFastcall = false;
     bool isInterrupt = false;
     // -fsigned-default / #pragma cc45 signed_default in force where the body

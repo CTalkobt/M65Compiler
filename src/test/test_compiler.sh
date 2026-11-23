@@ -1325,6 +1325,33 @@ else
     failed=$((failed + 1))
 fi
 
+# #721: a call's argument count checked against a prototype (too many, too
+# few, (void)); () and K&R declarations and a variadic's extra arguments not
+T721=build/test/args721; mkdir -p $T721; ok721=1
+printf 'int f(int a, int b);\nint g(void){ return f(1, 2, 3); }\n' > $T721/many.c
+printf 'int f(int a, int b);\nint g(void){ return f(1); }\n' > $T721/few.c
+printf 'int v(void);\nint g(void){ return v(1); }\n' > $T721/void.c
+printf 'int printf(const char *, ...);\nint k();\nint kr(a) int a; { return a; }\nint g(void){ printf("x", 1, 2); k(1, 2); return kr(1, 2); }\n' > $T721/ok.c
+$CC -c $T721/many.c -o $T721/m.o45 2>&1 | grep -q "too many arguments to 'f': 3 given, 2 expected" || ok721=0
+$CC -c $T721/few.c -o $T721/f.o45 2>&1 | grep -q "too few arguments to 'f': 1 given, 2 expected" || ok721=0
+$CC -c $T721/void.c -o $T721/v.o45 2>&1 | grep -q "too many arguments to 'v': 1 given, 0 expected" || ok721=0
+$CC -c $T721/ok.c -o $T721/ok.o45 >/dev/null 2>&1 || ok721=0
+if [ $ok721 = 1 ]; then echo "SUCCESS: argument counts checked against prototypes (#721)"; else echo "FAIL: argument count check (#721)"; failed=$((failed + 1)); fi
+
+# #724: a #pragma (or _Pragma) in a skipped #if group is not applied
+printf '#if 0\n#pragma cc45 signed_default\n_Pragma("cc45 recurse")\n#endif\n#if 1\n#pragma cc45 unsigned_default\n#endif\nint x;\n' > $T721/pr.c
+./bin/cp45 $T721/pr.c -o $T721/pr.i 2>/dev/null
+if ! grep -q 'signed_default"\|recurse' <(grep -v unsigned_default $T721/pr.i) && grep -q '\.unsigned_default' $T721/pr.i; then
+    echo "SUCCESS: pragmas in a skipped #if group ignored (#724)"
+else echo "FAIL: pragma in a skipped group (#724): $(tr '\n' ' ' < $T721/pr.i)"; failed=$((failed + 1)); fi
+
+# #727: no unused 4-byte buffer before a long-returning function
+printf 'long lo(long a){ return a + 1; }\n' > $T721/lo.c
+if $CC -c $T721/lo.c -o $T721/lo.o45 >/dev/null 2>&1 && ./bin/objdump45 -d $T721/lo.o45 | grep -q '^00000000 <_lo>' &&
+   ! ./bin/nm45 $T721/lo.o45 | grep -q struct_buf; then
+    echo "SUCCESS: a long-returning function starts its text, no __struct_buf (#727)"
+else echo "FAIL: __struct_buf before a long-returning function (#727)"; failed=$((failed + 1)); fi
+
 if [ $failed -eq 0 ]; then
     echo "All tests passed!"
     exit 0

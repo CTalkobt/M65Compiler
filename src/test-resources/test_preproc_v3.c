@@ -1,4 +1,4 @@
-int printf(char *s);
+int printf(char *s, ...);
 
 #define HEADER_FILE "test_preproc_v3.h"
 #include HEADER_FILE

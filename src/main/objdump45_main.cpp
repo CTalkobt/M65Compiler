@@ -1800,10 +1800,20 @@ static bool diffBinaries(const std::string& file1, const std::string& file2) {
                file1.c_str(), data1.size(), file2.c_str(), data2.size());
     }
 
-    if (diffCount == 0) {
+    // files of different lengths are not identical: the bytes only one has
+    // count as differences (#733)
+    size_t common = std::min(data1.size(), data2.size());
+    size_t extra = std::max(data1.size(), data2.size()) - common;
+    if (diffCount == 0 && extra == 0) {
         printf("Files are identical\n");
+    } else if (diffCount == 0) {
+        printf("The first %zu bytes are identical; %s has %zu more\n", common,
+               (data1.size() > data2.size() ? file1 : file2).c_str(), extra);
+        printf("\nTotal differences: %zu bytes\n", extra);
     } else {
-        printf("\n\nTotal differences: %d bytes\n", diffCount);
+        printf("\n\nTotal differences: %zu bytes", (size_t)diffCount + extra);
+        if (extra) printf(" (%d in the first %zu, %zu past the end of the shorter file)", diffCount, common, extra);
+        printf("\n");
     }
     return true;
 }
@@ -1999,7 +2009,7 @@ Json objdump45Compare(const Json& a, const Json& b);
 
 static void printUsage(const char* progName) {
     std::cout << "Usage: " << progName << " [options] <file> [...]" << std::endl;
-    std::cout << "Display information from .o45/.o65 object files, .prg, or raw binaries." << std::endl;
+    std::cout << "Display information from .o45 object files, .lib archives, .prg files, overlay files or raw binaries." << std::endl;
     std::cout << std::endl;
     std::cout << "Options:" << std::endl;
     std::cout << "  -f       Display file header" << std::endl;
@@ -2039,10 +2049,10 @@ static void printUsage(const char* progName) {
     std::cout << "           debug file used for symbols; -v0 off" << std::endl;
     std::cout << std::endl;
     std::cout << "Supported formats:" << std::endl;
-    std::cout << "  .o45/.o65  Relocatable object files (full header/symbol/reloc support)" << std::endl;
+    std::cout << "  .o45       Relocatable object files (full header/symbol/reloc support)" << std::endl;
     std::cout << "  .prg       PRG files (2-byte load address header, auto-detected, -bas for BASIC dump)" << std::endl;
     std::cout << "  .bin       Raw binary files (use -b to set base address)" << std::endl;
-    std::cout << "  .ovd .ov1  Code overlay files (ln45; also a version 1 .ovl): a section per overlay, at its run address" << std::endl;
+    std::cout << "  .ovd .ov1  Code overlay files (ln45): a section per overlay, at its run address" << std::endl;
 }
 
 int main(int argc, char** argv) {
@@ -2099,10 +2109,13 @@ int main(int argc, char** argv) {
             }
             std::string addrStr = argv[++i];
             // Accept $XXXX or 0xXXXX or plain decimal
-            if (!addrStr.empty() && addrStr[0] == '$') {
-                baseAddr = (uint32_t)std::stoul(addrStr.substr(1), nullptr, 16);
-            } else {
-                baseAddr = (uint32_t)std::stoul(addrStr, nullptr, 0);
+            // (a std::stoul exception ended objdump45 on a non-number, #734)
+            std::string digits = !addrStr.empty() && addrStr[0] == '$' ? addrStr.substr(1) : addrStr;
+            size_t used = 0;
+            try { baseAddr = (uint32_t)std::stoul(digits, &used, addrStr[0] == '$' ? 16 : 0); } catch (...) { used = 0; }
+            if (digits.empty() || used != digits.size()) {
+                std::cerr << "objdump45: -b: '" << addrStr << "' is not an address ($XXXX, 0xXXXX or decimal)" << std::endl;
+                return 1;
             }
             baseAddrSet = true;
         } else if (arg == "-m") {

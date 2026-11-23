@@ -122,7 +122,14 @@ public:
             if (key == "default_format") {
                 settings.default_format = value;
             } else if (key == "default_threads") {
-                settings.default_threads = std::stoi(value);
+                // (a std::stoi exception ended asmCvt45 on a non-number, #740)
+                size_t used = 0;
+                int n = 0;
+                try { n = std::stoi(value, &used); } catch (...) { used = 0; }
+                if (value.empty() || used != value.size() || n < 0)
+                    std::cerr << "asmCvt45: warning: .asmCvt45rc: default_threads = '" << value
+                              << "' is not a number of threads; 0 (auto) is used" << std::endl;
+                else settings.default_threads = n;
             } else if (key == "output_dir") {
                 settings.output_dir = value;
             } else if (key == "validate_round_trip") {

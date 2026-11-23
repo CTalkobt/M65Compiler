@@ -46,5 +46,18 @@ helphas objdump45 "--entry ADDR" "--data A-B" "--html=FILE" "-V, --version"
 ./bin/ln45 --help | grep -A1 -- "--stack-size=N" | grep -q "default 4096" && pass || fail "ln45 --help: the --stack-size default is not under it"
 ./bin/ln45 --help | grep -A2 -- "--zp-plan-out" | grep -q "default 4096" && fail "ln45 --help: the --stack-size default after --zp-plan-out" || pass
 
+# bad option values are errors (exit 1), not aborts (#722 cc45 --prg-base, #728 ca45 -D, #740 asmCvt45 default_threads)
+SF=build/test/stdflags_bad; mkdir -p $SF/rc
+printf 'int main(void){return 0;}\n' > $SF/h.c; printf '    .org $2000\n    rts\n' > $SF/f.s45
+./bin/cc45 -O2 --prg-base zz $SF/h.c -o $SF/h.prg > $SF/o.txt 2>&1; rc=$?
+[ $rc = 1 ] && grep -q "invalid --prg-base value 'zz'" $SF/o.txt && pass || fail "cc45 --prg-base zz: rc $rc (#722)"
+./bin/cc45 -O2 --prg-base '$3000' $SF/h.c -o $SF/h.prg >/dev/null 2>&1 && [ "$(xxd -p -l 2 $SF/h.prg)" = 0030 ] && pass || fail "cc45 --prg-base \$3000 (#722)"
+./bin/ca45 -DV=abc $SF/f.s45 -o $SF/f.bin > $SF/o.txt 2>&1; rc=$?
+[ $rc = 1 ] && grep -q "ca45: error: -DV=abc: the value must be a number" $SF/o.txt && pass || fail "ca45 -DV=abc: rc $rc (#728)"
+./bin/ca45 -DV='$1F' $SF/f.s45 -o $SF/f.bin >/dev/null 2>&1 && pass || fail "ca45 -DV=\$1F (#728)"
+printf '[general]\ndefault_threads = x\n' > $SF/rc/.asmCvt45rc
+(cd $SF/rc && ../../../../bin/asmCvt45 -t acme ../f.s45 -o out.a65 > o.txt 2>&1); rc=$?
+[ $rc = 0 ] && grep -q "default_threads = 'x' is not a number of threads" $SF/rc/o.txt && pass || fail "asmCvt45 default_threads = x: rc $rc (#740)"
+
 echo "standard flag tests: $passed passed, $failed failed"
 [ $failed -eq 0 ]

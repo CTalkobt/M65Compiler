@@ -683,7 +683,18 @@ int main(int argc, char** argv) {
             // bytes of a function's base-page block (default 16)
             setenv("CC45_ZP_LOCALS_MAX", arg.substr(16).c_str(), 1);
         } else if (arg == "--prg-base" && i + 1 < allArgs.size()) {
-            config.prgBase = std::stoul(allArgs[++i], nullptr, 16);
+            // hex: 3000, 0x3000 or $3000 (an uncaught std::stoul exception
+            // ended cc45 on $3000, #722)
+            std::string v = allArgs[++i];
+            std::string digits = !v.empty() && v[0] == '$' ? v.substr(1) : v;
+            size_t used = 0;
+            unsigned long a = 0;
+            try { a = std::stoul(digits, &used, 16); } catch (...) { used = 0; }
+            if (digits.empty() || used != digits.size() || a > 0xFFFF) {
+                std::cerr << "cc45: error: invalid --prg-base value '" << v << "' (a hex address: 3000, 0x3000 or $3000)" << std::endl;
+                return 1;
+            }
+            config.prgBase = (uint32_t)a;
             config.prgBaseSet = true;
         } else if (arg == "-fimplicit-function-declaration") {
             config.allowImplicitFunctionDecl = true;

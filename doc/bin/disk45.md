@@ -24,7 +24,7 @@ Running `disk45` with no arguments or an unknown command (`Unknown command: x`) 
 Each command accepts only its own options: one it does not have is an error that names those it has
 (`Error: disk45 create has no option --name (its options: -n <value> -i <value> ...)`), as is an option given
 without its value. A name or pattern that starts with `-` goes after `--` (`disk45 list game.d81 -- "-x*"`).
-Numbers are decimal, `0x` or `$` hex, a bad one an error (`Error: 'zz' is not a number`); not yet `add`'s placement numbers (`-s`, `-b`, `--track`) and the track and sector of `dump` and `edit`, which are read as decimal only (anything else counts as 0). (`sd`, `catalog`, `mount` and `edit` check their own arguments.)
+Numbers are decimal, `0x` or `$` hex, a bad one an error (`Error: 'zz' is not a number`), `add`'s placement numbers (`-s`, `-b`, `--track`) and the track and sector of `dump` and `edit` included (#735). (`sd`, `catalog` and `mount` check their own arguments.)
 
 ### File Operations
 
@@ -350,7 +350,7 @@ Visual sector allocation map per track (`.` = free, `#` = allocated) with free/t
 
 ### Block-Level Operations
 
-These work on sector-based images. Track, sector and offset are decimal; every number (also `bpoke`'s and `bfill`'s byte values) can be given as `0x` or `$` hex too (a leading `0` is octal); anything else is an error ("'zz' is not a number"). The exception is `dump`, whose track and sector are decimal only.
+These work on sector-based images. Track, sector and offset are decimal; every number (also `bpoke`'s and `bfill`'s byte values) can be given as `0x` or `$` hex too (a leading `0` is octal); anything else is an error ("'zz' is not a number").
 
 #### dump / hex
 
