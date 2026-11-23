@@ -851,6 +851,15 @@ int main(int argc, char** argv) {
         return 1;
     }
 
+    // -o -: standard output (it wrote a file named "-", #740)
+    if (outputDir == "-") {
+        if (inputFiles.size() > 1) {
+            std::cerr << "Error: -o - (standard output) takes one input file\n";
+            return 1;
+        }
+        outputDir.clear();
+    }
+
     if (verbose) {
         Logger::stream(LogLevel::INFO) << "Target format: " << targetFormat << "\n";
         if (!outputDir.empty() && !validateMode && !statsMode) {

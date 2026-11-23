@@ -358,7 +358,7 @@ These work on sector-based images. Track, sector and offset are decimal; every n
 disk45 dump <image> [track] [sector]
 ```
 
-Hex dump with ASCII. No arguments: sector 0 of the header track (`BAM / Header:`; 18/0 on a D64/D71, 40/0 on a D81/D65, 39/0 on a D80/D82; on a D90/D60 it is 76/0 and on a CMD native partition 1/0, the boot block, not the header). A track only: every sector of that track.
+Hex dump with ASCII. No arguments: the format's header sector (`BAM / Header:`; 18/0 on a D64/D71, 40/0 on a D81/D65, 39/0 on a D80/D82, 76/20 on a D90/D60, 1/1 on a CMD native partition; #736). A track only: every sector of that track.
 
 #### bread
 

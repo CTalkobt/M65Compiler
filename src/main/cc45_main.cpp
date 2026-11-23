@@ -758,14 +758,23 @@ int main(int argc, char** argv) {
         } else if (arg.substr(0, 2) == "-I") {
             includePaths.push_back(arg.substr(2));
         } else if (arg.substr(0, 2) == "-D") {
-            size_t eq = arg.find('=');
-            if (eq != std::string::npos) {
-                std::string name = arg.substr(2, eq - 2);
-                std::string valStr = arg.substr(eq + 1);
-                symbols[name] = valStr;
-            } else {
-                symbols[arg.substr(2)] = "1";
+            // -DNAME[=V], or -D NAME[=V] as GCC takes it (#723: -D alone
+            // defined an empty name and NAME became the input file)
+            std::string def = arg.substr(2);
+            if (def.empty()) {
+                if (i + 1 >= allArgs.size()) {
+                    std::cerr << programName << ": error: -D needs a macro name" << std::endl;
+                    return 1;
+                }
+                def = allArgs[++i];
             }
+            size_t eq = def.find('=');
+            std::string name = eq == std::string::npos ? def : def.substr(0, eq);
+            if (name.empty()) {
+                std::cerr << programName << ": error: -D" << def << ": no macro name" << std::endl;
+                return 1;
+            }
+            symbols[name] = eq == std::string::npos ? "1" : def.substr(eq + 1);
         } else if (arg.size() > 2 && arg.compare(0, 2, "-f") == 0) {
             // -f<optimization> / -fno-<optimization> (OptimizationCatalog)
             bool enable = arg.compare(0, 5, "-fno-") != 0;

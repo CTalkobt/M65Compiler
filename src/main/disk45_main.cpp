@@ -1609,12 +1609,14 @@ static int cmdDump(int argc, char** argv) {
             }
         }
     } else {
-        // No track/sector: dump BAM/header (directory track, sector 0)
-        int dirT = img->headerTrack();
-        const uint8_t* data = img->sectorData(dirT, 0);
+        // No track/sector: the format's header sector (sector 0 of the
+        // directory track for most; 1/1 on CMD native, 76/20 on D90 / D60:
+        // it was always sector 0, #736)
+        TrackSector hs = img->headerSector();
+        const uint8_t* data = img->sectorData(hs.track, hs.sector);
         if (data) {
             std::cout << "BAM / Header:\n";
-            hexDumpSector(data, dirT, 0);
+            hexDumpSector(data, hs.track, hs.sector);
         }
     }
     return 0;

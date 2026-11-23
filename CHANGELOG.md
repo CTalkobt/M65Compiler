@@ -4,6 +4,22 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### Output defaults, options and messages from the November documentation check (#723, #726, #729, #736, #739, #740)
+
+- cc45 / cp45 without `-o` (#726): cp45 and `cc45 -E` print the preprocessed text to standard output (also with
+  `-o -`), as `cpp` and `gcc -E`; it went to `<input>.prg`. A program built without `-o` is `a.prg` (was
+  `<input>.prg`); `-c` and `-S` keep `<input>.o45` / `<input>.s45`.
+- cc45 / cp45: `-D NAME[=V]` with a space is `-DNAME[=V]`; it defined an empty name and took `NAME` as the input file;
+  a `-D` without a name is an error (#723).
+- ca45: an unknown option is an error (`ca45: error: unknown option '-bogus' (ca45 --help)`), and so is a second
+  input file; both were taken as the input file's name, the last one winning, silently (#729). al45 still warns.
+- disk45 `dump` with no track shows the format's header sector: 1/1 on a CMD native partition, 76/20 on D90 / D60
+  (was sector 0 of the header track, the boot block there) (#736).
+- basic45 `--format`: `for` / `next` and `do` / `loop` count anywhere in a line, as `:`-separated statements
+  (`print i : next` closes the `for` above; `next j, i` two) (#739).
+- asmCvt45: `-o -` is standard output (one input); a `;` / `#` comment after a `.asmCvt45rc` value is no longer part
+  of it (#740).
+
 ### Bugs from the November documentation check (#721, #722, #724, #727, #728, #733, #734, #735, #740)
 
 - cc45: a call's argument count is checked against a prototype (`too many arguments to 'f': 3 given, 2 expected`,

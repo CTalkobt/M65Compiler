@@ -936,7 +936,7 @@ pointers and the source lines.
 
 ## Formatting
 
-`basic45 --format prog.bas` prints the source with keywords in lower case, one space between words outside strings, code indented two spaces plus two per open block (`if … then`/`else`/`endif`, `proc`/`endproc`, `select`/`case`/`endselect`, `for`/`next`, `do`/`loop`) and labels in column 0. Strings, `REM` and `DATA` text, `#` lines, `'` comments (re-indented) and `asm` blocks are kept as written. With `-o` the result goes to a file. The formatted source builds to the same program, and formatting it again changes nothing. A block is closed only by a line that starts with its end: `for i = 1 to 3` on one line and `print i : next` on the next leave the lines after them indented one level more (a `for` and its `next` on one line open nothing).
+`basic45 --format prog.bas` prints the source with keywords in lower case, one space between words outside strings, code indented two spaces plus two per open block (`if … then`/`else`/`endif`, `proc`/`endproc`, `select`/`case`/`endselect`, `for`/`next`, `do`/`loop`) and labels in column 0. Strings, `REM` and `DATA` text, `#` lines, `'` comments (re-indented) and `asm` blocks are kept as written. With `-o` the result goes to a file. The formatted source builds to the same program, and formatting it again changes nothing. `for` / `next` and `do` / `loop` count anywhere in a line, as `:`-separated statements (`print i : next` closes the `for` above it, `next j, i` two; a `for` and its `next` on one line open nothing; #739).
 
 ## DATA Loaders (`--data-loader`)
 

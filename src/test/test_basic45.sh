@@ -686,5 +686,12 @@ else
     fail "compiled procs' errors (#577, #682, #683)"
 fi
 
+# #739: --format: NEXT / LOOP later in a line close their block; next j, i closes two
+printf 'for i=1 to 3\nprint i : next\nprint 1\nfor i=1 to 2\nfor j=1 to 2\nprint j\nnext j, i\nprint 2\ndo\nprint 3 : loop until x\nprint 4\n' > "$D/f739.bas"
+printf '  for i=1 to 3\n    print i : next\n  print 1\n  for i=1 to 2\n    for j=1 to 2\n      print j\n    next j, i\n  print 2\n  do\n    print 3 : loop until x\n  print 4\n' > "$D/f739.want"
+$B --format "$D/f739.bas" > "$D/f739.out" 2>&1 && diff -q "$D/f739.out" "$D/f739.want" >/dev/null &&
+    pass "--format: a NEXT / LOOP after ':' closes its block, next j, i two (#739)" ||
+    fail "--format NEXT later in a line (#739): $(diff "$D/f739.want" "$D/f739.out" | head -5)"
+
 echo "basic45 tests: $passed passed, $failed failed"
 [ $failed -eq 0 ]

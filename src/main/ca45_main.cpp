@@ -707,6 +707,15 @@ int main(int argc, char** argv) {
         } else if (lintMode && arg.size() > 1 && arg[0] == '-') {
             // (as cl45, #708: ca45 takes such an argument as the input file's name)
             std::cerr << "al45: warning: unknown option '" << arg << "' ignored" << std::endl;
+        } else if (arg.size() > 1 && arg[0] == '-') {
+            // (it was taken as the input file's name, silently, #729)
+            std::cerr << "ca45: error: unknown option '" << arg << "' (ca45 --help)" << std::endl;
+            return 1;
+        } else if (!input_file.empty() && !lintMode) {
+            // (the last one won, #729)
+            std::cerr << "ca45: error: more than one input file ('" << input_file << "', '" << arg
+                      << "'): ca45 assembles one file" << std::endl;
+            return 1;
         } else {
             input_file = arg;
         }

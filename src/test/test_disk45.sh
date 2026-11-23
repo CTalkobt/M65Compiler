@@ -1067,6 +1067,13 @@ else
     fail "hex placement / dump numbers (#735): $($DISK45 chain "$H735" P 2>&1 | tr '\n' ' ')"
 fi
 
+# #736: dump without a track shows the format's header sector (CMD native 1/1, D90 76/20)
+H736="$TMPDIR/h736"; ok736=1
+$DISK45 create "$H736.dnp" >/dev/null 2>&1; $DISK45 dump "$H736.dnp" 2>/dev/null | grep -q '^Track 1, Sector 1:' || ok736=0
+$DISK45 create "$H736.d90" >/dev/null 2>&1; $DISK45 dump "$H736.d90" 2>/dev/null | grep -q '^Track 76, Sector 20:' || ok736=0
+$DISK45 create "$H736.d81" >/dev/null 2>&1; $DISK45 dump "$H736.d81" 2>/dev/null | grep -q '^Track 40, Sector 0:' || ok736=0
+[ $ok736 = 1 ] && pass "dump without a track: the header sector (DNP 1/1, D90 76/20, D81 40/0) (#736)" || fail "dump's header sector (#736)"
+
 # ============================================================================
 echo ""
 echo "disk45 tests: $passed passed, $failed failed"
