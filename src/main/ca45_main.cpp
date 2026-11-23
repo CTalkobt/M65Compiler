@@ -890,6 +890,19 @@ int main(int argc, char** argv) {
                 }
                 if (undefinedTargets) return 1;
             }
+            // a .zar block without its size exported: ln45 would reserve no
+            // bytes for it, and other blocks could take them (#716)
+            for (const auto& z : parser.zarBlocks) {
+                std::string sz = "cc45.zarsize." + z.proc;
+                const auto& symtab = parser.getSymbolTable();
+                auto it = symtab.find(sz);
+                bool exported = it != symtab.end() && it->second.segment != "__extern__" && it->second.value > 0 &&
+                                (parser.isGlobalSymbol(sz) || parser.isWeakSymbol(sz));
+                if (!exported)
+                    std::cerr << (z.file.empty() ? input_file : z.file) << ":" << z.line << ": warning: the .zar block of '"
+                              << z.proc << "' has no size: export it (.global " << sz << " / " << sz
+                              << " = <bytes>), or ln45 reserves no base-page bytes for it" << std::endl;
+            }
             auto o45 = emitO45(parser);
             if (!o45.empty()) {
                 std::ofstream out(output_file, std::ios::binary);

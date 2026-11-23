@@ -1187,6 +1187,11 @@ bool O45Linker::resolveSymbols(std::string& errorMsg) {
                 const std::string& n = imp.name;
                 if (n.size() <= 5 || n.compare(n.size() - 5, 5, "__zar") != 0 || globalSymbols_.count(n)) continue;
                 auto it = zarOffset_.find(n.substr(0, n.size() - 5));
+                // (no cc45.zarsize.<f>: no bytes reserved, other blocks may take them, #716)
+                if (it == zarOffset_.end() && warnStream_)
+                    *warnStream_ << "ln45: warning: '" << n << "' (in " << input.filename << "): no cc45.zarsize."
+                                 << n.substr(0, n.size() - 5) << " gives the size of its base-page block, so no bytes"
+                                 << " are reserved for it and other blocks may use them" << std::endl;
                 globalSymbols_[n] = page + (it != zarOffset_.end() ? it->second : zarLo_);
                 symbolSource_[n] = "<linker>";
                 symbolWeak_[n] = false;

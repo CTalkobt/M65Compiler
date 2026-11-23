@@ -344,6 +344,12 @@ private:
     std::set<int> zpYWarned_;                    // operand tokens already warned for zp → absolute
     std::set<std::string> weakSymbols;           // symbols declared with .weak
     std::vector<std::string> externSymbols;      // symbols declared with .extern (ordered)
+public:
+    // The procs with a .zar block, where it is declared (#716: ca45 -c warns
+    // when the block's size, cc45.zarsize.<proc>, is not exported)
+    struct ZarBlock { std::string proc, file; int line; };
+    std::vector<ZarBlock> zarBlocks;
+private:
     std::map<std::string, uint32_t> externIndex; // name -> index in externSymbols
 
     std::map<std::string, ArrayInfo> arrayInfos;
