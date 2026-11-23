@@ -275,9 +275,9 @@ What a SAC function looks like:
     bit 7 set and no address, which only moves past its slot
     (`lib/stdlib_asm/zp_args.s45`, `test_zp_args_xemu.c`). The lists are
     smaller but about 300 cycles a call slower: `-fzp-args` (#359) uses them
-    at `-O1`, `-O2` and `-Os`; from `-O3` / `-Ospeed`, with `-fno-zp-args` or
-    `#pragma cc45 optimize(no-zp-args)` before a function, both conventions
-    copy inline (`test_zp_args_speed_xemu.c`).
+    at `-O1`, `-O2` and `-Os`; at `-O0`, from `-O3` / `-Ospeed`, with
+    `-fno-zp-args` or `#pragma cc45 optimize(no-zp-args)` before a function,
+    both conventions copy inline (`test_zp_args_speed_xemu.c`).
   - `<fn>__sac` is the entry past that thunk.
 - **Leaf functions in ZP mode keep their parameters in the ZP block.** A
   ZP-convention function that makes no calls and has no inline asm or float
@@ -299,8 +299,9 @@ What a SAC function looks like:
 - **Constant parameters.** For a `static` function whose address is never
   taken (so every call is in the file), a parameter that gets the same
   constant from every call has its storage initialised in the data segment
-  (for example `_add3__param_a: .word 1`), and SAC callers in stack mode skip
-  the store. An exported, weak or address-taken function is never treated
+  (for example `_add3__t__param_a: .word 1` for `static int add3` in `t.c`:
+  a `static` function's symbol carries its file's name), and SAC callers in
+  stack mode skip the store. An exported, weak or address-taken function is never treated
   this way: another module or an indirect call enters through the normal
   entry, which overwrites the storage (`test_constparam_xemu.c`).
 - **Object metadata.** The function carries
@@ -560,6 +561,10 @@ convention).
 
 `__exit` then:
 
+- calls the weak exit hooks `__ovl_exit` (mapped overlays: the ROM's map
+  back), `__romram_exit` (`rom_ram.h`: the ROM area write-protected again)
+  and `__irqhook_exit` (basic45 `--compile`'s interrupt hook out), each an
+  `rts` unless linked;
 - sets B back to 0;
 - stores A:X as the exit status at `$FD/$FE` (`abort()` stores `$FFFE`);
 - restores the caller's 8-bit stack and flags;
@@ -689,8 +694,9 @@ _f:     jsr __ovl_calli
 `--overlay-fast-stubs`). `__ovl_calli` reads the id and the address after
 its return address and pulls that address off, so the caller's own return
 address is on top again; `__ovl_call` (`lib/stdlib_asm/ovl.s45`) moves it
-to the overlay return stack with the overlay to bring back, maps the
-overlay in (or copies it by DMA), and jumps to the function with its
+to the overlay return stack with the overlay to bring back, copies the
+overlay in by DMA when it is not there (or maps it: `ovl_map.s45`, linked
+only for `--overlay-map` and `__far` overlays), and jumps to the function with its
 return address replaced by `__ovl_ret`'s. The stack is otherwise as the
 caller left it, so both conventions find their arguments (the ZP block or
 the stack) where they expect them; A, X, Y, Z go in unchanged and come back
@@ -710,6 +716,7 @@ $ cc45 -O2 -c farfn.c -o farfn.o45
 $ ln45 -basic -M farfn.map -o farfn.prg farfn.o45 lib/build/c45.lib
 Code overlays: farfn.ov1 (11 bytes; loaded as FARFN.OV1), described in farfn.ovd
 Linked 1 object to farfn.prg (1590 bytes)
+Map file: farfn.map
 $ grep '_triple ' farfn.map
   $0003  cc45.sacsize._triple           farfn.o45
   $2587  _triple                        farfn.o45  [uses:- clob:- rel:- regs:AXY]  [stub: overlay far1, $6000]
@@ -730,8 +737,10 @@ The stub's last three bytes are its data, disassembled as code: id `01`,
 the address `$6000`. `fp`'s initial value is `$2587`, the stub. The program
 exits 0 in xemu with `FARFN.OV1` on its `-8` disk. Limits: no
 `__interrupt` handler may be, or reach, an overlay function (the runtime is
-not reentrant: a link error); calls through overlays nest 32 deep
-(`--overlay-depth`). The rest is in [ln45](../bin/ln45.md#code-overlays).
+not reentrant: a link error); calls through overlays nest 32 deep by
+default (`--overlay-depth=N`, 1-255, 4 bytes an entry; ln45 writes the
+return stack after the stubs, #689), and a deeper nesting ends the program
+through crt0's `__abort` (exit status `$FFFE`). The rest is in [ln45](../bin/ln45.md#code-overlays).
 
 ## 12. Inspecting
 

@@ -26,13 +26,13 @@ Documents are separated by their function and scope:
 | `cl45` | C linter (the `cc45` binary run under the name `cl45`) | [bin/cl45.md](bin/cl45.md) |
 | `ln45` | Linker (`.o45` + `.lib` to PRG or flat binary) | [bin/ln45.md](bin/ln45.md) |
 | `ar45` | Archiver for `.lib` static libraries | [bin/ar45.md](bin/ar45.md) |
-| `nm45` | Symbol, attribute and relocation lister for `.o45` objects and `.lib` archives | [bin/nm45.md](bin/nm45.md) |
+| `nm45` | Symbol, attribute and relocation lister for `.o45` objects and ln45's `.ovd` / `.ov1` overlay files (a `.lib` is listed with `ar45 t`) | [bin/nm45.md](bin/nm45.md) |
 | `pack45` | Packer for the library's `unpack()` (`<unpack.h>`) | [bin/pack45.md](bin/pack45.md) |
 | `font45` | Fonts: bitmap fonts to 8x8 charsets or `<font.h>` fonts | [bin/font45.md](bin/font45.md) |
 | `tune45` | Music for the tune player (`<audio_tune.h>`): text or MIDI to data, playing, composing | [bin/tune45.md](bin/tune45.md) |
 | `deploy45` | A program or disk image to a MEGA65 (Ethernet, JTAG serial) or an Ultimate 64 | [bin/deploy45.md](bin/deploy45.md) |
 | `dbg45` | Source-level debugger for cc45 programs in xemu (VS Code through `--dap`) | [bin/dbg45.md](bin/dbg45.md) |
-| `objdump45` | Object, PRG and binary inspector and disassembler | [bin/objdump45.md](bin/objdump45.md) |
+| `objdump45` | Object, PRG, binary and overlay-file inspector and disassembler (also as a web page, a tree or JSON) | [bin/objdump45.md](bin/objdump45.md) |
 | `disk45` | CBM disk/tape/archive image utility | [bin/disk45.md](bin/disk45.md) |
 | `basic45` | BASIC 65 program generator | [bin/basic45.md](bin/basic45.md) |
 | `asmCvt45` | Assembly source format converter | [bin/asmCvt45.md](bin/asmCvt45.md) |
@@ -82,7 +82,7 @@ make install_local   # same with PREFIX=~/.local
 make man             # man pages from doc/bin/*.md (needs pandoc)
 ```
 
-`make install` puts the tools in `PREFIX/bin` (`cp45` and `cl45` as symlinks to `cc45`, `al45` and `af45` to `ca45`), the three libraries in `PREFIX/lib/cc45` and the headers in `PREFIX/include/cc45`. `make test-xemu` needs `xemu-xmega65` on the `PATH`; the steps of `make test` that run programs (`test_stdlib_new.sh`, `test_examples.sh`) use it when it is there and are skipped without it.
+`make install` puts the tools in `PREFIX/bin` (`cp45` and `cl45` as symlinks to `cc45`, `al45` and `af45` to `ca45`), the three libraries (with the `crt0*.o45` startup objects and `lib/symbols/*.sym`) in `PREFIX/lib/cc45` and the headers in `PREFIX/include/cc45`. `make test-xemu` needs `xemu-xmega65` on the `PATH`; the steps of `make test` that run programs (`test_stdlib_new.sh`, `test_examples.sh`) use it when it is there and are skipped without it.
 
 ---
 
@@ -91,7 +91,7 @@ make man             # man pages from doc/bin/*.md (needs pandoc)
 All documentation must follow these directory rules to keep it clean and avoid broken links. `src/test/check_docs.py` enforces them as one of the steps of `make test`.
 
 ### 1. File Placement & Naming
-- **No files in the root `doc/` directory** other than this `README.md`. The only subdirectories are `bin/`, `architecture/`, `examples/`, `ref/` and `archive/`.
+- **No files in the root `doc/` directory** other than this `README.md`. The only subdirectories are `bin/`, `architecture/`, `guide/`, `examples/`, `ref/` and `archive/`.
 - **`doc/guide/`** contains the tutorials, markdown only (`.md`, no subdirectories). Their commands are run by `src/test/test_guides.py` (`make test`): see [guide/README.md](guide/README.md).
 - **`doc/examples/`** contains `README.md` (the examples) and `images/` (their screenshots, `.png`, made by `examples/capture_screens.py`).
 - **`doc/bin/`** contains only documentation for toolchain binaries. Allowed files:

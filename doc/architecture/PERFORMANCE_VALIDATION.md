@@ -12,7 +12,11 @@ for f in "" "-O0" "-O1" "-O2" "-O3" "-fno-staticalloc" "-fno-zpcall" "-fno-zpcal
 done
 ```
 
+The empty flag set is cc45's default level, `-O2`, unless a `~/.config/m65/cc45.conf` sets another (its options come before the command line's); give an explicit `-O<n>` with each set to compare levels independently of it.
+
 For a per-function view, compare the assembly (`bin/cc45 -S $f prog.c -o prog.s45`) or the disassembly of the object (`bin/cc45 -c $f prog.c -o prog.o45; bin/objdump45 -d prog.o45`). The PRG size includes the CRT and every library member the program pulls in, so for small programs most of the difference between conventions comes from the program's own code and the CRT is a fixed cost.
+
+To see where the bytes go by IR operation, `src/test/opsize.py <tree> <out.json> <cc45 flags> -- <files.c>` compiles each file with `CC45_OPMARK=1 -S`, assembles it with `ca45 --source-map` and totals the code bytes after each operation marker (JSON: the totals and each file's); compare two runs to see what a change saved.
 
 Individual optimizations can be switched on and off with `-f<name>` / `-fno-<name>` or `#pragma cc45 optimize(...)`; see [optimizations.md](optimizations.md).
 

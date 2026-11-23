@@ -41,7 +41,7 @@ asmCvt45 [options] <input-file> [<input-file> ...]
 | `-?`, `-h`, `--help` | Show usage |
 | `-V`, `--version` | Show version |
 
-With one input and no `-o`, the result goes to stdout. With several inputs and no `-o`, each result is written to `<basename><target extension>` in the current directory. The exit status is 1 if any file failed.
+With one input and no `-o`, the result goes to stdout. With several inputs and no `-o`, each result is written to `<basename><target extension>` in the current directory. `-o -` is not stdout: it writes a file named `-` (leave out `-o` for stdout), and an input named `-` is refused (`Unknown option: -`; there is no reading from stdin). An unknown option prints `Unknown option: X` and the usage, exit status 1. The exit status is 1 if any file failed.
 
 ### Input format detection
 
@@ -115,17 +115,22 @@ The block does not name the file (several files: their blocks in order). Labels:
 
 ## Configuration File (`.asmCvt45rc`)
 
-asmCvt45 looks for `.asmCvt45rc` in the current directory and then in each parent directory, and uses the first one found (a `.cvtasmrc`, the file's name when the tool was `cvt_asm`, is read too). Lines starting with `;` or `#` are comments; settings are `key = value` in sections. Command-line options override them.
+asmCvt45 looks for `.asmCvt45rc` in the current directory and then in each parent directory, and uses the first one found (a `.cvtasmrc`, the file's name when the tool was `cvt_asm`, is read too). Lines starting with `;` or `#` are comments; settings are `key = value` in sections, the value the rest of the line: a comment after a value is part of it (`default_format = ca45 ; x` asks for the format `ca45 ; x`), so put comments on lines of their own. Booleans are `true`, `1` or `yes`, anything else false; a `default_threads` that is not a number stops asmCvt45 (`std::invalid_argument`). Unknown keys and sections are ignored. Command-line options override them.
 
 ```ini
 [general]
-default_format = ca45          ; default -t
-default_threads = 0            ; --threads (0 = auto)
-output_dir =                   ; default -o
-validate_round_trip = false    ; act as if --validate were given
-clear_cache_per_batch = false  ; --clear-cache
-parallel_default = false       ; --parallel
-metrics_default = false        ; --metrics
+; default -t
+default_format = ca45
+; --threads (0 = auto)
+default_threads = 0
+; default -o
+output_dir =
+; act as if --validate were given
+validate_round_trip = false
+; --clear-cache, --parallel, --metrics
+clear_cache_per_batch = false
+parallel_default = false
+metrics_default = false
 
 [paths]
 library_paths = .:./include:./macros

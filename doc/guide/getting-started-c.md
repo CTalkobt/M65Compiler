@@ -302,7 +302,7 @@ $ cc45 -O2 colours.c -o colours.prg
 
 The library's headers are listed in [stdlib.md](../architecture/stdlib.md): files (`<stdio.h>` on the disk drive,
 `<cbm.h>`), far memory beyond 64 KB (`<far_ptr.h>`, `__far` pointers), DMA, sprites, graphics (`<tgi.h>`),
-sound and music (`<audio_tune.h>`), the real-time clock, the joystick and mouse.
+sound and music (`<audio_tune.h>`), the real-time clock and the joystick (`<joystick.h>`, `<input.h>`).
 
 ## 8. Debugging
 

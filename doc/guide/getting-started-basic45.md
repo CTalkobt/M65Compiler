@@ -213,7 +213,7 @@ $ basic45 --compile primes.bas -o primes-fast.prg
 
 With `LIMIT` at 5000, the interpreter takes 4.6 seconds on xemu, the compiled program 1.8, and 1.2 with
 `--speed` (floating point by the library's routines in RAM instead of the ROM's). The compiled program is larger
-(4.5 KB here, against 182 bytes of BASIC): it carries the run time it uses.
+(4.5 KB here, against 197 bytes of BASIC): it carries the run time it uses.
 
 - `--checks` compiles the interpreter's checks of the program's values (`?ILLEGAL QUANTITY`, subscripts, `RETURN`
   without `GOSUB`...); without it, a compiled program takes them as tested. `--line-numbers` keeps the line

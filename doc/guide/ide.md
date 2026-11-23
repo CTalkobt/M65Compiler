@@ -12,7 +12,8 @@ The language server (`tools/ide/lsp-server`, Node.js 18 or newer; one file, `dis
 
 - **Diagnostics** as you type, saved or not: `cc45 -c` on C files, `ca45 -c` on assembly (`.s45`, `.asm`), on a
   copy of the text, after `m65.diagnostics.debounceMs` (500 ms). cc45 stops at its first error, so one error at
-  a time; a header alone is checked through the files that include it.
+  a time; a header is not compiled alone: an error in it is shown on the first line of a C file that includes
+  it, with the header's name and line.
 - **Lint findings** beside them (`m65.lint.enabled`, on by default): cl45 on C, al45 on assembly, with the
   rule as the diagnostic's code (`mega65-io-not-volatile`) and the project's `.cc45-lint.yml` applied
   ([cl45](../bin/cl45.md), [al45](../bin/al45.md)).

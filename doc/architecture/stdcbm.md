@@ -123,7 +123,7 @@ void print_at(char col, char row, char *msg) {
 
 | Function | Signature | Description |
 |----------|-----------|-------------|
-| `cbm_rdtim` | `int cbm_rdtim(void)` | Read the jiffy clock (1/60 s ticks, KERNAL `$FFDE`). Returns the low 16 bits of the 24-bit clock |
+| `cbm_rdtim` | `int cbm_rdtim(void)` | KERNAL RDTIM (`$FFDE`): RDTIM's Y in the low byte, X in the high byte. On the C64 that is the low 16 bits of the jiffy clock (1/60 s ticks); the MEGA65's (C65) RDTIM returns the CIA 1 time of day in BCD (Y hours, X minutes, A seconds, Z tenths), so here it is the hours (low byte) and minutes (high byte), BCD (`$5220` at 20:52). For frames use `clock()` (`<time.h>`) |
 
 ## Serial Bus (IEC)
 

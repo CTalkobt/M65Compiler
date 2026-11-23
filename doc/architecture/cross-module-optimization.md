@@ -105,10 +105,10 @@ ln45: No dispatcher assembly to emit
 
 | Claim | Actual |
 |---|---|
-| "19% code reduction on `test_phase91_validation.c`", "11.8% on `test_phase91_tuning.c`" | One-step PRG sizes with the toolchain of 2026-11-18: validation 488 bytes at `-O0`, 454 at `-O1`, 453 at `-O2`; tuning 760 at `-O0`, 753 at `-O1`, 687 at `-O2`. The differences come from the ordinary IR passes and inlining within the file (`optimizations.md`), not from any of the code described here |
+| "19% code reduction on `test_phase91_validation.c`", "11.8% on `test_phase91_tuning.c`" | One-step PRG sizes with the toolchain of 2026-11-22: validation 491 bytes at `-O0`, 457 at `-O1`, 456 at `-O2`; tuning 763 at `-O0`, 756 at `-O1`, 690 at `-O2`. The differences come from the ordinary IR passes and inlining within the file (`optimizations.md`), not from any of the code described here |
 | Three-tier inlining heuristics (single caller < 20 bytes, leaf < 10, tiny with ≤ 3 call sites) | Exists only in the unlinked `IPOAnalyzer`. cc45 inlining uses statement count (≤ 20) and IR instruction count (≤ `max_inline_ir_size`, default 11), see `optimizations.md` |
 | Specialized variants such as `_compute_spec_5_3` and dispatcher stubs | Never generated |
-| Cross-module dead-code elimination | Not done. cc45 removes unused `static` functions within one file; ln45 pulls library members on demand but does not drop unused functions from linked objects (it warns `unused global symbol`) |
+| Cross-module dead-code elimination | Not by this code. cc45 removes unused `static` functions within one file; ln45 pulls library members on demand and drops the sections nothing live reaches (the library is built with `-ffunction-sections`; `--no-gc` keeps them), and with `cc45 -ffunction-sections` (`ln45 --gc-inputs`, which a one-step build then passes) the unreached functions of the program's own objects too ([ln45](../bin/ln45.md#dropping-unused-code---gc-inputs--u---print-gc)). Without it a linked object stays whole (ln45 warns `unused global symbol`) |
 | Bank assignment, co-location, bank-setup hoisting (Phase 99) | Not connected to cc45 or ln45 |
 | Link-time hint coordination, synergy bonuses (Phase 100) | Not connected to cc45 or ln45 |
 | Memory/time overhead figures, threshold-tuning results, "production-ready" | Not reproducible; the code does not run |

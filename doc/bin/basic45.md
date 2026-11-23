@@ -16,9 +16,9 @@
 - **Assembly and binary data** — `asm` … `endasm`, `incbin`, `datainc` ([Assembly and Binary Data](#assembly-and-binary-data))
 - **Calling C** — `--link file.c`: C functions called with `SYS {name}` ([Calling C Functions](#calling-c-functions-link))
 - **Compiled procs** — `proc name(a, b%) compiled`: chosen procs machine code, the rest of the program interpreted ([Compiled Procs](#compiled-procs-proc--compiled))
-- **Compiling** — `--compile`: the program as machine code, through cc45's IR and code generator; BASIC 65 but for the statements that work on the program's text and five functions ([Compiling](#compiling-compile))
+- **Compiling** — `--compile`: the program as machine code, through cc45's IR and code generator; BASIC 65 but for the statements that work on the program's text ([Compiling](#compiling-compile))
 - **Listing, source map, decompiler** — `--list`, `--source-map`, `--decompile` ([Listing, Source Map and Decompiling](#listing-source-map-and-decompiling))
-- **Converting other dialects** — `--convert=basic7`, `basic35`, `simons`, `basic8`: a BASIC 7.0 (C128), BASIC 3.5 (C16 / Plus/4), Simons' BASIC (C64) or BASIC 8 (C128) program as BASIC 65 source ([Converting BASIC 7.0 Programs](#converting-basic-70-programs-convertbasic7))
+- **Converting other dialects** — `--convert=basic7`, `basic35`, `simons`, `tsbneo`, `basic8`: a BASIC 7.0 (C128), BASIC 3.5 (C16 / Plus/4), Simons' BASIC / TSB (C64), TSBneo or BASIC 8 (C128) program as BASIC 65 source ([Converting BASIC 7.0 Programs](#converting-basic-70-programs-convertbasic7))
 - **Disk image, emulator, hardware** — `--disk`, `--emulator` (xemu), `--send` (a MEGA65), `--watch`
 - **Formatting** — `--format` ([Formatting](#formatting))
 - **Markdown documentation** of labeled sections (`--docs`)
@@ -42,9 +42,9 @@ Without `-o` the output is the input name with its extension replaced by `.prg` 
 |--------|-------------|
 | `-o <file>` | Output file (default: `<input>.prg`) |
 | `--symbols <file>` | Load a symbol file for `{...}` substitution |
-| `--load <addr>` | Load address, hex (`2001`, `0x2001`; default `2001`, where BASIC 65 programs start; `0801` is the C64's) |
+| `--load <addr>` | Load address, hex up to `FFFF` (`2001`, `$2001`, `0x2001`; default `2001`, where BASIC 65 programs start; `0801` is the C64's) |
 | `--increment <n>` | Line numbering: the first line is `n`, then `2n`, `3n`, ... (default 10; `n` from 1 to 63999, anything else an error). Numbers end at 63999 (an error past that) |
-| `--label-table <file>` | Write a tab-separated label table: label, line number, address of the line |
+| `--label-table <file>` | Write a tab-separated label table: a header line, then label, line number, address of the line (`start\t10\t0x2001`) |
 | `--docs <file>` | Write markdown documentation of labeled sections |
 | `-I <path>` | Include search path for `#include` (one path; a later `-I` replaces an earlier one) |
 | `--minify` | Remove `REM` and `'` comments and whitespace (a blank stays where two names, keywords or numbers would run together, `_` counted as a name's character: `goto __endif1`; and before a `$` hex or `%` binary constant after one: `poke $d1`), and join lines into the line before them: never across a label (a jump target starts its own line), never onto a line containing `IF` (statements after `THEN` run only when the condition holds), at most 160 characters per line |
@@ -57,10 +57,10 @@ Without `-o` the output is the input name with its extension replaced by `.prg` 
 | `--list` | Print each BASIC line's number and address next to its source file, line and text, and the variable renames |
 | `--keep-names` | Do not rename variables longer than two characters ([Variable Names](#variable-names)) |
 | `--disk <image>` | Also add the program to a disk image (created when missing; the format follows the extension, e.g. `.d81`); an existing file of the same name is replaced |
-| `--disk-name <name>` | The program's name on the disk (default: the output file name without its extension; at most 16 characters) |
+| `--disk-name <name>` | The program's name on the disk (default: the output file name without its extension; at most 16 characters, a longer one is cut) |
 | `--emulator` | After writing the output, run it in xemu (`xemu-xmega65 -prgmode 65 -prg`), with the `--disk` image as drive 8 |
 | `--emulator-path <file>` | The xemu binary (default: `xemu-xmega65` found on `PATH`) |
-| `--send` | Send the program to a MEGA65 and run it: `etherload -r <prg>` (mega65-tools, over Ethernet) when `etherload` is on `PATH`, else `m65 -F -r <prg>` (serial/JTAG). These defaults are not tested here (no MEGA65 attached); `--send-cmd` sets the command |
+| `--send` | Send the program to a MEGA65 and run it: `etherload -r <prg>` (mega65-tools, over Ethernet) when `etherload` is on `PATH`, else `m65 -F -r <prg>` (serial/JTAG). Neither on `PATH`: an error. These defaults are not tested here (no MEGA65 attached); `--send-cmd` sets the command |
 | `--send-cmd <command>` | The command for `--send` (which it implies), `{prg}` standing for the program file, shell-quoted (e.g. `--send-cmd "etherload -i 192.168.1.65 -r {prg}"`) |
 | `--encoding <e>` | Encoding of strings without a prefix: `upper` (default), `petscii`, `screencode`, `ascii` ([Strings and Escape Sequences](#strings-and-escape-sequences)) |
 | `--report` | Print the memory use: the BASIC program's range and size, the linked code, the free program space up to `$F6FF`, the longest line, the number of scalar variables (of 256) and arrays |
@@ -70,7 +70,7 @@ Without `-o` the output is the input name with its extension replaced by `.prg` 
 | `--map <file>` | Write the link map of a `--link` or `--compile` build: `ln45 -M` (segments, objects, symbols with their addresses, the call graph, calls through pointers, base-page blocks; see [ln45's map](ln45.md#map-file-format)). A warning without either option (nothing is linked) |
 | `--link-align=N` | Start the `--link` code at the first multiple of `N` after the program: a power of 2 from 1 to 32768, default 256 (a page boundary); 1 puts it right after the program, saving up to 255 bytes of bank 0 ([Calling C Functions](#calling-c-functions-link)). Not used with `--compile` |
 | `--stack-page=P` | The CPU stack of a `--link` or `--compile` build in page `P` (`$17`: `$1700`-`$17FF`) or `basic` (BASIC's own page-1 stack): passed to `ln45 --stack-page` ([ln45](ln45.md)). Without it: as before |
-| `--overlay-store=R`, `--overlay-staging=B`, `--overlay-name=N`, `--overlay-region=R`, `--pack-overlays`, `--overlay-fast-stubs`, `--overlay-no-load`, `--overlay-depth=N` | The [code overlays](#code-overlays) of a `--link` or `--compile` build: passed to ln45 ([ln45](ln45.md#code-overlays)); the files written next to the output (`.ov1`, …, `.ovd`), and with `--disk` added to the disk. An error without `--link` or `--compile` |
+| `--overlay-store=R`, `--overlay-staging=B`, `--overlay-name=N`, `--overlay-region=R`, `--pack-overlays`, `--overlay-fast-stubs`, `--overlay-no-load`, `--overlay-depth=N` | The [code overlays](#code-overlays) of a `--link` or `--compile` build: passed to ln45 ([ln45](ln45.md#code-overlays)); the files written next to the output (`.ov1`, …, `.ovd`), and with `--disk` added to the disk. An error without `--link` or `--compile`; a warning when the linked code has no overlays |
 | `--decompile` | Turn a tokenized BASIC `.prg` into basic45 source ([Listing, Source Map and Decompiling](#listing-source-map-and-decompiling)) |
 | `--compile` | Compile the program (the source, or a tokenized BASIC 65 `.prg`) to machine code: a `.prg` started with `RUN` ([Compiling](#compiling-compile)) |
 | `-O0` … `-O4` | `--compile` (and the [compiled procs](#compiled-procs-proc--compiled)): cc45's optimization level (default `-O2`) |
@@ -86,7 +86,7 @@ Without `-o` the output is the input name with its extension replaced by `.prg` 
 | `--list-tokens` | List all keywords with their token values and exit |
 | `-v`, `--verbose` (… `-vvvv`, `-v0`) | Log on stderr as `[basic45:LEVEL] …` (the toolchain's format, `include/Logger.hpp`); cumulative, at most `-vvvv`; `-v0` off: the files, load address, included files, the ca45/ln45 commands of `--link`, the variable renames (`--list` prints those on stdout instead); notes for unused labels |
 | `-V`, `--version` | Show version |
-| `-h`, `--help` | Show help (exit status 0) |
+| `-h`, `-?`, `--help` | Show help (exit status 0) |
 
 ## Processing Steps
 
@@ -125,7 +125,7 @@ A classic listing, each line starting with its number, is a **numbered program**
 20 goto 10
 ```
 
-A program is numbered when any line starts with a number (no BASIC statement starts with a digit), and then every line with code needs one (`20print` works too). The numbers must ascend and stay at or below 63999, and every line a number jumps to must exist (BASIC's `?UNDEF'D STATEMENT`); a number alone on a line is an error (BASIC deletes such a line). Labels still work in a numbered program: a label names its line's number, a label alone the next line's.
+A program is numbered when any line starts with a number (no BASIC statement starts with a digit), and then every line with code needs one (`20print` works too). The numbers must ascend and stay at or below 63999, and every line a number jumps to must exist (BASIC's `?UNDEFINED STATEMENT`); a number alone on a line is an error (BASIC deletes such a line). Labels still work in a numbered program: a label names its line's number, a label alone the next line's.
 
 ### Validation
 
@@ -234,7 +234,7 @@ BASIC 65 tells variables apart by their first two characters (with the `$` / `%`
 - is not a reserved variable (`ST`, `TI`, `DS`, `ER`, `EL`),
 - is not a keyword of one or two characters (`TO`, `IF`, `ON`, `OR`, `GO`, `FN`, `DO`, ...), which would be read as the keyword when the line is listed and entered again,
 
-preferring the name's first two letters. The `$`, `%` and `&` (byte) suffixes, arrays and `FN` function names follow along (`def fn double(x)` becomes `DEF FN DU(X)`). A name after `$` or `%` (`$FF`, `%1010`) is a number, not a variable, and neither is a disk statement's parameter (`U8`, `L20`, `P8192`; `I` and a disk ID's two characters, written without quotes, letters and reserved names too: `HEADER "N", IAB`, `IST`; test `test_header_id_xemu.bas`). `--list` and `-v` print the renames (`SCORE->SR STORE->SO`); `--keep-names` turns renaming off.
+preferring the name's first two letters. The `$`, `%` and `&` (byte) suffixes, arrays and `FN` function names follow along (`def fn double(x)` becomes `DEF FN DU(X)`). A name after `$` or `%` (`$FF`, `%1010`) is a number, not a variable, and neither is a disk statement's parameter (`U8`, `L20`, `P8192`; `I` and a disk ID's two characters, written without quotes, letters and reserved names too: `HEADER "N", IAB`, `IST`; test `test_header_id_xemu.bas`). `--list` and `-v` print the renames (`SCALE->SA SCORE->SC STORE->SO`); `--keep-names` turns renaming off.
 
 ## Block IF and Procedures
 
@@ -333,7 +333,7 @@ basic45 --link main.c --link cold.c --overlay-store=0x40000-0x4FFFF \
         --overlay-region=_mod_area+6280 --disk prog.d81 prog.bas -o prog.prg
 ```
 
-- The overlay files go next to the output (`prog.ov1`, …, and `prog.ovd` for nm45 and objdump45) and, with `--disk`, onto the disk under the name the program loads them by (`--overlay-name`, default the output's name in upper case with `.OV1`: `PROG.OV1`). The first `SYS` into the C code loads them (`__basic_call` calls `__ovl_init`), from the drive the program came from.
+- The overlay files go next to the output (`prog.ov1`, …, and `prog.ovd` for nm45 and objdump45) and, with `--disk`, onto the disk under the name the program loads them by (`--overlay-name`, default the output's name in upper case, its first 12 characters, with `.OV1`: `PROG.OV1`). The first `SYS` into the C code loads them (`__basic_call` calls `__ovl_init`), from the drive the program came from.
 - By default the overlays run in a region below the stack's share; the code after a BASIC program usually fills bank 0, so `--overlay-region` puts them in an area of the program's own: `_mod_area+6280`, a C array it reuses. A program that writes over the area sets `__ovl_current` to 0 (`<overlay.h>`), and the next call copies the overlay in again.
 - Mapped overlays and `__far` functions are not for `--link` programs (they map `$4000`-`$7FFF`, where the program's code usually is).
 - **A smaller runtime** (#689): with `--overlay-no-load` the program loads the files itself (`BLOAD "PROG.OV1", B4 : BANK 128` before the first `SYS` into the C code: `BLOAD` leaves `BANK 4` current), and there is no loader in bank 0; `--overlay-depth=N` makes the overlay return stack `N` calls deep (default 32, 4 bytes each). See [ln45](ln45.md#a-smaller-runtime).
@@ -476,8 +476,9 @@ nested ones passed; none: `?LOOP NOT FOUND`). `READ` takes the items of the `DAT
 (the same rules as `INPUT`'s: `?OUT OF DATA`, `?TYPE MISMATCH`), `RESTORE n` from the first `DATA` at or after
 line `n`. `RND` is the ROM's (the interpreter's seed and sequence), `TI` CIA 2's timers as BASIC 65 reads them,
 `TI$` the clock (`"hh:mm:ss"`), `DT$` the date (b65.src `Get_DT_RTC`). The run time of these is `lib/stdlib/basic_in.c` (`INPUT`'s and `READ`'s
-items `lib/stdlib_asm/basic_items.s45`; `TI`, `TI$`, `DT$`, `CLR TI` and `SLEEP` `lib/stdlib_asm/basic_ti.s45`); reading a number,
-`lib/stdlib/basic_innum.c` (with `strtof`, linked only by a program that `INPUT`s or `READ`s a number).
+items `lib/stdlib_asm/basic_items.s45`; `TI`, `TI$`, `DT$`, `CLR TI` and `SLEEP` `lib/stdlib_asm/basic_ti.s45`); reading a number
+(and `VAL`), `lib/stdlib_asm/basic_fin.s45` (`strtof`'s steps with the same float operations, in assembly: the C library's
+`strtof` is not linked).
 
 **Files**: `OPEN lf [, device [, secondary [, name]]]` (no device: the default drive, secondary 0; a device
 without one: 0 below device 4, else none, as the ROM's `paoc`), `CLOSE lf`, and the channels through the KERNAL's
@@ -583,7 +584,7 @@ and `COLLISION`. The vector leads to a stub at `$0500` (BASIC's run-time stack, 
 use): while the program calls a ROM routine BASIC's ROM is where the program is, and the stub only counts the
 frame, moved at the next one. The program's end (and a `DLOAD`) puts the vector back. `COLLISION type, line` (a line
 number, or an expression: the line is then looked up when the statement runs, one that does not exist
-`?UNDEF'D STATEMENT` at the collision) is a `GOSUB` to the line at the next statement after a collision of that type (none while one runs; light
+`?UNDEFINED STATEMENT` at the collision) is a `GOSUB` to the line at the next statement after a collision of that type (none while one runs; light
 pen, sprite/background, sprite/sprite, as BASIC's `ngone`); `COLLISION type` turns it off. Test:
 `test_basic_compile9_xemu.bas`.
 
@@ -633,7 +634,7 @@ a byte of a chunk id: `?FILE DATA` is not given). The run time is about 20 KB
 
 **Checks**: a compiled program checks its own values and flow only with `--checks` (#489). Without it, what the
 interpreter stops with `?ILLEGAL QUANTITY`, `?BAD SUBSCRIPT` (a negative subscript), `?SYNTAX ERROR` when run,
-`?NEXT WITHOUT FOR`, `?RETURN WITHOUT GOSUB`, `?CAN'T RESUME`, `?UNDEF'D FUNCTION` or a full `GOSUB` stack is
+`?NEXT WITHOUT FOR`, `?RETURN WITHOUT GOSUB`, `?CAN'T RESUME`, `?UNDEFINED FUNCTION` or a full `GOSUB` stack is
 undefined: no check is compiled and the program goes on. A float made an integer, a byte or an address (AYINT,
 `AND` / `OR`'s 16 bits, `POKE`'s value, `CHR$`, `PEEK` / `POKE`'s address) goes through the run time's entries
 without their range checks too (`__bas_ayintu`, `__bas_getadr32u`: outside the range any value). Subscripts past
@@ -649,7 +650,7 @@ the trap's line with the CPU stack as at the start (BASIC's stack of `GOSUB`, `F
 does); `RESUME` turns it on again and goes back to the statement (`RESUME`), to the one after it (`RESUME NEXT`)
 or to a line; `?CAN'T RESUME` without an error. A trap's line is a number (`TRAP 100`) or an expression (`TRAP h + 10`, `TRAP (h)`; in basic45 source a name
 alone after `TRAP` is a label): the line is then looked up when an error comes, among all the program's lines (one
-that does not exist: `?UNDEF'D STATEMENT`; 65280 and above: no trap, as the ROM's). A program with `RESUME`
+that does not exist: `?UNDEFINED STATEMENT`; 65280 and above: no trap, as the ROM's). A program with `RESUME`
 without a line notes each statement's address as it runs: the statement starts with `jsr __bas_stmt` and the
 next statement's address in a `.word` (5 bytes), which sets `__bas_spc` (the call's own address) and `__bas_snext`
 (not for `REM`, `DATA` or an empty statement, which raise no error).
@@ -664,7 +665,7 @@ calls the KERNAL's `_jsr_far` as BASIC 65 does: the address as `POKE`'s (a 16-bi
 ROM's base page and page-1 stack, BASIC's interrupt off meanwhile. The registers are the ones given, else those the
 last `SYS` returned, which `RREG a, x, y, z, s` reads (an empty place skipped); the run time keeps them itself, as
 its float code calls the ROM through the same base-page bytes. `USR(x)` calls the `JMP` at `$02F7` with x in the
-ROM's FAC and the BASIC ROM mapped (the vector at the ROM's default: `?UNDEF'D FUNCTION`). `DMA` runs each job of
+ROM's FAC and the BASIC ROM mapped (the vector at the ROM's default: `?UNDEFINED FUNCTION`). `DMA` runs each job of
 its list (a chained one: `?ILLEGAL QUANTITY`), `EDMA` an enhanced job with 28-bit addresses. `FRE(n)`: a negative n
 gives the ROM's version (920413), 0 and 1 the heap's free bytes (a compiled program's strings and arrays are there),
 4 and 5 65535, others 0. **CLR** closes the files, clears `ER` / `EL` and the `TRAP`, sets every variable to 0 or
@@ -713,7 +714,7 @@ the interpreter's frame for frame. Test: `test_basic_compile20_xemu.bas`.
 `#` a digit or a character, `.` the point, `>` / `=` first a string right-justified / centred, `%[0]wD`, `%[0]wF`,
 `%[0]w.pF`, `%[0]wX` fields (0: zero padding; X: the floor in hexadecimal), `*`s when a number does not fit; the
 digits are FOUT's, rounded as the ROM rounds them (its 8-bit arithmetic and quirks kept); a comma after the value is
-passed over. **FGOTO / FGOSUB** compute their line (0 to 2^32 - 1, its low 16 bits; none: `?UNDEF'D STATEMENT`)
+passed over. **FGOTO / FGOSUB** compute their line (0 to 2^32 - 1, its low 16 bits; none: `?UNDEFINED STATEMENT`)
 through a dispatch over the program's lines (no `FOR` loop is then compiled as a counted one). **RUN** `[line]` is
 `CLR` and a jump; `RUN "name"` loads the program as `DLOAD` does, without passing variables. **KEY** (`KEY` alone
 lists them as the ROM does, `ON`, `OFF`, `RESTORE`, `LOAD`, `SAVE`, `n, string`) works on the editor's table at
@@ -748,7 +749,7 @@ these, `DIM` of a scalar, the `DEF FN` errors and the computed `TRAP` / `COLLISI
 in the interpreter. Each `FN name(...)` is the function's expression compiled where it is used, its parameter the
 argument (a variable of the same name keeps its value); `FN` before its `DEF` has run is `?UNDEFINED FUNCTION`. A
 function defined more than once is each of its expressions, the one of the `DEF` run last chosen when it is used. `VAL` follows the ROM's number syntax (a second point or `E`, or an `E`
-without digits: 0; it ends at another character), its value from `strtof` (correctly rounded). `INSTR`'s pattern
+without digits: 0; it ends at another character), its value as `strtof` reads it (`basic_fin.s45`; correctly rounded). `INSTR`'s pattern
 (a needle starting with a pound sign) searches the whole haystack from the position; the ROM without a position
 argument searches as far as a value left in its float accumulator says. `RPT$` is in BASIC 65 releases after 920413.
 
@@ -786,9 +787,9 @@ The run-time support is `lib/stdlib_asm/basic_rt.s45` (PRINT, the errors, BASIC'
 - `PEEK` of `$C000`-`$CFFF` reads RAM; the interpreter reads the ROM there.
 - Sprites still moving when the program ends stop there (the interpreter's interrupt goes on moving them); a
   `COLLISION` trap turned off forgets a collision not yet taken.
-- A number typed at `INPUT` or read from `DATA` is converted by the library's `strtof` (correctly rounded; its first
-  80 characters); the interpreter's own conversion can differ in the last bit, as for numbers in the program.
-- Arrays and strings share the program's heap, from the end of the program to the stack's 1 KB share below `$BC00`
+- A number typed at `INPUT` or read from `DATA` is converted as `strtof` converts it (`basic_fin.s45`; correctly rounded;
+  its first 80 characters); the interpreter's own conversion can differ in the last bit, as for numbers in the program.
+- Arrays and strings share the program's heap, from the end of the program to `$BC00` (the CPU stack's 1 KB share is above it, up to `$BFFF`)
   (some 15–30 KB, as large as the program is not); the interpreter keeps them in bank 1 (about 53 KB). A `DIM` that does not fit is
   `?OUT OF MEMORY`. With `--bank=1` (#580) the arrays and the string variables are in bank 1 as the interpreter's
   (`$2000`–`$F6FF`), with `--bank=4` or `--bank=5` in that bank (`$0100`–`$FFFE`; nothing else may use the bank:
@@ -821,7 +822,7 @@ Integer code is some 38 times as fast. Float arithmetic gains less: through the 
 operation calls it with `JSRFAR` (and once more to round the result), so a loop of floats only is 1.3 times as
 fast; the RAM routines of `--speed` make it about three times as fast, a float operation still being hundreds
 of cycles. The compiled program is about five times the size of the tokenized one, six with `--speed`
-(`test_basic_compile_xemu.bas`: 2,956 bytes → 15,051, `--speed` 18,890):
+(`test_basic_compile_xemu.bas`: 2,956 bytes → 14,068, `--speed` 17,907; with `--checks --line-numbers` 15,051 and 18,963):
 integers in 16 bits when their bounds allow, float constants as data and floats read and written in
 place (cc45's code generator), `__bas_line` stored only where a line that can raise an error is entered,
 `NEXT` one call (`__bas_next`: a FOR's entry holds its step code's address), conditions of comparisons
@@ -933,8 +934,9 @@ Call Graph
 without `--bank` the map has `__bas_aref` in its place. The map also has the symbols by address, the calls through
 pointers and the source lines.
 
+## Formatting
 
-`basic45 --format prog.bas` prints the source with keywords in lower case, one space between words outside strings, code indented two spaces plus two per open block (`if … then`/`else`/`endif`, `proc`/`endproc`, `select`/`case`/`endselect`, `for`/`next`, `do`/`loop`) and labels in column 0. Strings, `REM` and `DATA` text, `#` lines, `'` comments (re-indented) and `asm` blocks are kept as written. With `-o` the result goes to a file. The formatted source builds to the same program, and formatting it again changes nothing.
+`basic45 --format prog.bas` prints the source with keywords in lower case, one space between words outside strings, code indented two spaces plus two per open block (`if … then`/`else`/`endif`, `proc`/`endproc`, `select`/`case`/`endselect`, `for`/`next`, `do`/`loop`) and labels in column 0. Strings, `REM` and `DATA` text, `#` lines, `'` comments (re-indented) and `asm` blocks are kept as written. With `-o` the result goes to a file. The formatted source builds to the same program, and formatting it again changes nothing. A block is closed only by a line that starts with its end: `for i = 1 to 3` on one line and `print i : next` on the next leave the lines after them indented one level more (a `for` and its `next` on one line open nothing).
 
 ## DATA Loaders (`--data-loader`)
 
@@ -1345,7 +1347,7 @@ Directives start with `#` (leading whitespace allowed) and are removed from the 
 | `#else` / `#endif` | |
 | `#include "file"` | Insert a file (preprocessed). Searched relative to the including file, then in the `-I` path. A file is included only once. |
 
-There is no `#if`; any other `#...` line is dropped. Predefined macros: `__FILE__` (quoted input name), `__LINE__` (current line of the file being preprocessed), `__DATE__` (`"YYYY-MM-DD"`), `__TIME__` (`"HH:MM:SS"`).
+There is no `#if`; `#pragma` lines go on to the compiler (`#pragma encoding`), any other `#...` line is dropped. Predefined macros: `__FILE__` (quoted input name), `__LINE__` (current line of the file being preprocessed), `__DATE__` (`"YYYY-MM-DD"`), `__TIME__` (`"HH:MM:SS"`).
 
 ```basic
 #define MAXH 100

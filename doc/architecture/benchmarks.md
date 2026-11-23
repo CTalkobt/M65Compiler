@@ -37,14 +37,15 @@ python3 src/bench/run_bench.py --json r.json  # the results as JSON too
 | `--speed 1\|3\|40` | the CPU's speed while the benchmark runs (`$D031`/`$D054`). 1 (default) compares with the published results, all measured on a C64. |
 | `--cflags=OPTS` | cc45's options (default `-O2`; `-fsigned-default` is always added: the sources are standard C). `-fno-zpcall` links `c45_stack.lib`. |
 | `--xemu PATH` | the emulator (default `xemu-xmega65`, or `XEMU`) |
-| `--rom PATH` | the MEGA65 ROM xemu runs (default `MEGA65_ROM`, `/rom/MEGA65.ROM`, xemu's own) |
+| `--rom PATH` | the MEGA65 ROM xemu uses, read for the expected values of the benchmarks that read the KERNAL (not passed to xemu; default `MEGA65_ROM`, `/rom/MEGA65.ROM`, `~/.local/share/xemu-lgb/mega65/MEGA65.ROM`). Without one those four are reported `unchecked`. |
 | `--timeout S` | seconds per run (default 900) |
 | `--work DIR` | the download and build directory (default `build/bench`) |
 | `--json FILE` | write the results |
 | `--fetch-only` | download the suite and stop |
 
 It needs `bin/cc45`, `bin/ln45`, the library (`make lib`) and xemu; `openssl`
-for `aes256`'s check. The exit status is 1 when a benchmark does not build,
+for `aes256`'s check (without it `aes256` is `unchecked`). The programs are
+built in `build/bench/out-<speed>mhz/`. The exit status is 1 when a benchmark does not build,
 does not finish or gives a wrong result.
 
 ## The harness
@@ -99,6 +100,11 @@ with the 45GS02's instructions (`inw`, `asw`, 16-bit stack, the Z register,
 `ldq`…) and its cycle counts at that speed, and the C65 KERNAL's bytes for the
 CRCs (a CRC's time depends a little on its data). Read the times as a guide to
 where cc45 stands, not to a tenth of a second.
+
+`src/bench/basic_compile_bench.bas` is a different benchmark, of basic45
+`--compile` (#369): seven BASIC loops timed in frames, built interpreted,
+compiled and with `--speed`; it is run by hand and its results are in
+[../bin/basic45.md](../bin/basic45.md).
 
 ## Changing the suite
 

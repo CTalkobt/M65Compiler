@@ -43,7 +43,7 @@ The builder stage runs `make clean && make all && make -C lib` (with FUSE3 and S
 
 | Path | Contents |
 |------|----------|
-| `/usr/local/bin/` | everything in `bin/`: `cc45`, `cp45`, `cl45`, `ca45`, `al45`, `af45`, `ln45`, `ar45`, `nm45`, `objdump45`, `disk45`, `asmCvt45`, `basic45`, `pack45`, `font45`, `tune45`, `deploy45`, `dbg45` (plus the C++ test binaries) |
+| `/usr/local/bin/` | everything in `bin/`: `cc45`, `cp45`, `cl45`, `ca45`, `al45`, `af45`, `ln45`, `ar45`, `nm45`, `objdump45`, `disk45`, `asmCvt45`, `basic45`, `pack45`, `font45`, `tune45`, `deploy45`, `dbg45` (plus the C++ test binaries); and `xemu-xmega65` (the wrapper), `m65run`, `m65-entry.sh` |
 | `/usr/local/lib/cc45/` | `lib/build/`: `c45.lib` (ZP convention), `c45_zp.lib` (copy), `c45_stack.lib` (stack convention) and the `.o45` members |
 | `/usr/local/include/cc45/` | `lib/include/` (including `sys/`) |
 | `/opt/cc45/` | the full source tree (working directory) |
@@ -64,7 +64,7 @@ docker run --rm -v $(pwd):/work -v catalog:/catalog cc45 \
 
 Paths are inside the container, so pass `/work/...` (the working directory is `/opt/cc45`, not `/work`). Use `-l c45_stack.lib` for objects compiled with `-fno-zpcall`.
 
-Files written into `/work` are owned by root; add `--user $(id -u):$(id -g)` to keep your own ownership.
+Files written into `/work` are owned by the image's user, `m65` (uid 1000), and the container needs write access to the mounted directory; add `--user $(id -u):$(id -g)` to write them as yourself.
 
 For an interactive shell:
 
@@ -83,7 +83,7 @@ The image's user is `m65` (uid 1000; xemu does not run as root), who owns the so
 
 ## Alpine Image (`make docker`)
 
-`make docker` runs `docker build --build-arg GIT_HASH=<commit> -f src/Docker/Dockerfile -t mega65-cc45:latest .` (the commit the tools report with `--version`: `.git` is not in the build context) and then `docker save` to `bin/mega65-cc45.tar`, which can be loaded elsewhere with `docker load -i mega65-cc45.tar`. The suite is installed with `make install PREFIX=/app` (tools in `/app/bin`, libraries in `/app/lib/cc45`, headers in `/app/include/cc45`: the installed layout the tools find by themselves), the entrypoint is `cc45`, and the working directory `/work`:
+`make docker` runs `docker build --build-arg GIT_HASH=<commit> -f src/Docker/Dockerfile -t mega65-cc45:latest .` (the commit the tools report with `--version`: `.git` is not in the build context) and then `docker save` to `bin/mega65-cc45.tar`, which can be loaded elsewhere with `docker load -i mega65-cc45.tar`. The suite is installed with `make install PREFIX=/app` (tools in `/app/bin`, libraries in `/app/lib/cc45`, headers in `/app/include/cc45`: the installed layout the tools find by themselves), the entrypoint is `cc45` (default argument `--help`), the user root, and the working directory `/work`:
 
 ```bash
 docker run --rm -v "$PWD":/work --user $(id -u):$(id -g) mega65-cc45 -O2 hello.c -o hello.prg

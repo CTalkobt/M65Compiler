@@ -557,10 +557,11 @@ Each catalog optimization has a level from which it is on
 
 | Option | Level | Effect |
 |---|---|---|
-| `-O0` | 0 | No IR passes, no automatic inlining |
-| `-O1` | 1 | The IR passes |
-| `-O2`, `-O3` (default `-O2`) | 2, 3 | IR passes and automatic inlining of small functions. Identical output |
-| `-O4` … `-O9` | 4–9 | Adds loop interchange and loop unrolling. Identical output for all of them (the catalog entries for higher levels are not implemented) |
+| `-O0` | 0 | No IR passes, no automatic inlining, no SAC slot sharing; SAC entries copy their parameters inline (no `zp-args`, no `float-copy-call`) |
+| `-O1` | 1 | The IR passes, `sac-slot-sharing`, `zp-args`, `float-copy-call` |
+| `-O2` (default) | 2 | `-O1` and automatic inlining of small functions |
+| `-O3` | 3 | `-O2` for speed: `zp-args` and `float-copy-call` off (inline copies), string compares with literals inline up to 8 bytes (not 1), `strcpy(d, "lit")` as `memcpy`, `stridx` tries inline (the string builtins above) |
+| `-O4` … `-O9` | 4–9 | `-O3` and loop interchange and loop unrolling. Identical output for all of them (the catalog entries for higher levels are not implemented) |
 | `-Os`, `-Osize` | 2 | `-O2` with `-fmul-call` (multiplications as library calls) and `-fno-rotate-loops` (unless `-frotate-loops`) |
 | `-Ospeed` | 3 | `-O3` and `-ffast-float=1` (float `+ - * /` and comparisons by the RAM routines of `float_fast.s45`, `__ffast_add` …, about twice as fast as the ROM's and about 1 KB; `-ffast-float=0` / `-fno-fast-float` keeps the ROM's, `__float_add` …, which the library calls through its own map switch `__float_romcall`, #614) |
 | `-O` (no digit), any other `-O<text>` | 0 | **Same as `-O0`** (not `-O2`) |
@@ -598,12 +599,12 @@ wins (and with both, cc45 warns and ignores `always_inline`). A recursive
 `static` function are inlined, the function body is removed.
 
 Inlining can make the program larger or smaller. One-step PRG sizes (bytes;
-toolchain of 2026-11-18, `HOME` without a cc45.conf):
+toolchain of 2026-11-22, `HOME` without a cc45.conf):
 
 | File | `-O0` | `-O1` (IR passes) | `-O2` (IR passes + inlining) |
 |---|---|---|---|
-| `src/test-resources/test_phase91_validation.c` | 488 | 454 | 453 |
-| `src/test-resources/test_phase91_tuning.c` | 760 | 753 | 687 |
+| `src/test-resources/test_phase91_validation.c` | 491 | 457 | 456 |
+| `src/test-resources/test_phase91_tuning.c` | 763 | 756 | 690 |
 
 Use `-O1`, `-fno-inline-small-functions` or `-fmax-inline-ir-size=0` when
 inlining costs space (`-O2 -fmax-inline-ir-size=0` produced output identical
@@ -666,6 +667,7 @@ order after `-O`). `-Roptimizer` prints every change
 | `StoreLoadPair` | `store-load-pair` | Store/load pair simplification on ZP |
 | `PreserveXSP`, `TSXRedundant` | `preserve-x-sp`, `tsx-redundant` | Avoid reloading X from SP |
 | `TailDedup` | `tail-dedup`, `tail-dedup-suffix` | Merges identical tail sequences. A base-page operand of a proc with a `.zar` block is relocated against that proc's own block, so it matches only tails of the same proc (#327: a merged tail read another function's base-page bytes) |
+| `QuadMove` | `quad` | `sta x` / `stx x+1` / `sty x+2` / `stz x+3` (base page or absolute) → `stq x` (4 bytes instead of 8, 5 instead of 12); the same loads → `ldq x` when nothing reads N or Z before they are set again |
 | `SeqExtract` | `seq-extract` | Extracts a 4-instruction run repeated in one proc into a routine before its `endproc` (`BSR` calls); cc45 `-fno-seq-extract` turns it off (benchmark: 98 bytes smaller, ~0.5% slower) |
 | `StrengthReduction`, `AlgebraicSimplify`, `TypeNarrowing`, `BranchFold`, `CSE`, `LICM`, `CopyChains`, `AddrElemFusion` | — | Accepted, **no effect** (IR-level flags; ca45 has no IR) |
 
@@ -756,7 +758,7 @@ Example:
 ```bash
 cc45 -S -Roptir t.c -o t.s                                           # what the IR passes did
 cc45 -S -O1 t.c -o t1.s ; cc45 -S -O2 t.c -o t2.s ; diff t1.s t2.s   # only inlining differs
-cc45 -S -O2 t.c -o a.s ; cc45 -S -O9 t.c -o b.s ; cmp a.s b.s        # identical
+cc45 -S -O4 t.c -o a.s ; cc45 -S -O9 t.c -o b.s ; cmp a.s b.s        # identical
 cc45 -c -O2 t.c -o t.o45 ; nm45 -s t.o45                              # segment sizes
 nm45 -f t.o45                                                         # zp_call / leaf / clobbers per function
 objdump45 -d t.o45                                                    # final code after ca45

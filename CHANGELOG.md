@@ -4,6 +4,22 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### Documentation: every page checked against the tools again (November)
+
+- `doc/bin/`, `doc/architecture/`, `doc/guide/`, `doc/examples/` and `doc/README.md` checked against the source and the
+  tools' behaviour (option lists, messages, sample output re-run, xemu where it runs): about 280 lines changed in 37
+  pages. Among them:
+  - cc45 / cp45: the `-D` spelling, exit codes, crt0's `__zp_init` / `__ovl_init`, `--ram-top` / `--stack-page`, the
+    predefined type macros' values;
+  - ca45: flat-binary segment placement as it is now; ln45: the linker-defined overlay symbols, a real overlay map;
+  - optimizations.md: `-O3` differs from `-O2`, `QuadMove`; ir.md: recent IR fields; lib45.md: `OPT_SECTREF`,
+    `OPT_IPO_HINTS`, `cc45.unpackfmt.*`;
+  - basic45: BASIC 65's error names, the number reader (`basic_fin.s45`), the heap / stack layout, size figures;
+  - disk45: help and version flags, which numbers are decimal, the default disk names, `copy -r`;
+  - stdlib.md: basic45's run-time members; stdcbm.md: `cbm_rdtim` returns the time of day in BCD;
+  - the guides, the examples' descriptions and evolve.md's current-state statements (and a part for 2026-08 to 2026-11).
+- The bugs found are issues #721-#743.
+
 ### ca45 / ln45: a .zar block without its import or its size (#716)
 
 - `.zar start, len` relocated the procedure's base-page operands only when the file also declared
