@@ -107,12 +107,16 @@ void CompilationPipeline::deriveOutputFiles() {
         size_t dot = base.rfind('.');
         if (dot != std::string::npos) base = base.substr(0, dot);
 
-        if (config_.objectOnly) {
+        if (config_.preprocessOnly) {
+            // cp45 / cc45 -E: standard output, as cpp and gcc -E (#726;
+            // it was <input>.prg)
+        } else if (config_.objectOnly) {
             config_.outputFile = base + ".o45";
         } else if (config_.assemblyOnly) {
             config_.outputFile = base + ".s45";
         } else {
-            config_.outputFile = base + ".prg";
+            // a program: a.prg, as a C compiler's a.out (#726)
+            config_.outputFile = "a.prg";
         }
     } else {
         // Infer output type from extension when -o is used
@@ -179,8 +183,19 @@ CompilationResult CompilationPipeline::compile() {
         }
 
         if (config_.preprocessOnly) {
-            std::ofstream out(config_.outputFile);
-            out << preprocessedSource;
+            // (no -o, or -o -: standard output, #726)
+            if (config_.outputFile.empty() || config_.outputFile == "-") {
+                std::cout << preprocessedSource << std::flush;
+            } else {
+                std::ofstream out(config_.outputFile);
+                if (!out) {
+                    result.success = false;
+                    result.exitCode = 1;
+                    result.error = "Cannot write " + config_.outputFile;
+                    return result;
+                }
+                out << preprocessedSource;
+            }
             result.success = true;
             return result;
         }

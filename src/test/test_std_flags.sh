@@ -59,5 +59,28 @@ printf '[general]\ndefault_threads = x\n' > $SF/rc/.asmCvt45rc
 (cd $SF/rc && ../../../../bin/asmCvt45 -t acme ../f.s45 -o out.a65 > o.txt 2>&1); rc=$?
 [ $rc = 0 ] && grep -q "default_threads = 'x' is not a number of threads" $SF/rc/o.txt && pass || fail "asmCvt45 default_threads = x: rc $rc (#740)"
 
+# #726: cp45 / cc45 -E without -o (or -o -) print to stdout; a program without -o is a.prg
+SO=build/test/stdflags_out726; rm -rf $SO; mkdir -p $SO
+printf '#define N 3\nint main(void){ return N - 3; }\n' > $SO/p.c
+[ "$(./bin/cp45 $SO/p.c | grep main)" = "int main(void){ return 3 - 3; }" ] && pass || fail "cp45 without -o: stdout (#726)"
+(cd $SO && ../../../bin/cc45 -O2 -E p.c >/dev/null 2>&1) && grep -q 'return 3 - 3' $SO/a.out && pass || fail "cc45 -E without -o: a.out (#726)"
+[ "$(./bin/cc45 -O2 -E $SO/p.c -o - | grep main)" = "int main(void){ return 3 - 3; }" ] && pass || fail "cc45 -E -o -: stdout (#726)"
+[ "$(./bin/cp45 $SO/p.c -o - | grep -c main)" = 1 ] && pass || fail "cp45 -o -: stdout (#726)"
+(cd $SO && ../../../bin/cc45 -O2 p.c >/dev/null 2>&1) && [ -s $SO/a.prg ] && [ ! -e $SO/p.prg ] && pass || fail "cc45 p.c without -o: a.prg (#726)"
+# #723: -D NAME (with a space) as -DNAME; -D without a name an error
+printf 'int main(void){return FOO;}\n' > $SO/d.c
+[ "$(./bin/cp45 $SO/d.c -D FOO=3 | grep main)" = "int main(void){return 3;}" ] && pass || fail "cp45 -D FOO=3 (#723)"
+[ "$(./bin/cp45 -D FOO $SO/d.c | grep main)" = "int main(void){return 1;}" ] && pass || fail "cp45 -D FOO (#723)"
+./bin/cc45 -O2 $SO/d.c -o $SO/d.prg -D >/dev/null 2>&1 && fail "cc45 -D without a name accepted (#723)" || pass
+# #729: ca45: an unknown option, a second input file are errors
+./bin/ca45 -bogus $SF/f.s45 -o $SF/f.bin > $SF/o.txt 2>&1; rc=$?
+[ $rc = 1 ] && grep -q "ca45: error: unknown option '-bogus'" $SF/o.txt && pass || fail "ca45 -bogus: rc $rc (#729)"
+./bin/ca45 $SF/f.s45 $SF/f.s45 -o $SF/f.bin > $SF/o.txt 2>&1; rc=$?
+[ $rc = 1 ] && grep -q "more than one input file" $SF/o.txt && pass || fail "ca45 two inputs: rc $rc (#729)"
+./bin/al45 -bogus $SF/f.s45 2>&1 | grep -q "al45: warning: unknown option '-bogus' ignored" && pass || fail "al45 -bogus still a warning (#729)"
+
+# #731: ca45 --help=opt says what the levels do (1-3 the same passes)
+./bin/ca45 --help=opt | grep -q '1, 2, 3 = every pass' && ! ./bin/ca45 --help=opt | grep -q 'aggressive' && pass || fail "ca45 --help=opt levels (#731)"
+
 echo "standard flag tests: $passed passed, $failed failed"
 [ $failed -eq 0 ]

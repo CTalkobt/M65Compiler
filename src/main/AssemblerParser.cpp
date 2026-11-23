@@ -1144,6 +1144,8 @@ void AssemblerParser::pass1() {
                 // .zp_release $07, $08     — ZP slots consumed (caller need not restore)
                 if (!currentProc) {
                     errors.push_back("Error: ." + stmt->dir.name + " outside proc/endproc block");
+                    // (the rest of the line skipped: its arguments became "Unknown instruction" errors, #730)
+                    while (peek().type != AssemblerTokenType::NEWLINE && peek().type != AssemblerTokenType::END_OF_FILE) advance();
                 } else {
                     // (#360: the addresses themselves, $00-$FF: no base, the
                     // whole base page)
@@ -1171,6 +1173,8 @@ void AssemblerParser::pass1() {
                 // .reg_clobbers A, X, Y, Z
                 if (!currentProc) {
                     errors.push_back("Error: .reg_clobbers outside proc/endproc block");
+                    // (the rest of the line skipped: its arguments became "Unknown instruction" errors, #730)
+                    while (peek().type != AssemblerTokenType::NEWLINE && peek().type != AssemblerTokenType::END_OF_FILE) advance();
                 } else {
                     while (peek().type != AssemblerTokenType::NEWLINE && peek().type != AssemblerTokenType::END_OF_FILE) {
                         if (peek().type == AssemblerTokenType::COMMA) { advance(); continue; }
@@ -1189,6 +1193,8 @@ void AssemblerParser::pass1() {
                 // .flag_clobbers C, N, Z, V
                 if (!currentProc) {
                     errors.push_back("Error: .flag_clobbers outside proc/endproc block");
+                    // (the rest of the line skipped: its arguments became "Unknown instruction" errors, #730)
+                    while (peek().type != AssemblerTokenType::NEWLINE && peek().type != AssemblerTokenType::END_OF_FILE) advance();
                 } else {
                     while (peek().type != AssemblerTokenType::NEWLINE && peek().type != AssemblerTokenType::END_OF_FILE) {
                         if (peek().type == AssemblerTokenType::COMMA) { advance(); continue; }
@@ -1207,6 +1213,8 @@ void AssemblerParser::pass1() {
                 // .func_flags zp_call, leaf, reentrant, int_safe, stack_call, static_alloc, isr
                 if (!currentProc) {
                     errors.push_back("Error: .func_flags outside proc/endproc block");
+                    // (the rest of the line skipped: its arguments became "Unknown instruction" errors, #730)
+                    while (peek().type != AssemblerTokenType::NEWLINE && peek().type != AssemblerTokenType::END_OF_FILE) advance();
                 } else {
                     // The record attaches to the global symbol `proc name` names: a
                     // bare `proc` (after a `name:` label) would drop it silently
@@ -1237,6 +1245,8 @@ void AssemblerParser::pass1() {
                 // Cross-file constant parameter optimization metadata
                 if (!currentProc) {
                     errors.push_back("Error: .param_const outside proc/endproc block");
+                    // (the rest of the line skipped: its arguments became "Unknown instruction" errors, #730)
+                    while (peek().type != AssemblerTokenType::NEWLINE && peek().type != AssemblerTokenType::END_OF_FILE) advance();
                 } else {
                     // Parse: function_name param_index value
                     if (peek().type != AssemblerTokenType::NEWLINE && peek().type != AssemblerTokenType::END_OF_FILE) {
@@ -1268,6 +1278,8 @@ void AssemblerParser::pass1() {
                 // Comma-separated list of parameter sizes in bytes
                 if (!currentProc) {
                     errors.push_back("Error: .param_sizes outside proc/endproc block");
+                    // (the rest of the line skipped: its arguments became "Unknown instruction" errors, #730)
+                    while (peek().type != AssemblerTokenType::NEWLINE && peek().type != AssemblerTokenType::END_OF_FILE) advance();
                 } else {
                     currentProc->paramSizes.clear();
                     while (peek().type != AssemblerTokenType::NEWLINE && peek().type != AssemblerTokenType::END_OF_FILE) {
@@ -1338,6 +1350,8 @@ void AssemblerParser::pass1() {
                 // .zar start, len — the function's private base-page bytes
                 if (!currentProc) {
                     errors.push_back("Error: .zar outside proc/endproc block");
+                    // (the rest of the line skipped: its arguments became "Unknown instruction" errors, #730)
+                    while (peek().type != AssemblerTokenType::NEWLINE && peek().type != AssemblerTokenType::END_OF_FILE) advance();
                 } else {
                     try {
                         int start = (int)parseNumericLiteral(advance().value);
@@ -1367,6 +1381,8 @@ void AssemblerParser::pass1() {
                 // .frame_size N  (Phase 2: frame/activation record size in bytes)
                 if (!currentProc) {
                     errors.push_back("Error: .frame_size outside proc/endproc block");
+                    // (the rest of the line skipped: its arguments became "Unknown instruction" errors, #730)
+                    while (peek().type != AssemblerTokenType::NEWLINE && peek().type != AssemblerTokenType::END_OF_FILE) advance();
                 } else {
                     if (peek().type != AssemblerTokenType::NEWLINE && peek().type != AssemblerTokenType::END_OF_FILE) {
                         std::string sizeStr = advance().value;
@@ -2277,8 +2293,15 @@ void AssemblerParser::pass1() {
             }
           } catch (const std::exception& ex) {
             int errLine = stmt->line;
-            errors.push_back(formatDiagnostic(stmtFile(*stmt), errLine, 1, Severity::Error,
-                "Error parsing instruction '" + stmt->instr.mnemonic + "': " + ex.what()));
+            // (a message already located, a diagnostic with its source line,
+            // is kept as it is: it was wrapped in a second one, #730)
+            std::string what = ex.what();
+            std::string firstLine = what.substr(0, what.find('\n'));
+            if (firstLine.find(": error: ") != std::string::npos || firstLine.find(": warning: ") != std::string::npos)
+                errors.push_back(what);
+            else
+                errors.push_back(formatDiagnostic(stmtFile(*stmt), errLine, 1, Severity::Error,
+                    "Error parsing instruction '" + stmt->instr.mnemonic + "': " + what));
             while (peek().type != AssemblerTokenType::NEWLINE && peek().type != AssemblerTokenType::END_OF_FILE) advance();
             continue;
           }

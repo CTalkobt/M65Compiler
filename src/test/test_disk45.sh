@@ -1067,6 +1067,26 @@ else
     fail "hex placement / dump numbers (#735): $($DISK45 chain "$H735" P 2>&1 | tr '\n' ' ')"
 fi
 
+# #736: dump without a track shows the format's header sector (CMD native 1/1, D90 76/20)
+H736="$TMPDIR/h736"; ok736=1
+$DISK45 create "$H736.dnp" >/dev/null 2>&1; $DISK45 dump "$H736.dnp" 2>/dev/null | grep -q '^Track 1, Sector 1:' || ok736=0
+$DISK45 create "$H736.d90" >/dev/null 2>&1; $DISK45 dump "$H736.d90" 2>/dev/null | grep -q '^Track 76, Sector 20:' || ok736=0
+$DISK45 create "$H736.d81" >/dev/null 2>&1; $DISK45 dump "$H736.d81" 2>/dev/null | grep -q '^Track 40, Sector 0:' || ok736=0
+[ $ok736 = 1 ] && pass "dump without a track: the header sector (DNP 1/1, D90 76/20, D81 40/0) (#736)" || fail "dump's header sector (#736)"
+
+# #737: convert to a read-only format refused up front (no per-file warnings); add shows the name it stored
+H737="$TMPDIR/h737.d81"; printf 'x' > "$TMPDIR/h737.prg"
+$DISK45 create "$H737" >/dev/null 2>&1
+A737=$($DISK45 add "$H737" "$TMPDIR/h737.prg" ABCDEFGHIJKLMNOPQRST 2>&1)
+C737=$($DISK45 convert "$H737" "$TMPDIR/h737.tap" 2>&1); rc737=$?
+if [ "$A737" = 'Added "ABCDEFGHIJKLMNOP" (1 bytes, PRG) (the name cut to 16 characters)' ] && [ $rc737 = 1 ] &&
+   grep -q 'cannot write this format (read-only)' <<< "$C737" && ! grep -q 'disk full' <<< "$C737" &&
+   $DISK45 convert "$H737" "$TMPDIR/h737.d64" >/dev/null 2>&1; then
+    pass "convert to a read-only format refused before copying; add shows the stored (cut) name (#737)"
+else
+    fail "convert / add messages (#737): $A737 / $C737"
+fi
+
 # ============================================================================
 echo ""
 echo "disk45 tests: $passed passed, $failed failed"

@@ -1,6 +1,6 @@
 /* convert.c — Unit converter using long arithmetic
  *
- * Demonstrates: long type, sprintf, sscanf, puts
+ * Demonstrates: long type, sprintf, puts
  *
  * Converts distances between miles and kilometers using
  * 32-bit fixed-point arithmetic (multiply then divide)

@@ -67,6 +67,9 @@ out=$("$D45" m65ether -n -i 1.2.3.4 --tool etherload $T/m65.prg)
 [ "$out" = "etherload -i 1.2.3.4 -5 -r $T/m65.prg" ] && pass "--dry-run prints the command" || fail "--dry-run: $out"
 out=$("$D45" u64 -n -i u64.local --password pw $T/m65.prg)
 [ "$out" = "POST http://u64.local/v1/runners:run_prg (6 bytes) X-Password" ] && pass "u64 --dry-run prints the request" || fail "u64 --dry-run: $out"
+# #738: an http:// prefix and a trailing / are printed as the request uses the host, not doubled
+out=$("$D45" u64 -n -i http://h:8080/ $T/m65.prg)
+[ "$out" = "POST http://h:8080/v1/runners:run_prg (6 bytes)" ] && pass "u64 --dry-run: http:// host printed once (#738)" || fail "u64 --dry-run http:// host: $out"
 
 # the Ultimate 64: a local server records method, path, X-Password, the body's size and first bytes
 cat > $T/u64.py <<'PY'

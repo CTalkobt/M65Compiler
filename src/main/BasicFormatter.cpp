@@ -127,15 +127,38 @@ std::string formatBasic(const std::string& source) {
         if (!label.empty()) out << label << ":" << (code.empty() ? "" : " " + code) << "\n";
         else out << std::string(2 + 2 * printLevel, ' ') << code << "\n";
 
-        // blocks opened by this line
-        bool hasNext = std::regex_search(lc, std::regex(R"(\bnext\b)"));
-        bool hasLoop = std::regex_search(lc, std::regex(R"(\bloop\b)"));
+        // blocks opened and closed by this line's statements (split at ':'
+        // outside strings): FOR / NEXT and DO / LOOP anywhere in the line,
+        // "next i, j" closing two (#739: only a line starting with NEXT
+        // closed a FOR, so "print i : next" left the rest indented)
+        std::vector<std::string> stmts;
+        {
+            std::string cur;
+            bool inStr = false;
+            for (char ch : lc) {
+                if (ch == '"') inStr = !inStr;
+                if (ch == ':' && !inStr) { stmts.push_back(trim(cur)); cur.clear(); }
+                else cur += ch;
+            }
+            stmts.push_back(trim(cur));
+        }
+        auto word = [](const std::string& st) { return st.substr(0, st.find_first_of(" \t")); };
+        int delta = 0;
+        for (size_t k = 0; k < stmts.size(); k++) {
+            std::string w = word(stmts[k]);
+            if (w == "for" || (w == "do" && stmts[k] == "do") || (w == "do" && stmts[k].rfind("do ", 0) == 0)) delta++;
+            else if (w == "next" || w == "loop") {
+                int n = 1;
+                if (w == "next") n = std::max<int>(1, (int)std::count(stmts[k].begin(), stmts[k].end(), ',') + 1);
+                // (the first statement's NEXT / LOOP is the dedent above)
+                delta -= (k == 0) ? n - 1 : n;
+            }
+        }
         if (std::regex_match(lc, ifThen) && std::count(lc.begin(), lc.end(), '"') % 2 == 0) level++;
         else if (first == "proc") level++;
         else if (first == "select") level += 2;
-        else if (first == "for" && !hasNext) level++;
-        else if (first == "do" && !hasLoop) level++;
         else if (lc == "asm") inAsm = true;
+        level = std::max(0, level + delta);
     }
     return out.str();
 }

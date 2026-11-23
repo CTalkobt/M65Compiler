@@ -2082,7 +2082,7 @@ for jtest in test_jsr test_cbm; do
             if [ $jtest = test_jsr ]; then
                 run_xemu_test "${jtest}_$jname" "build/test/${jtest}_${jname}_xemu.prg" "C0C0" 8 "01 01 01 01 01 01 01 AA"
             else
-                run_xemu_test "${jtest}_$jname" "build/test/${jtest}_${jname}_xemu.prg" "C0C0" 6 "01 01 01 01 01 AA"
+                run_xemu_test "${jtest}_$jname" "build/test/${jtest}_${jname}_xemu.prg" "C0C0" 7 "01 01 01 01 01 01 AA"
             fi
         else
             echo "FAIL: ${jtest}_xemu.c $jname (compilation/linking failed)"

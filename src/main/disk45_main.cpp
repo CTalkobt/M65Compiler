@@ -1027,9 +1027,15 @@ static int cmdAdd(int argc, char** argv) {
         std::cerr << "Error: failed to write " << imagePath << "\n";
         return 1;
     }
-    // (the name as the directory has it: "main" is stored, and listed, as MAIN)
-    std::cout << "Added \"" << DiskImage::petsciiToAscii(DiskImage::asciiToPetscii(cbmName)) << "\" ("
-              << data.size() << " bytes, " << fileTypeStr(ftype) << ")\n";
+    // (the name as the directory has it: "main" is stored, and listed, as
+    // MAIN; a name is 16 characters, the rest cut: it was echoed whole, #737)
+    std::string shown = DiskImage::petsciiToAscii(DiskImage::asciiToPetscii(cbmName));
+    size_t slash = shown.rfind('/');
+    size_t start = slash == std::string::npos ? 0 : slash + 1;
+    bool cut = shown.size() - start > 16;
+    if (cut) shown = shown.substr(0, start + 16);
+    std::cout << "Added \"" << shown << "\" (" << data.size() << " bytes, " << fileTypeStr(ftype) << ")"
+              << (cut ? " (the name cut to 16 characters)" : "") << "\n";
     return 0;
 }
 
@@ -1609,12 +1615,14 @@ static int cmdDump(int argc, char** argv) {
             }
         }
     } else {
-        // No track/sector: dump BAM/header (directory track, sector 0)
-        int dirT = img->headerTrack();
-        const uint8_t* data = img->sectorData(dirT, 0);
+        // No track/sector: the format's header sector (sector 0 of the
+        // directory track for most; 1/1 on CMD native, 76/20 on D90 / D60:
+        // it was always sector 0, #736)
+        TrackSector hs = img->headerSector();
+        const uint8_t* data = img->sectorData(hs.track, hs.sector);
         if (data) {
             std::cout << "BAM / Header:\n";
-            hexDumpSector(data, dirT, 0);
+            hexDumpSector(data, hs.track, hs.sector);
         }
     }
     return 0;
@@ -2599,6 +2607,11 @@ static int cmdConvert(int argc, char** argv) {
     if (isSingleFileFormat(srcPath)) {
         // Single file → disk image: create blank target, add the file
         auto dst = DiskImage::createFromExtension(dstPath);
+        if (dst && !dst->writable()) {   // (#737)
+            std::cerr << "Error: " << dstPath << ": disk45 cannot write this format (read-only): convert to a format it "
+                         "writes (e.g. .d64, .d81)\n";
+            return 1;
+        }
         dst->format("CONVERTED", "CV");
 
         // Read the source file
@@ -2641,6 +2654,13 @@ static int cmdConvert(int argc, char** argv) {
     if (!src) { std::cerr << "Error: failed to load " << srcPath << "\n"; return 1; }
 
     auto dst = DiskImage::createFromExtension(dstPath);
+    // a read-only target refused before any file is copied (it warned for
+    // each file, "disk full?", then failed, #737)
+    if (dst && !dst->writable()) {
+        std::cerr << "Error: " << dstPath << ": disk45 cannot write this format (read-only): convert to a format it "
+                     "writes (e.g. .d64, .d81)\n";
+        return 1;
+    }
     std::string name = src->diskName();
     std::string id = src->diskId();
     dst->format(name, id);

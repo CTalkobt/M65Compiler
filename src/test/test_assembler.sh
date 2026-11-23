@@ -1889,6 +1889,30 @@ else
     failed=$((failed + 1))
 fi
 
+# #730: error messages said once: a located message not wrapped again, the file not named twice, a directive
+# outside a proc one error (its arguments not "Unknown instruction")
+T730=build/test/msg730; mkdir -p $T730; ok730=1
+printf ' nop\n' > $T730/n.s45
+./bin/ca45 $T730/n.s45 -o $T730/n.bin > $T730/n.txt 2>&1
+[ "$(grep -c 'error:' $T730/n.txt)" = 1 ] && ! grep -q 'Error parsing instruction' $T730/n.txt || ok730=0
+printf '.extern x\n    lda x*3\n' > $T730/t.s45
+./bin/ca45 -c $T730/t.s45 -o $T730/t.o45 > $T730/t.txt 2>&1
+grep -q "^$T730/t.s45:2:1: error: 'x' is resolved at link time" $T730/t.txt || ok730=0
+printf '.zp_uses $10\n.reg_clobbers A\n' > $T730/z.s45
+./bin/ca45 -c $T730/z.s45 -o $T730/z.o45 > $T730/z.txt 2>&1
+grep -q 'outside proc/endproc block' $T730/z.txt && ! grep -q 'Unknown instruction' $T730/z.txt || ok730=0
+if [ $ok730 = 1 ]; then echo "SUCCESS: ca45 messages: said once, the file named once, no 'Unknown instruction' after a misplaced directive (#730)"
+else echo "FAIL: ca45 message text (#730): $(cat $T730/n.txt $T730/t.txt $T730/z.txt)"; failed=$((failed + 1)); fi
+
+# #732: ln45 -v gives each 'unused global symbol' once (resolveSymbols runs again with base-page blocks)
+printf 'int g(int);\nint f(int a){ int i,s=0; for(i=0;i<a;i++) s+=g(i)+i; return s+a; }\n' > $T730/z.c
+printf 'int f(int);\nint g(int x){return x+1;}\nint unused2(void){return 2;}\nint main(void){ return f(4) == 24 ? 0 : 1; }\n' > $T730/zm.c
+./bin/cc45 -O2 -c $T730/z.c -o $T730/z.o45 >/dev/null 2>&1 && ./bin/cc45 -O2 -c $T730/zm.c -o $T730/zm.o45 >/dev/null 2>&1
+U=$(./bin/ln45 -v -basic -o $T730/zz.prg $T730/z.o45 $T730/zm.o45 lib/build/c45.lib 2>&1 | grep 'unused global symbol')
+if [ -n "$U" ] && [ "$(sort <<< "$U" | uniq -d | wc -l)" = 0 ] && grep -q "'_unused2'" <<< "$U"; then
+    echo "SUCCESS: ln45 -v: each unused global symbol reported once (#732)"
+else echo "FAIL: ln45 -v duplicate warnings (#732): $(sort <<< "$U" | uniq -c | head -3)"; failed=$((failed + 1)); fi
+
 if [ $failed -eq 0 ]; then
     echo "All assembler feature tests passed!"
     exit 0

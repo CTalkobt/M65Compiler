@@ -4,6 +4,39 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### Messages, help text and comments from the November documentation check (#730, #731, #732, #737, #738, #742, #743)
+
+- ca45: a message already naming its file and line is no longer wrapped or prefixed again (`Error parsing
+  instruction 'nop': n.s45:1:1: error: ...`, `t.s45: t.s45:2:1: error: ...`); a directive outside a proc
+  (`.zp_uses`, `.reg_clobbers`, ...) is one error, its arguments no longer `Unknown instruction` too (#730).
+- ca45 `--help=opt`: `-O1`, `-O2` and `-O3` run the same passes, as the help now says (#731).
+- ln45 `-v`: each `unused global symbol` warning once; they were printed again when the link resolves symbols a
+  second time (base-page blocks, SAC overlay) (#732).
+- disk45: `convert` to a read-only format is refused before any file is copied (it warned for each file, "disk full?",
+  then failed); `add` shows the name it stored, noting one cut to 16 characters (#737).
+- deploy45 `u64 --dry-run` prints the host as the request uses it: no doubled `http://`, no `//` (#738).
+- `<cbm.h>`: `cbm_rdtim()` returns the MEGA65's time of day as `unsigned long` `0xHHMMSSTT`, packed BCD (RDTIM: Y
+  hours, X minutes, A seconds, Z tenths); it returned an `int` of hours and minutes, described as the C64's jiffy
+  clock (#742).
+- examples: `unit_convert`'s header no longer claims `sscanf`; `sprite_demo`'s comment gives sprite 6 as the bird and
+  7 as the sun, as the code has them (#743).
+
+### Output defaults, options and messages from the November documentation check (#723, #726, #729, #736, #739, #740)
+
+- cc45 / cp45 without `-o` (#726): cp45 prints the preprocessed text to standard output (also with `-o -`), as
+  `cpp`; `cc45 -E` writes it to `a.out` (`-o -`: standard output); both went to `<input>.prg`. A program built without `-o` is `a.prg` (was
+  `<input>.prg`); `-c` and `-S` keep `<input>.o45` / `<input>.s45`.
+- cc45 / cp45: `-D NAME[=V]` with a space is `-DNAME[=V]`; it defined an empty name and took `NAME` as the input file;
+  a `-D` without a name is an error (#723).
+- ca45: an unknown option is an error (`ca45: error: unknown option '-bogus' (ca45 --help)`), and so is a second
+  input file; both were taken as the input file's name, the last one winning, silently (#729). al45 still warns.
+- disk45 `dump` with no track shows the format's header sector: 1/1 on a CMD native partition, 76/20 on D90 / D60
+  (was sector 0 of the header track, the boot block there) (#736).
+- basic45 `--format`: `for` / `next` and `do` / `loop` count anywhere in a line, as `:`-separated statements
+  (`print i : next` closes the `for` above; `next j, i` two) (#739).
+- asmCvt45: `-o -` is standard output (one input); a `;` / `#` comment after a `.asmCvt45rc` value is no longer part
+  of it (#740).
+
 ### Bugs from the November documentation check (#721, #722, #724, #727, #728, #733, #734, #735, #740)
 
 - cc45: a call's argument count is checked against a prototype (`too many arguments to 'f': 3 given, 2 expected`,

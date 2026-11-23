@@ -9,7 +9,9 @@
  *   [3] cbm_stop / cbm_getin: no STOP, no key
  *   [4] a file on the screen (device 3): setlfs, setnam, open, chkout,
  *       chrout to it, clrchn, close; the character where the cursor was
- *   [5] $AA sentinel
+ *   [5] cbm_rdtim: the time of day as 0xHHMMSSTT, packed BCD (the MEGA65
+ *       KERNAL's RDTIM: Y hours, X minutes, A seconds, Z tenths, #742)
+ *   [6] $AA sentinel
  */
 #include <cbm.h>
 
@@ -40,6 +42,12 @@ int main(void) {
     cbm_close(1);
     OUT[4] = ok && SCREEN[4 * 80 + 10] == 26;
 
-    OUT[5] = 0xAA;
+    {
+        unsigned long t = cbm_rdtim();
+        unsigned char h = t >> 24, m = t >> 16, s = t >> 8, d = t;
+        OUT[5] = (h & 15) <= 9 && h <= 0x23 && (m & 15) <= 9 && m <= 0x59 && (s & 15) <= 9 && s <= 0x59 && d <= 9;
+    }
+
+    OUT[6] = 0xAA;
     return 0;
 }

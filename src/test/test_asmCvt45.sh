@@ -370,5 +370,13 @@ SV=$($CVT --stats --validate -t acme "$NC" 2>/dev/null)
     [ "$(grep -n '^Source Metrics:' <<< "$SV" | cut -d: -f1)" -lt "$(grep -n '^Results:' <<< "$SV" | cut -d: -f1)" ] &&
     pass "--stats --validate: both reports, --stats first" || fail "--stats --validate: $SV"
 
+# #740: -o - is stdout (one input); a ; or # comment after a .asmCvt45rc value is not part of it
+printf '    .org $2000\nstart: lda #1\n    rts\n' > "$T/o740.s45"
+(cd "$T" && rm -f ./- && $OLDPWD/$CVT -t acme o740.s45 -o - > o740.out 2>&1 && [ ! -e ./- ]) && grep -q 'lda' "$T/o740.out" &&
+    pass "-o -: standard output, no file named - (#740)" || fail "-o - (#740): $(head -3 "$T/o740.out")"
+mkdir -p "$T/rc740"; printf '[general]\ndefault_format = acme ; a comment\nvalidate_round_trip = false # another\n' > "$T/rc740/.asmCvt45rc"
+(cd "$T/rc740" && $OLDPWD/$CVT ../o740.s45 > out.txt 2>&1) && grep -q 'lda' "$T/rc740/out.txt" &&
+    pass ".asmCvt45rc: a trailing ; / # comment is not part of the value (#740)" || fail ".asmCvt45rc trailing comment (#740): $(head -2 "$T/rc740/out.txt")"
+
 echo "asmCvt45 tests: $passed passed, $failed failed"
 [ "$failed" -eq 0 ]

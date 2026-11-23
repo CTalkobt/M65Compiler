@@ -108,6 +108,13 @@ public:
             if (eqPos != std::string::npos) {
                 std::string key = toLower(trimString(line.substr(0, eqPos)));
                 std::string value = trimString(line.substr(eqPos + 1));
+                // a comment after the value (; or # at its start or after a
+                // space) is not part of it (#740: "acme ; c" was the format)
+                for (size_t c = 0; c < value.size(); c++)
+                    if ((value[c] == ';' || value[c] == '#') && (c == 0 || value[c - 1] == ' ' || value[c - 1] == '\t')) {
+                        value = trimString(value.substr(0, c));
+                        break;
+                    }
 
                 parseSetting(currentSection, key, value);
             }
