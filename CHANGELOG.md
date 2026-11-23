@@ -4,6 +4,16 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### ca45 / ln45: a .zar block without its import or its size (#716)
+
+- `.zar start, len` relocated the procedure's base-page operands only when the file also declared
+  `.extern <proc>__zar`; without it they stayed as written, with no relocation and no message. The `.zar` now
+  declares the import itself.
+- Without the `cc45.zarsize.<proc>` export ln45 defined `<proc>__zar` but reserved no bytes for it, so other blocks
+  could take them, silently. ca45 `-c` now warns ("the .zar block of '_fill' has no size: export it …"), and ln45 too
+  ("'_fill__zar' (in zar.o45): no cc45.zarsize._fill gives the size of its base-page block …"). cc45's output has
+  both and is unchanged.
+
 ### ca45: a flat binary's segments at their addresses (#715)
 
 - In a flat binary each segment, in segment order, went at its address only when that was past what had been

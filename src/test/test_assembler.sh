@@ -1866,6 +1866,29 @@ else
     failed=$((failed + 1))
 fi
 
+# #716: .zar declares <proc>__zar itself (its operands relocated without .extern); a block without its
+# cc45.zarsize.<proc> export: ca45 -c and ln45 warn
+T716=build/test/zar716; mkdir -p $T716; ok716=1
+printf '        .global _fill\nproc _fill\n        .func_flags zp_call\n        .zar $80, 2\n        lda $10\n        sta $80\n        lda $11\n        sta $81\n        ldy #0\n        lda #$5A\n        sta ($80),y\nendproc\n' > $T716/zar.s45
+./bin/ca45 -c $T716/zar.s45 -o $T716/zar.o45 > $T716/ca.txt 2>&1 || ok716=0
+[ "$(./bin/nm45 -r $T716/zar.o45 | grep -c 'R_LOWX *EXTERN *_fill__zar')" = 3 ] || ok716=0
+grep -q "zar.s45:4: warning: the .zar block of '_fill' has no size" $T716/ca.txt || ok716=0
+printf 'unsigned char buf[2];\nextern void fill(unsigned char *p);\nint main(void) { fill(buf); return buf[0] == 0x5A ? 0 : 1; }\n' > $T716/zmain.c
+./bin/cc45 -O2 -c $T716/zmain.c -o $T716/zmain.o45 >/dev/null 2>&1 &&
+    ./bin/ln45 -basic -o $T716/zar.prg $T716/zmain.o45 $T716/zar.o45 lib/build/c45.lib > $T716/ln.txt 2>&1 || ok716=0
+grep -q "ln45: warning: '_fill__zar' (in .*zar.o45): no cc45.zarsize._fill" $T716/ln.txt || ok716=0
+# with the size exported: neither warns
+printf '        .global cc45.zarsize._fill\ncc45.zarsize._fill = 2\n' | cat - $T716/zar.s45 > $T716/zar2.s45
+./bin/ca45 -c $T716/zar2.s45 -o $T716/zar2.o45 > $T716/ca2.txt 2>&1 && ! grep -q warning $T716/ca2.txt || ok716=0
+./bin/ln45 -basic -o $T716/zar2.prg $T716/zmain.o45 $T716/zar2.o45 lib/build/c45.lib > $T716/ln2.txt 2>&1 && ! grep -q 'zarsize' $T716/ln2.txt || ok716=0
+if [ $ok716 = 1 ]; then
+    echo "SUCCESS: .zar declares <proc>__zar itself; a block without cc45.zarsize: ca45 -c and ln45 warn (#716)"
+    passed=$((passed + 1))
+else
+    echo "FAIL: .zar import / size (#716): $(cat $T716/ca.txt $T716/ln.txt $T716/ca2.txt $T716/ln2.txt; ./bin/nm45 -r $T716/zar.o45)"
+    failed=$((failed + 1))
+fi
+
 if [ $failed -eq 0 ]; then
     echo "All assembler feature tests passed!"
     exit 0

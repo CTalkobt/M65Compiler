@@ -1345,7 +1345,19 @@ void AssemblerParser::pass1() {
                         int len = (int)parseNumericLiteral(advance().value);
                         if (start < 0 || len <= 0 || start + len > 0x100)
                             errors.push_back("Error: .zar range must lie in the base page");
-                        else { currentProc->zarStart = start; currentProc->zarLen = len; }
+                        else {
+                            currentProc->zarStart = start; currentProc->zarLen = len;
+                            // the block's address is the import <proc>__zar, which ln45
+                            // defines: declared here, as .extern would (#716: without
+                            // it the operands were left unrelocated, silently)
+                            std::string zs = currentProc->name + "__zar";
+                            if (!externIndex.count(zs) && !symbolTable.count(zs)) {
+                                externIndex[zs] = (uint32_t)externSymbols.size();
+                                externSymbols.push_back(zs);
+                                symbolTable[zs] = {0, true, 2, false, false, 0, false, 0, false, 0, "__extern__"};
+                            }
+                            zarBlocks.push_back({currentProc->name, stmtFile(*stmt), stmt->line});
+                        }
                     } catch (...) {
                         errors.push_back("Error: .zar needs a start address and a length");
                     }
