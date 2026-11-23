@@ -4,10 +4,27 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### Messages, help text and comments from the November documentation check (#730, #731, #732, #737, #738, #742, #743)
+
+- ca45: a message already naming its file and line is no longer wrapped or prefixed again (`Error parsing
+  instruction 'nop': n.s45:1:1: error: ...`, `t.s45: t.s45:2:1: error: ...`); a directive outside a proc
+  (`.zp_uses`, `.reg_clobbers`, ...) is one error, its arguments no longer `Unknown instruction` too (#730).
+- ca45 `--help=opt`: `-O1`, `-O2` and `-O3` run the same passes, as the help now says (#731).
+- ln45 `-v`: each `unused global symbol` warning once; they were printed again when the link resolves symbols a
+  second time (base-page blocks, SAC overlay) (#732).
+- disk45: `convert` to a read-only format is refused before any file is copied (it warned for each file, "disk full?",
+  then failed); `add` shows the name it stored, noting one cut to 16 characters (#737).
+- deploy45 `u64 --dry-run` prints the host as the request uses it: no doubled `http://`, no `//` (#738).
+- `<cbm.h>`: `cbm_rdtim()` returns the MEGA65's time of day as `unsigned long` `0xHHMMSSTT`, packed BCD (RDTIM: Y
+  hours, X minutes, A seconds, Z tenths); it returned an `int` of hours and minutes, described as the C64's jiffy
+  clock (#742).
+- examples: `unit_convert`'s header no longer claims `sscanf`; `sprite_demo`'s comment gives sprite 6 as the bird and
+  7 as the sun, as the code has them (#743).
+
 ### Output defaults, options and messages from the November documentation check (#723, #726, #729, #736, #739, #740)
 
-- cc45 / cp45 without `-o` (#726): cp45 and `cc45 -E` print the preprocessed text to standard output (also with
-  `-o -`), as `cpp` and `gcc -E`; it went to `<input>.prg`. A program built without `-o` is `a.prg` (was
+- cc45 / cp45 without `-o` (#726): cp45 prints the preprocessed text to standard output (also with `-o -`), as
+  `cpp`; `cc45 -E` writes it to `a.out` (`-o -`: standard output); both went to `<input>.prg`. A program built without `-o` is `a.prg` (was
   `<input>.prg`); `-c` and `-S` keep `<input>.o45` / `<input>.s45`.
 - cc45 / cp45: `-D NAME[=V]` with a space is `-DNAME[=V]`; it defined an empty name and took `NAME` as the input file;
   a `-D` without a name is an error (#723).

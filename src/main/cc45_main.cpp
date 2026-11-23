@@ -859,6 +859,10 @@ int main(int argc, char** argv) {
         config.preprocessOnly = false;
     }
 
+    // cc45 -E without -o: a.out (cp45 prints to standard output, #726)
+    if (config.preprocessOnly && !outputFileSet && programName != "cp45" && !lintMode)
+        config.outputFile = "a.out";
+
     if (config.inputFile.empty()) {
         // Phase 5.1: Dynamic program name in error message
         std::cerr << "Usage: " << programName << " [options] <input_file.c>" << std::endl;

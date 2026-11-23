@@ -102,7 +102,7 @@ disk45 list game.d81 | grep "<"      # locked files
 disk45 add <image> <host_file> [cbm_name] [-p|--petscii]
 ```
 
-Add a host file. The CBM type comes from the host file's extension: `.prg`→PRG, `.seq`→SEQ, `.usr`→USR, anything else→PRG. The CBM name defaults to the host file name without directory and extension; names are upper-cased and truncated to 16 characters. Adding fails if the name already exists or the image is full.
+Add a host file. The CBM type comes from the host file's extension: `.prg`→PRG, `.seq`→SEQ, `.usr`→USR, anything else→PRG. The CBM name defaults to the host file name without directory and extension; names are upper-cased and truncated to 16 characters (the `Added "…"` line shows the name stored, noting a cut one, #737). Adding fails if the name already exists or the image is full.
 
 `-p` converts ASCII→PETSCII, but only when the file is added as SEQ (host extension `.seq`).
 
@@ -835,7 +835,7 @@ R/W means `create`, `add`, `remove` etc. work and the image is written back in i
 
 **Writing a G64/G71** (any change, `create`, `convert` to `.g64`/`.g71`): a track whose sectors are unchanged since loading keeps its original GCR (copy protection, extra syncs, odd gaps, its speed zone or speed block); a changed or new track is encoded as a standard 1541 track: sectors 0..n-1, 5-byte syncs, the header with the format ID found on the disk (or the BAM's disk ID), a 9-byte header gap, the data block, gaps spread evenly to MNIB's track lengths (7692/7142/6666/6250 bytes for speed zones 3-0), every track slot 7928 bytes padded with $FF. A G64 disk45 writes from a D64 is byte for byte what `src/test/mkgcr.py`, an independent encoder, writes; `test_disk45.sh` also checks that a byte in an untouched track survives adding a file.
 
-NIB, NBZ, Zipcode, TAP and CVT are read-only: `create` refuses them ("disk45 cannot create .tap images") and changes are refused (convert a NIB or Zipcode image to `.d64` or `.g64`).
+NIB, NBZ, Zipcode, TAP and CVT are read-only: `create` refuses them ("disk45 cannot create .tap images"), `convert` to one is refused before any file is copied (#737), and changes are refused (convert a NIB or Zipcode image to `.d64` or `.g64`).
 
 ### Tape Formats
 

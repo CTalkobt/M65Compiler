@@ -1,6 +1,6 @@
 # Unit converter example for cc45 / MEGA65
 #
-# Demonstrates long type, sprintf, sscanf, puts.
+# Demonstrates long type, sprintf, puts.
 #
 # Usage:
 #   make              Build convert.prg

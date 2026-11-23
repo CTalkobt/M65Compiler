@@ -176,10 +176,10 @@ static void printHelpInputOutput() {
 static void printHelpOptimization() {
     std::cout << "Optimization Options:\n\n";
     std::cout << "  -O<level>          Optimization level (default: -O2)\n";
+    // (#731: the levels said 1 = basic, 3 = aggressive; only 0 differs)
     std::cout << "                     0 = none (no optimization)\n";
-    std::cout << "                     1 = basic (redundant load/store elimination)\n";
-    std::cout << "                     2 = default (add branch optimization, tail calls)\n";
-    std::cout << "                     3 = aggressive (experimental optimizations)\n";
+    std::cout << "                     1, 2, 3 = every pass (the same passes at each; any other\n";
+    std::cout << "                     -O<n> is -O2); -P / -PNo pick passes\n";
     std::cout << "                     Example: ca45 -O3 input.s45\n\n";
     std::cout << "  -P<OptName>        Enable individual optimization (after -O level)\n";
     std::cout << "  -PNo<OptName>      Disable individual optimization (-PNoNoOpBra: the NoOpBra pass)\n";
@@ -1017,7 +1017,13 @@ int main(int argc, char** argv) {
         std::cerr << e.file << ": " << e.what() << std::endl;   // (a line of an #include'd file)
         return 1;
     } catch (const std::exception& e) {
-        std::cerr << input_file << ": " << e.what() << std::endl;
+        // (a message that already names its file and line is not given the
+        // file's name again: "t.s45: t.s45:2:1: error: ...", #730)
+        std::string m = e.what();
+        size_t nl = m.find('\n');
+        std::string firstLine = m.substr(0, nl);
+        bool located = firstLine.find(": error: ") != std::string::npos || firstLine.find(": warning: ") != std::string::npos;
+        std::cerr << (located ? "" : input_file + ": ") << m << std::endl;
         return 1;
     }
 

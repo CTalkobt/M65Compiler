@@ -95,7 +95,7 @@ deploy45 u64 -i u64.local --reset
 
 The Ultimate 64's REST API over HTTP: `POST v1/runners:run_prg` (or `load_prg` with `--no-run`), `v1/runners:run_crt`,
 `v1/runners:sidplay`, `v1/drives/<a|b>:mount?type=<d64|d71|d81|g64|g71>&mode=readwrite` with the file as the body;
-`GET v1/info` (the answer printed); `PUT v1/machine:reset`; a SID's `--song N` is `?songnr=N`. The kind of file is its extension (`.prg`, `.crt`, `.sid`, a disk image's). The host may be written `http://name[:port]/` (port 80 by default). A device with a network password refuses a request without it (HTTP 403:
+`GET v1/info` (the answer printed); `PUT v1/machine:reset`; a SID's `--song N` is `?songnr=N`. The kind of file is its extension (`.prg`, `.crt`, `.sid`, a disk image's). The host may be written `http://name[:port]/` (port 80 by default; `--dry-run` prints it without the prefix and the `/`, as it is sent, #738). A device with a network password refuses a request without it (HTTP 403:
 "wrong network password").
 
 ## What `--dry-run` Prints

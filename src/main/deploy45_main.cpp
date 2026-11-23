@@ -450,7 +450,12 @@ int cmdU64(const Options& o) {
         }
     }
     if (o.dryRun) {
-        std::cout << method << " http://" << host << "/" << path
+        // (the host as http() uses it: no "http://", no trailing '/'; the
+        // line doubled them, #738)
+        std::string shown = host;
+        if (shown.rfind("http://", 0) == 0) shown = shown.substr(7);
+        while (!shown.empty() && shown.back() == '/') shown.pop_back();
+        std::cout << method << " http://" << shown << "/" << path
                   << (body.empty() ? "" : " (" + std::to_string(body.size()) + " bytes)")
                   << (password.empty() ? "" : " X-Password") << std::endl;
         return 0;

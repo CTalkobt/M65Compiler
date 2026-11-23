@@ -153,13 +153,15 @@ static __forceinline int cbm_screen(void) { return __jsr(KERNAL_SCREEN).XY; }
 
 /* ===== System Clock ===== */
 
-/* Read the jiffy clock (1/60s ticks since power-on).
- * Returns low 16 bits (RDTIM returns A=hi, X=mid, Y=lo).
+/* Read the time of day: the MEGA65 KERNAL's RDTIM returns the CIA 1
+ * clock in packed BCD (Y hours, X minutes, A seconds, Z tenths; not the
+ * C64's jiffy count). Returned as 0xHHMMSSTT: hours 0x00-0x23, minutes and
+ * seconds 0x00-0x59, tenths 0x00-0x09 (12:34:56.7 is 0x12345607). For
+ * frame ticks use clock() (<time.h>).
  */
-static __forceinline int cbm_rdtim(void) {
-    unsigned char mid, lo;
-    __jsr(KERNAL_RDTIM, .X -> mid, .Y -> lo);
-    return lo | (mid << 8);
+static __forceinline unsigned long cbm_rdtim(void) {
+    unsigned long q = __jsr(KERNAL_RDTIM).Q;   /* A seconds, X minutes, Y hours, Z tenths */
+    return (q << 8) | (q >> 24);
 }
 
 /* ===== Serial Bus (IEC) ===== */

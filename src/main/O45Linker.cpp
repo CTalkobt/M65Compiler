@@ -1387,7 +1387,7 @@ bool O45Linker::resolveSymbols(std::string& errorMsg) {
                 symbolSource_[name] != "<linker>") {
                 // informational (most are library internals and C globals
                 // used only in their own object): only with -v
-                if (Logger::isEnabled(LogLevel::INFO) && warnStream_)
+                if (Logger::isEnabled(LogLevel::INFO) && warnStream_ && unusedWarned_.insert(name).second)
                     *warnStream_ << "ln45: warning: unused global symbol '" << name << "' (defined in " << symbolSource_[name] << ")" << std::endl;
             }
         }

@@ -20,9 +20,10 @@
  *                       the line)
  *   5 high wisps        SPRITE_WIDE, repeated across the sky (sprite_tile:
  *                       a tiled sprite runs to the end of its raster line)
- *   6 the sun           16 colours, expanded; behind the hills by its image
- *                       clipped (clip_sun)
- *   7 a bird            hi-res, two frames
+ *   6 a bird            hi-res, two frames
+ *   7 the sun           16 colours, expanded; behind the hills by its image
+ *                       clipped (clip_sun); the last sprite, so everything
+ *                       flies in front of it
  * The images are ASCII pictures below, made into sprite data at the start.
  *
  * -DSPRITE_CHECK (make check): the movie once, then a report on the screen.
