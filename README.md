@@ -1,4 +1,4 @@
-# Mega65 C Compiler Suite v1.1.0
+# Mega65 C Compiler Suite v1.5.0
 
 Source, issues and releases: <https://github.com/CTalkobt/M65Compiler>
 

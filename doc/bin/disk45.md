@@ -17,7 +17,7 @@ The format is chosen from the file extension; an unrecognised extension is treat
 
 `disk45 sd` works on MEGA65 SD card images (FAT32 with the MEGA65 system partition, see [MEGA65 SD Card Images](#mega65-sd-card-images)).
 
-Running `disk45` with no arguments or an unknown command (`Unknown command: x`) prints the usage summary on stderr (exit status 1). `-?`, `-h` or `--help` anywhere among the arguments prints it with exit status 0, `-V` or `--version` anywhere (or `-v` as the only argument) the version line (`disk45 v1.1.0.dev (…)`); not after `sd`, which has a help of its own (`disk45 sd --help`). `-v` … `-vvvv` with a command turn on the log (see the [Command Summary](#command-summary)).
+Running `disk45` with no arguments or an unknown command (`Unknown command: x`) prints the usage summary on stderr (exit status 1). `-?`, `-h` or `--help` anywhere among the arguments prints it with exit status 0, `-V` or `--version` anywhere (or `-v` as the only argument) the version line (`disk45 v1.5.0 (…)`); not after `sd`, which has a help of its own (`disk45 sd --help`). `-v` … `-vvvv` with a command turn on the log (see the [Command Summary](#command-summary)).
 
 ## Commands
 

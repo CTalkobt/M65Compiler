@@ -7,7 +7,7 @@
 #include <string>
 
 #ifndef SUITE_VERSION
-#define SUITE_VERSION "1.1.0.dev"
+#define SUITE_VERSION "1.5.0"
 #endif
 
 #ifndef GIT_HASH
@@ -18,8 +18,8 @@ inline std::string suiteVersionString(const char* toolName) {
     return std::string(toolName) + " v" + SUITE_VERSION + " (" + GIT_HASH + ")";
 }
 
-// The version as a number, major * 10000 + minor * 100 + patch (1.1.0.dev →
-// 10100): cp45's __CC45_VERSION__
+// The version as a number, major * 10000 + minor * 100 + patch (1.5.0 →
+// 10500): cp45's __CC45_VERSION__
 inline long suiteVersionNumber() {
     long part[3] = {0, 0, 0};
     const char* p = SUITE_VERSION;

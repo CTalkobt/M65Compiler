@@ -1,6 +1,6 @@
 # basic45 — MEGA65 BASIC Program Generator
 
-**Version:** the suite version (`basic45 --version` prints e.g. `basic45 v1.1.0.dev (57944258)`)
+**Version:** the suite version (`basic45 --version` prints e.g. `basic45 v1.5.0 (57944258)`)
 
 ## Overview
 
