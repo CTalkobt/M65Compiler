@@ -1,0 +1,25 @@
+; al45's user-written rules (#765): the rules of the .cc45-lint.yml beside this file;
+; each finding on a line with an EXPECT naming it (src/test/test_al45.sh)
+        .org $2000
+        lda #0                  ; EXPECT proj-use-stz
+        sta $d020
+        lda #$00                ; (not "#0" as written)
+        sta $d021
+        lda #0                  ; NOLINT(proj-use-stz)
+        sta $d021
+        lda #0
+@join:  sta $d022               ; (a label: another straight line)
+        inc $d020               ; EXPECT proj-inc-twice
+        inc $D020
+        inc $d020
+        inc $d021
+        asl a                   ; EXPECT proj-shift-a
+        lsr                     ; (accumulator mode written without the a: its text is empty)
+        ldx $40                 ; EXPECT proj-load-store-same
+        stx $40
+        ldy $41
+        sty $42
+        sta ($20),y             ; EXPECT proj-indirect
+        sta ($20),z
+        bra @join
+        rts
