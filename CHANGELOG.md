@@ -4,6 +4,25 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### Three more future headers: the audio mixer, I/O, peripherals; joystick-port detection in `<input.h>` (#645)
+
+- `<hw_audio_mixer.h>` (`stdlib/hw_audio_mixer.c`): the SIDs' volumes, pan, mute, fades and crossfades on the
+  MEGA65's audio mixer (`$D6F4`/`$D6F5`). The mixer has the SIDs as two inputs, so SIDs 1-2 and 3-4 share volumes.
+- `<hw_io.h>` (`stdlib/hw_io.c`, `stdlib_asm/hw_hyper.s45`):
+  - SD card sectors, read and written (`unsigned long` sector numbers; sector 0 refused). The sector buffer is
+    selected in `$D689` around each copy.
+  - The F011 floppy, by CBM track and sector.
+  - Ethernet frames.
+  - The RTC.
+  - The hypervisor's DOS calls (`setname`, `loadfile`, any trap).
+- `<hw_peripherals.h>` (`stdlib/hw_peripherals.c`): CPU speed get/set (1, 2, 3.5, 40 MHz), the model, debug output
+  through the hypervisor's serial trap, the cycle counter, `hw_sleep`, system information (chip and attic RAM).
+  Breakpoints (the serial monitor's only) and the battery level (no battery) report "not available".
+- `<input.h>`: `input_joyport_detect` (empty / joystick / 1351 / Amiga mouse / paddles, from the port's lines),
+  `input_set_mouse_mode` (`$D61B`) and `input_joyport_name`, moved here from `hw_peripherals.h`.
+- 36 future headers are left. Tests: `test_hw_audio_mixer_xemu.c`, `test_hw_peripherals_xemu.c` and
+  `test_hw_io_xemu.c` (a scratch SD card image), in both conventions.
+
 ### Five of the future headers implemented: raster interrupts, scrolling, version, events, pools (#645)
 
 - `<hw_raster.h>` (assembly, `stdlib_asm/hw_raster.s45`): the library's raster interrupt handler in the KERNAL's

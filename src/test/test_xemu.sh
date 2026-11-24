@@ -3248,6 +3248,43 @@ for fmode in "zp|" "stack|-fno-zpcall"; do
     done
 done
 
+# Test: <hw_audio_mixer.h> (the SIDs' gains in the audio mixer, read back),
+# <hw_peripherals.h> and <input.h>'s joystick port functions (#645)
+for gmode in "zp|" "stack|-fno-zpcall"; do
+    IFS='|' read -r gname gflags <<< "$gmode"
+    for gt in hw_audio_mixer hw_peripherals; do
+        echo "Testing test_${gt}_xemu.c ($gname)..."
+        xemu_case "FAIL: test_${gt}_xemu.c $gname (compilation/linking failed)" "src/test-resources/test_${gt}_xemu.c" "build/test/test_${gt}_${gname}_xemu.prg" "$gflags" -- "test_${gt}_$gname" "build/test/test_${gt}_${gname}_xemu.prg" "C0C0" 7 "01 01 01 01 01 01 AA"
+    done
+done
+
+# Test: <hw_io.h> (#645) on a scratch SD card image (never xemu's own): the
+# ROM, MEGA65.D81 as drive 0 (the F011), HWIO.BIN for the hypervisor's
+# loadfile; the program's SD write goes to a sector before the first
+# partition and is put back. Needs xemu's MEGA65.ROM
+XEMU_ROM="${XEMU_PREF_DIR:-$HOME/.local/share/xemu-lgb/mega65}/MEGA65.ROM"
+if [ -f "$XEMU_ROM" ]; then
+    for hmode in "zp|" "stack|-fno-zpcall"; do
+        IFS='|' read -r hname hflags <<< "$hmode"
+        echo "Testing test_hw_io_xemu.c ($hname)..."
+        HSD=build/test/test_hw_io_$hname.img
+        rm -f "$HSD" "build/test/test_hw_io_$hname.d81"
+        python3 -c "import sys; open(sys.argv[1],'wb').write(bytes(i*7 for i in range(16)))" build/test/test_hw_io.bin
+        if ./bin/disk45 sd create "$HSD" 64M --onboarded >/dev/null 2>&1 &&
+           ./bin/disk45 sd add "$HSD" "$XEMU_ROM" MEGA65.ROM >/dev/null 2>&1 &&
+           ./bin/disk45 create "build/test/test_hw_io_$hname.d81" -n HWIO >/dev/null 2>&1 &&
+           ./bin/disk45 sd add "$HSD" "build/test/test_hw_io_$hname.d81" MEGA65.D81 >/dev/null 2>&1 &&
+           ./bin/disk45 sd add "$HSD" build/test/test_hw_io.bin HWIO.BIN >/dev/null 2>&1 &&
+           compile_link_test "src/test-resources/test_hw_io_xemu.c" "build/test/test_hw_io_${hname}_xemu.prg" "$hflags"; then
+            run_xemu_test "test_hw_io_$hname" "build/test/test_hw_io_${hname}_xemu.prg" "C0C0" 7 "01 01 01 01 01 01 AA" \
+                -sdimg "$PWD/$HSD" -defd81fromsd -romfromsd
+        else
+            echo "FAIL: test_hw_io_xemu.c $hname (build failed)"
+            failed=$((failed + 1))
+        fi
+    done
+fi
+
 # Test: sizeof of a string literal inside a larger integer constant
 # expression: array sizes, enum values, _Static_assert, case labels (#749)
 for zmode in "zp|" "stack|-fno-zpcall"; do

@@ -92,3 +92,40 @@ unsigned char input_modifiers(void);
 void input_joy_type(unsigned char port, unsigned char type);
 /* Port 1 or 2: JOY_ bits of what is held down */
 __fastcall__ unsigned char input_joy(unsigned char port);
+
+/* What is on joystick port 1 or 2 (#645; stdlib/input_joyport.c), from
+ * the port's lines now:
+ *   JOYPORT_EMPTY        nothing pressed and no paddle line in use (also
+ *                        a joystick at rest: the two read the same)
+ *   JOYPORT_JOYSTICK     a direction or fire pressed, no paddle line in use
+ *   JOYPORT_MOUSE_1351   both paddle lines below $80 (a 1351 gives its
+ *                        position modulo 64, times 2)
+ *   JOYPORT_MOUSE_AMIGA  the same with input_set_mouse_mode's Amiga mouse
+ *                        on for the port (the MEGA65 turns it into a 1351's)
+ *   JOYPORT_PADDLE       the paddle lines in use otherwise
+ *   JOYPORT_UNKNOWN      port not 1 or 2
+ * (xemu reads the paddle lines as $FF unless its mouse is grabbed.) */
+typedef enum {
+    JOYPORT_EMPTY = 0,
+    JOYPORT_JOYSTICK = 1,
+    JOYPORT_MOUSE_1351 = 2,
+    JOYPORT_MOUSE_AMIGA = 3,
+    JOYPORT_PADDLE = 4,
+    JOYPORT_UNKNOWN = 5,
+} joyport_device_t;
+
+joyport_device_t input_joyport_detect(unsigned char port);
+
+/* The MEGA65's Amiga mouse support on port 1 or 2 ($D61B, write only: the
+ * library keeps the value): INPUT_MOUSE_1351 (off: a 1351, the hardware's
+ * de-jitter on), INPUT_MOUSE_AMIGA (an Amiga mouse read as a 1351) or
+ * INPUT_MOUSE_AUTO (Amiga mouse support on, which mouse it is detected):
+ * 1, 0 for another port or mode */
+#define INPUT_MOUSE_1351  0
+#define INPUT_MOUSE_AMIGA 1
+#define INPUT_MOUSE_AUTO  2
+unsigned char input_set_mouse_mode(unsigned char port, unsigned char mode);
+
+/* The device's name ("empty", "joystick", "1351 mouse", "Amiga mouse",
+ * "paddles", "unknown") */
+const char *input_joyport_name(joyport_device_t device);
