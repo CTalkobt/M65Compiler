@@ -863,6 +863,14 @@ int main(int argc, char** argv) {
     if (config.preprocessOnly && !outputFileSet && programName != "cp45" && !lintMode)
         config.outputFile = "a.out";
 
+    // -o - is standard output for text (-E, -S); an object or a program is
+    // binary: refused rather than written to a terminal or to a file named "-" (#754)
+    if (!lintMode && config.outputFile == "-" && !config.preprocessOnly && !config.assemblyOnly) {
+        std::cerr << programName << ": error: -o - (standard output) is only for -E and -S; "
+                  << (config.objectOnly ? "an object" : "a program") << " needs a file name" << std::endl;
+        return 1;
+    }
+
     if (config.inputFile.empty()) {
         // Phase 5.1: Dynamic program name in error message
         std::cerr << "Usage: " << programName << " [options] <input_file.c>" << std::endl;

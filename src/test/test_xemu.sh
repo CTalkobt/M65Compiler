@@ -3304,6 +3304,22 @@ for zmode in "zp|" "stack|-fno-zpcall"; do
     xemu_case "FAIL: test_sizeof_string_xemu.c $zname (compilation/linking failed)" "src/test-resources/test_sizeof_string_xemu.c" "build/test/test_sizeof_string_${zname}_xemu.prg" "$zflags" -- "test_sizeof_string_$zname" "build/test/test_sizeof_string_${zname}_xemu.prg" "C0C0" 5 "01 01 01 01 AA"
 done
 
+# Test: functions returning a function pointer declared without a typedef,
+# T (*f(params))(sig): prototypes, definitions, calls through the result (#752)
+for zmode in "zp|" "stack|-fno-zpcall"; do
+    IFS='|' read -r zname zflags <<< "$zmode"
+    echo "Testing test_fnret_fnptr_xemu.c ($zname)..."
+    xemu_case "FAIL: test_fnret_fnptr_xemu.c $zname (compilation/linking failed)" "src/test-resources/test_fnret_fnptr_xemu.c" "build/test/test_fnret_fnptr_${zname}_xemu.prg" "$zflags" -- "test_fnret_fnptr_$zname" "build/test/test_fnret_fnptr_${zname}_xemu.prg" "C0C0" 6 "01 01 01 01 01 AA"
+done
+
+# Test: ZP-convention asm calling C functions with arguments: ln45's
+# zp_call -> stack_call bridges, a tail call ca45 made a jmp too (#753)
+for zmode in "zp|" "stack|-fno-zpcall"; do
+    IFS='|' read -r zname zflags <<< "$zmode"
+    echo "Testing test_asm_calls_c_xemu.c ($zname)..."
+    xemu_case "FAIL: test_asm_calls_c_xemu.c $zname (compilation/linking failed)" "src/test-resources/test_asm_calls_c_xemu.c" "build/test/test_asm_calls_c_${zname}_xemu.prg" "$zflags" "src/test-resources/test_asm_calls_c.s45" -- "test_asm_calls_c_$zname" "build/test/test_asm_calls_c_${zname}_xemu.prg" "C0C0" 4 "01 01 01 AA"
+done
+
 # Test: scanf / vscanf on stdin (keys typed into the KERNAL's buffer),
 # vsscanf, fflush, putc / getc (#750); far_attic_hook after far_attic_init
 for smode in "zp|" "stack|-fno-zpcall"; do

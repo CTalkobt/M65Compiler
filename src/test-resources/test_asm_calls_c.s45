@@ -1,0 +1,66 @@
+; test_asm_calls_c.s45 — ZP-convention asm calling C functions with
+; arguments (test_asm_calls_c_xemu.c, #753): in a stack-convention program
+; ln45 bridges each call (zp_call -> stack_call)
+
+    .cpu 45gs02
+
+.global _asm_tail, _asm_call2, _asm_call_long
+.extern _take, _add2, _sum_long
+
+.segment "code"
+
+; void asm_tail(void): take($1234); jsr + rts, which ca45 makes a jmp
+proc _asm_tail
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    lda #$34
+    sta $10
+    lda #$12
+    sta $11
+    jsr _take
+    rts
+    .func_flags zp_call
+endproc
+
+; unsigned int asm_call2(void): add2($0102, 7) + 1 (work after the call)
+proc _asm_call2
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    lda #$02
+    sta $10
+    lda #$01
+    sta $11
+    lda #7
+    sta $12
+    lda #0
+    sta $13
+    jsr _add2
+    clc
+    adc #1
+    bcc @done
+    inx
+@done:
+    rts
+    .func_flags zp_call
+endproc
+
+; unsigned long asm_call_long(void): sum_long($11223344, 2)
+proc _asm_call_long
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    lda #$44
+    sta $10
+    lda #$33
+    sta $11
+    lda #$22
+    sta $12
+    lda #$11
+    sta $13
+    lda #2
+    sta $14
+    lda #0
+    sta $15
+    jsr _sum_long
+    rts
+    .func_flags zp_call
+endproc

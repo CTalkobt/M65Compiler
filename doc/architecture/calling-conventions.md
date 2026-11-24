@@ -513,7 +513,10 @@ Limitations:
   routine of a hand-written object to another is a continuation (the
   registers and the stack go on as they are; the library's `__dma_mem` ends
   in `jmp __dma_start`) and is never bridged, whatever conventions the two
-  declare. Test: `src/test/test_ln45_tailcalls.sh`.
+  declare. A `JMP` from a hand-written object into a function cc45 compiled
+  is a call, bridged as a `JSR` is (ca45's tail-call pass makes a
+  `jsr` + `rts` a `jmp`; #753). Tests: `src/test/test_ln45_tailcalls.sh`,
+  `test_asm_calls_c_xemu.c`.
 - ln45 decides per object, not per call site, whether a stack-mode object
   calls a function the ZP way (`cc45.zpcall.<callee>`); cc45 therefore rejects
   a `__fastcall__` declaration after a stack-convention call to it (§3.4). A function pointer taken in

@@ -378,6 +378,11 @@ CompilationResult CompilationPipeline::compile() {
             // -S: the assembly is the output. Write it directly (a rename of the
             // temp file fails across filesystems and for /dev/null)
             remove(tempAsmFile.c_str());
+            if (config_.outputFile == "-") {      // (standard output, #754)
+                std::cout << irOutput << std::flush;
+                result.success = true;
+                return result;
+            }
             std::ofstream out(config_.outputFile);
             out << irOutput;
             if (!out) {
