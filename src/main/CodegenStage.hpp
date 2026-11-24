@@ -78,6 +78,8 @@ public:
     void setTraceIROpt(bool t) { traceIROpt_ = t; }
     void setLint(clint::Context* c) { lint_ = c; }   // cl45: its rules on the IR and the frames
     void setEmitReasons(bool r) { emitReasons_ = r; }   // -Rcodegen
+    void setAllocReport(bool r) { allocReport_ = r; }   // -Ralloc (#248)
+    static std::string finishAllocReport(const std::string& text, std::ostream& err);
     // Assemble trial texts (ca45, at once): for each, where its exported code
     // symbols start and its code's size (loop rotation keeps what is not
     // larger; the pipeline reuses the object of the text it keeps)
@@ -122,6 +124,7 @@ private:
     clint::Context* lint_ = nullptr;
     std::map<std::string, int> frames_;   // (cl45) function -> bytes of its stack frame
     bool emitReasons_ = false;
+    bool allocReport_ = false;
     SizeTrial sizeTrial_;
 
     // Is the catalog optimization `name` on: its -f/-fno- override, else the -O level's default

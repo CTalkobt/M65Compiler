@@ -775,13 +775,13 @@ test-distros:
 # per source (its main() compiled as tv_<category>_main); test-validation and
 # the targets below run all of them or one category
 TV_TARGET = $(BIN_DIR)/test_validation
-TV_SOURCES = src/test/test_validation_parser.cpp src/test/test_validation_struct.cpp src/test/test_validation_const.cpp src/test/test_validation_semantic.cpp src/test/test_validation_preprocessor.cpp src/test/test_validation_linker.cpp src/test/test_segment_emission.cpp src/test/test_validation_assembler.cpp src/test/test_validation_simops.cpp src/test/test_validation_directives.cpp src/test/test_validation_symbols.cpp src/test/test_validation_segments.cpp src/test/test_validation_proc.cpp src/test/test_validation_addressing.cpp src/test/test_validation_simops_extended.cpp src/test/test_move_fill.cpp src/test/test_validation_ca45lib.cpp src/test/test_validation_lint.cpp
+TV_SOURCES = src/test/test_validation_parser.cpp src/test/test_validation_struct.cpp src/test/test_validation_const.cpp src/test/test_validation_semantic.cpp src/test/test_validation_preprocessor.cpp src/test/test_validation_linker.cpp src/test/test_segment_emission.cpp src/test/test_validation_assembler.cpp src/test/test_validation_simops.cpp src/test/test_validation_directives.cpp src/test/test_validation_symbols.cpp src/test/test_validation_segments.cpp src/test/test_validation_proc.cpp src/test/test_validation_addressing.cpp src/test/test_validation_simops_extended.cpp src/test/test_move_fill.cpp src/test/test_validation_ca45lib.cpp src/test/test_validation_lint.cpp src/test/test_validation_alloc.cpp
 TV_OBJECTS = $(patsubst src/test/%.cpp,$(OBJ_DIR)/tv_%.o,$(TV_SOURCES)) $(OBJ_DIR)/test_validation_main.o
 
 # (the linker category calls O45Linker itself)
 TV_LIB_OBJECTS = $(OBJ_DIR)/O45Reader.o $(OBJ_DIR)/O45Writer.o $(OBJ_DIR)/O45DebugSections.o $(OBJ_DIR)/O45IRSerializer.o \
                  $(OBJ_DIR)/O45Linker.o $(OBJ_DIR)/Logger.o $(OBJ_DIR)/O45Archive.o $(OBJ_DIR)/AssemblerOpcodeDatabase.o $(OBJ_DIR)/Pack45.o \
-                 $(OBJ_DIR)/Lint.o $(OBJ_DIR)/LintRules.o
+                 $(OBJ_DIR)/Lint.o $(OBJ_DIR)/LintRules.o $(OBJ_DIR)/SacSlotShare.o $(OBJ_DIR)/VRegAllocator.o
 
 # (the ca45lib category calls libca45; its plain objects without objcopy)
 TV_CA45LIB = $(if $(HAVE_LIBCA45),$(LIBCA45),$(LIBCA45_INT))

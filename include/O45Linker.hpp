@@ -639,6 +639,10 @@ private:
     struct SacMove { uint32_t srcOffset, len, overlayOffset; std::string func; };
     std::map<int, std::vector<SacMove>> sacMoves_;
     uint32_t sacOverlayLen_ = 0;      // size of the overlay area
+    // for the -M map (#248): each static-allocation function's block, the
+    // functions it shares its bytes with, or why it has bytes of its own
+    struct SacInfo { uint32_t len = 0; std::vector<std::string> shares; std::string why; };
+    std::map<std::string, SacInfo> sacInfo_;
     std::map<std::string, uint32_t> zarOffset_;   // function → its base-page block (.zar)
     // for the -M map (#595), as the -vv log has them: "base-page block: F at
     // $XX len N", "__zp variable: V at $XX len N", "call graph: F calls

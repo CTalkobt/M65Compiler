@@ -264,7 +264,7 @@ doc/guide/           the getting-started tutorials (C, basic45, the other tools;
   (parallel too, `EXAMPLE_JOBS`); about 6 minutes
 - `make test-xemu` — the runtime tests in xemu (`test_xemu.sh`, parallel runs: `XEMU_JOBS`)
 - `make test-validation` — `bin/test_validation`, the C++ validation tests in one program (#96): a
-  category per `src/test/test_validation_<x>.cpp` (and `test_segment_emission`, `test_move_fill`),
+  category per `src/test/test_validation_<x>.cpp` (and `test_segment_emission`, `test_move_fill`; `alloc`: the allocators on their own, #248),
   their checks from `src/test/test_harness.hpp`; `bin/test_validation parser linker` runs some,
   `-l` lists them, `TV_VERBOSE=1` shows the PASS lines; `make test-validation-<x>` runs one
 - `make clean`, `make install` (PREFIX=/usr/local: `bin/`, `lib/cc45/`, `include/cc45/`), `make install_local`, `make man`
@@ -508,6 +508,7 @@ functions that no library implements: kept for the future, their contents inside
 ./bin/cc45 -c input.c -o input.o45       # relocatable object
 CC45_DUMP_IR=1 ./bin/cc45 -c input.c     # optimized IR on stderr
 ./bin/cc45 -Rcodegen -S input.c -o x.s45 # why each instruction ("; [CONST → v2(...)]")
+./bin/cc45 -Ralloc -c input.c            # where each variable is placed, and why (stderr)
 ./bin/ca45 -c input.s45 -o input.o45
 ./bin/nm45 -f input.o45                  # symbols + function attributes
 ./bin/nm45 -r input.o45                  # relocations

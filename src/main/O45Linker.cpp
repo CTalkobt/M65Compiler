@@ -4035,6 +4035,22 @@ void O45Linker::computeSacOverlay() {
     sacMoves_.clear();
     sacOverlayLen_ = 0;
     sacOverlaySaved_ = 0;
+    sacInfo_.clear();
+    // every static-allocation block of the definitions in use (the map's
+    // Static Allocation section), each with what kept it from sharing
+    for (const auto& input : objects_) {
+        std::map<std::string, uint32_t> sizes;
+        for (const auto& exp : input.obj.exports)
+            if (exp.name.rfind("cc45.sacsize.", 0) == 0) sizes[exp.name.substr(13)] = exp.offset;
+        for (const auto& [fn, len] : sizes) {
+            auto fa = funcAttrs_.find(fn);
+            if (len == 0 || fa == funcAttrs_.end() || !(fa->second.flags & FUNC_FLAG_STATIC_ALLOC) ||
+                symbolSource_[fn] != input.filename)
+                continue;
+            sacInfo_[fn].len = len;
+            sacInfo_[fn].why = sacOverlayOn_ ? "no other block to share with" : "--no-sac-overlay";
+        }
+    }
     if (!sacOverlayOn_) return;
 
     bool anySac = false;
@@ -4069,7 +4085,10 @@ void O45Linker::computeSacOverlay() {
     std::vector<Block> blocks;
     for (int idx = 0; idx < (int)objects_.size(); idx++) {
         const auto& input = objects_[idx];
-        if (objAlign(input.obj, "cc45.align.bss") > 1) continue;
+        auto keepAll = [&](const char* why) {
+            for (auto& [fn, info] : sacInfo_) if (symbolSource_[fn] == input.filename) info.why = why;
+        };
+        if (objAlign(input.obj, "cc45.align.bss") > 1) { keepAll("its object has aligned static storage, which stays in place"); continue; }
         // a plain R_LOW into BSS has only the low byte of its target: the
         // linker cannot tell which variable it is (older objects; ca45
         // writes R_LOWX), so nothing of this object's BSS moves
@@ -4077,7 +4096,7 @@ void O45Linker::computeSacOverlay() {
         for (const auto* tbl : {&input.obj.textRelocs, &input.obj.dataRelocs})
             for (const auto& r : O45RelocDecoder::decode(*tbl))
                 if (r.type == R_LOW && r.segment == SEG_BSS) lowOnly = true;
-        if (lowOnly) continue;
+        if (lowOnly) { keepAll("its object names static storage by a low byte alone (an older object): it stays in place"); continue; }
         std::map<std::string, uint32_t> sizes;
         for (const auto& exp : input.obj.exports)
             if (exp.name.rfind("cc45.sacsize.", 0) == 0) sizes[exp.name.substr(13)] = exp.offset;
@@ -4138,7 +4157,28 @@ void O45Linker::computeSacOverlay() {
         sacOverlayLen_ = std::max(sacOverlayLen_, at + b.len);
         total += b.len;
     }
-    if (sacOverlayLen_ >= total) { sacOverlayLen_ = 0; return; }   // nothing shared
+    auto activeWith = [&](const std::string& f) {
+        std::string w;
+        int k = 0;
+        for (const auto& p : placed)
+            if (p.b->func != f && conflict(f, p.b->func)) {
+                if (k++ < 4) w += (w.empty() ? "" : ", ") + p.b->func;
+            }
+        if (k > 4) w += ", and " + std::to_string(k - 4) + " more";
+        return w.empty() ? std::string("no block it could share bytes with") : "active at the same time as " + w;
+    };
+    for (const auto& p : placed) {
+        auto& info = sacInfo_[p.b->func];
+        info.len = p.b->len;
+        for (const auto& q : placed)
+            if (q.b != p.b && q.at < p.at + p.b->len && p.at < q.at + q.b->len) info.shares.push_back(q.b->func);
+        info.why = info.shares.empty() ? activeWith(p.b->func) : "";
+    }
+    if (sacOverlayLen_ >= total) {   // nothing shared
+        sacOverlayLen_ = 0;
+        for (auto& [f, info] : sacInfo_) info.shares.clear();
+        return;
+    }
 
     sacOverlaySaved_ = total - sacOverlayLen_;
     for (const auto& p : placed) {
@@ -4839,7 +4879,43 @@ void O45Linker::writeMap(std::ostream& out) const {
     if (!mapBasePage_.empty()) {
         out << "\nBase Page\n";
         out << "---------\n";
-        for (const auto& l : mapBasePage_) out << "  " << l << "\n";
+        for (const auto& l : mapBasePage_) {
+            out << "  " << l << "\n";
+            // (#248) the blocks a function's shares its bytes with: functions
+            // never active at the same time, or saved and restored around calls
+            const std::string tag = "base-page block: ";
+            if (l.rfind(tag, 0) != 0) continue;
+            std::string f = l.substr(tag.size(), l.find(' ', tag.size()) - tag.size());
+            auto fo = zarOffset_.find(f);
+            if (fo == zarOffset_.end()) continue;
+            std::string with;
+            for (const auto& [g, gat] : zarOffset_)
+                if (g != f && zarSize_.count(f) && zarSize_.count(g) && gat < fo->second + zarSize_.at(f) &&
+                    fo->second < gat + zarSize_.at(g))
+                    with += (with.empty() ? "" : ", ") + g;
+            if (!with.empty()) out << "    shares its bytes with " << with << "\n";
+            if (zarWrapped_.count(f)) out << "    its calls save and restore the bytes it shares with functions active with it\n";
+        }
+    }
+    // (#248) each static-allocation function's block: where it is, the
+    // functions whose blocks share its bytes (never active at the same time),
+    // or why it has bytes of its own
+    if (!sacInfo_.empty()) {
+        out << "\nStatic Allocation\n";
+        out << "-----------------\n";
+        for (const auto& [f, info] : sacInfo_) {
+            auto a = globalSymbols_.find(f + "__ar");
+            out << "  " << f;
+            if (a != globalSymbols_.end()) out << strprintf(" at $%04X", a->second);
+            out << " len " << info.len;
+            if (!info.shares.empty()) {
+                out << ", shares its bytes with ";
+                for (size_t i = 0; i < info.shares.size(); i++) out << (i ? ", " : "") << info.shares[i];
+            } else {
+                out << ", bytes of its own: " << info.why;
+            }
+            out << "\n";
+        }
     }
 
     // Source line map section — one entry per unique file:line (first address only)

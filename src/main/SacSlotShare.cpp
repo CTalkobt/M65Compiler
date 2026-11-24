@@ -159,8 +159,14 @@ std::string shareSacSlots(const std::string& text) {
         for (size_t i = 0; i < lines.size(); i++) {
             if ((i >= from && i <= to) || (i >= at.front() && i <= at.back() + 1)) continue;
             std::string c = code(lines[i]);
+            // (not uses of the bytes: a slot's debug record, .dbg_var, and its
+            // record for the base-page plan, cc45.zc.<slot>, name it; they
+            // stay right when it shares its bytes, its label kept. Counting
+            // them shared nothing, #790)
+            if (trim(c).rfind(".dbg_var", 0) == 0) continue;
             for (size_t p = c.find(fnName + "__local_"); p != std::string::npos; p = c.find(fnName + "__local_", p + 1)) {
                 int id, off; size_t e;
+                if (p >= 8 && c.compare(p - 8, 8, "cc45.zc.") == 0) continue;
                 if ((p == 0 || !(std::isalnum((unsigned char)c[p - 1]) || c[p - 1] == '_')) && f.slotRef(c, p, id, off, e))
                     f.slots[id].keep = true;
             }
@@ -169,7 +175,7 @@ std::string shareSacSlots(const std::string& text) {
         // the statements, their labels
         std::vector<Node> nodes;
         std::map<std::string, int> labelAt;
-        bool skip = false;
+        bool skip = false, afterJsr = false;
         for (size_t i = from + 1; i < to && !skip; i++) {
             std::string c = trim(code(lines[i]));
             while (!c.empty()) {                       // labels (several, or before an instruction)
@@ -184,12 +190,26 @@ std::string shareSacSlots(const std::string& text) {
             Node nd;
             std::string m = lower(c.substr(0, c.find_first_of(" \t")));
             std::string operand = c.size() > m.size() ? trim(c.substr(m.size())) : "";
+            // data right after a jsr is the call's argument list (the routine
+            // returns past it: __sac_args' parameter copies), never run: no
+            // statement, but a slot it names keeps its storage (#790)
+            static const std::set<std::string> dataDirs = {".byte", ".word", ".dword", ".addr", ".lobytes", ".hibytes"};
+            if (afterJsr && dataDirs.count(m)) {
+                for (size_t p = operand.find(fnName + "__local_"); p != std::string::npos;
+                     p = operand.find(fnName + "__local_", p + 1)) {
+                    int id, off; size_t e;
+                    if (f.slotRef(operand, p, id, off, e)) f.slots[id].keep = true;
+                }
+                continue;
+            }
+            if (m[0] != '.') afterJsr = m == "jsr";
             if (m[0] == '.') {
                 static const std::set<std::string> quiet = {
                     ".loc", ".var", ".func_flags", ".reg_clobbers", ".flag_clobbers", ".frame_size", ".zp_uses",
                     ".zp_clobbers", ".zp_release", ".global", ".extern", ".weak", ".local", ".bptop", ".bpindex", ".sac",
                     ".param_sizes", ".zar", ".dbg_var", ".dbg_type"};
                 if (quiet.count(m)) continue;
+                afterJsr = false;
                 nd.opaque = true;                      // data in the code, or anything else
                 nodes.push_back(nd);
                 continue;

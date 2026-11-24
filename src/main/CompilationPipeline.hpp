@@ -27,6 +27,7 @@ struct CompilationConfig {
     int optimizationLevel = 2;
     bool emitIR = false;        // --emit-ir: write IR text dump
     bool emitReasons = false;   // -Rcodegen: annotate assembly
+    bool allocReport = false;   // -Ralloc: where each variable is placed, and why (#248)
     int maxInlineIRSize = 11;   // -fmax-inline-ir-size: max IR instructions for inlining
     int maxUnrollBytes = 128;   // -fmax-unroll-bytes: largest code an unrolled loop may take
     bool signedDefault = false; // -fsigned-default: plain char/short/int/long are signed (standard C)

@@ -4,6 +4,25 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### Where each variable is placed, and why: `cc45 -Ralloc`, ln45 `-M` (#248); SAC slot sharing works again (#790)
+
+- `cc45 -Ralloc`: for each function, static allocation or a stack frame (and why), its convention, the frame, static
+  and base-page bytes; each parameter, local and temporary with where it is (A/X, X/Y/Z, the ZP parameter block, the
+  register pool with the IR instructions it is live over, the base-page block, a static slot and the variables
+  sharing its bytes, a frame offset) and why (address taken, volatile, an array, a loop counter, used where the
+  caller put it, kept across calls…). On stderr; with `-S` also as `; alloc:` comments. The object is the same.
+- ln45 `-M`: a **Static Allocation** section, each static-allocation function's block with the functions sharing
+  its bytes in the SAC overlay or why it has its own (`active at the same time as …`, `--no-sac-overlay`, an object
+  whose static storage stays in place); under each base-page block's line, the functions sharing its bytes. The
+  existing **Base Page** lines are unchanged.
+- **Fixed (#790)**: SAC slot sharing (#324) had shared nothing since 2026-10-21: every slot was named outside its
+  function by its base-page plan record (`cc45.zc.<slot>`, #304) and its debug record (`.dbg_var`, #202), which kept
+  it; and in the stack convention the entry thunk's argument list after `jsr __sac_args` counted as data in the
+  code, making every slot live. Programs' static blocks are smaller again (the test's `chain` 23 → 9 bytes).
+- Found: #791 (a stack-convention parameter also gets an unused `_f__local_<n>` slot).
+- Tests: `bin/test_validation alloc` (SacSlotShare and VRegAllocator on their own), `src/test/test_alloc_report.sh`
+  (the report, the same object with and without it, the map's sections, sharing happening at all).
+
 ## [v1.5.0] - 2026-11-24
 
 ### `__builtin_trap()` ends the program (#761); `fopen` of names starting with `_`, `$` or `#` (#785)
