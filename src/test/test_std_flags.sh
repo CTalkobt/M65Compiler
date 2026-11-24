@@ -67,6 +67,12 @@ printf '#define N 3\nint main(void){ return N - 3; }\n' > $SO/p.c
 [ "$(./bin/cc45 -O2 -E $SO/p.c -o - | grep main)" = "int main(void){ return 3 - 3; }" ] && pass || fail "cc45 -E -o -: stdout (#726)"
 [ "$(./bin/cp45 $SO/p.c -o - | grep -c main)" = 1 ] && pass || fail "cp45 -o -: stdout (#726)"
 (cd $SO && ../../../bin/cc45 -O2 p.c >/dev/null 2>&1) && [ -s $SO/a.prg ] && [ ! -e $SO/p.prg ] && pass || fail "cc45 p.c without -o: a.prg (#726)"
+# #754: cc45 -S -o -: the assembly on stdout (no file named "-"); -c / a program to -o -: an error
+(cd $SO && ../../../bin/cc45 -O2 -S p.c -o - > s.out 2>/dev/null) && grep -q 'proc _main' $SO/s.out && [ ! -e $SO/- ] && pass || fail "cc45 -S -o -: stdout (#754)"
+(cd $SO && ../../../bin/cc45 -O2 -c p.c -o - > c.out 2>&1); rc=$?
+[ $rc = 1 ] && grep -q 'only for -E and -S' $SO/c.out && [ ! -e $SO/- ] && pass || fail "cc45 -c -o -: rc $rc (#754)"
+(cd $SO && ../../../bin/cc45 -O2 p.c -o - > c.out 2>&1); rc=$?
+[ $rc = 1 ] && [ ! -e $SO/- ] && pass || fail "cc45 p.c -o -: rc $rc (#754)"
 # #723: -D NAME (with a space) as -DNAME; -D without a name an error
 printf 'int main(void){return FOO;}\n' > $SO/d.c
 [ "$(./bin/cp45 $SO/d.c -D FOO=3 | grep main)" = "int main(void){return 3;}" ] && pass || fail "cp45 -D FOO=3 (#723)"

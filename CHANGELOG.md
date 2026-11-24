@@ -4,6 +4,18 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### Fixes: functions returning function pointers, asm tail calls into C, `cc45 -S -o -` (#752, #753, #754)
+
+- cc45: a function returning a function pointer written without a typedef, `void (*f(int))(void);`, was compiled
+  as a variable `f` (a prototype), or rejected (a definition), and its parameters were dropped. Both are functions
+  now; the result can be called at once, `f(3)()` (#752). Test: `test_fnret_fnptr_xemu.c`.
+- ln45: a hand-written ZP-convention routine calling a stack-convention C function with arguments got no bridge
+  when the call was its last instruction: ca45's tail-call pass made `jsr` + `rts` a `jmp`, and ln45 took a
+  hand-written `JMP` for a continuation. A `JMP` into a function cc45 compiled is bridged now (#753). Test:
+  `test_asm_calls_c_xemu.c` (a tail call, a call with work after it, long arguments).
+- cc45: `-S -o -` writes the assembly to standard output, as `-E -o -` does, instead of a file named `-`. An
+  object or a program to `-o -` is an error (#754).
+
 ### TGI: bitmap and text-screen drivers, `tgi_copyrect`, `tgi_toggle_case`; `<rrb.h>`; the graphics framework removed (#645)
 
 - TGI's generic drivers (mode `$40`): a driver gives its own install, init, done, clear and set / get pixel. Lines,

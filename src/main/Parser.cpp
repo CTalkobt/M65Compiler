@@ -11,6 +11,8 @@
 #include <iostream>
 #include <cctype>
 
+static bool returnsFuncPtrDeclarator(const std::vector<Token>& tokens, size_t look);
+
 // C11 lets an alignment specifier appear anywhere among the declaration
 // specifiers (_Alignas(8) static int x; static int _Alignas(8) x;). The
 // declaration parsers accept it right after the storage class: move each
@@ -613,7 +615,9 @@ std::unique_ptr<TranslationUnit> Parser::parse() {
             unparenName(look);   // void (f)(int), int (x)
 
             // Check for parenthesized declarator (e.g., function pointer: type (*name)(params)) — treat as variable
-            if (look < tokens.size() && tokens[look].type == TokenType::OPEN_PAREN) {
+            // (not T (*f(params))(sig): a function, below, #752)
+            if (look < tokens.size() && tokens[look].type == TokenType::OPEN_PAREN &&
+                !returnsFuncPtrDeclarator(tokens, look)) {
                 while (match(TokenType::EXTERN) || match(TokenType::STATIC) || match(TokenType::NORETURN) ||
                        match(TokenType::FASTCALL) || match(TokenType::INTERRUPT) || match(TokenType::NAKED) ||
                        match(TokenType::REGPARM) || match(TokenType::INLINE) || match(TokenType::FAR) || match(TokenType::NEAR));
@@ -646,16 +650,14 @@ std::unique_ptr<TranslationUnit> Parser::parse() {
                 continue;
             }
 
-            // Check for complex declarators: (*name) or (*name(params)) → function declaration
-            if (look < tokens.size() && tokens[look].type == TokenType::OPEN_PAREN &&
-                look + 1 < tokens.size() && tokens[look + 1].type == TokenType::STAR) {
+            // T (*name(params))(sig): a function returning a function pointer (#752)
+            if (returnsFuncPtrDeclarator(tokens, look)) {
                 while (match(TokenType::EXTERN) || match(TokenType::STATIC) || match(TokenType::NORETURN) ||
                        match(TokenType::FASTCALL) || match(TokenType::INTERRUPT) || match(TokenType::NAKED) ||
                        match(TokenType::REGPARM) || match(TokenType::INLINE) || match(TokenType::FAR) || match(TokenType::NEAR));
                 while (match(TokenType::VOLATILE) || match(TokenType::CONST) || match(TokenType::RESTRICT) || match(TokenType::AUTO) || match(TokenType::REGISTER) || match(TokenType::INLINE) || match(TokenType::FASTCALL) || match(TokenType::INTERRUPT) || match(TokenType::NAKED) || match(TokenType::REGPARM) || match(TokenType::SIGNED) || match(TokenType::UNSIGNED) || tryParseAttribute() || match(TokenType::EXTENSION));
                 auto decl = parseFunctionDeclaration();
-                if (isSig) decl->isSigned = true;  // 'signed'/'unsigned' were consumed with the qualifiers above
-                    if (isUnsig) decl->isSigned = false;
+                // ('signed'/'unsigned' were the returned function's: this one returns a pointer)
                 decl->isNoreturn = isNR;
                 decl->isFastcall = isFC;
                 decl->isInterrupt = isInterrupt;
@@ -1121,36 +1123,16 @@ std::unique_ptr<FunctionDeclaration> Parser::parseFunctionDeclaration() {
     std::string name;
     bool isComplexDeclarator = false;
 
-    // Handle complex declarators: (*name)(params) or (*name(params))(result)
-    // Pattern: type (*func_name(actual_params))(returned_fp_params)
-    // The (actual_params) are the function's own parameters
-    // The (returned_fp_params) describe what the function returns
+    // A function returning a function pointer (#752): T (*name(params))(sig).
+    // The function's own parameters are parsed below as any function's; after
+    // their ')' come the declarator's ')' and the returned pointer's (sig).
+    // The result is a function pointer (void *, as a typedef'd one is)
     if (peek().type == TokenType::OPEN_PAREN && pos + 1 < tokens.size() && tokens[pos + 1].type == TokenType::STAR) {
         isComplexDeclarator = true;
         advance(); // consume '('
         advance(); // consume '*'
         while (match(TokenType::VOLATILE) || match(TokenType::CONST) || match(TokenType::RESTRICT)) {}
         name = expect(TokenType::IDENTIFIER, "Expected function name").value;
-
-        // If next is '(', parse the actual function parameters (e.g., (void) in (*make_fp(void)))
-        std::vector<Parameter> actualParams;
-        if (peek().type == TokenType::OPEN_PAREN) {
-            advance(); // consume '('
-            if (peek().type == TokenType::VOID && pos + 1 < tokens.size() && tokens[pos + 1].type == TokenType::CLOSE_PAREN) {
-                advance(); // consume 'void'
-            } else if (peek().type != TokenType::CLOSE_PAREN) {
-                // Parse actual parameters
-                do {
-                    std::string pType = "int";  // fallback
-                    std::string pName = "__param";
-                    Parameter p = {pType, 0, false, pName, false, false, false, false, nullptr};
-                    actualParams.push_back(p);
-                } while (match(TokenType::COMMA) && peek().type != TokenType::CLOSE_PAREN);
-            }
-            expect(TokenType::CLOSE_PAREN, "Expected ')' after function parameters");
-        }
-
-        expect(TokenType::CLOSE_PAREN, "Expected ')' after function name");
     }
     else if (peek().type == TokenType::IDENTIFIER && peek().value == "operator") {
         advance(); // consume 'operator'
@@ -1197,9 +1179,7 @@ std::unique_ptr<FunctionDeclaration> Parser::parseFunctionDeclaration() {
     std::vector<Parameter> params;
     bool paramTypes = false;   // a parameter type list, not () or K&R names (#721)
 
-    // For complex declarators, parameters were already parsed above
-    // The next parens (e.g., (int, int)) are the signature of returned function pointer
-    if (!isComplexDeclarator) {
+    {
         expect(TokenType::OPEN_PAREN, "Expected '('");
         // Handle (void) as empty parameter list
         if (peek().type == TokenType::VOID && pos + 1 < tokens.size() && tokens[pos + 1].type == TokenType::CLOSE_PAREN) {
@@ -1458,10 +1438,15 @@ std::unique_ptr<FunctionDeclaration> Parser::parseFunctionDeclaration() {
         }
     }
     bool isVariadic = match(TokenType::ELLIPSIS);
-    if (!isComplexDeclarator) {
-        expect(TokenType::CLOSE_PAREN, "Expected ')'");
+    expect(TokenType::CLOSE_PAREN, "Expected ')'");
+    if (isComplexDeclarator) {
+        // ) (sig): the function pointer it returns (#752)
+        expect(TokenType::CLOSE_PAREN, "Expected ')' after the function's parameters");
+        parseFuncPtrParams(returnType, returnPtrLevel, isSigned);
+        returnType = "void";
+        returnPtrLevel = 1;
+        isSigned = false;
     }
-    // For complex declarators, the return type params come next (e.g., (int, int))
 
     // --- K&R parameter type declarations after ')' ---
     // Pattern: int foo(a, b) int a; char *b; { ... }
@@ -5458,6 +5443,28 @@ std::unique_ptr<EnumDefinition> Parser::parseEnumDefinition() {
     return setPos(std::make_unique<EnumDefinition>(name), startToken);
 }
 
+// At tokens[look]: T (* [qualifiers] name (params)) (sig), the declarator of
+// a function returning a function pointer (#752), not T (*name)(sig), a
+// function pointer variable
+static bool returnsFuncPtrDeclarator(const std::vector<Token>& tokens, size_t look) {
+    if (look + 3 >= tokens.size() || tokens[look].type != TokenType::OPEN_PAREN ||
+        tokens[look + 1].type != TokenType::STAR) return false;
+    size_t q = look + 2;
+    while (q < tokens.size() && (tokens[q].type == TokenType::CONST || tokens[q].type == TokenType::VOLATILE ||
+                                 tokens[q].type == TokenType::RESTRICT)) q++;
+    if (q + 1 >= tokens.size() || tokens[q].type != TokenType::IDENTIFIER ||
+        tokens[q + 1].type != TokenType::OPEN_PAREN) return false;
+    size_t r = q + 2;
+    int depth = 1;
+    while (r < tokens.size() && depth > 0) {
+        if (tokens[r].type == TokenType::OPEN_PAREN) depth++;
+        else if (tokens[r].type == TokenType::CLOSE_PAREN) depth--;
+        r++;
+    }
+    return r + 1 < tokens.size() && tokens[r].type == TokenType::CLOSE_PAREN &&
+           tokens[r + 1].type == TokenType::OPEN_PAREN;
+}
+
 bool Parser::isFunctionDeclaration() {
     size_t look = pos;
     // Skip common leading keywords/qualifiers
@@ -5554,6 +5561,8 @@ bool Parser::isFunctionDeclaration() {
             } else break;
         }
         
+        // T (*f(params))(sig): a function returning a function pointer (#752)
+        if (returnsFuncPtrDeclarator(tokens, look)) return true;
         unparenName(look);   // void (f)(int)
         // Check for identifier followed by (
         if (look + 1 < tokens.size() && tokens[look].type == TokenType::IDENTIFIER &&

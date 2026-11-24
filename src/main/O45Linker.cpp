@@ -2317,8 +2317,10 @@ bool O45Linker::callNeedsThunk(const std::string& callerName, const std::string&
     // A JMP from one routine of a hand-written object to another is a
     // continuation: the registers and the stack go on as they are, whatever
     // conventions the two declare (the library's __dma_mem ends in
-    // jmp __dma_start). Only cc45's tail calls are calls to bridge (#615)
-    if (asmTailEdges_.count({caller, callee})) return false;
+    // jmp __dma_start). Only cc45's tail calls are calls to bridge (#615).
+    // But a jump into a function cc45 compiled is a call (ca45's tail-call
+    // pass makes jsr + rts a jmp; a C function is no continuation, #753)
+    if (asmTailEdges_.count({caller, callee}) && funcMode(callee) < 0) return false;
     auto callerIt = funcAttrs_.find(caller);
     auto calleeIt = funcAttrs_.find(callee);
     int callerMode = funcMode(caller);
@@ -2346,7 +2348,7 @@ void O45Linker::emitDiagnostics() {
     for (const auto& [caller, callees] : callGraph_) {
         for (const auto& callee : callees) {
             bool callerIsZp = false;
-            if (!callNeedsThunk(caller, callee, callerIsZp)) continue;
+                    if (!callNeedsThunk(caller, callee, callerIsZp)) continue;
 
             std::string direction = callerIsZp ? "zp_call -> stack_call" : "stack_call -> zp_call";
             std::string msg = "calling convention mismatch: '" + caller + "' calls '" + callee + "' (" + direction + ")";
@@ -4271,11 +4273,12 @@ void O45Linker::generateThunks() {
             // (a tail call's JMP too, #615: the bridge is entered by the
             // jump and returns to the jumping function's caller; in an
             // object cc45 made: a hand-written JMP is a continuation)
+            bool asmJmp = false;   // a hand-written object's JMP
             if (input.obj.textBody[r.offset - 1] == 0x4C) {
                 bool isCc45 = false;
                 for (const auto& exp : input.obj.exports)
                     if (exp.name == "cc45.mode_zp" || exp.name == "cc45.mode_stack") isCc45 = true;
-                if (!isCc45) continue;
+                asmJmp = !isCc45;
             } else if (input.obj.textBody[r.offset - 1] != 0x20) continue;
 
             // Get callee name
@@ -4287,6 +4290,9 @@ void O45Linker::generateThunks() {
                 if (r.symbolIndex >= input.obj.exports.size()) continue;
                 callee = input.obj.exports[r.symbolIndex].name;
             } else continue;
+            // (a hand-written JMP is a continuation, except into a function
+            // cc45 compiled: a call, #753)
+            if (asmJmp && funcMode(callee) < 0) continue;
 
             // Find caller
             uint32_t siteInMerged = input.textOffset + r.offset;
