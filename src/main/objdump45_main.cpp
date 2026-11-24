@@ -10,6 +10,7 @@
 #include <map>
 #include <set>
 #include <cstdio>
+#include <cstdarg>
 #include <sys/stat.h>
 #include <unistd.h>
 #include <cstring>
@@ -32,14 +33,6 @@ static bool isDirectory(const std::string& path) {
     struct stat st;
     return stat(path.c_str(), &st) == 0 && S_ISDIR(st.st_mode);
 }
-
-// TODO: Add binary diff mode (-D) for comparing two .prg/.o45 files.
-// Shows byte-level differences at matching symbol addresses, highlighting
-// relocation mismatches (e.g., __sp_base or __zp_scratch resolved differently
-// between direct-compile and linked builds). Usage:
-//   objdump45 -D direct.prg linked.prg
-// For each shared symbol, show side-by-side disassembly of the first N
-// instructions with differing bytes highlighted.
 
 // ─── Helpers shared with nm45 ───────────────────────────────────────────────
 
@@ -1755,67 +1748,553 @@ static void dumpBasicProgram(const std::string& filename, bool showHex) {
     }
 }
 
-static bool diffBinaries(const std::string& file1, const std::string& file2) {
-    for (const auto& f : {file1, file2}) {
-        if (isDirectory(f)) {
-            std::cerr << "objdump45: " << f << ": is a directory" << std::endl;
-            return false;
-        }
-    }
-    std::ifstream f1(file1, std::ios::binary), f2(file2, std::ios::binary);
-    if (!f1 || !f2) {
-        std::cerr << "objdump45: cannot open files for comparison" << std::endl;
+// ─── -D: two programs, objects or binaries compared (#766) ─────────────────
+// Two of a kind: two objects (TEXT and DATA by symbol, the relocations, the
+// symbols and imports), two PRGs (by symbol from their maps or debug files,
+// else by address) or two binaries (by address). The differing bytes of a
+// symbol are shown as both disassemblies side by side (data as hex). Exit
+// status as cmp's: 0 identical, 1 different, 2 an error.
+
+namespace {
+
+std::string fmt(const char* f, ...) __attribute__((format(printf, 1, 2)));
+std::string fmt(const char* f, ...) {
+    char buf[512];
+    va_list ap;
+    va_start(ap, f);
+    vsnprintf(buf, sizeof buf, f, ap);
+    va_end(ap);
+    return buf;
+}
+
+struct DiffSeg {
+    std::string name;                           // TEXT / DATA (an object), PRG, BIN
+    uint32_t base = 0;
+    std::vector<uint8_t> body;
+    bool code = true;                           // disassembled (else hex)
+    uint32_t codeEnd = UINT32_MAX;              // a PRG's map: data from here on
+    std::map<uint32_t, std::string> labels;     // address -> the symbol that starts a region there
+    std::map<uint32_t, std::string> relocs;     // address -> "R_WORD _printf"
+    std::map<uint32_t, std::string> relocNames; // address -> what the operand names (the disassembly's)
+    std::map<uint32_t, std::string> names;      // a PRG's symbols, for the operands
+    uint32_t end() const { return base + (uint32_t)body.size(); }
+    int at(uint32_t a) const { return a >= base && a < end() ? body[a - base] : -1; }
+};
+
+struct DiffSym { std::string seg; uint32_t addr; };
+
+struct DiffSide {
+    std::string file;
+    std::string kind;                           // "object", "prg", "binary"
+    std::vector<uint8_t> raw;
+    std::vector<DiffSeg> segs;
+    std::map<std::string, DiffSym> syms;        // every symbol (an object's exports, a map's)
+    std::set<std::string> imports;
+    std::string symSource;                      // the map or debug file of a PRG
+    uint32_t loadAddr = 0;
+    bool hasSyms() const {
+        for (const auto& s : segs) if (!s.labels.empty()) return true;
         return false;
     }
+};
 
-    std::vector<uint8_t> data1((std::istreambuf_iterator<char>(f1)), std::istreambuf_iterator<char>()),
-                         data2((std::istreambuf_iterator<char>(f2)), std::istreambuf_iterator<char>());
-    f1.close(); f2.close();
+std::string stem(const std::string& f) {
+    size_t dot = f.rfind('.'), slash = f.rfind('/');
+    return dot == std::string::npos || (slash != std::string::npos && dot < slash) ? f : f.substr(0, dot);
+}
 
-    printf("Binary Diff: %s vs %s\n", file1.c_str(), file2.c_str());
-    printf("Size: %zu bytes vs %zu bytes\n\n", data1.size(), data2.size());
+bool loadDiffSide(const std::string& file, const std::string& mapFile, uint32_t binBase, DiffSide& s,
+                  std::string& err) {
+    s.file = file;
+    if (isDirectory(file)) { err = file + ": is a directory"; return false; }
+    std::ifstream in(file, std::ios::binary);
+    if (!in) { err = file + ": cannot open"; return false; }
+    s.raw.assign(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
+    O45File obj;
+    std::string rerr;
+    if (O45Reader::read(s.raw, obj, rerr)) {
+        s.kind = "object";
+        for (const auto& im : obj.imports) s.imports.insert(im.name);
+        for (const auto& e : obj.exports) {
+            uint8_t sg = e.segmentId();
+            uint32_t b = sg == SEG_TEXT ? obj.tbase : sg == SEG_DATA ? obj.dbase : sg == SEG_BSS ? obj.bbase
+                       : sg == SEG_ZP ? obj.zbase : 0;
+            s.syms[e.name] = {segmentName(sg), b + e.offset};
+        }
+        auto addSeg = [&](const char* name, uint8_t sg, uint32_t base, const std::vector<uint8_t>& body,
+                          const std::vector<uint8_t>& raw) {
+            DiffSeg g;
+            g.name = name;
+            g.base = base;
+            g.body = body;
+            g.code = sg == SEG_TEXT;
+            g.labels = sectionSymbols(obj, sg);
+            g.relocNames = relocationNames(obj, raw, body, base);
+            for (const auto& r : O45RelocDecoder::decode(raw)) {
+                std::string d = relocTypeName((uint8_t)r.type);
+                if (r.segment == SEG_EXTERNAL)
+                    d += " " + (r.symbolIndex < obj.imports.size() ? obj.imports[r.symbolIndex].name
+                                                                   : fmt("[import %u]", r.symbolIndex));
+                else
+                    d += std::string(" <") + segmentName((uint8_t)r.segment) + ">";
+                if (o45RelocHasExtra(r.type)) d += fmt(" extra=$%02x", r.extra);
+                g.relocs[base + r.offset] = d;
+            }
+            s.segs.push_back(std::move(g));
+        };
+        addSeg("TEXT", SEG_TEXT, obj.tbase, obj.textBody, obj.textRelocs);
+        addSeg("DATA", SEG_DATA, obj.dbase, obj.dataBody, obj.dataRelocs);
+        return true;
+    }
+    DiffSeg g;
+    if (hasExtension(file, ".prg")) {
+        if (s.raw.size() < 2) { err = file + ": PRG file too small"; return false; }
+        s.kind = "prg";
+        s.loadAddr = s.raw[0] | (s.raw[1] << 8);
+        g.name = "PRG";
+        g.base = s.loadAddr;
+        g.body.assign(s.raw.begin() + 2, s.raw.end());
+        // its symbols: the -m map, else <prog>.map, else <prog>.dbg
+        std::string map = mapFile;
+        if (map.empty() && std::ifstream(stem(file) + ".map").good()) map = stem(file) + ".map";
+        std::map<uint32_t, std::string> syms;
+        if (!map.empty()) {
+            if (!std::ifstream(map).good()) { err = map + ": cannot open"; return false; }
+            syms = loadMapSymbols(map);
+            uint32_t te = loadMapTextEnd(map);
+            if (te) g.codeEnd = te;
+            s.symSource = map;
+        } else {
+            SourceLineMap lines;
+            if (loadDebugFile(stem(file) + ".dbg", syms, lines)) s.symSource = stem(file) + ".dbg";
+        }
+        g.names = syms;
+        for (const auto& [a, n] : syms) {
+            s.syms[n] = {"", a};
+            if (a >= g.base && a < g.end()) g.labels[a] = n;
+        }
+        // the code before the first symbol (the BASIC stub) and the data past the code: hex
+        if (!g.labels.empty() && g.codeEnd > g.base && g.codeEnd < g.end() && !g.labels.count(g.codeEnd))
+            g.labels[g.codeEnd] = "(data)";
+        if (!s.symSource.empty())
+            LOG_INFO("objdump45", file << ": symbols from " << s.symSource << " (" << syms.size() << ")");
+    } else {
+        s.kind = "binary";
+        g.name = "BIN";
+        g.base = binBase;
+        g.body = s.raw;
+    }
+    s.segs.push_back(std::move(g));
+    return true;
+}
 
-    if (data1.empty() && data2.empty()) {
-        printf("Both files are empty (identical)\n");
+struct Region { std::string name; uint32_t addr = 0, size = 0; };
+
+// A segment cut at its labels: each symbol's bytes up to the next one; the
+// bytes before the first a region of their own
+std::vector<Region> regionsOf(const DiffSeg& g) {
+    std::vector<Region> out;
+    if (g.body.empty()) return out;
+    auto it = g.labels.lower_bound(g.base);
+    uint32_t first = it == g.labels.end() || it->first >= g.end() ? g.end() : it->first;
+    if (first > g.base) out.push_back({"(start of " + g.name + ")", g.base, first - g.base});
+    for (; it != g.labels.end() && it->first < g.end(); ++it) {
+        auto nx = std::next(it);
+        uint32_t e = nx == g.labels.end() || nx->first > g.end() ? g.end() : nx->first;
+        out.push_back({it->second, it->first, e - it->first});
+    }
+    return out;
+}
+
+struct DisLine { uint32_t a = 0, len = 0; std::string bytes, text; };
+
+std::vector<DisLine> disasmRegion(const DiffSeg& g, uint32_t addr, uint32_t size,
+                                  const std::map<uint8_t, OpcodeInfo>& table, DisCpu cpu,
+                                  const std::string& file) {
+    std::vector<uint8_t> b(g.body.begin() + (addr - g.base), g.body.begin() + (addr - g.base + size));
+    std::vector<DisRec> recs;
+    g_sink = &recs;
+    disassembleSection(b, addr, g.name.c_str(), table, g.names, file, {}, g.names.empty() ? &g.relocNames : nullptr, cpu);
+    g_sink = nullptr;
+    std::vector<DisLine> out;
+    for (const auto& r : recs) {
+        if (r.t != 'I' && r.t != 'B') continue;
+        DisLine l;
+        l.a = r.a;
+        l.len = (uint32_t)(r.bytes.size() + 1) / 3;
+        l.bytes = r.bytes;
+        if (r.t == 'B') l.text = ".byte $" + r.bytes;
+        else {
+            l.text = r.m + (r.op.empty() ? "" : " " + r.op);
+            if (!r.note.empty()) l.text += " ; " + r.note;
+        }
+        out.push_back(std::move(l));
+    }
+    return out;
+}
+
+std::string hexBytes(const DiffSeg& g, uint32_t from, uint32_t n) {
+    std::string s;
+    for (uint32_t i = 0; i < n; i++) {
+        int v = g.at(from + i);
+        s += (i ? " " : "") + (v < 0 ? std::string("--") : fmt("%02x", v));
+    }
+    return s;
+}
+
+// The runs of differing offsets, those within `gap` bytes of each other joined
+std::vector<std::pair<uint32_t, uint32_t>> runsOf(const std::vector<bool>& d, uint32_t gap) {
+    std::vector<std::pair<uint32_t, uint32_t>> runs;   // (offset, length)
+    for (uint32_t i = 0; i < d.size(); i++) {
+        if (!d[i]) continue;
+        if (!runs.empty() && i - (runs.back().first + runs.back().second) <= gap)
+            runs.back().second = i + 1 - runs.back().first;
+        else
+            runs.push_back({i, 1});
+    }
+    return runs;
+}
+
+const size_t kMaxLines = 40;   // a region's lines shown (the rest counted)
+
+struct Differ {
+    const DiffSide &A, &B;
+    const std::map<uint8_t, OpcodeInfo>& table;
+    DisCpu cpu;
+    bool json;
+    Json jsym = Json::array(), jranges = Json::array();
+    size_t bytesDiffer = 0, relocsDiffer = 0, symsDiffer = 0;
+
+    // The hex of a run, both sides: a's bytes at aAddr, b's at bAddr
+    void printHexRun(const DiffSeg& ga, uint32_t aAddr, const DiffSeg& gb, uint32_t bAddr, uint32_t len,
+                     const char* indent) {
+        for (uint32_t o = 0; o < len; o += 16) {
+            uint32_t n = std::min<uint32_t>(16, len - o);
+            printf("%sa $%04x: %s\n", indent, aAddr + o, hexBytes(ga, aAddr + o, n).c_str());
+            printf("%sb $%04x: %s\n", indent, bAddr + o, hexBytes(gb, bAddr + o, n).c_str());
+        }
+    }
+
+    Json jsonRuns(const DiffSeg& ga, uint32_t aAddr, const DiffSeg& gb, uint32_t bAddr,
+                  const std::vector<std::pair<uint32_t, uint32_t>>& runs) {
+        Json arr = Json::array();
+        for (const auto& [o, n] : runs) {
+            Json j = Json::object();
+            j.set("off", (double)o).set("len", (double)n)
+             .set("a", hexBytes(ga, aAddr + o, n)).set("b", hexBytes(gb, bAddr + o, n));
+            arr.push(std::move(j));
+        }
+        return arr;
+    }
+
+    // One symbol's bytes in both: true if they differ
+    bool region(const DiffSeg& ga, const Region& ra, const DiffSeg& gb, const Region& rb) {
+        uint32_t n = std::max(ra.size, rb.size);
+        std::vector<bool> d(n, false), mark(n, false);
+        size_t nb = 0;
+        for (uint32_t i = 0; i < n; i++) {
+            int x = i < ra.size ? ga.at(ra.addr + i) : -1, y = i < rb.size ? gb.at(rb.addr + i) : -1;
+            if (x != y) { d[i] = mark[i] = true; nb++; }
+        }
+        // the relocations at the same offset in each
+        std::map<uint32_t, std::pair<std::string, std::string>> rd;
+        for (auto it = ga.relocs.lower_bound(ra.addr); it != ga.relocs.end() && it->first < ra.addr + ra.size; ++it)
+            rd[it->first - ra.addr].first = it->second;
+        for (auto it = gb.relocs.lower_bound(rb.addr); it != gb.relocs.end() && it->first < rb.addr + rb.size; ++it)
+            rd[it->first - rb.addr].second = it->second;
+        for (auto it = rd.begin(); it != rd.end();)
+            if (it->second.first == it->second.second) it = rd.erase(it);
+            else { if (it->first < n) mark[it->first] = true; ++it; }
+        if (!nb && rd.empty()) return false;
+        bytesDiffer += nb;
+        relocsDiffer += rd.size();
+        symsDiffer++;
+
+        bool code = ga.code && gb.code && ra.addr < ga.codeEnd && rb.addr < gb.codeEnd && ra.name[0] != '(';
+        std::vector<DisLine> la, lb;
+        auto pick = [&](const std::vector<DisLine>& all, uint32_t base) {
+            std::vector<DisLine> out;
+            for (const auto& l : all) {
+                bool hit = false;
+                for (uint32_t k = 0; k < l.len && !hit; k++) {
+                    uint32_t o = l.a - base + k;
+                    hit = o < n && mark[o];
+                }
+                if (hit) out.push_back(l);
+            }
+            return out;
+        };
+        if (code) {
+            la = pick(disasmRegion(ga, ra.addr, ra.size, table, cpu, A.file), ra.addr);
+            lb = pick(disasmRegion(gb, rb.addr, rb.size, table, cpu, B.file), rb.addr);
+        }
+        auto runs = runsOf(mark, 8);
+
+        if (json) {
+            Json j = Json::object();
+            j.set("name", ra.name).set("segment", ga.name)
+             .set("a", (double)ra.addr).set("b", (double)rb.addr)
+             .set("size_a", (double)ra.size).set("size_b", (double)rb.size)
+             .set("bytes_differ", (double)nb);
+            j.set("ranges", jsonRuns(ga, ra.addr, gb, rb.addr, runs));
+            Json jr = Json::array();
+            for (const auto& [o, p] : rd) {
+                Json r = Json::object();
+                r.set("off", (double)o);
+                r.set("a", p.first.empty() ? Json::null() : Json::string(p.first));
+                r.set("b", p.second.empty() ? Json::null() : Json::string(p.second));
+                jr.push(std::move(r));
+            }
+            j.set("relocs", std::move(jr));
+            if (code) {
+                for (int side = 0; side < 2; side++) {
+                    Json arr = Json::array();
+                    for (const auto& l : side ? lb : la) {
+                        Json x = Json::object();
+                        x.set("a", (double)l.a).set("bytes", l.bytes).set("text", l.text);
+                        arr.push(std::move(x));
+                    }
+                    j.set(side ? "lines_b" : "lines_a", std::move(arr));
+                }
+            }
+            jsym.push(std::move(j));
+            return true;
+        }
+
+        std::cout << std::endl;
+        std::string where = ra.addr == rb.addr ? fmt("$%04x", ra.addr) : fmt("a $%04x, b $%04x", ra.addr, rb.addr);
+        std::string sizes = ra.size == rb.size ? fmt("%u bytes", ra.size) : fmt("%u bytes vs %u", ra.size, rb.size);
+        printf("%s  (%s %s, %s): %zu byte%s differ%s", ra.name.c_str(), ga.name.c_str(), where.c_str(),
+               sizes.c_str(), nb, nb == 1 ? "" : "s", nb == 1 ? "s" : "");
+        if (!rd.empty()) printf(", %zu relocation%s", rd.size(), rd.size() == 1 ? "" : "s");
+        printf("\n");
+        for (const auto& [o, p] : rd)
+            printf("    reloc +$%04x: a %s | b %s\n", o, p.first.empty() ? "(none)" : p.first.c_str(),
+                   p.second.empty() ? "(none)" : p.second.c_str());
+        if (code) {
+            auto fmtLine = [](const DisLine& l) { return fmt("%04x  %-14s %s", l.a, l.bytes.c_str(), l.text.c_str()); };
+            std::vector<std::string> sa, sb;
+            for (const auto& l : la) sa.push_back(fmtLine(l));
+            for (const auto& l : lb) sb.push_back(fmtLine(l));
+            size_t w = 1;
+            for (const auto& s : sa) w = std::max(w, s.size());
+            w = std::max(w, A.file.size() + 2);
+            size_t rows = std::max(sa.size(), sb.size());
+            printf("    %-*s | %s\n", (int)w, ("a " + A.file).c_str(), ("b " + B.file).c_str());
+            for (size_t k = 0; k < rows && k < kMaxLines; k++)
+                printf("    %-*s | %s\n", (int)w, k < sa.size() ? sa[k].c_str() : "",
+                       k < sb.size() ? sb[k].c_str() : "");
+            if (rows > kMaxLines) printf("    ... %zu more lines (--json lists them all)\n", rows - kMaxLines);
+        } else {
+            size_t shown = 0;
+            for (const auto& [o, len] : runs) {
+                if (shown >= kMaxLines) { printf("    ... (--json lists them all)\n"); break; }
+                printf("    +$%04x (%u byte%s):\n", o, len, len == 1 ? "" : "s");
+                printHexRun(ga, ra.addr + o, gb, rb.addr + o, len, "      ");
+                shown += 1 + 2 * ((len + 15) / 16);
+            }
+        }
         return true;
     }
 
-    int diffCount = 0;
-    uint32_t lastDiffAddr = -1;
-    for (size_t i = 0; i < std::min(data1.size(), data2.size()); i++) {
-        if (data1[i] != data2[i]) {
-            if (diffCount == 0 || i > lastDiffAddr + 16) {
-                if (diffCount > 0) printf("\n");
-                printf("Offset $%04zX: ", i);
+    // No symbols: the segments compared by address
+    void byAddress(const DiffSeg& ga, const DiffSeg& gb) {
+        uint32_t lo = std::min(ga.base, gb.base), hi = std::max(ga.end(), gb.end());
+        if (ga.body.empty()) lo = gb.base;
+        if (gb.body.empty()) lo = ga.base;
+        std::vector<bool> d(hi > lo ? hi - lo : 0, false);
+        for (uint32_t a = lo; a < hi; a++)
+            if (ga.at(a) != gb.at(a)) { d[a - lo] = true; bytesDiffer++; }
+        auto runs = runsOf(d, 16);
+        if (json) {
+            for (const auto& [o, n] : runs) {
+                Json j = Json::object();
+                j.set("segment", ga.name).set("addr", (double)(lo + o)).set("len", (double)n)
+                 .set("a", hexBytes(ga, lo + o, n)).set("b", hexBytes(gb, lo + o, n));
+                jranges.push(std::move(j));
             }
-            printf("[%02X→%02X] ", data1[i], data2[i]);
-            lastDiffAddr = i;
-            diffCount++;
-            if (diffCount > 0 && (diffCount % 8 == 0)) printf("\n            ");
+            return;
+        }
+        for (const auto& [o, n] : runs) {
+            uint32_t a = lo + o;
+            std::cout << std::endl;
+            bool onlyA = gb.at(a) < 0 && gb.at(a + n - 1) < 0 && (a + n <= gb.base || a >= gb.end());
+            bool onlyB = ga.at(a) < 0 && ga.at(a + n - 1) < 0 && (a + n <= ga.base || a >= ga.end());
+            printf("%s $%04x-$%04x (%u byte%s)%s\n", ga.name.c_str(), a, a + n - 1, n, n == 1 ? "" : "s",
+                   onlyA ? ": only in a" : onlyB ? ": only in b" : "");
+            if (n > 16 * kMaxLines / 2) {
+                printHexRun(ga, a, gb, a, 16 * kMaxLines / 2, "    ");
+                printf("    ... (--json lists them all)\n");
+            } else {
+                printHexRun(ga, a, gb, a, n, "    ");
+            }
+        }
+    }
+};
+
+}  // namespace
+
+static int diffFiles(const std::string& fa, const std::string& fb, const std::vector<std::string>& maps,
+                     uint32_t binBase, const std::map<uint8_t, OpcodeInfo>& table, DisCpu cpu, bool json) {
+    DiffSide A, B;
+    std::string err;
+    // (-m once: the map of both; twice: a's and b's)
+    std::string ma = maps.empty() ? "" : maps[0], mb = maps.size() > 1 ? maps[1] : ma;
+    if (!loadDiffSide(fa, ma, binBase, A, err) || !loadDiffSide(fb, mb, binBase, B, err)) {
+        std::cerr << "objdump45: " << err << std::endl;
+        return 2;
+    }
+    if (A.kind != B.kind) {
+        auto what = [](const DiffSide& s) {
+            return s.kind == "object" ? "an object" : s.kind == "prg" ? "a PRG" : "a binary";
+        };
+        std::cerr << "objdump45: -D compares two files of a kind: " << fa << " is " << what(A) << ", "
+                  << fb << " " << what(B) << std::endl;
+        return 2;
+    }
+    LOG_INFO("objdump45", "-D: " << A.kind << "s, " << A.raw.size() << " and " << B.raw.size() << " bytes");
+    bool identical = A.raw == B.raw;
+    Differ D{A, B, table, cpu, json};
+
+    // the symbols: moved, only in one
+    std::vector<std::string> moved, onlyA, onlyB, impA, impB;
+    for (const auto& [n, s] : A.syms) {
+        auto it = B.syms.find(n);
+        if (it == B.syms.end()) onlyA.push_back(n);
+        else if (it->second.addr != s.addr || it->second.seg != s.seg) moved.push_back(n);
+    }
+    for (const auto& [n, s] : B.syms) if (!A.syms.count(n)) onlyB.push_back(n);
+    for (const auto& n : A.imports) if (!B.imports.count(n)) impA.push_back(n);
+    for (const auto& n : B.imports) if (!A.imports.count(n)) impB.push_back(n);
+    auto byAddr = [](const DiffSide& s, std::vector<std::string>& v) {
+        std::stable_sort(v.begin(), v.end(), [&](const std::string& x, const std::string& y) {
+            const auto &p = s.syms.at(x), &q = s.syms.at(y);
+            return p.seg != q.seg ? p.seg < q.seg : p.addr < q.addr;
+        });
+    };
+    byAddr(A, moved); byAddr(A, onlyA); byAddr(B, onlyB);
+    auto symText = [](const DiffSym& s) { return (s.seg.empty() ? "" : s.seg + " ") + fmt("$%04x", s.addr); };
+
+    Json doc = Json::object();
+    if (json) {
+        doc.set("a", fa).set("b", fb).set("kind", A.kind).set("identical", identical);
+        if (A.kind == "prg") doc.set("load_a", (double)A.loadAddr).set("load_b", (double)B.loadAddr);
+        if (!A.symSource.empty()) doc.set("symbols_a", A.symSource);
+        if (!B.symSource.empty()) doc.set("symbols_b", B.symSource);
+        Json segs = Json::array();
+        for (size_t i = 0; i < A.segs.size(); i++) {
+            Json j = Json::object();
+            j.set("name", A.segs[i].name).set("base_a", (double)A.segs[i].base).set("size_a", (double)A.segs[i].body.size())
+             .set("base_b", (double)B.segs[i].base).set("size_b", (double)B.segs[i].body.size());
+            segs.push(std::move(j));
+        }
+        doc.set("segments", std::move(segs));
+        Json jm = Json::array();
+        for (const auto& n : moved) {
+            Json j = Json::object();
+            j.set("name", n).set("a", (double)A.syms.at(n).addr).set("b", (double)B.syms.at(n).addr);
+            if (!A.syms.at(n).seg.empty()) j.set("segment_a", A.syms.at(n).seg).set("segment_b", B.syms.at(n).seg);
+            jm.push(std::move(j));
+        }
+        doc.set("moved", std::move(jm));
+        auto only = [](const DiffSide& s, const std::vector<std::string>& v) {
+            Json arr = Json::array();
+            for (const auto& n : v) {
+                Json j = Json::object();
+                j.set("name", n).set("addr", (double)s.syms.at(n).addr);
+                if (!s.syms.at(n).seg.empty()) j.set("segment", s.syms.at(n).seg);
+                arr.push(std::move(j));
+            }
+            return arr;
+        };
+        doc.set("only_a", only(A, onlyA)).set("only_b", only(B, onlyB));
+        if (A.kind == "object") {
+            Json ia = Json::array(), ib = Json::array();
+            for (const auto& n : impA) ia.push(Json::string(n));
+            for (const auto& n : impB) ib.push(Json::string(n));
+            doc.set("imports_only_a", std::move(ia)).set("imports_only_b", std::move(ib));
+        }
+    } else {
+        const char* kindName = A.kind == "object" ? "objects" : A.kind == "prg" ? "PRGs" : "binaries";
+        printf("Binary diff of two %s: a = %s (%zu bytes), b = %s (%zu bytes)\n", kindName, fa.c_str(),
+               A.raw.size(), fb.c_str(), B.raw.size());
+        if (identical) {
+            printf("Files are identical\n");
+            return 0;
+        }
+        if (A.kind == "prg") {
+            if (A.loadAddr != B.loadAddr) printf("Load address: a $%04x, b $%04x\n", A.loadAddr, B.loadAddr);
+            if (!A.symSource.empty() || !B.symSource.empty())
+                printf("Symbols: a from %s, b from %s\n", A.symSource.empty() ? "(none)" : A.symSource.c_str(),
+                       B.symSource.empty() ? "(none)" : B.symSource.c_str());
+        }
+        for (size_t i = 0; i < A.segs.size(); i++) {
+            const auto &ga = A.segs[i], &gb = B.segs[i];
+            if (ga.body.size() != gb.body.size() || ga.base != gb.base)
+                printf("%s: a $%04x, %zu bytes; b $%04x, %zu bytes\n", ga.name.c_str(), ga.base, ga.body.size(),
+                       gb.base, gb.body.size());
+        }
+        if (!moved.empty()) {
+            printf("\nSymbols moved (%zu):\n", moved.size());
+            for (const auto& n : moved) {
+                const auto &p = A.syms.at(n), &q = B.syms.at(n);
+                std::string delta = p.seg == q.seg ? fmt(" (%+d)", (int)((int64_t)q.addr - p.addr)) : "";
+                printf("  %-28s %s -> %s%s\n", n.c_str(), symText(p).c_str(), symText(q).c_str(), delta.c_str());
+            }
+        }
+        if (!onlyA.empty()) {
+            printf("\nSymbols only in a (%zu):\n", onlyA.size());
+            for (const auto& n : onlyA) printf("  %-28s %s\n", n.c_str(), symText(A.syms.at(n)).c_str());
+        }
+        if (!onlyB.empty()) {
+            printf("\nSymbols only in b (%zu):\n", onlyB.size());
+            for (const auto& n : onlyB) printf("  %-28s %s\n", n.c_str(), symText(B.syms.at(n)).c_str());
+        }
+        if (!impA.empty() || !impB.empty()) {
+            printf("\nImports:");
+            for (const auto& n : impA) printf(" -%s", n.c_str());
+            for (const auto& n : impB) printf(" +%s", n.c_str());
+            printf("  (- only in a, + only in b)\n");
         }
     }
 
-    if (data1.size() != data2.size()) {
-        printf("\nSize difference: %s is %zu bytes, %s is %zu bytes\n",
-               file1.c_str(), data1.size(), file2.c_str(), data2.size());
+    // the bytes: by symbol when both have symbols, else by address
+    bool bySymbol = A.hasSyms() && B.hasSyms();
+    for (size_t i = 0; i < A.segs.size(); i++) {
+        const auto &ga = A.segs[i], &gb = B.segs[i];
+        if (!bySymbol) { D.byAddress(ga, gb); continue; }
+        auto ra = regionsOf(ga), rb = regionsOf(gb);
+        std::map<std::string, const Region*> inB;
+        for (const auto& r : rb) inB[r.name] = &r;
+        for (const auto& r : ra) {
+            auto it = inB.find(r.name);
+            if (it != inB.end()) D.region(ga, r, gb, *it->second);
+        }
     }
 
-    // files of different lengths are not identical: the bytes only one has
-    // count as differences (#733)
-    size_t common = std::min(data1.size(), data2.size());
-    size_t extra = std::max(data1.size(), data2.size()) - common;
-    if (diffCount == 0 && extra == 0) {
-        printf("Files are identical\n");
-    } else if (diffCount == 0) {
-        printf("The first %zu bytes are identical; %s has %zu more\n", common,
-               (data1.size() > data2.size() ? file1 : file2).c_str(), extra);
-        printf("\nTotal differences: %zu bytes\n", extra);
-    } else {
-        printf("\n\nTotal differences: %zu bytes", (size_t)diffCount + extra);
-        if (extra) printf(" (%d in the first %zu, %zu past the end of the shorter file)", diffCount, common, extra);
-        printf("\n");
+    if (json) {
+        doc.set("by", bySymbol ? "symbol" : "address");
+        doc.set("symbols", std::move(D.jsym));
+        doc.set("ranges", std::move(D.jranges));
+        Json t = Json::object();
+        t.set("bytes", (double)D.bytesDiffer).set("relocs", (double)D.relocsDiffer).set("symbols", (double)D.symsDiffer)
+         .set("moved", (double)moved.size()).set("only_a", (double)onlyA.size()).set("only_b", (double)onlyB.size());
+        doc.set("totals", std::move(t));
+        std::cout << doc.dump() << std::endl;
+        return identical ? 0 : 1;
     }
-    return true;
+    std::cout << std::endl;
+    if (bySymbol)
+        printf("Summary: %zu symbol%s differ%s (%zu byte%s, %zu relocation%s), %zu moved, %zu only in a, %zu only in b\n",
+               D.symsDiffer, D.symsDiffer == 1 ? "" : "s", D.symsDiffer == 1 ? "s" : "", D.bytesDiffer,
+               D.bytesDiffer == 1 ? "" : "s", D.relocsDiffer, D.relocsDiffer == 1 ? "" : "s",
+               moved.size(), onlyA.size(), onlyB.size());
+    else
+        printf("Summary: %zu byte%s differ%s\n", D.bytesDiffer, D.bytesDiffer == 1 ? "" : "s",
+               D.bytesDiffer == 1 ? "s" : "");
+    if (!D.bytesDiffer && !D.relocsDiffer && moved.empty() && onlyA.empty() && onlyB.empty())
+        printf("(the code, data, symbols and relocations are the same: the files differ elsewhere, e.g. debug or line information)\n");
+    return 1;
 }
 
 // ─── --html / --json: the file as one model (#201) ─────────────────────────
@@ -2020,7 +2499,9 @@ static void printUsage(const char* progName) {
     std::cout << "  -d       Disassemble executable sections" << std::endl;
     std::cout << "  -g       Display debug information (source lines, types, variables)" << std::endl;
     std::cout << "  -a       Display all information" << std::endl;
-    std::cout << "  -D       Binary diff mode (requires two files)" << std::endl;
+    std::cout << "  -D A B   Compare two objects, PRGs or binaries: the differing bytes by symbol (both" << std::endl;
+    std::cout << "           disassemblies), relocations, moved symbols; -m A.map [-m B.map]; --json. Exit" << std::endl;
+    std::cout << "           0 identical, 1 different, 2 an error" << std::endl;
     std::cout << "  -bas     Dump BASIC program (for .prg files only)" << std::endl;
     std::cout << "  -x       Show hex dump (with -bas option)" << std::endl;
     std::cout << "  -b ADDR  Set base address for raw binary files (default: $0000)" << std::endl;
@@ -2071,6 +2552,7 @@ int main(int argc, char** argv) {
     uint32_t baseAddr = 0;
     bool baseAddrSet = false;
     std::string mapFile;
+    std::vector<std::string> mapFiles;   // (-D: a's and b's)
     DisCpu cpu = DisCpu::CPU45GS02;
     bool cpuSet = false;
     std::vector<std::string> symFiles;   // -S (none: no symbol file)
@@ -2124,6 +2606,7 @@ int main(int argc, char** argv) {
                 return 1;
             }
             mapFile = argv[++i];
+            mapFiles.push_back(mapFile);
         } else if (arg == "--source") {
             sourceMode = true;
         } else if (arg == "--cycles" || arg.rfind("--cycles=", 0) == 0) {
@@ -2233,13 +2716,21 @@ int main(int argc, char** argv) {
         showFileHeader = showSections = showSymbols = showRelocs = showContents = showDisasm = showDebug = true;
     }
 
-    // Handle diff mode - requires exactly 2 files
+    // -D (#766): exactly two files; exit 0 identical, 1 different, 2 an error
     if (showDiff) {
         if (files.size() != 2) {
             std::cerr << "objdump45: -D requires exactly 2 files" << std::endl;
-            return 1;
+            return 2;
         }
-        return diffBinaries(files[0], files[1]) ? 0 : 1;
+        if (treeMode || !htmlOut.empty() || sourceMode || g_vice || showBasic || compareMode) {
+            std::cerr << "objdump45: -D takes --json, -m, -b and --cpu, not the other display options" << std::endl;
+            return 2;
+        }
+        if (mapFiles.size() > 2) {
+            std::cerr << "objdump45: -D takes at most two -m maps (a's and b's)" << std::endl;
+            return 2;
+        }
+        return diffFiles(files[0], files[1], mapFiles, baseAddr, buildOpcodeTable(cpu), cpu, jsonMode);
     }
 
     if (sourceMode && (g_cycles || g_vice)) {

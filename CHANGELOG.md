@@ -33,6 +33,18 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
   file and line. cl45 has none: it leaves `asm_rules`' to al45; `c_checks.pattern` is an error.
 - Test: `src/test-resources/al45/patterns/` in `test_al45.sh`; docs `doc/bin/al45.md`, `doc/architecture/lint.md`.
 
+### objdump45: binary diff mode -D (#766)
+
+- `objdump45 -D A B` compares two objects, two PRGs or two binaries (two of a kind; a `.prg` and a `.o45` are an
+  error). Objects and PRGs with symbols (an object's exports; a PRG's `-m` maps, `<prog>.map`, `<prog>.dbg`) are
+  compared symbol by symbol, each from its own start: the symbols whose bytes or relocations differ, with the
+  instructions that differ of both side by side (data as hex); without symbols, by address.
+- An object's relocations are part of the diff: another type or target at the same offset (an import resolved to
+  another symbol) is a difference even with equal bytes. The symbols that moved, those only in one file and an
+  object's imports only in one are listed; a summary line ends it.
+- Exit status as `cmp`'s: 0 identical, 1 different, 2 an error (was 0 for any comparison). `--json` writes the
+  comparison as one object (`doc/bin/objdump45.md#binary-diff--d`). The TODO in `objdump45_main.cpp` is gone.
+
 ### Housekeeping: the TODO scan; ROADMAP.md deprecated
 
 - `cbm_rel_insert` is removed: it wrote the record without shifting the others, which is `cbm_rel_write` (any record
