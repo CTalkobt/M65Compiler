@@ -4,6 +4,31 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### Tests: a program that never ran or never returned no longer passes; the library's untested functions
+
+- The runtime tests that pass on an exit status of 0 (`test_xemu.sh`'s return-from-main tests and
+  `src/test-resources/stdlib/`, 170 runs; every GCC torture test, `run_gte_all.sh`) also check that the program ran:
+  0 is what xemu's memory holds at boot, so a program that never started (crt0 skipped, as with #741's init
+  segment) passed. crt0's `jsr main` leaves its return address at the top of the 16-bit stack, `$BFF0`-`$BFFF`;
+  a status of 0 with that area clear is a failure ("never ran").
+- `test_xemu.sh`: a run that times out (never back at `READY.`) fails, also when its results were written; it was
+  accepted. Two tests ended that way: `test_basic_compile13_xemu.bas` left its graphics screen open (`SCREEN
+  CLOSE` now), and `test_basic_compile4_xemu.bas` interpreted kept a channel after a trapped `INPUT#` error
+  (`DCLOSE` now). A test that stays in its own loop by design is named in `XEMU_TIMEOUT_OK`.
+- `<cbm.h>`: the `cbm_k_*` functions are the MEGA65 KERNAL's routines under cc65's names, each a call with its
+  arguments in the registers the routine takes, doing what the MEGA65's KERNAL does (as the header now says); their
+  tests check them against the KERNAL. `cbm_k_settim()` passes its value in Q (A the low byte, X, Y, Z the high byte):
+  it left Z as it was, which the MEGA65's SETTIM reads as the tenths (its time of day is packed BCD, A seconds, X
+  minutes, Y hours, Z tenths: `0xTTHHMMSS`, what its RDTIM returns in Q, not the C64's jiffies).
+- New tests for library functions no test called: `test_cbmk_xemu.c` (`cbm_k_settim` read back by RDTIM, the channel and serial bus
+  wrappers `cbm_k_ckout` / `bsout` / `basin` / `clrch` / `listen` / `second` / `ciout` / `unlsn` / `talk` / `tksa` /
+  `acptr` / `untlk`, `cbm_k_save`, `cbm_k_clall`, `cbm_k_udtim`: the STOP key into `$91`, `cbm_k_scnkey`: the STOP column and
+  Shift+C=; the MEGA65's UDTIM has no jiffy clock and its SCNKEY fills no buffer), `test_stdin_scanf_xemu.c`
+  (`scanf` / `vscanf` from the keyboard, `vsscanf`, `fflush`), `test_far_attic_hook_xemu.c` (`far_attic_hook` after
+  `far_attic_init`); and checks added for `vcscanf`, `tgi_outtext`, `tgi_settextdir`, `tgi_setaspectratio`,
+  `tune_return`, `tune_digi_volume`, `tune_queue_far`, `sid_set_note`, `sid_write_chip`,
+  `midi_synth_set_instrument`, `joy_unload` and `sprite_bg_collisions`.
+
 ### crt0_mega65: the 40 MHz init works when linked by name (#741)
 
 - `crt0_mega65.o45` / `crt0_mega65_zp.o45` (a strong `_init_features`) are used by naming the object with the

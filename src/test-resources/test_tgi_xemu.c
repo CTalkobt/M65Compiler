@@ -1,7 +1,7 @@
 /* test_tgi_xemu.c — <tgi.h> (cc65's TGI) on the VIC-IV full-colour screen
  *
  * (.vfn files: test_tgi_vfn_xemu.c.) Results at $C0C0 (01 = pass):
- *   [0] tgi_install / tgi_init: the driver's numbers, the VIC in CHR16 +
+ *   [0] tgi_install / tgi_init: the driver's numbers (tgi_setaspectratio), the VIC in CHR16 +
  *       FCLRHI with the page's screen, white, no error
  *   [1] pixels: tgi_setpixel / tgi_getpixel, the page's layout (column of
  *       characters after column), nothing outside the screen
@@ -11,7 +11,7 @@
  *   [4] tgi_imulround, tgi_circle / tgi_arc / tgi_pieslice points, arcs
  *       across quarters, an ellipse clipped, a 0 radius
  *   [5] bitmap text: sizes, magnified, the glyph's pixels, the cursor
- *       (horizontal, vertical)
+ *       (horizontal, vertical); tgi_outtext at the cursor, tgi_settextdir
  *   [6] a vector font in memory: its lines, widths, scaling, the cursor
  *   [7] errors: tgi_geterror clears, bad page, second install, unknown
  *       driver, tgi_ioctl, tgi_geterrormsg
@@ -89,6 +89,9 @@ static unsigned char t_init(void) {
     if (tgi_getxres() != 320 || tgi_getyres() != 200) return 0;
     if (tgi_getcolorcount() != 0 || tgi_getmaxcolor() != 255) return 0;
     if (tgi_getpagecount() != 1 || tgi_getaspectratio() != 0xD4) return 0;
+    tgi_setaspectratio(0x0180);                 /* set and read back, then the driver's again */
+    if (tgi_getaspectratio() != 0x0180) return 0;
+    tgi_setaspectratio(0xD4);
     if (tgi_getcolor() != TGI_COLOR_WHITE) return 0;
     if ((REG(0xD054) & 0x05) != 0x05 || REG(0xD058) != 80 || REG(0xD05E) != 40) return 0;
     if (REG(0xD031) & 0x88) return 0;
@@ -232,6 +235,18 @@ static unsigned char t_bitmap_text(void) {
     if (count(50, 135, 57, 150, 6) != 2u * n1 || tgi_curx != 50 || tgi_cury != 134) return 0;
     if (tgi_getpixel(50, 149) != 6 || tgi_getpixel(50, 150) != 0) return 0;
     tgi_settextstyle(0x100, 0x100, TGI_TEXT_HORIZONTAL, TGI_FONT_BITMAP);
+    /* tgi_outtext: at the cursor, which moves to the text's end */
+    tgi_gotoxy(16, 40);
+    tgi_outtext("H");
+    if (count(16, 40, 23, 47, 6) != n1 || tgi_curx != 24 || tgi_cury != 40) return 0;
+    /* tgi_settextdir alone: vertical, going up; then horizontal again */
+    tgi_settextdir(TGI_TEXT_VERTICAL);
+    tgi_gotoxy(100, 60);
+    tgi_outtext("H");
+    if (count(100, 53, 107, 60, 6) != n1 || tgi_curx != 100 || tgi_cury != 52) return 0;
+    tgi_settextdir(TGI_TEXT_HORIZONTAL);
+    tgi_outtext("H");
+    if (tgi_curx != 108 || tgi_cury != 52) return 0;
     return 1;
 }
 

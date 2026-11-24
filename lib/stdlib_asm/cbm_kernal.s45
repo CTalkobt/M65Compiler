@@ -223,12 +223,16 @@ proc _cbm_k_iobase
     .func_flags zp_call
 endproc
 
-; void cbm_k_settim(unsigned long timer): the clock set (A the low byte,
-; X, Y the next)
+; void cbm_k_settim(unsigned long timer): the KERNAL's SETTIM ($FFDB) with
+; the value in Q: A its low byte, then X, Y, and Z its high byte (on the
+; MEGA65: packed BCD, A seconds, X minutes, Y hours, Z tenths, the form its
+; RDTIM returns in Q)
 proc _cbm_k_settim
     .zp_uses $10, $11, $12, $13
     .reg_clobbers A, X, Y, Z
     .flag_clobbers C, N, Z, V
+    lda $13
+    taz                     ; (ldz $13 has no base-page mode)
     lda $10
     ldx $11
     ldy $12

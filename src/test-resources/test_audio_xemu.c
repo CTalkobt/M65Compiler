@@ -9,7 +9,8 @@
  *       is octave 7 shifted: C7 35640, 1 below the exact 35641), the
  *       octaves, the top clamped; A4 at the NTSC clock ($D06F bit 7)
  *   [2] sid_note_on / sid_note_off / sid_gate / sid_set_waveform (the gate
- *       and the waveform kept apart); voices on SIDs 2-4
+ *       and the waveform kept apart); voices on SIDs 2-4; sid_set_note,
+ *       sid_write_chip
  *   [3] sid_set_adsr, sid_set_pulse, sid_set_instrument, sid_play
  *   [4] sid_set_mirror: voices 0-5 also written to 6-11
  *   [5] sid_set_volume (filter mode kept), sid_set_filter
@@ -17,7 +18,8 @@
  *       digi_set_rate / digi_position: the audio DMA registers
  *   [7] midi_parse: running status, real-time bytes, SysEx, 1-byte messages
  *   [8] midi_synth: allocation and stealing, note off, velocity 0, sustain,
- *       pitch bend, program change, all notes off; midi_note_to_hz
+ *       pitch bend, program change, midi_synth_set_instrument, all notes
+ *       off; midi_note_to_hz
  *   [9] $AA sentinel
  */
 #include <audio_sid.h>
@@ -78,6 +80,12 @@ static int t_notes(void) {
          sid_get_reg(3, 18) == (SID_TRIANGLE | SID_GATE) && vfreq(4) == 0;
     sid_set_freq(5, 1000);
     ok = ok && vfreq(5) == 17028;
+    /* sid_set_note: the note's frequency, the gate as it was */
+    sid_set_note(5, 69);
+    ok = ok && vfreq(5) == 7492 && !(vr(5, SID_REG_CTRL) & SID_GATE);
+    /* sid_write_chip: a chip's register by number (SID 3, its voice 2: voice 7, its AD) */
+    sid_write_chip(2, 12, 0x3C);
+    ok = ok && sid_get_reg(2, 12) == 0x3C && vr(7, SID_REG_AD) == 0x3C;
     sid_all_off();
     return ok && vr(0, SID_REG_CTRL) == SID_PULSE && vr(11, SID_REG_CTRL) == SID_TRIANGLE;
 }
@@ -234,6 +242,15 @@ static int t_synth(void) {
     for (i = 3; i < 6; i++)
         if (vfreq(i) == sid_note_to_reg(50)) ok = ok && vr(i, SID_REG_CTRL) == (SID_SAWTOOTH | SID_GATE) &&
                                                   vr(i, SID_REG_AD) == 0x11;
+    /* midi_synth_set_instrument: channel 3's instrument by itself */
+    midi_synth_set_instrument(&s, 3, &progs[0]);
+    msg(&s, 0x93, 55, 90);
+    ok = ok && midi_synth_active(&s) == 3;
+    for (i = 3; i < 6; i++)
+        if (vfreq(i) == sid_note_to_reg(55)) ok = ok && vr(i, SID_REG_CTRL) == (SID_TRIANGLE | SID_GATE) &&
+                                                  vr(i, SID_REG_AD) == 0;
+    msg(&s, 0x83, 55, 0);
+    ok = ok && midi_synth_active(&s) == 2;
     /* channel volume: the SID master volume */
     msg(&s, 0xB0, MIDI_CC_VOLUME, 80);
     ok = ok && sid_get_reg(0, 0x18) == 10;

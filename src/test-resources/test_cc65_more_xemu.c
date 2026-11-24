@@ -50,7 +50,8 @@ static int t_joy(void) {
     v = joy_read(JOY_1);
     ok = ok && v == input_joy(1) && joy_read(JOY_2) == input_joy(2) && joy_read(5) == 0;
     ok = ok && JOY_UP(0x01) && !JOY_DOWN(0x01) && JOY_FIRE(0x10) && JOY_BTN_2(0x20) && !JOY_RIGHT(0x07);
-    return ok && joy_uninstall() == JOY_ERR_OK && joy_load_driver(joy_stddrv) == JOY_ERR_OK;
+    return ok && joy_uninstall() == JOY_ERR_OK && joy_load_driver(joy_stddrv) == JOY_ERR_OK &&
+           joy_unload() == JOY_ERR_OK && joy_install(joy_static_stddrv) == JOY_ERR_OK;
 }
 
 static int t_sleep(void) {

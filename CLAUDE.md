@@ -315,7 +315,11 @@ explicit `-O<n>` in ad-hoc test commands too.
   xemu exits at BASIC's `READY.`; the exit status is at `$FD/$FE` in the dump
   (0 = pass; `$FFFE` after `abort()`; `$FFFF` = `__exit` never reached).
   xemu's RAM is zero at boot: `test_bss_fill_xemu.c` uses `-fbss-fill=$FF`
-  to show the BSS fill runs.
+  to show the BSS fill runs. So a status of 0 is also a program that never ran: `test_xemu.sh`
+  and `run_gte_all.sh` also want crt0's return address from `main` at `$BFF0`-`$BFFF` (zero
+  otherwise). A run that times out (never back at `READY.`) fails in `test_xemu.sh` even with its
+  results written (unless named in `XEMU_TIMEOUT_OK`): a test program ends with the screen and
+  channels as BASIC wants them (`SCREEN CLOSE`, `DCLOSE`).
 
 ## Configuration
 

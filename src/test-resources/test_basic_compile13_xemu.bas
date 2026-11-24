@@ -23,6 +23,6 @@
 170 if v(12)=140 and v(13)=1 and v(14)=1 then poke 49348,1
 175 if v(15)=235 then poke 49349,1
 180 if v(16)=0 then poke 49350,1
-190 poke 49351,170:end
+190 screen close:poke 49351,170:end
 200 data 2,2,0,3,2,3,3,0,3,2,1,2,140,1,1,235,0
 900 e=e+1:resume next
