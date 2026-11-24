@@ -3,6 +3,7 @@
 #include "Lint.hpp"
 
 #include <algorithm>
+#include <cctype>
 #include <climits>
 #include <cstdio>
 #include <cstdlib>
@@ -222,12 +223,191 @@ std::vector<std::string> splitList(const std::string& s) {
 }
 }  // namespace
 
+// --- user-written rules (#765) ---
+
+namespace {
+bool isWordChar(char c) { return std::isalnum((unsigned char)c) || c == '_'; }
+}  // namespace
+
+bool parsePatternStep(const std::string& text, PatternStep& out, std::string& err) {
+    out = PatternStep();
+    out.text = trim(text);
+    if (out.text.empty()) { err = "an empty step"; return false; }
+    size_t sp = out.text.find_first_of(" \t");
+    std::string mn = out.text.substr(0, sp);
+    std::string op = sp == std::string::npos ? "" : trim(out.text.substr(sp));
+    std::string cur;
+    for (size_t i = 0; i <= mn.size(); i++) {
+        if (i < mn.size() && mn[i] != '|') { cur += (char)std::tolower((unsigned char)mn[i]); continue; }
+        bool ok = !cur.empty() && std::all_of(cur.begin(), cur.end(), [](char c) {
+                      return std::isalnum((unsigned char)c) || c == '*' || c == '.';
+                  });
+        if (!ok) { err = "'" + mn + "': a mnemonic (* any letters: ld*), or several separated by |"; return false; }
+        out.mnemonics.push_back(cur);
+        cur.clear();
+    }
+    for (char c : op)
+        if (c != ' ' && c != '\t') out.operand += (char)std::tolower((unsigned char)c);
+    out.anyOperand = out.operand.empty();
+    // {name}: letters, digits, _
+    for (size_t i = 0; i < out.operand.size(); i++) {
+        char c = out.operand[i];
+        if (c == '}') { err = "'" + out.text + "': a } with no {"; return false; }
+        if (c != '{') continue;
+        size_t e = out.operand.find('}', i);
+        std::string name = e == std::string::npos ? "" : out.operand.substr(i + 1, e - i - 1);
+        if (e == std::string::npos || name.empty() || !std::all_of(name.begin(), name.end(), isWordChar)) {
+            err = "'" + out.text + "': a capture is {name} (letters, digits, _)";
+            return false;
+        }
+        i = e;
+    }
+    return true;
+}
+
+namespace {
+bool matchAt(const std::string& pat, size_t p, const std::string& s, size_t i, std::map<std::string, std::string>& caps) {
+    auto eq = [](char a, char b) { return std::tolower((unsigned char)a) == std::tolower((unsigned char)b); };
+    while (p < pat.size()) {
+        char c = pat[p];
+        if (c == '*') {
+            for (size_t k = s.size() + 1; k-- > i;)   // (longest first)
+                if (matchAt(pat, p + 1, s, k, caps)) return true;
+            return false;
+        }
+        if (c == '{') {
+            size_t e = pat.find('}', p);
+            std::string name = pat.substr(p + 1, e - p - 1);
+            auto it = caps.find(name);
+            if (it != caps.end()) {   // (bound: the same text)
+                const std::string v = it->second;
+                if (s.size() - i < v.size()) return false;
+                for (size_t k = 0; k < v.size(); k++)
+                    if (!eq(v[k], s[i + k])) return false;
+                i += v.size();
+                p = e + 1;
+                continue;
+            }
+            for (size_t k = s.size(); k > i; k--) {
+                caps[name] = s.substr(i, k - i);
+                if (matchAt(pat, e + 1, s, k, caps)) return true;
+            }
+            caps.erase(name);
+            return false;
+        }
+        if (i >= s.size() || !eq(c, s[i])) return false;
+        p++;
+        i++;
+    }
+    return i == s.size();
+}
+}  // namespace
+
+bool matchOperand(const std::string& pat, const std::string& text, std::map<std::string, std::string>& caps) {
+    std::map<std::string, std::string> keep = caps;
+    if (matchAt(pat, 0, text, 0, caps)) return true;
+    caps = keep;
+    return false;
+}
+
+bool Config::patternRule(const Yaml& r, const std::string& file, std::set<std::string>& idsHere, std::string& err) {
+    auto bad = [&](const Yaml& at, const std::string& m) {
+        err = file + ":" + std::to_string(at.line) + ": " + m;
+        return false;
+    };
+    PatternRule pr;
+    const Yaml& idv = *r.get("id");
+    pr.id = idv.value;
+    pr.file = file;
+    pr.line = idv.line;
+    if (pr.id.empty() || !std::all_of(pr.id.begin(), pr.id.end(), [](char c) {
+            return std::isalnum((unsigned char)c) || c == '-' || c == '_' || c == '.';
+        }))
+        return bad(idv, "a user-written rule's id: letters, digits, '-', '_', '.' ('" + pr.id + "')");
+    if (pr.id.compare(0, 7, "mega65-") == 0 || knownRules().count(pr.id))
+        return bad(idv, "'" + pr.id + "': the mega65- ids are the built-in rules'; a user-written rule needs an id of "
+                        "its own (a project prefix: myproj-...)");
+    if (!idsHere.insert(pr.id).second) return bad(idv, "a second user-written rule '" + pr.id + "' in this file");
+    for (const auto& [k, v] : r.map) {
+        if (k == "id") continue;
+        if (k == "severity") {
+            if (v.kind != Yaml::Scalar || !parseLevel(v.value, pr.level)) return bad(v, "severity: off, info, warning or error");
+        } else if (k == "message") {
+            if (v.kind != Yaml::Scalar || v.value.empty()) return bad(v, "message: the text to report");
+            pr.message = v.value;
+        } else if (k == "pattern") {
+            std::vector<std::pair<std::string, int>> steps;
+            if (v.kind == Yaml::Scalar) {
+                std::string cur;
+                for (size_t i = 0; i <= v.value.size(); i++) {
+                    if (i == v.value.size() || v.value[i] == ';') { steps.push_back({cur, v.line}); cur.clear(); }
+                    else cur += v.value[i];
+                }
+            } else if (v.kind == Yaml::List) {
+                for (const auto& el : v.list) {
+                    if (el.kind != Yaml::Scalar) return bad(el, "pattern: each step an instruction (\"lda #0\")");
+                    steps.push_back({el.value, el.line});
+                }
+            } else {
+                return bad(v, "pattern: a list of instructions, or one string with ; between them");
+            }
+            if (steps.empty() || (steps.size() == 1 && trim(steps[0].first).empty()))
+                return bad(v, "pattern: no instructions");
+            if (steps.size() > 32) return bad(v, "pattern: more than 32 instructions");
+            for (const auto& [t, ln] : steps) {
+                PatternStep st;
+                std::string e;
+                if (!parsePatternStep(t, st, e)) {
+                    err = file + ":" + std::to_string(ln) + ": pattern: " + e;
+                    return false;
+                }
+                pr.steps.push_back(st);
+            }
+        } else {
+            return bad(v, "unknown key '" + k + "' in a user-written rule (id, severity, message, pattern)");
+        }
+    }
+    if (pr.message.empty()) return bad(idv, "user-written rule '" + pr.id + "' needs a message");
+    // (the message's {name}s must be the pattern's captures)
+    for (size_t i = pr.message.find('{'); i != std::string::npos; i = pr.message.find('{', i + 1)) {
+        size_t e = pr.message.find('}', i);
+        if (e == std::string::npos) break;
+        std::string name = pr.message.substr(i + 1, e - i - 1);
+        if (name.empty() || !std::all_of(name.begin(), name.end(), isWordChar)) continue;
+        bool found = false;
+        for (const auto& st : pr.steps) found = found || st.operand.find("{" + name + "}") != std::string::npos;
+        if (!found) return bad(*r.get("message"), "message: {" + name + "} is not a capture of the pattern");
+    }
+    for (auto& old : patterns)
+        if (old.id == pr.id) { old = pr; return true; }   // (a later file's rule replaces an earlier one's)
+    patterns.push_back(pr);
+    return true;
+}
+
+void Config::addPatternRules(Engine& e) const {
+    for (const auto& pr : patterns) {
+        if (e.find(pr.id)) continue;
+        Rule r;
+        r.id = pr.id;
+        r.level = pr.level;
+        r.profile = "all";
+        r.summary = pr.message;
+        r.explanation = "A user-written rule (" + pr.file + ":" + std::to_string(pr.line) + "): the instructions";
+        for (const auto& st : pr.steps) r.explanation += "\n    " + st.text;
+        e.add(r);
+    }
+}
+
 bool Config::apply(const Yaml& y, const std::string& file, std::string& err) {
     auto bad = [&](const Yaml& at, const std::string& m) {
         err = file + ":" + std::to_string(at.line) + ": " + m;
         return false;
     };
     if (y.kind != Yaml::Map) return bad(y, "the configuration must be a map");
+    // (the user-written rules' ids first: overrides and the like before them know them)
+    if (const Yaml* ar = y.get("asm_rules"))
+        for (const auto& r : ar->list)
+            if (r.kind == Yaml::Map && r.get("id") && r.get("pattern")) userIds_.insert(r.get("id")->value);
     for (const auto& [key, v] : y.map) {
         if (key == "profile") {
             if (v.kind != Yaml::Scalar || (v.value != "cc45" && v.value != "standalone"))
@@ -248,13 +428,20 @@ bool Config::apply(const Yaml& y, const std::string& file, std::string& err) {
                         if (v3.kind != Yaml::Scalar) return bad(v3, "an option's value must be a scalar");
                         option(file + ":" + std::to_string(v3.line) + ": c_checks.options", k3, v3);
                     }
+                } else if (k2 == "pattern" || k2 == "patterns") {
+                    return bad(v2, "c_checks: user-written rules (pattern:) are al45's only, in asm_rules; cl45 has none");
                 } else return bad(v2, "unknown key 'c_checks." + k2 + "'");
             }
         } else if (key == "asm_rules") {
             if (v.kind != Yaml::List) return bad(v, "asm_rules: a list of rules (- id: ...)");
+            std::set<std::string> idsHere;
             for (const auto& r : v.list) {
                 if (r.kind != Yaml::Map || !r.get("id")) return bad(r, "an asm_rules entry needs an id");
                 std::string id = r.get("id")->value;
+                if (r.get("pattern")) {
+                    if (!patternRule(r, file, idsHere, err)) return false;
+                    continue;
+                }
                 ruleId(file + ":" + std::to_string(r.get("id")->line) + ": asm_rules", id);
                 for (const auto& [k2, v2] : r.map) {
                     if (k2 == "id") continue;
@@ -264,8 +451,8 @@ bool Config::apply(const Yaml& y, const std::string& file, std::string& err) {
                         levels[id] = l;
                     } else if (k2 == "message") {
                         messages[id] = v2.value;
-                    } else if (k2 == "pattern" || k2 == "patterns") {
-                        return bad(v2, "user-written rules (pattern:) are not supported yet");
+                    } else if (k2 == "patterns") {
+                        return bad(v2, "unknown key 'patterns' in asm_rules (a user-written rule's key is pattern:)");
                     } else if (k2 == "options") {
                         if (v2.kind != Yaml::Map) return bad(v2, "options: a map");
                         for (const auto& [k3, v3] : v2.map)
@@ -378,14 +565,18 @@ void Config::option(const std::string& where, const std::string& key, const Yaml
     options[key] = v.value;
 }
 
+bool Config::known(const std::string& id) const { return knownRules().count(id) || userIds_.count(id); }
+
 void Config::ruleId(const std::string& where, const std::string& id) {
-    if (!knownRules().count(id)) warnings.push_back(where + ": unknown rule '" + id + "' ignored");
+    if (!known(id)) warnings.push_back(where + ": unknown rule '" + id + "' ignored");
 }
 
 void Config::ruleGlob(const std::string& where, const std::string& glob) {
     std::string g = !glob.empty() && glob[0] == '-' ? glob.substr(1) : glob;
     if (g.find('*') == std::string::npos) return ruleId(where, g);
     for (const auto& id : knownRules())
+        if (globMatch(g, id)) return;
+    for (const auto& id : userIds_)
         if (globMatch(g, id)) return;
     warnings.push_back(where + ": '" + g + "' matches no rule");
 }

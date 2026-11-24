@@ -753,6 +753,7 @@ int main(int argc, char** argv) {
                 return 1;
             }
         }
+        lintEngine.config.addPatternRules(lintEngine);   // (user-written rules, #765)
         for (const auto& f : lintEngine.config.sources) LOG_INFO("al45", "configuration " << f);
         if (!lintEngine.config.profile.empty()) lintEngine.profile = lintEngine.config.profile;
         if (!lintExplain.empty()) {

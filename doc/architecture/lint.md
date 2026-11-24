@@ -44,8 +44,16 @@ cc45):
   ```
   `enabled` is a clang-tidy style list: globs, `-` to remove, applied in
   order. `asm_rules` entries configure built-in rules by id (severity, an
-  optional message, `options`); a `pattern:` key for user-written rules is a
-  later extension and is rejected with a message for now. Rule options come
+  optional message, `options`), or, with a `pattern:`, are user-written rules
+  (#765; al45's only): an id of the project's own (not `mega65-`), a message
+  (`{name}` filled from the pattern's captures), a severity and a sequence of
+  instructions matched by mnemonic (globs, `a|b`) and operand text (`*`,
+  `{name}` captures). `Config::patternRule` reads them into `Config::patterns`
+  (a malformed one is an error at its line), `Config::addPatternRules` makes them
+  the engine's rules (so levels, NOLINT, the outputs are as for built-in rules),
+  `asmlint::runPatterns` (`src/main/AsmLint.cpp`) matches them over the straight-line
+  runs of instructions; cl45 leaves them alone, and `c_checks.pattern` is an
+  error. Syntax: [al45](../bin/al45.md#user-written-rules-pattern). Rule options come
   from a top-level `options:` map, `c_checks.options` and an `asm_rules`
   entry's `options:`, all into one table keyed by option name (`Config::options`,
   read by `Engine::option`; the last read wins): cl45's `mega65-stack-frame-limit`

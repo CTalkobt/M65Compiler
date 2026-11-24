@@ -1,6 +1,7 @@
 // The linters' shared core (#199, #278): the YAML subset, the configuration
 // and its precedence, rule levels and profiles, NOLINT suppression, output
 #include <cstdio>
+#include <map>
 #include <sstream>
 #include <string>
 #include "test_harness.hpp"
@@ -51,7 +52,8 @@ void test_config() {
     std::string err;
     lint::Config c;
     lint::parseYaml("asm_rules:\n  - id: mega65-a\n    pattern: \"lda $x\"\n", y, err);
-    CHECK(!c.apply(y, "f.yml", err) && err.find("f.yml:3") != std::string::npos, ("pattern: refused with its line: " + err).c_str());
+    CHECK(!c.apply(y, "f.yml", err) && err.find("f.yml:2") != std::string::npos && err.find("built-in rules'") != std::string::npos,
+          ("a pattern under a mega65- id refused with its line: " + err).c_str());
     lint::parseYaml("profle: cc45\n", y, err);
     CHECK(!c.apply(y, "f.yml", err) && err.find("unknown key 'profle'") != std::string::npos, "an unknown key");
     lint::parseYaml("profile: cc45\nc_checks:\n  enabled: \"-mega65-a\"\n  options:\n    mega65-stack-frame-limit: 7\n", y, err);
@@ -135,6 +137,40 @@ void test_suppression_and_output() {
     CHECK(e.explain(x, "mega65-a") && x.str().find("a explained") != std::string::npos && !e.explain(x, "mega65-nope"), "--explain");
 }
 
+// user-written rules (#765): the steps, the operand patterns, the configuration
+void test_patterns() {
+    lint::PatternStep st;
+    std::string err;
+    CHECK(lint::parsePatternStep("LDA|ld* #{v}", st, err) && st.mnemonics.size() == 2 && st.mnemonics[0] == "lda" &&
+          st.mnemonics[1] == "ld*" && !st.anyOperand && st.operand == "#{v}", "a step: mnemonics, an operand pattern");
+    CHECK(lint::parsePatternStep("rts", st, err) && st.anyOperand, "a step without an operand: any operand");
+    CHECK(!lint::parsePatternStep("lda {x", st, err) && err.find("capture") != std::string::npos, "an unclosed capture");
+    CHECK(!lint::parsePatternStep("l$a", st, err), "a bad mnemonic");
+    std::map<std::string, std::string> caps;
+    CHECK(lint::matchOperand("({p}),y", "($20),Y", caps) && caps["p"] == "$20", "a capture");
+    CHECK(lint::matchOperand("{p}", "$20", caps) && !lint::matchOperand("{p}", "$21", caps), "a bound capture: the same text");
+    CHECK(lint::matchOperand("*,x", "$1234,x", caps) && lint::matchOperand("*", "", caps) && !lint::matchOperand("#0", "#$00", caps),
+          "* any text; literal text as written");
+    caps.clear();
+    CHECK(!lint::matchOperand("{a}+{a}", "1+2", caps) && caps.empty(), "no match leaves the captures alone");
+
+    lint::Config c;
+    lint::Yaml y;
+    lint::parseYaml("overrides:\n  my-x: error\nasm_rules:\n  - id: my-x\n    message: \"m {d}\"\n"
+                    "    pattern:\n      - \"lda #0\"\n      - \"sta {d}\"\n", y, err);
+    CHECK(c.apply(y, "f.yml", err) && c.patterns.size() == 1 && c.patterns[0].steps.size() == 2 && c.warnings.empty() &&
+          c.levels["my-x"] == lint::Level::Error, ("a user-written rule; an override before it knows it: " + err).c_str());
+    lint::Engine e;
+    c.addPatternRules(e);
+    e.config = c;
+    CHECK(e.find("my-x") && e.levelOf("my-x") == lint::Level::Error, "the rule in the engine, its level from overrides");
+    lint::parseYaml("asm_rules:\n  - id: my-y\n    pattern: nop\n", y, err);
+    CHECK(!c.apply(y, "f.yml", err) && err.find("f.yml:2") != std::string::npos && err.find("needs a message") != std::string::npos,
+          "a rule without a message");
+    lint::parseYaml("c_checks:\n  pattern: nop\n", y, err);
+    CHECK(!c.apply(y, "f.yml", err) && err.find("al45's only") != std::string::npos, "c_checks.pattern refused");
+}
+
 }  // namespace
 
 int main() {
@@ -142,6 +178,7 @@ int main() {
     test_config();
     test_levels();
     test_suppression_and_output();
+    test_patterns();
     printf("\nLint core Tests: %d passed, %d failed\n", tests_passed, tests_failed);
     return tests_failed > 0 ? 1 : 0;
 }

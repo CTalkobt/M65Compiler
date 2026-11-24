@@ -20,6 +20,19 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 - Tests: `test_dosfile_xemu.c`, `test_relfile_xemu.c` (both conventions, scratch D81s). Found on the way: #785
   (`fopen` of a missing file whose name starts with `_` succeeds).
 
+### al45: user-written rules (#765)
+
+- An `asm_rules` entry of `.cc45-lint.yml` with a `pattern:` is a rule of the project's own: an id (not
+  `mega65-`: a project prefix), a message, a severity and the instructions to look for, one after another in a
+  straight line, a list of steps (`- "lda #0"`, `- "sta {dst}"`) or one string, `pattern: "inc {x}; inc {x}"`.
+- Mnemonics with globs (`ld*`, `*`) and alternatives (`asl|lsr`); operands by their text as written, without
+  spaces or case: `*` any text, `{name}` a capture, the same text where it comes again, and in the message.
+- Reported as the built-in rules are: text / JSON / SARIF, `NOLINT(id)`, `overrides:`, `--severity=`,
+  `--checks=` / `--disable=`, `--list-rules`, `--explain`.
+- A malformed rule (a `mega65-` id, no message, a bad step or capture, an unknown key) is an error naming the
+  file and line. cl45 has none: it leaves `asm_rules`' to al45; `c_checks.pattern` is an error.
+- Test: `src/test-resources/al45/patterns/` in `test_al45.sh`; docs `doc/bin/al45.md`, `doc/architecture/lint.md`.
+
 ### Housekeeping: the TODO scan; ROADMAP.md deprecated
 
 - `cbm_rel_insert` is removed: it wrote the record without shifting the others, which is `cbm_rel_write` (any record
