@@ -122,7 +122,7 @@ OUT=$($OD -h "$BUILD" 2>&1)
 assert_exit "directory exits non-zero" $? 1
 assert_contains "directory error message" "$OUT" "is a directory"
 OUT=$($OD -D "$BUILD" "$BUILD" 2>&1)
-assert_exit "diff of a directory exits non-zero" $? 1
+assert_exit "diff of a directory exits 2" $? 2
 assert_contains "diff directory error message" "$OUT" "is a directory"
 
 echo ""
@@ -548,7 +548,7 @@ if ./bin/cc45 -O2 -c "$BUILD/objdump_reloc.c" -o "$BUILD/objdump_reloc.o45" >/de
     OUT=$($OD -d "$BUILD/objdump_reloc.o45" 2>&1)
     T=$(printf '%s\n' "$OUT" | awk '/section TEXT/,/section DATA/')
     assert_not_contains "no BSS label in TEXT" "$T" "<_b>:"
-    assert_not_contains "no ZP / absolute label in TEXT" "$T" "<__zp_scratch2>:"
+    assert_not_contains "no ZP / absolute label in TEXT" "$T" "<_sp_hi2>:"
     assert_not_contains "no absolute label in TEXT" "$T" "<cc45.zeroPageStart>:"
     assert_contains "a call named by its import" "$T" "; <__div"
     assert_contains "a store named by its BSS export" "$T" "; <_a>"
@@ -971,6 +971,70 @@ else
     fail "the overlay program did not build"
 fi
 
+# ─── -D (#766): two objects / PRGs by symbol, relocations, exit 0/1/2 ───────
+
+echo ""
+echo "--- Test: -D binary diff (#766) ---"
+D="$BUILD/d766"
+mkdir -p "$D"
+printf '.extern _sp_lo\n.global _f\n.global _g\n.segment "code"\n_f:\n    lda _sp_lo\n    rts\n_g:\n    lda #1\n    rts\n' > "$D/ra.s45"
+sed 's/_sp_lo/_sp_hi/g' "$D/ra.s45" > "$D/rb.s45"
+$AS -c "$D/ra.s45" -o "$D/ra.o45" >/dev/null 2>&1
+$AS -c "$D/rb.s45" -o "$D/rb.o45" >/dev/null 2>&1
+OUT=$($OD -D "$D/ra.o45" "$D/rb.o45" 2>&1); rc=$?
+assert_exit "-D: objects that differ exit 1" $rc 1
+assert_contains "-D: the symbol whose relocation differs" "$OUT" "_f  (TEXT \$0000, 4 bytes): 0 bytes differ, 1 relocation"
+assert_contains "-D: the relocation, a and b" "$OUT" "reloc +\$0001: a R_WORD _sp_lo | b R_WORD _sp_hi"
+assert_contains "-D: both disassemblies side by side" "$OUT" "<_sp_lo>"
+assert_contains "-D: ... b's" "$OUT" "<_sp_hi>"
+assert_not_contains "-D: an unchanged symbol is not listed" "$OUT" "_g  (TEXT"
+assert_contains "-D: the imports only in one" "$OUT" "Imports: -_sp_lo +_sp_hi"
+OUT=$($OD -D "$D/ra.o45" "$D/ra.o45" 2>&1); rc=$?
+assert_exit "-D: identical objects exit 0" $rc 0
+assert_contains "-D: identical" "$OUT" "Files are identical"
+OUT=$($OD -D --json "$D/ra.o45" "$D/rb.o45" 2>&1); rc=$?
+assert_exit "-D --json: exit 1" $rc 1
+if python3 -c 'import json,sys; d=json.load(sys.stdin); s=d["symbols"][0]
+assert d["kind"]=="object" and not d["identical"] and d["by"]=="symbol"
+assert s["name"]=="_f" and s["relocs"][0]=={"off":1,"a":"R_WORD _sp_lo","b":"R_WORD _sp_hi"}
+assert d["imports_only_a"]==["_sp_lo"] and d["totals"]["relocs"]==1' <<< "$OUT" 2>/dev/null; then
+    pass "-D --json: the symbol, its relocation, the imports"
+else fail "-D --json: $OUT"; fi
+
+# two PRGs from cc45 (their maps): one function changed, one added, the rest moved
+printf 'int count = 5;\nint twice(int x) { return x * 2; }\nvoid helper(void) { count++; }\nint main(void) { helper(); return twice(count) - 12; }\n' > "$D/a.c"
+sed -e 's/x \* 2/x * 3/' "$D/a.c" > "$D/b.c"
+printf 'int extra(void) { return count + 7; }\n' >> "$D/b.c"
+if ./bin/cc45 -O2 -fno-inline-small-functions -Wl,-M,$D/a.map "$D/a.c" -o "$D/a.prg" >/dev/null 2>&1 &&
+   ./bin/cc45 -O2 -fno-inline-small-functions -Wl,-M,$D/b.map "$D/b.c" -o "$D/b.prg" >/dev/null 2>&1; then
+    OUT=$($OD -D "$D/a.prg" "$D/b.prg" 2>&1); rc=$?
+    assert_exit "-D: PRGs that differ exit 1" $rc 1
+    assert_contains "-D: the PRGs' maps found" "$OUT" "Symbols: a from $D/a.map, b from $D/b.map"
+    assert_contains "-D: the changed function" "$OUT" "_twice__sac  (PRG"
+    assert_contains "-D: a symbol only in b" "$OUT" "Symbols only in b"
+    assert_contains "-D: ... is the new function" "$OUT" "_extra"
+    assert_contains "-D: moved symbols" "$OUT" "Symbols moved"
+    assert_contains "-D: the summary" "$OUT" "Summary: "
+    # without maps (-m of a missing map is an error; a copy without its map: by address)
+    cp "$D/a.prg" "$D/nomap_a.prg"; cp "$D/b.prg" "$D/nomap_b.prg"
+    OUT=$($OD -D "$D/nomap_a.prg" "$D/nomap_b.prg" 2>&1); rc=$?
+    assert_exit "-D: PRGs without symbols exit 1" $rc 1
+    assert_contains "-D: without symbols, by address" "$OUT" "PRG \$"
+    assert_contains "-D: ... with a's and b's bytes" "$OUT" "    b \$"
+    OUT=$($OD -D -m "$D/none.map" "$D/a.prg" "$D/b.prg" 2>&1); rc=$?
+    assert_exit "-D: a missing map exits 2" $rc 2
+else
+    fail "-D: the two programs did not build"
+fi
+
+OUT=$($OD -D "$D/ra.o45" "$D/a.prg" 2>&1); rc=$?
+assert_exit "-D: an object and a PRG exit 2" $rc 2
+assert_contains "-D: ... with why" "$OUT" "-D compares two files of a kind"
+OUT=$($OD -D "$D/ra.o45" 2>&1); rc=$?
+assert_exit "-D: one file exits 2" $rc 2
+OUT=$($OD -D "$D/ra.o45" "$D/missing.o45" 2>&1); rc=$?
+assert_exit "-D: a missing file exits 2" $rc 2
+
 echo "objdump45 tests: $passed passed, $failed failed"
 echo "========================================"
 
@@ -979,8 +1043,8 @@ printf abc > $BUILD/d733a.bin; printf abcd > $BUILD/d733b.bin; printf abXd > $BU
 D1=$(./bin/objdump45 -D $BUILD/d733a.bin $BUILD/d733b.bin 2>&1)
 D2=$(./bin/objdump45 -D $BUILD/d733a.bin $BUILD/d733c.bin 2>&1)
 D3=$(./bin/objdump45 -D $BUILD/d733b.bin $BUILD/d733b.bin 2>&1)
-if ! grep -q 'Files are identical' <<< "$D1" && grep -q 'The first 3 bytes are identical; .*d733b.bin has 1 more' <<< "$D1" &&
-   grep -q 'Total differences: 2 bytes (1 in the first 3, 1 past the end of the shorter file)' <<< "$D2" &&
+if ! grep -q 'Files are identical' <<< "$D1" && grep -q 'BIN \$0003-\$0003 (1 byte): only in b' <<< "$D1" &&
+   grep -q 'Summary: 1 byte differs' <<< "$D1" && grep -q 'Summary: 2 bytes differ' <<< "$D2" &&
    grep -q 'Files are identical' <<< "$D3"; then
     pass "-D: different lengths are differences, not 'identical' (#733)"
 else fail "-D lengths (#733): $D1 / $D2"; fi

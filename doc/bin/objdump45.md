@@ -16,7 +16,7 @@ The disassembly shows the 45GS02's 32-bit instructions as such: `NEG NEG` ($42 $
 objdump45 [options] <file> [...]
 ```
 
-At least one display option (`-f`, `-h`, `-t`, `-r`, `-s`, `-d`, `-g`, `-a`, `-bas`, `--html`, `--tree` or `--json`) is required, or `-D` with two files. `--source`, `--cycles`, `--vice` and `--compare` are display options too (the first three imply `-d`).
+At least one display option (`-f`, `-h`, `-t`, `-r`, `-s`, `-d`, `-g`, `-a`, `-bas`, `--html`, `--tree` or `--json`) is required, or `-D` with two files (`objdump45 -D a.prg b.prg`). `--source`, `--cycles`, `--vice` and `--compare` are display options too (the first three imply `-d`).
 
 ## Options
 
@@ -43,7 +43,7 @@ At least one display option (`-f`, `-h`, `-t`, `-r`, `-s`, `-d`, `-g`, `-a`, `-b
 | `--cpu=CPU` | The CPU to decode for (`--cpu CPU` too): `45gs02` (the default; `4510`), `65ce02`, `6502` or `6510` (see [CPU modes](#cpu-modes)). Without it a `.prg` loading at `$0801` (a C64 program) is decoded as `6510`, with a note |
 | `-bas` | List the BASIC program of a `.prg` (line numbers, detokenised text) |
 | `-x` | With `-bas`: also show each line's bytes in hex |
-| `-D` | Binary diff of exactly two files (any format, compared byte by byte) |
+| `-D` | Compare two files of a kind — two objects, two PRGs or two binaries — by symbol, with the relocations; exit status 0 identical, 1 different, 2 an error ([Binary diff](#binary-diff--d)) |
 | `-v` … `-vvvv`, `-v0` | Log on stderr as `[objdump45:LEVEL] …` (the toolchain's format, `include/Logger.hpp`); cumulative, at most `-vvvv`; `-v0` off: each file's format (object, PRG, raw binary, overlay file) and the map or debug file the disassembly takes symbols from (`-v`); why a file is not an object (`-vv`) |
 | `-V` / `--version` | Display version and exit |
 | `-?` / `--help` | Display help |
@@ -452,6 +452,82 @@ $ objdump45 --compare build-O1/game.o45 build-O2/game.o45
 $ objdump45 --html diff.html --compare old.o45 new.o45
 ```
 
+### Binary diff (-D)
+
+`objdump45 -D A B` compares two files of a kind (#766): two objects, two PRGs or two binaries (a `.prg` and a `.o45`
+together are an error). Where `--compare` sets out what changed between two objects as instructions, `-D` is
+`cmp` with names: the bytes that differ, by symbol, and the relocations behind them.
+
+- **Two objects**: the TEXT and DATA segments are cut at their exports (each symbol's bytes up to the next one; the
+  bytes before the first are `(start of TEXT)`), and each symbol in both is compared offset by offset from its own
+  start, so a symbol that moved is compared with itself. The relocations are compared the same way: a relocation
+  at the same offset with another type or target (another import, another segment, another `extra`), or one that
+  only one file has, is a difference even when the placeholder bytes are equal (an import resolved to another symbol:
+  `__sp_base` in one build and `__zp_scratch` in the other).
+- **Two PRGs**: the same, by the symbols of their maps: `-m A.map -m B.map` (one `-m`: the map of both), else
+  `<prog>.map` next to each, else `<prog>.dbg` (function names). The map's code end (`TEXT $XXXX - $YYYY`) starts the
+  data, shown as hex. Without symbols for both, the bytes are compared by address.
+- **Two binaries** (or PRGs without symbols): by address (`-b ADDR` the base of both), runs of differences within 16
+  bytes of each other as one range, the bytes past the end of the shorter file as `only in a` / `only in b`.
+
+The output is the files, `Files are identical` for identical ones, else the load addresses and segment sizes that
+differ, the symbols that moved (same name, another address), those only in a or b and an object's imports only in
+one (`-name` only in a, `+name` only in b); then each symbol whose bytes or relocations differ: its address (both,
+when it moved), its sizes, each differing relocation, and the instructions that hold a differing byte (or the
+relocated operand) of each, side by side, labelled a and b (data: the differing runs in hex, `--` a byte past the
+end). A region shows at most 40 lines (`--json` has them all). A summary line ends it:
+
+```
+$ objdump45 -D a.prg b.prg
+Binary diff of two PRGs: a = a.prg (347 bytes), b = b.prg (391 bytes)
+Symbols: a from a.map, b from b.map
+PRG: a $2001, 345 bytes; b $2001, 389 bytes
+
+Symbols moved (5):
+  _helper__sac                 $2132 -> $2130 (-2)
+  _main__sac                   $213b -> $2139 (-2)
+  _count                       $2158 -> $2184 (+44)
+  ...
+
+Symbols only in b (3):
+  _extra__sac                  $2155
+  ...
+
+_helper__sac  (PRG a $2132, b $2130, 9 bytes): 2 bytes differ
+    a a.prg                                   | b b.prg
+    2132  ee 58 21       inc $2158 ; <_count> | 2130  ee 84 21       inc $2184 ; <_count>
+    2137  ee 59 21       inc $2159            | 2135  ee 85 21       inc $2185
+...
+Summary: 4 symbols differ (15 bytes, 0 relocations), 5 moved, 0 only in a, 3 only in b
+
+$ objdump45 -D ra.o45 rb.o45
+Binary diff of two objects: a = ra.o45 (114 bytes), b = rb.o45 (114 bytes)
+
+Imports: -_sp_lo +_sp_hi  (- only in a, + only in b)
+
+_f  (TEXT $0000, 4 bytes): 0 bytes differ, 1 relocation
+    reloc +$0001: a R_WORD _sp_lo | b R_WORD _sp_hi
+    a ra.o45                                  | b rb.o45
+    0000  ad 00 00       lda $0000 ; <_sp_lo> | 0000  ad 00 00       lda $0000 ; <_sp_hi>
+
+Summary: 1 symbol differs (0 bytes, 1 relocation), 0 moved, 0 only in a, 0 only in b
+```
+
+The exit status is `cmp`'s: 0 when the files are identical (byte for byte), 1 when they differ (also when only
+something else differs, such as an object's line information: the summary then says so), 2 for an error (a file
+missing or a directory, files of two kinds, not exactly two files, a `-m` map that cannot be opened). `-D` takes
+`--json`, `-m`, `-b` and `--cpu`; the other display options are an error with it.
+
+With `--json`, one object: `a`, `b` (the files), `kind` (`object`, `prg`, `binary`), `identical`, a PRG's `load_a` /
+`load_b` and `symbols_a` / `symbols_b` (the map or debug file), `segments` (`name`, `base_a`, `size_a`, `base_b`,
+`size_b`), `moved` (`name`, `a`, `b`, an object's `segment_a` / `segment_b`), `only_a` / `only_b` (`name`, `addr`, an
+object's `segment`), an object's `imports_only_a` / `imports_only_b` (names), `by` (`symbol` or `address`),
+`symbols` (by symbol: `name`, `segment`, `a`, `b` its addresses, `size_a`, `size_b`, `bytes_differ`, `ranges` —
+`off` from the symbol's start, `len`, `a`, `b` the bytes in hex, `--` past an end —, `relocs` — `off`, `a`, `b`, a
+relocation as `R_WORD _printf` or `null` —, and for code `lines_a` / `lines_b`: `a`, `bytes`, `text`), `ranges` (by
+address: `segment`, `addr`, `len`, `a`, `b`) and `totals` (`bytes`, `relocs`, `symbols`, `moved`, `only_a`,
+`only_b`). Identical files give `identical: true` and the lists empty.
+
 ### JSON model
 
 `--json` writes a list, one entry per file: `kind` (`object`, `library`, `prg`, `binary`, `overlays`), `file`, and
@@ -526,20 +602,12 @@ Format: LineNum [TOKENS...]
 
 ### Compare two builds
 
+```bash
+cc45 -O2 -Wl,-M,a.map a.c -o a.prg
+cc45 -O2 -Wl,-M,b.map b.c -o b.prg
+objdump45 -D a.prg b.prg          # by symbol (a.map, b.map); see "Binary diff (-D)"
+objdump45 -D old.o45 new.o45      # an object's bytes and relocations, symbol by symbol
 ```
-$ objdump45 -D p1.prg p2.prg
-Binary Diff: p1.prg vs p2.prg
-Size: 389 bytes vs 346 bytes
-
-Offset $0053: [84→59]
-Offset $0069: [84→59]
-Size difference: p1.prg is 389 bytes, p2.prg is 346 bytes
-
-
-Total differences: 45 bytes (2 in the first 346, 43 past the end of the shorter file)
-```
-
-(the two programs of [ln45's `--gc-inputs` example](ln45.md#dropping-unused-code---gc-inputs--u---print-gc)). The bytes both files have are compared, a run of differences within 16 bytes of each other on one line; files of different sizes add the `Size difference:` line, and the bytes past the end of the shorter file count as differences (`Total differences: 45 bytes (2 in the first 346, 43 past the end of the shorter file)`; when the shared bytes are equal, `The first 346 bytes are identical; p1.prg has 43 more`, #733). Only identical files print `Files are identical`. Offsets are file offsets (a PRG's load-address bytes included).
 
 ### Compare optimisation levels
 
