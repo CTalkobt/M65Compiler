@@ -582,6 +582,7 @@ int main(int argc, char** argv) {
                 std::cout << "  -floop-idioms  Copy and fill loops of arrays as memmove / memset calls (off by default)" << std::endl;
                 std::cout << "  -Roptir        Report IR optimizer actions to stderr" << std::endl;
                 std::cout << "  -Rcodegen      With -S: the reason for each instruction as a comment" << std::endl;
+                std::cout << "  -Ralloc        Where each parameter, local and temporary is placed, and why (stderr; with -S also as comments)" << std::endl;
                 std::cout << "  --pragma <p>   Accepted, no effect (as --emit-ir)" << std::endl;
                 std::cout << "  --prg-base <a> PRG load address (hex)" << std::endl;
                 std::cout << "  --save-temps   Keep intermediate files" << std::endl;
@@ -730,6 +731,8 @@ int main(int argc, char** argv) {
             config.emitIR = true;
         } else if (arg == "-Rcodegen") {
             config.emitReasons = true;
+        } else if (arg == "-Ralloc") {
+            config.allocReport = true;
         } else if (arg == "-Roptir") {
             config.traceIROpt = true;
         } else if (arg == "--future") {

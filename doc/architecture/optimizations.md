@@ -452,17 +452,24 @@ byte of the slots over the code between `proc` and `endproc`, following its
 labels and branches (a store writes the bytes it names, a load or
 read-modify-write reads them; an instruction it does not know, or an indexed
 or indirect operand, reads every byte of the slots it names; a jump through
-a pointer or out of the function, or data in the code, has every slot live).
+a pointer or out of the function, or data in the code, has every slot live;
+data right after a `jsr` is that call's argument list, never run, as
+`__sac_args`' after the stack convention's entry thunk).
 Two slots clash when one is written while the other is live, or both are
 live at the entry; the others are grouped, largest first, and a group's
 labels share one `.res`. A slot whose address is taken (`#<f>__local_N`) or
-that is named outside its function keeps its own storage, and a function
+that is named outside its function keeps its own storage (its records,
+`cc45.zc.<slot>` for the base-page plan and `.dbg_var`, are not uses: #790,
+which had kept every slot from 2026-10-21), and a function
 that calls `setjmp` is left as it is. Slots of values the code never stores
 (kept in registers or folded away) take no storage. `cc45.sacsize.<f>` gives
 the new size, so ln45's SAC overlay shares less: in vim2 the overlay went
 from 2,749 to 2,347 bytes (the blocks before sharing from 18,130 to
-12,768), in pfest from 957 to 474; the code is unchanged. Test:
-`test_sac_share_xemu.c` (two modules; with `-fno-zp-locals` too).
+12,768), in pfest from 957 to 474; the code is unchanged. Tests:
+`test_sac_share_xemu.c` (two modules; with `-fno-zp-locals` too), the
+pass on its own in `bin/test_validation alloc`, and that it shares at all in
+`src/test/test_alloc_report.sh`. `cc45 -Ralloc` lists which variables share a
+slot.
 
 A ZP-convention leaf function goes further: its parameters stay in the ZP
 parameter block where the caller put them (`$10`…), with no copy at the entry

@@ -272,6 +272,7 @@ CompilationResult CompilationPipeline::compile() {
         codegenStage.setStackSize(config_.stackSize);
         codegenStage.setOverlay(config_.overlayName);
         codegenStage.setEmitReasons(config_.emitReasons);
+        codegenStage.setAllocReport(config_.allocReport);
         codegenStage.setOptOverrides(config_.optOverrides);
         codegenStage.setFutureWarnings(config_.futureWarnings);
         codegenStage.setTraceIROpt(config_.traceIROpt);

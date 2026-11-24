@@ -699,9 +699,15 @@ public:
     // cl45 (#199): the stack frame of each function that has one (bytes),
     // and no warning of its own about recursion (the linter's rule reports it)
     void setLintMode(bool on) { lintMode_ = on; }
+    // -Ralloc (#248): "; @alloc" comments after each function: where its
+    // parameters, locals and temporaries are, and why
+    void setAllocReport(bool on) { allocReport_ = on; }
     const std::map<std::string, int>& frameSizes() const { return frameSizes_; }
 private:
     bool lintMode_ = false;
+    bool allocReport_ = false;
+    int sacBlockBytes_ = 0;      // the SAC block's size as emitted (before #324's sharing)
+    void emitAllocReport(const ir::Function& fn, bool useSAC, bool fnZp);
     std::map<std::string, int> frameSizes_;
 public:
 private:

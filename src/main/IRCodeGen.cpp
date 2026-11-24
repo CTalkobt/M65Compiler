@@ -284,6 +284,116 @@ void IRCodeGen::findLocalDirect(const ir::Function& fn) {
     }
 }
 
+// -Ralloc (#248): where each parameter, local and temporary of fn is, and
+// why, as "; @alloc" comment lines after the function (CodegenStage gathers
+// them from the final assembly, adds what SacSlotShare made of the slots,
+// and prints them). Comments only: the code is the same without them.
+void IRCodeGen::emitAllocReport(const ir::Function& fn, bool useSAC, bool fnZp) {
+    const uint32_t paramCount = (uint32_t)fn.paramTypes.size();
+    bool leaf = true;
+    for (const auto& blk : fn.blocks)
+        for (const auto& in : blk.insts)
+            if (in.op == ir::Op::CALL || in.op == ir::Op::CALL_VOID || in.op == ir::Op::CALL_INDIRECT)
+                leaf = false;
+    auto hex2 = [](int v) { std::ostringstream o; o << '$' << std::hex << std::uppercase << std::setw(2) << std::setfill('0') << (v & 0xFF); return o.str(); };
+    auto line = [&](const std::string& t) { emitComment("@alloc " + t); };
+    {
+        std::string h = fn.name + ": ";
+        h += useSAC ? "static allocation (SAC)" : (fn.isNaked ? "__naked" : "stack frame");
+        if (!useSAC && !fn.isNaked) {
+            if (fn.isInterrupt) h += " (__interrupt)";
+            else if (fn.isRecurse) h += " (#pragma cc45 recurse)";
+            else if (callsRuntimeAlloca(fn)) h += " (runtime alloca)";
+            else if (recursiveFunctions_.count(fn.name)) h += " (recursive)";
+            else if (!staticAllocMode_) h += " (-fno-staticalloc)";
+        }
+        h += fnZp ? ", ZP convention" : ", stack convention";
+        h += leaf ? ", leaf" : ", makes calls";
+        h += "; frame " + std::to_string(useSAC ? 0 : localFrameSize_) + " bytes";
+        if (useSAC) h += ", static " + std::to_string(sacBlockBytes_) + " bytes";
+        if (zarSize_ > 0) h += ", base page " + std::to_string(zarSize_) + " bytes";
+        line(h);
+    }
+    std::map<uint32_t, std::string> names;
+    for (uint32_t i = 0; i < paramCount; i++)
+        names[i] = i < fn.paramNames.size() && !fn.paramNames[i].empty() ? fn.paramNames[i] : "#" + std::to_string(i);
+    for (const auto& [n, v] : fn.localNames) if (v >= paramCount) names[v] = n;
+    std::map<uint32_t, std::pair<int, int>> live;
+    for (const auto& r : alloc_.liveRanges()) live[r.vregId] = {r.firstDef, r.lastUse};
+    auto sizeOf = [&](uint32_t v) {
+        auto z = fn.vregSizes.find(v);
+        if (z != fn.vregSizes.end()) return z->second;
+        ir::Type t = v < paramCount ? fn.paramTypes[v] : (fn.vregTypes.count(v) ? fn.vregTypes.at(v) : alloc_.getAlloc(v).type);
+        return std::max(1, ir::typeSize(t));
+    };
+    auto range = [&](int at, int n) { return n <= 1 ? hex2(at) : hex2(at) + "-" + hex2(at + n - 1); };
+    int inAX = 0;
+    std::set<uint32_t> all;
+    for (const auto& [v, n] : names) all.insert(v);
+    for (uint32_t v = 0; v < fn.nextVreg; v++) if (alloc_.hasAlloc(v)) all.insert(v);
+    for (uint32_t v : all) {
+        bool named = names.count(v) > 0;
+        std::string kind = v < paramCount ? "param" : named ? "local" : "temp";
+        std::string who = named ? names[v] : "v" + std::to_string(v);
+        if ((int)v == fn.staticLinkVreg) { who = "(static link)"; kind = "hidden"; }
+        if ((int)v == fn.retAddrSlot) { who = "(return addr)"; kind = "hidden"; }
+        int n = sizeOf(v);
+        std::string where, why;
+        auto a = alloc_.getAlloc(v);
+        if (zpParams_.count(v)) {
+            where = range(zpParams_[v], n);
+            why = "ZP parameter block, used where the caller put it (no call before its last use)";
+        } else if (zarVregs_.count(v)) {
+            where = "base page +" + std::to_string(zarVregs_[v] - ZAR_START);
+            why = "the function's base-page block (.zar, placed by ln45): kept across its calls";
+        } else if (!alloc_.hasAlloc(v)) {
+            if (!named) continue;
+            where = "-";
+            why = fn.localSlotVregs.count(v) || fn.memoryVregs.count(v) || fn.vregSizes.count(v)
+                ? "storage kept, no instruction uses it any more" : "no storage: the optimizer removed every use";
+            if (useSAC && vregOffset_.count(v)) where = sacSymbol(v);
+        } else if (a.loc == VRegAllocator::IN_AX) {
+            if (!named) { inAX++; continue; }
+            where = "A/X";
+            why = "used where it is computed";
+        } else if (a.loc == VRegAllocator::IN_X || a.loc == VRegAllocator::IN_Y || a.loc == VRegAllocator::IN_Z) {
+            where = a.loc == VRegAllocator::IN_X ? "X" : a.loc == VRegAllocator::IN_Y ? "Y" : "Z";
+            why = "loop counter in a register";
+        } else if (a.loc == VRegAllocator::IN_ZP && (argTargets_.count(v) || storeTargets_.count(v))) {
+            int at = argTargets_.count(v) ? argTargets_[v] : storeTargets_[v];
+            bool zar = at >= ZAR_START && at < ZAR_END;
+            where = zar ? "base page +" + std::to_string(at - ZAR_START) : range(at, n);
+            if (argTargets_.count(v)) why = "computed in its argument's slot of the call";
+            else {
+                std::string owner;
+                for (const auto& [o, oat] : zarVregs_) if (oat == at && names.count(o)) owner = names[o];
+                for (const auto& [o, oat] : zpParams_) if (oat == at && names.count(o)) owner = names[o];
+                why = "computed in the home of " + (owner.empty() ? std::string("the variable it is stored to") : "'" + owner + "'");
+            }
+        } else if (a.loc == VRegAllocator::IN_ZP) {
+            where = range(a.offset, n);
+            if (regVregs_.count(v)) why = fn.registerVregs.count(v) ? "register pool: declared register" : "register pool: a register variable (pointer or counter)";
+            else why = "register pool";
+            if (live.count(v) && live[v].first >= 0)
+                why += ", live over IR instructions " + std::to_string(live[v].first) + "-" + std::to_string(live[v].second);
+        } else {
+            where = useSAC ? sacSymbol(v) : "frame+" + std::to_string(vregOffset_.count(v) ? vregOffset_[v] : a.offset);
+            if (fn.volatileVregs.count(v)) why = "memory: volatile";
+            else if (fn.memoryVregs.count(v)) why = "memory: its address is taken";
+            else if (fn.vregSizes.count(v)) why = "memory: an array or struct (" + std::to_string(n) + " bytes)";
+            else if (v < paramCount && useSAC) why = "the parameter's static slot";
+            else why = "memory: not given a register (pool full or live across a call)";
+            if (live.count(v) && live[v].first >= 0 && !named)
+                why += ", live over IR instructions " + std::to_string(live[v].first) + "-" + std::to_string(live[v].second);
+        }
+        std::ostringstream o;
+        o << "  " << std::left << std::setw(14) << who << std::setw(7) << kind << std::setw(3) << n << " "
+          << std::setw(22) << where << " " << why;
+        line(o.str());
+    }
+    if (inAX > 0) line("  (" + std::to_string(inAX) + " temporaries in A/X, used where computed)");
+}
+
 std::string IRCodeGen::sacSymbol(uint32_t vregId) const {
     if (currentFn_ && vregId < currentFn_->paramTypes.size()) {
         std::string pName = (vregId < currentFn_->paramNames.size() && !currentFn_->paramNames[vregId].empty())
@@ -5322,6 +5432,7 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
 
     // Store SAC mode for this function (used by loadVreg/storeVreg for addressing)
     currentFunctionUseSAC_ = useSAC;
+    sacBlockBytes_ = 0;
     findLocalDirect(fn);
 
     // the byte joins whose leaves all have an address (in ZP or SAC storage)
@@ -5496,6 +5607,7 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
             bssBoundaryClean_ = true;
         }
 
+        sacBlockBytes_ = sacBlockSize;
         // Switch back to the function's text segment
         emit(".segment \"" + textSeg_ + "\"");
 
@@ -6356,6 +6468,7 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
     if (fn.noOptimize) emit(".noopt_end");
     emit("endproc");
     flushDebugVars();
+    if (allocReport_) emitAllocReport(fn, useSAC, fnZp);
     emitBlank();
 
     // Phase 78: Finalize SMC metadata for this function

@@ -28,6 +28,7 @@ Running font45 tests...|bash src/test/test_font45.sh
 Running pack45 image (format 2) tests...|bash src/test/test_pack45_image.sh
 Running debug information tests...|bash src/test/test_debug_info.sh
 Running logging tests...|bash src/test/test_logging.sh
+Running allocation report tests (cc45 -Ralloc, ln45 -M)...|bash src/test/test_alloc_report.sh
 Running configuration tests...|bash src/test/test_config.sh
 Running function-local state tests...|bash src/test/test_function_locals.sh
 Running string escape tests...|bash src/test/test_string_escapes.sh

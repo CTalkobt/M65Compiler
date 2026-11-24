@@ -310,6 +310,7 @@ void CodegenStage::generateAssembly() {
                 for (auto& o : clobberOverrides) o.second = {0x0F, 0x0F};
             codegen.setClobberOverrides(clobberOverrides);
             codegen.setLintMode(lint_ != nullptr);
+            codegen.setAllocReport(allocReport_ && !lint_);
             // Parameters: module, zpStart, relocMode, zpCallMode, emitReasons, staticAllocMode, sacDebugMode, prgBase
             codegen.generate(mod,
                              0x08,              // zpStart
@@ -428,8 +429,95 @@ void CodegenStage::generateAssembly() {
         }
     }
 
+    if (allocReport_) irOutput_ = finishAllocReport(irOutput_, std::cerr);
+
     if (verboseLevel_ >= 2) {
         Logger::stream(LogLevel::DEBUG) << "Generated " << irOutput_.size()
                  << " bytes of assembly." << std::endl;
     }
+}
+
+// -Ralloc (#248): IRCodeGen's "; @alloc" lines in the final assembly, with
+// what SacSlotShare made of the static slots (the labels of a group on one
+// .res: a slot sharing its bytes; cc45.sacsize.<f>: the block's size after
+// it), written to err and kept in the assembly as "; alloc:" comments
+std::string CodegenStage::finishAllocReport(const std::string& text, std::ostream& err) {
+    std::vector<std::string> lines;
+    {
+        std::istringstream in(text);
+        for (std::string l; std::getline(in, l);) lines.push_back(l);
+    }
+    auto trim = [](const std::string& t) {
+        size_t a = t.find_first_not_of(" \t"), b = t.find_last_not_of(" \t");
+        return a == std::string::npos ? std::string() : t.substr(a, b - a + 1);
+    };
+    std::map<std::string, std::vector<std::string>> shares;   // a slot: the others on its .res
+    std::map<std::string, int> sacSize;
+    std::vector<std::string> pending;
+    for (const auto& l : lines) {
+        std::string c = trim(l);
+        if (c.empty() || c[0] == ';') continue;
+        if (c.back() == ':' && c.find_first_of(" \t") == std::string::npos) {
+            // (a SAC slot: SacSlotShare groups only those; the block's own
+            // label, _f__ar, sits before its first slot)
+            if (c.find("__local_") != std::string::npos) pending.push_back(c.substr(0, c.size() - 1));
+            continue;
+        }
+        if (c.rfind(".res ", 0) == 0 && pending.size() > 1)
+            for (const auto& a : pending)
+                for (const auto& b : pending) if (a != b) shares[a].push_back(b);
+        if (c.rfind("cc45.sacsize.", 0) == 0) {
+            size_t eq = c.find('=');
+            if (eq != std::string::npos) sacSize[trim(c.substr(13, eq - 13))] = std::atoi(c.c_str() + eq + 1);
+        }
+        pending.clear();
+    }
+    const std::string tag = "; @alloc ";
+    // a slot's variable as the report names it (its line: "  <who> <kind> <n> <slot> ...")
+    std::map<std::string, std::string> whoOf;
+    for (const auto& l : lines) {
+        if (l.rfind(tag + "  ", 0) != 0) continue;
+        std::istringstream f(l.substr(tag.size()));
+        std::string who, kind, n, where;
+        if (f >> who >> kind >> n >> where) whoOf[where] = who;
+    }
+    std::ostringstream o;
+    for (size_t i = 0; i < lines.size(); i++) {
+        std::string l = lines[i];
+        if (l.rfind(tag, 0) == 0) {
+            std::string t = l.substr(tag.size());
+            if (t.rfind("  ", 0) != 0) {
+                // the function's line: the static block's size after sharing
+                std::string fn = t.substr(0, t.find(':'));
+                size_t at = t.find(", static ");
+                auto z = sacSize.find(fn);
+                if (at != std::string::npos && z != sacSize.end()) {
+                    size_t num = at + 9, end = t.find(' ', num);
+                    int before = std::atoi(t.c_str() + num);
+                    if (z->second != before)
+                        t = t.substr(0, num) + std::to_string(z->second) + " bytes (" + std::to_string(before) +
+                            " before sharing)" + t.substr(t.find(" bytes", end) + 6);
+                }
+            } else {
+                for (const auto& [slot, others] : shares) {
+                    size_t at = t.find(slot);
+                    if (at == std::string::npos) continue;
+                    size_t e = at + slot.size();
+                    if (e < t.size() && (std::isalnum((unsigned char)t[e]) || t[e] == '_')) continue;
+                    std::string with;
+                    for (const auto& w : others) {
+                        auto nm = whoOf.find(w);
+                        with += (with.empty() ? "" : ", ") + (nm != whoOf.end() ? nm->second : w);
+                    }
+                    t += "; its bytes shared with " + with + " (never live together, #324)";
+                    break;
+                }
+            }
+            err << t << "\n";
+            l = "; alloc: " + t;
+        }
+        o << l;
+        if (i + 1 < lines.size() || (!text.empty() && text.back() == '\n')) o << "\n";
+    }
+    return o.str();
 }
