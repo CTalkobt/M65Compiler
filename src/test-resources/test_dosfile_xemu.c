@@ -12,7 +12,11 @@
  *   [4] cbm_format: the disk cleared (a quick format, no id), its files gone;
  *       a file written after it
  *   [5] argument checks: device 0, NULL, empty names
- *   [6] $AA sentinel
+ *   [6] names starting with '_' (PETSCII <-), '$' or '#', which the DOS
+ *       takes as the directory of scratched files, the directory and a
+ *       buffer without a drive number (#785): missing ones not found; one
+ *       written, read, appended to and removed
+ *   [7] $AA sentinel
  */
 #pragma cc45 signed_default
 
@@ -50,7 +54,8 @@ static int exists(const char *name) {
 
 int main(void) {
     int ok;
-    OUT[6] = 0;
+    FILE *f;
+    OUT[7] = 0;
 
     ok = make("ALPHA", "one") && make("BETA", "two");
     ok = ok && cbm_rename(8, "ALPHA", "GAMMA") == 0 && has("GAMMA", "one") && !exists("ALPHA");
@@ -76,6 +81,12 @@ int main(void) {
     ok = ok && strcmp(strerror(ENOENT), "No such file or directory") == 0 && strcmp(strerror(EEXIST), "File exists") == 0;
     OUT[3] = ok;
 
+    ok = !exists("__NOSUCH") && !exists("_") && !exists("$NOSUCH") && !exists("#NOSUCH");
+    ok = ok && make("_UNDER", "u") && has("_UNDER", "u");
+    ok = ok && (f = fopen("_UNDER", "a")) != 0 && fputs("v", f) >= 0 && fclose(f) == 0 && has("_UNDER", "uv");
+    ok = ok && remove("_UNDER") == 0 && !exists("_UNDER");
+    OUT[6] = ok;
+
     ok = cbm_format(8, "CLEARED", "") == 0 && !exists("BETA") && !exists("ETA");
     ok = ok && make("AFTER", "x") && has("AFTER", "x");
     OUT[4] = ok;
@@ -83,6 +94,6 @@ int main(void) {
     OUT[5] = cbm_delete(0, "AFTER") == -1 && cbm_delete(8, 0) == -1 && cbm_delete(8, "") == -1 &&
              cbm_rename(8, "AFTER", "") == -1 && cbm_format(8, "", "") == -1 && cbm_format(8, "X", 0) == -1 &&
              exists("AFTER");
-    OUT[6] = 0xAA;
+    OUT[7] = 0xAA;
     return 0;
 }

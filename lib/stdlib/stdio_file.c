@@ -123,9 +123,11 @@ extern int cbm_close(fd_t fd);
 int _kernal_open(const char *filename, unsigned char cbm_type, unsigned char flags) {
     /* Determine device number (default: disk) */
     unsigned char device = CBM_DEVICE_DISK;
-    /* The DOS takes the type and direction from the name: "NAME,S,R",
+    /* The DOS takes the type and direction from the name: "0:NAME,S,R",
      * "@0:NAME,S,W" (the @ replaces an existing file, as C's "w" truncates),
-     * "NAME,S,A"; U for a USR ("b") file. A name with a ',' is passed as is
+     * "0:NAME,S,A"; U for a USR ("b") file. The "0:" keeps a first '$', '_'
+     * or '#' a letter of the name (the DOS's directory, directory of
+     * scratched files, buffer; #785). A name with a ',' is passed as is
      * (lib/stdlib_asm/cbm_dos_name.s45). */
     static char name[48];
     __cbm_dos_name(name, filename, flags, cbm_type);

@@ -1,5 +1,9 @@
-; __builtin_trap — unconditional program abort
-; no calls through pointers here (ln45's call graph)
+; __builtin_trap — unconditional abnormal termination (#761)
+;
+; cc45 compiles __builtin_trap() to a call here. The program ends as abort()
+; does (exit status $FFFE at $FD/$FE) through crt0's __abort, which a program
+; cannot override, so neither a user's abort() nor the atexit handlers run.
+; No calls through pointers here (ln45's call graph).
 .weak cc45.icallinfo
 cc45.icallinfo = 1
 

@@ -3876,14 +3876,13 @@ std::unique_ptr<Expression> Parser::parsePrimary() {
         expect(TokenType::CLOSE_PAREN, "Expected ')'");
         expr->branchHint = likely ? 1 : -1;
     } else if (peek().type == TokenType::IDENTIFIER && peek().value == "__builtin_trap") {
-        // __builtin_trap() → BRK instruction
+        // __builtin_trap(): a call to the library's ___builtin_trap, which ends
+        // the program as abort() does (exit status $FFFE) without running
+        // atexit handlers or a user's abort() (#761)
         const Token& bToken = advance();
         expect(TokenType::OPEN_PAREN, "Expected '(' after __builtin_trap");
         expect(TokenType::CLOSE_PAREN, "Expected ')'");
-        // Emit as inline asm BRK — wrap in a comma expression that returns 0
-        expr = setPos(std::make_unique<IntegerLiteral>(0), bToken);
-        // The actual BRK will be emitted if this is used in a statement context
-        // For now, it's a no-op in expression context
+        expr = setPos(std::make_unique<FunctionCall>("__builtin_trap"), bToken);
     } else if (peek().type == TokenType::IDENTIFIER && peek().value == "__builtin_unreachable") {
         // __builtin_unreachable() → no-op (undefined behavior if reached)
         const Token& bToken = advance();

@@ -1876,11 +1876,12 @@ for fsmode in "stack|-fno-zpcall" "zp|"; do
 done
 
 # Test: DOS commands on the command channel: cbm_delete / cbm_rename /
-# cbm_format (#762), C's remove() / rename() (#763); REL files through the
+# cbm_format (#762), C's remove() / rename() (#763), names starting with
+# '_' / '$' / '#' (#785); REL files through the
 # drive (#783) and cbm_rel_truncate (#764); each on a scratch D81
 for dmode in "stack|-fno-zpcall" "zp|"; do
     IFS='|' read -r dname dflags <<< "$dmode"
-    for dt in "dosfile|7|01 01 01 01 01 01 AA" "relfile|7|01 01 01 01 01 01 AA"; do
+    for dt in "dosfile|8|01 01 01 01 01 01 01 AA" "relfile|7|01 01 01 01 01 01 AA"; do
         IFS='|' read -r dtn dtc dtx <<< "$dt"
         echo "Testing test_${dtn}_xemu.c ($dname)..."
         compile_link_test "src/test-resources/test_${dtn}_xemu.c" "build/test/test_${dtn}_${dname}_xemu.prg" "$dflags"
@@ -1893,6 +1894,20 @@ for dmode in "stack|-fno-zpcall" "zp|"; do
             failed=$((failed + 1))
         fi
     done
+done
+
+# Test: __builtin_trap() ends the program (#761): nothing after it, no atexit
+# handler or user abort(), exit status $FFFE at $FD/$FE
+for tmode in "stack|-fno-zpcall" "zp|"; do
+    IFS='|' read -r tname tflags <<< "$tmode"
+    echo "Testing test_builtin_trap_xemu.c ($tname)..."
+    if compile_link_test "src/test-resources/test_builtin_trap_xemu.c" "build/test/test_builtin_trap_${tname}_xemu.prg" "$tflags"; then
+        run_xemu_test "test_builtin_trap_$tname" "build/test/test_builtin_trap_${tname}_xemu.prg" "C0C0" 5 "01 01 01 AA 00"
+        run_xemu_test "test_builtin_trap_${tname}_status" "build/test/test_builtin_trap_${tname}_xemu.prg" "00FD" 2 "FE FF"
+    else
+        echo "FAIL: test_builtin_trap_xemu.c $tname (build failed)"
+        failed=$((failed + 1))
+    fi
 done
 
 # Test: a REL file made by disk45 on a D81, used by BASIC 65's DOS (and the
