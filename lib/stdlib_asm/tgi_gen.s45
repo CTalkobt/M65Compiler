@@ -1,0 +1,100 @@
+; tgi_gen.s45 — <tgi.h>'s generic drivers (___tgi_mode bit 6): the text
+; screens (tgi_txt.s45) and the bitmap screens (tgi_bmp.s45)
+;
+; A generic driver's description (stdlib/tgi_drv.h's tgi_driver_t) has
+; mode $40 (+ $20 for a text screen) and, as its draw, a table of its
+; routines (7 words):
+;   install    A 0, or the TGI error (its memory)
+;   uninstall  (its memory freed)
+;   init       its screen shown and cleared
+;   done       the screen as it was
+;   clear      the screen cleared
+;   set        pixel ($10/$11 x, $12/$13 y, on the screen) := A
+;   get        A := pixel ($10/$11, $12/$13)
+; set and get may use A X Y Z and $08-$0B, nothing else of the base page
+; ($10-$13 kept: the ellipse's and the pattern's loops call them). The
+; table is copied here at tgi_install (___tgi_gv). Lines, glyphs, bars and
+; the text drivers' text are tgi_gendraw.c's, in C (__tgi_gen_link pulls it in).
+
+; (no cc45.icallinfo: the jumps through the table reach the drivers' C
+; routines, tgi_bmpsetup.c's, so ln45 takes them as calls of every function
+; whose address is taken, and keeps the callers' static locals out of the
+; drivers' routines' storage)
+
+    .cpu 45gs02
+
+.global ___tgi_g_install, ___tgi_g_uninstall, ___tgi_g_init, ___tgi_g_done
+.global ___tgi_g_clear, ___tgi_g_set, ___tgi_g_get, ___tgi_gv
+.extern ___tgi_gen_link
+
+.segment "data"
+___tgi_gv:  .res 14         ; the driver's routines (its table)
+__tg_link:  .word ___tgi_gen_link   ; (tgi_gendraw.c)
+
+.segment "code"
+
+; tgi_install's: $10 the driver; its table copied, its install run
+proc ___tgi_g_install
+    .zp_uses $10, $11
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    ldy #18                 ; draw: the table
+    lda ($10),y
+    sta $08
+    iny
+    lda ($10),y
+    sta $09
+    ldy #13
+@copy:
+    lda ($08),y
+    sta ___tgi_gv,y
+    dey
+    bpl @copy
+    jmp (___tgi_gv)
+    .func_flags zp_call
+endproc
+
+proc ___tgi_g_uninstall
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    jmp (___tgi_gv+2)
+    .func_flags zp_call
+endproc
+
+proc ___tgi_g_init
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    jmp (___tgi_gv+4)
+    .func_flags zp_call
+endproc
+
+proc ___tgi_g_done
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    jmp (___tgi_gv+6)
+    .func_flags zp_call
+endproc
+
+; void __tgi_g_clear(void) (tgi.c's tgi_clear)
+proc ___tgi_g_clear
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    jmp (___tgi_gv+8)
+    .func_flags zp_call
+endproc
+
+; pixel ($10, $12) := A
+proc ___tgi_g_set
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    jmp (___tgi_gv+10)
+    .func_flags zp_call
+endproc
+
+; A := pixel ($10, $12)
+proc ___tgi_g_get
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    jmp (___tgi_gv+12)
+    .func_flags zp_call
+endproc

@@ -25,6 +25,11 @@ cc45.icallinfo = 1
 .extern _tgi_charwidth, _tgi_charheight, _tgi_fontwidth, _tgi_fontheight, ___tgi_vfont
 .extern _tgi_curx, _tgi_cury, _tgi_xmax, _tgi_ymax
 .extern _tgi_imulround, ___tgi_clipline, ___tgi_glyph, _tgi_bar
+.extern ___tgi_mode
+; the text drivers' (tgi_gendraw.c, linked with them): weak here
+.global ___tgi_t_outtext
+.extern ___tgi_fontptr
+.weak ___tgi_t_outtext
 
 FIRST = $20                 ; TGI_VF_FIRSTCHAR
 LAST = $7E                  ; TGI_VF_LASTCHAR
@@ -512,6 +517,13 @@ proc _tgi_outtext
     .zp_uses $10, $11, $12, $13, $14, $15, $16, $17
     .reg_clobbers A, X, Y, Z
     .flag_clobbers C, N, Z, V
+    lda ___tgi_mode         ; a text driver ($20) with the bitmap font: the
+    and #$20                ; characters into the screen's cells
+    beq @draw
+    lda _tgi_font
+    bne @draw
+    jmp ___tgi_t_outtext
+@draw:
     lda $10
     sta __x_s
     lda $11
@@ -562,15 +574,28 @@ proc _tgi_outtext
     .func_flags zp_call
 endproc
 
-; __x_font := the font's lower/upper case half: CHARPTR (the character ROM
+; __x_font := the font's lower/upper case half: CHARPTR, or ___tgi_fontptr
+; when a driver set it (not 0) (the character ROM
 ; for the VIC-II's $1000/$1800/$9000/$9800), its second 2 KB
 proc __x_fontaddr
+    lda ___tgi_fontptr+1    ; a driver's own (the bitmap drivers: CHARPTR
+    ora ___tgi_fontptr+2    ; is their bitmap; the one before it, saved)
+    beq @vic
+    lda ___tgi_fontptr
+    sta __x_font
+    lda ___tgi_fontptr+1
+    sta __x_font+1
+    lda ___tgi_fontptr+2
+    sta __x_font+2
+    bra @got
+@vic:
     lda $D068
     sta __x_font
     lda $D069
     sta __x_font+1
     lda $D06A
     sta __x_font+2
+@got:
     lda #0
     sta __x_font+3
     lda __x_font+2
@@ -836,4 +861,8 @@ proc __x_char
     sbc __x_w+1
     sta $17
     jmp _tgi_bar
+endproc
+
+proc ___tgi_t_outtext
+    rts
 endproc

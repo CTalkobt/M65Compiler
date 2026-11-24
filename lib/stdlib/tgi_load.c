@@ -22,6 +22,9 @@ extern const tgi_driver_t tgi_static_ncm640;
 extern const char __tgi_ncm640_name[];
 extern const tgi_driver_t tgi_static_ncm2;
 extern const char __tgi_ncm2_name[];
+/* the bitmap and text screens: tgi_bmp.s45, tgi_txt.s45 */
+extern const tgi_driver_t tgi_static_hires, tgi_static_mcm, tgi_static_text40, tgi_static_text80;
+extern const char __tgi_hires_name[], __tgi_mcm_name[], __tgi_text40_name[], __tgi_text80_name[];
 
 /* A letter in one case and encoding: PETSCII's upper case and ASCII's lower
  * case as PETSCII's lower case (ASCII's upper case) */
@@ -53,6 +56,14 @@ void tgi_load_driver(const char *name) {
         tgi_install(&tgi_static_ncm640);
     else if (name && same(name, __tgi_ncm2_name))
         tgi_install(&tgi_static_ncm2);
+    else if (name && same(name, __tgi_hires_name))
+        tgi_install(&tgi_static_hires);
+    else if (name && same(name, __tgi_mcm_name))
+        tgi_install(&tgi_static_mcm);
+    else if (name && same(name, __tgi_text40_name))
+        tgi_install(&tgi_static_text40);
+    else if (name && same(name, __tgi_text80_name))
+        tgi_install(&tgi_static_text80);
     else
         tgi_error = TGI_ERR_CANNOT_LOAD;
 }

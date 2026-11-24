@@ -11,6 +11,10 @@
  *   tgi_static_fcm2                 "mega65-fcm2.tgi"  320x200, 256 colours, 2 pages
  *   tgi_static_ncm640               "mega65-ncm640.tgi" 640x200, 16 colours, 1 page
  *   tgi_static_ncm2                 "mega65-ncm2.tgi"  640x200, 16 colours, 2 pages
+ *   tgi_static_hires                "mega65-hires.tgi" 320x200, 2 colours a cell (#645)
+ *   tgi_static_mcm                  "mega65-mcm.tgi"   160x200, 4 colours a cell
+ *   tgi_static_text40               "mega65-text-40x25.tgi" 80x50: block characters
+ *   tgi_static_text80               "mega65-text-80x50.tgi" 160x100, the same
  *
  * The 320x200 ones show a VIC-IV full-colour (FCM) screen: a byte a pixel,
  * the byte the palette entry; the 640x200 one nibble-colour characters (NCM):
@@ -114,6 +118,40 @@ extern const void tgi_static_ncm640[];
 
 /* The same with two pages (double buffering): the screens from malloc */
 extern const void tgi_static_ncm2[];
+
+/* The VIC-II's bitmap modes on the VIC-IV (stdlib_asm/tgi_bmp.s45,
+ * stdlib/tgi_bmpsetup.c; #645): an 8000-byte bitmap and 1000 colour bytes in a
+ * 16 KB far_malloc block of bank 4 or 5, the screen 40x25 while shown.
+ * hires: 320x200, a cell of 8x8 pixels has two colours, its foreground (the
+ * colour last set in it) and the background (0): a pixel set in colour c is
+ * on and makes c the cell's foreground; in 0, off. mcm: 160x200, a cell of
+ * 4x8 pixels has the background (0, $D021) and three colours: a pixel set
+ * in c takes the one that is c, else one no pixel of the cell uses, else
+ * the first (the cell's others in it change). 16 colours (the palette's
+ * first 16). */
+extern const void tgi_static_hires[];
+extern const void tgi_static_mcm[];
+
+/* The KERNAL's text screen, 40x25 or 80x50 (set by the screen editor:
+ * ESC 4, ESC 5), as TGI pixels: a pixel is a quarter of a character cell
+ * (80x50, 160x100), the four quarters one of the 16 PETSCII block
+ * characters; tgi_outtext writes characters (with the bitmap font: a
+ * character a cell, 2x2 pixels, at the cell of the cursor), so text and
+ * pixels mix. A pixel's colour is its cell's (the colour RAM): set in c,
+ * the quarter on and the cell c; in 0, off. tgi_done puts the screen's size
+ * and character set back (stdlib_asm/tgi_txt.s45; #645). */
+extern const void tgi_static_text40[];
+extern const void tgi_static_text80[];
+
+/* The character set (any driver: the text screen's): the upper-case /
+ * graphics one or the lower / upper-case one, CHR$(142) / CHR$(14) to the
+ * screen editor; the block characters are in both. 1: lower case now */
+unsigned char tgi_toggle_case(void);
+
+/* The rectangle (x1, y1)-(x2, y2) copied to (dx, dy) on the draw page, any
+ * driver: a pixel at a time (tgi_getpixel / tgi_setpixel; overlapping
+ * copies right; off the screen 0 is read and nothing written) */
+void tgi_copyrect(int x1, int y1, int x2, int y2, int dx, int dy);
 
 /* A vector font definition (cc45 needs the struct complete for pointers) */
 typedef struct tgi_vectorfont tgi_vectorfont;

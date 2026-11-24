@@ -28,7 +28,7 @@ extern unsigned char __tgi_view;        /* the view page */
 extern unsigned long __tgi_page[2];     /* the pages */
 extern unsigned long __tgi_palsave;     /* the palette at tgi_install: R, G, B (768 bytes) */
 extern unsigned char __tgi_palset;      /* tgi_setpalette changed the palette */
-extern unsigned char __tgi_mode;        /* tgi_vars.s45's: $80, the 640x200 driver */
+extern unsigned char __tgi_mode;        /* tgi_vars.s45's: $80, the 640x200 driver; $40 a generic one ($20 a text one) */
 
 /* The drivers' bars (tgi_fcm.s45, tgi_ncm.s45, each linked with its
  * drivers; without one, nothing) */
@@ -38,6 +38,12 @@ __fastcall__ void __tgi_f_bar(int x1, int y1, int x2, int y2) { (void)x1; (void)
 __fastcall__ void __tgi_n_bar(int x1, int y1, int x2, int y2) { (void)x1; (void)y1; (void)x2; (void)y2; }
 /* The patterned fill (tgi_pattern.s45, linked with tgi_setpattern /
  * tgi_setpattern_mono): 1 when it filled the bar; without it, 0 */
+/* The generic drivers' (tgi_gendraw.c / tgi_gen.s45, linked with them;
+ * __tgi_mode bit 6: the text and bitmap screens) */
+#pragma weak __tgi_g_bar
+__fastcall__ void __tgi_g_bar(int x1, int y1, int x2, int y2) { (void)x1; (void)y1; (void)x2; (void)y2; }
+#pragma weak __tgi_g_clear
+__fastcall__ void __tgi_g_clear(void) { }
 #pragma weak __tgi_pbar
 __fastcall__ int __tgi_pbar(int x1, int y1, int x2, int y2) { (void)x1; (void)y1; (void)x2; (void)y2; return 0; }
 static unsigned char pal[256];          /* tgi_getpalette (after tgi_setpalette) */
@@ -86,6 +92,11 @@ const char *tgi_geterrormsg(unsigned char code) {
 
 unsigned tgi_ioctl(unsigned char code, void *data) {
     if (tgi_drv) {
+        /* (a generic driver's screen has no page of tgi.c's layout) */
+        if (__tgi_mode & 0x40) {
+            tgi_error = TGI_ERR_INV_FUNC;
+            return TGI_ERR_INV_FUNC;
+        }
         if (code == TGI_IOCTL_DRAWPAGE_ADDR) {
             *(unsigned long *)data = __tgi_draw;
             return TGI_ERR_OK;
@@ -199,7 +210,9 @@ void tgi_setaspectratio(unsigned r) {
  * ========================================================================== */
 
 void tgi_clear(void) {
-    if (tgi_drv) dma_fill_far(__tgi_draw, PAGE_SIZE, 0);
+    if (!tgi_drv) return;
+    if (__tgi_mode & 0x40) __tgi_g_clear();
+    else dma_fill_far(__tgi_draw, PAGE_SIZE, 0);
 }
 
 void tgi_gotoxy(int x, int y) {
@@ -221,6 +234,7 @@ __fastcall__ void tgi_bar(int x1, int y1, int x2, int y2) {
     if (x2 > (int)tgi_xmax) x2 = (int)tgi_xmax;
     if (y2 > (int)tgi_ymax) y2 = (int)tgi_ymax;
     if (__tgi_pbar(x1, y1, x2, y2)) return;
-    if (__tgi_mode) __tgi_n_bar(x1, y1, x2, y2);
+    if (__tgi_mode & 0x40) __tgi_g_bar(x1, y1, x2, y2);
+    else if (__tgi_mode & 0x80) __tgi_n_bar(x1, y1, x2, y2);
     else __tgi_f_bar(x1, y1, x2, y2);
 }
