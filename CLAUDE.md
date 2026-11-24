@@ -545,4 +545,4 @@ zips and on SD card images as `<container>:<member>`.
 - The MEGA65 Book (BASIC 65, DOS, PETSCII/escape codes; a local copy is in
   `../refs/mega65-book.txt`, outside the repository)
 - `doc/architecture/calling-conventions.md`, `lib45.md`, `ir.md`, `optimizations.md`, `opcodes.md`, `stdlib.md`
-- CHANGELOG.md, ROADMAP.md
+- CHANGELOG.md; the plan is the GitHub issues and their milestones (v1.5, v1.7.0, v2.0, v2.2, Future); ROADMAP.md is deprecated (2026-11-24)

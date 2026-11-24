@@ -5,7 +5,6 @@
  * - cbm_rel_delete — mark record as deleted
  * - cbm_rel_truncate — resize file to N records
  * - cbm_rel_update — in-place record update
- * - cbm_rel_insert — insert record with shifting
  *
  * Phase 4d of FILE I/O implementation
  */
@@ -146,35 +145,6 @@ int test_rel_update_operation(void) {
 }
 
 /* ============================================================================
- * TEST 5: Insert Operation Validation
- * ============================================================================ */
-
-int test_rel_insert_operation(void) {
-    TEST("REL insert operation signature");
-
-    unsigned char data[10] = "insertdat";
-    int result;
-
-    /* Insert on unopened handle should fail */
-    result = cbm_rel_insert(0, 1, data, 9);
-    ASSERT(result == -1, "cbm_rel_insert on unopened handle returns -1");
-
-    /* Insert record 0 (invalid) should fail */
-    result = cbm_rel_insert(0, 0, data, 9);
-    ASSERT(result == -1, "cbm_rel_insert record 0 returns -1");
-
-    /* Insert with NULL buffer should fail */
-    result = cbm_rel_insert(0, 1, NULL, 9);
-    ASSERT(result == -1, "cbm_rel_insert with NULL buffer returns -1");
-
-    /* Insert with invalid handle should fail */
-    result = cbm_rel_insert(-1, 1, data, 9);
-    ASSERT(result == -1, "cbm_rel_insert with handle -1 returns -1");
-
-    return 1;
-}
-
-/* ============================================================================
  * TEST 6: Deletion Marker Constant
  * ============================================================================ */
 
@@ -260,7 +230,6 @@ int test_rel_extended_operations_summary(void) {
     ASSERT(1, "Delete operation: mark record with 0xFF marker");
     ASSERT(1, "Truncate operation: resize file to N records");
     ASSERT(1, "Update operation: in-place modification with capping");
-    ASSERT(1, "Insert operation: insert with shifting (O(n))");
 
     return 1;
 }
@@ -280,7 +249,6 @@ int main(void) {
     test_rel_delete_operation();
     test_rel_truncate_operation();
     test_rel_update_operation();
-    test_rel_insert_operation();
     test_rel_deletion_marker();
     test_rel_append_return_value();
     test_rel_update_size_capping();

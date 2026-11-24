@@ -70,9 +70,6 @@ public:
 
     // Phase 47: IR Metadata support
     void setIRMetadata(const O45IRMetadata& ir) { irMetadata_ = ir; hasIR_ = true; }
-    void setExportContentFlags(const std::string& exportName, uint8_t flags) {
-        exportContentFlags_[exportName] = flags;
-    }
 
     // Phase 4.2: IPO Hints support
 
@@ -131,7 +128,6 @@ private:
     // Phase 47: IR Metadata for cross-file optimization
     bool hasIR_ = false;
     O45IRMetadata irMetadata_;
-    std::map<std::string, uint8_t> exportContentFlags_;  // export name → content type flags
 
     // Phase 4.2: IPO Hints for inter-TU optimization
 

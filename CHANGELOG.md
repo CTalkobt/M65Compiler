@@ -4,6 +4,19 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### Housekeeping: the TODO scan; ROADMAP.md deprecated
+
+- `cbm_rel_insert` is removed: it wrote the record without shifting the others, which is `cbm_rel_write` (any record
+  number; past the end it extends the file). `cbm_rel_truncate` changes only the handle's record count — the
+  truncation still needs to be flushed to the disk (#764); documented so.
+- `cbm_delete` / `cbm_rename` / `cbm_format` are documented as not implemented yet (#762).
+- basic45: `DMODE`'s thickness is documented (kept, not used, as in BASIC 65's ROM).
+- ROADMAP.md is deprecated in favour of the GitHub milestones; its open items are issues (#767-#782, milestone
+  `Future`). New for v1.5: #761-#766.
+- Removed: `src/main/IRCodeGen.cpp.backup`, two `.c.bak` files in `lib/stdlib`, `doc/ref/run_mmemu_test.sh`; dead
+  stubs in live code (ca45's `__striped` field passes, which never found an array; `CompressionHelper::compress` /
+  `decompress`, never called; O45Writer's content-flag record, which no tool wrote and no reader read).
+
 ### Fixes: functions returning function pointers, asm tail calls into C, `cc45 -S -o -` (#752, #753, #754)
 
 - cc45: a function returning a function pointer written without a typedef, `void (*f(int))(void);`, was compiled

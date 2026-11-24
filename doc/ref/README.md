@@ -14,10 +14,6 @@ Frame-pointer, frame-layout, bitfield and calling-convention code-size work prop
 
 Checklist for preparing and publishing a release: version bump, clean build, the test suites, documentation, install smoke test, examples, Docker images, the tag, and the GitHub release with the prebuilt archives the Release workflow attaches (`src/release/package.sh`, `.github/workflows/release.yml`).
 
-## Legacy Script
-
-**File:** `run_mmemu_test.sh` — obsolete: an old runner for the mmemu emulator, which never ran a program (it only checks that the `.prg` file exists and looks like an executable). It is not used by any Makefile target or test script; runtime tests run on `xemu-xmega65` only (`make test-xemu`, that is `src/test/test_xemu.sh`).
-
 ## Historical Work
 
 `doc/archive/` holds phase completion reports, session summaries and investigation notes. They are kept for context and are not maintained.

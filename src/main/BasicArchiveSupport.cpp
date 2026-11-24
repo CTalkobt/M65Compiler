@@ -456,25 +456,6 @@ DistributionPackage::PackageInfo DistributionPackage::inspectPackage(const std::
 
 // ==================== CompressionHelper ====================
 
-std::vector<uint8_t> CompressionHelper::compress(
-    const std::vector<uint8_t>& data,
-    CompressionLevel level
-) {
-    // For now, store uncompressed (level 0)
-    if (level == CompressionLevel::STORE) {
-        return data;
-    }
-
-    // TODO: Implement actual compression (deflate/zlib)
-    return data;
-}
-
-std::vector<uint8_t> CompressionHelper::decompress(const std::vector<uint8_t>& compressedData) {
-    // For now, assume stored uncompressed
-    // TODO: Implement actual decompression
-    return compressedData;
-}
-
 uint32_t CompressionHelper::calculateCRC32(const std::vector<uint8_t>& data) {
     uint32_t crc = 0xFFFFFFFF;
 

@@ -9126,7 +9126,7 @@ void IRBuilder::visit(ForStatement& node) {
 }
 
 // ============================================================================
-// Stub visitors (TODO: implement in future IR phases)
+// Visitors of the remaining expression kinds
 // ============================================================================
 
 void IRBuilder::visit(ConditionalExpression& node) {
