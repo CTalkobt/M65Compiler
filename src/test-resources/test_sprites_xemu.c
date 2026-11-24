@@ -10,7 +10,8 @@
  *   +6  sprite_size, sprite_height, sprite_behind, sprite_h640
  *   +7  sprite_color, sprite_multicolors
  *   +8  sprite_overlap: normal, wide, expanded, tall boxes
- *   +9  the hardware's sprite-sprite collision (two solid sprites overlapping)
+ *   +9  the hardware's sprite-sprite collision (two solid sprites overlapping);
+ *       sprite_bg_collisions (a solid sprite over solid characters)
  *   +10 sprite_done: the registers back
  *   +11 sprite_palette_bank, sprite_v400, sprite_tile, sprite_altcolors,
  *       sprite_alpha / sprite_alpha_level: their bits, the shared registers'
@@ -126,7 +127,30 @@ int main(void) {
     sprite_show(0);
     sprite_show(1);
     frames(3);
-    OUT[9] = (sprite_collisions() & 3) == 3;
+    ok = (sprite_collisions() & 3) == 3;
+
+    /* sprite_bg_collisions: sprite 0 over the foreground (the top left of
+       the screen filled with reverse spaces, solid characters); nothing
+       after it is hidden again (a read clears the bits) */
+    sprite_hide(1);
+    sprite_hide(0);
+    {
+        unsigned long scr = (unsigned long)REG(0xD060) | ((unsigned long)REG(0xD061) << 8) |
+                            ((unsigned long)REG(0xD062) << 16) | ((unsigned long)(REG(0xD063) & 0x0F) << 24);
+        unsigned int step = REG(0xD058) | ((unsigned int)REG(0xD059) << 8);
+        for (i = 0; i < 4; i++) dma_fill_far(scr + (unsigned long)i * step, 10, 0xA0);
+    }
+    sprite_pos(0, SPRITE_X0 + 4, SPRITE_Y0 + 4);
+    frames(2);
+    (void)sprite_bg_collisions();
+    ok = ok && (sprite_bg_collisions() & 1) == 0;
+    sprite_show(0);
+    frames(3);
+    ok = ok && (sprite_bg_collisions() & 1) == 1;
+    sprite_hide(0);
+    frames(2);
+    (void)sprite_bg_collisions();
+    OUT[9] = ok && (sprite_bg_collisions() & 1) == 0;
 
     sprite_done();
     OUT[10] = REG(0xD015) == 0x81 && REG(0xD06E) == d06e && REG(0xD06C) == d06c && REG(0xD027) == d027;

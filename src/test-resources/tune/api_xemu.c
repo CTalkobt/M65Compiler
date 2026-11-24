@@ -2,8 +2,11 @@
  * (test_xemu.sh): a byte a check from $C0C0 (01 good), $AA after them.
  *   tune_volume: the four SIDs' volume, the digi voices' (17 a step)
  *   tune_fade: a step a frame to its end, tune_fading
- *   tune_borrow: the voice's registers left alone, then the music's again
- *   tune_queue: the next tune at the bar line, not before
+ *   tune_borrow: the voice's registers left alone, then the music's again;
+ *     tune_return: a voice lent with no end given back
+ *   tune_digi_volume: the digi voices' volume scaled by it
+ *   tune_queue: the next tune at the bar line, not before; tune_queue_far:
+ *     the same by a 28-bit address
  *   tune_voice_stop / _play / _busy: one voice ended and started on another
  *   stream, the other going on (BASIC's PLAY); tune_filter: a chip's filter
  * The registers go to RAM (__sid_regs, __digi_regs). */
@@ -43,6 +46,24 @@ int main(void) {
     check(held);
     frames(4);
     check(__sid_regs[1] != 0x77);
+    /* lent with no end (0 frames): held until tune_return, then the music's */
+    tune_borrow(0, 0);
+    __sid_regs[1] = 0x77;
+    held = 1;
+    for (i = 0; i < 8; i++) { tune_update(); if (__sid_regs[1] != 0x77) held = 0; }
+    tune_return(0);
+    frames(4);
+    check(held && __sid_regs[1] != 0x77);
+    /* tune_digi_volume: the digi voices' volume (the voice's and the music's
+     * full: 128 as it is); it takes effect at the next hit, or at a change
+     * of tune_volume (one to 14 and back) */
+    tune_digi_volume(128);
+    tune_volume(14);
+    tune_volume(15);
+    check(__digi_regs[0x30 + 9] == 128);
+    tune_digi_volume(255);
+    tune_volume(14);
+    tune_volume(15);
     /* queued at 2 ticks past a bar line: the bar's last 2 ticks, then b */
     tune_play(tunes[TUNE_A]);
     frames(6);   /* (a tick an update, the first on the first) */
@@ -64,6 +85,14 @@ int main(void) {
     tune_filter(0, 0x3A5, 9, 1);
     check(__sid_regs[0x15] == 5 && __sid_regs[0x16] == 0x74 && (__sid_regs[0x17] >> 4) == 9 &&
           (__sid_regs[0x18] & 0x7F) == 0x1F);
+    /* tune_queue_far: the same, the tune by its address (bank 0) */
+    tune_play(tunes[TUNE_A]);
+    frames(6);
+    tune_queue_far((unsigned long)(unsigned int)tunes[TUNE_B], TUNE_A_BAR);
+    frames(2);
+    check(tune_queued() && tune_ticks() == 8);
+    frames(1);
+    check(!tune_queued() && tune_ticks() == 0);
     *res = 0xAA;
     return 0;
 }

@@ -53,7 +53,15 @@ xj_pids=(); xj_names=(); xj_args=(); xj_seq=0
 xemu_check() {
     local name="$1" dump_file="$2" mem_addr="$3" num_bytes="$4" expected="$5" exit_code="$6"
     local actual expected_upper
-    # Accept exit 0 (clean) or 124 (timeout — program may halt instead of returning)
+    # xemu exits at READY.: a timeout (124) is a program that never got back
+    # to BASIC (a hang or a crash on its way out), a failure even when its
+    # results were written -- unless the test is one that stays in its own
+    # loop by design (XEMU_TIMEOUT_OK, names)
+    if [ $exit_code -eq 124 ] && [[ " $XEMU_TIMEOUT_OK " != *" $name "* ]]; then
+        echo "FAIL: $name (timed out: never returned to READY.)"
+        failed=$((failed + 1))
+        return 1
+    fi
     if [ $exit_code -ne 0 ] && [ $exit_code -ne 124 ]; then
         echo "FAIL: $name (xemu exit code $exit_code)"
         failed=$((failed + 1))
@@ -78,6 +86,16 @@ xemu_check() {
     fi
 
     expected_upper=$(echo "$expected" | tr '[:lower:]' '[:upper:]')
+
+    # an exit status of 0 is also what a program that never ran leaves (xemu's
+    # RAM is zero at boot): crt0's jsr main leaves its return address at the
+    # top of the 16-bit stack, $BFF0-$BFFF, which is all zero otherwise
+    if [ "$expected_upper" = "00 00" ] && { [ $addr_dec -eq 253 ]; } &&
+       [ -z "$(xxd -s $((16#BFF0)) -l 16 -p "$dump_file" | tr -d '0\n')" ]; then
+        echo "FAIL: $name (exit status 0 but the program never ran: \$BFF0-\$BFFF clear)"
+        failed=$((failed + 1))
+        return 1
+    fi
 
     if [ "$actual" = "$expected_upper" ]; then
         echo "SUCCESS: $name"
@@ -3195,6 +3213,35 @@ for mmode in "zp|" "stack|-fno-zpcall"; do
     fi
 done
 
+# Test: the cbm_k_ wrappers test_cc65_more_xemu.c does not reach: settim, a
+# file through the channel (ckout / bsout / basin / clrch) and through the
+# serial bus by hand (listen / second / ciout / talk / tksa / acptr ...),
+# cbm_k_save, clall, udtim (the STOP key) and scnkey (the modifier keys),
+# each checked against what the MEGA65 KERNAL does (an empty D81 as drive 8)
+for kmode in "zp|" "stack|-fno-zpcall"; do
+    IFS='|' read -r kname kflags <<< "$kmode"
+    echo "Testing test_cbmk_xemu.c ($kname)..."
+    compile_link_test "src/test-resources/test_cbmk_xemu.c" "build/test/test_cbmk_${kname}_xemu.prg" "$kflags"
+    if [ $? -eq 0 ] && rm -f "build/test/test_cbmk_${kname}.d81" &&
+       ./bin/disk45 create "build/test/test_cbmk_${kname}.d81" -n "CBMK" >/dev/null 2>&1; then
+        run_xemu_test "test_cbmk_$kname" "build/test/test_cbmk_${kname}_xemu.prg" "C0C0" 8 "01 01 01 01 01 01 01 AA" \
+            -8 "$PWD/build/test/test_cbmk_${kname}.d81"
+    else
+        echo "FAIL: test_cbmk_xemu.c $kname (build failed)"
+        failed=$((failed + 1))
+    fi
+done
+
+# Test: scanf / vscanf on stdin (keys typed into the KERNAL's buffer),
+# vsscanf, fflush; far_attic_hook after far_attic_init
+for smode in "zp|" "stack|-fno-zpcall"; do
+    IFS='|' read -r sname sflags <<< "$smode"
+    echo "Testing test_stdin_scanf_xemu.c ($sname)..."
+    xemu_case "FAIL: test_stdin_scanf_xemu.c $sname (compilation/linking failed)" "src/test-resources/test_stdin_scanf_xemu.c" "build/test/test_stdin_scanf_${sname}_xemu.prg" "$sflags" -- "test_stdin_scanf_$sname" "build/test/test_stdin_scanf_${sname}_xemu.prg" "C0C0" 5 "01 01 01 01 AA"
+    echo "Testing test_far_attic_hook_xemu.c ($sname)..."
+    xemu_case "FAIL: test_far_attic_hook_xemu.c $sname (compilation/linking failed)" "src/test-resources/test_far_attic_hook_xemu.c" "build/test/test_far_attic_hook_${sname}_xemu.prg" "$sflags" -- "test_far_attic_hook_$sname" "build/test/test_far_attic_hook_${sname}_xemu.prg" "C0C0" 3 "01 01 AA"
+done
+
 # Test: the tune player's controls for a game (api_xemu.c): tune_volume
 # (the SIDs' and the digi voices'), tune_fade and tune_fading, tune_borrow
 # (the voice left alone, then the music's), tune_queue (the next tune at
@@ -3209,7 +3256,7 @@ for apmode in "zp|$STDLIB|" "stack|$STDLIB_STACK|-fno-zpcall"; do
        ./bin/cc45 -O2 $apflags -I$TD/api -c src/test-resources/tune/api_xemu.c -o $TD/api_$apname.o45 &&
        ./bin/cc45 -O2 $apflags -I$TD/api -c $TD/api/music.c -o $TD/apimusic_$apname.o45 &&
        ./bin/ln45 -basic -o $TD/api_$apname.prg $TD/api_$apname.o45 $TD/apimusic_$apname.o45 $aplib >/dev/null; then
-        run_xemu_test "tune_api_$apname" "$TD/api_$apname.prg" "C0C0" 13 "01 01 01 01 01 01 01 01 01 01 01 01 AA"
+        run_xemu_test "tune_api_$apname" "$TD/api_$apname.prg" "C0C0" 17 "01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 AA"
     else
         echo "FAIL: the tune player's controls (api_$apname): build failed"
         failed=$((failed + 1))

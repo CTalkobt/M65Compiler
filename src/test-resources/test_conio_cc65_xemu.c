@@ -15,7 +15,7 @@
  *   [5] cprintf longer than 256 characters, vcprintf through a wrapper,
  *       %f (the float formatter linked by the float argument)
  *   [6] cursor; cgets with DEL, echoed, the cursor setting restored; cgetc
- *   [7] cscanf of a typed line
+ *   [7] cscanf of a typed line; vcscanf
  *   [8] conio_set_width / conio_get_width
  *   [9] the earlier names: putch returns its character, getch, cursoron
  *  [10] $AA sentinel
@@ -184,12 +184,26 @@ static int t_cgets(void) {
     return ok;
 }
 
+static int my_cscanf(const char *fmt, ...) {
+    va_list ap;
+    int n;
+    va_start(ap, fmt);
+    n = vcscanf(fmt, ap);
+    va_end(ap);
+    return n;
+}
+
 static int t_cscanf(void) {
-    int a = 0, b = 0, n;
+    int a = 0, b = 0, n, ok;
     clrscr();
     keys("12 34\r");
     n = cscanf("%d %d", &a, &b);
-    return n == 2 && a == 12 && b == 34 && getch_xy(0, 0) == 0x31 && wherey() == 1;
+    ok = n == 2 && a == 12 && b == 34 && getch_xy(0, 0) == 0x31 && wherey() == 1;
+    /* vcscanf: the same through a va_list */
+    a = b = 0;
+    keys("56 78\r");
+    n = my_cscanf("%d %d", &a, &b);
+    return ok && n == 2 && a == 56 && b == 78 && wherey() == 2;
 }
 
 static int t_width(void) {

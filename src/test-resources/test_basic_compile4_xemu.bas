@@ -26,6 +26,6 @@
 61 trap 100:print#9,"x":if s3=-62 and m$="" and e1=3 then poke 49349,1
 70 trap 110:open 7,8,7,"t1,s,r":input#7,p
 71 if e2=24 then print "ok";:poke 49350,1
-80 poke 49351,170:end
+80 dclose:poke 49351,170:end:rem (dclose: after the trapped input#7 the interpreter keeps 7 as its input, and never gets back to ready.)
 100 e1=er:resume next
 110 e2=er:close 7:resume 71

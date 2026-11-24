@@ -6,7 +6,9 @@
 # prompt (xemu -prgexit then exits) both on success and on abort(): crt0 leaves
 # the exit status in the ROM's zero page at $FD/$FE ($FFFE after abort, $FFFF
 # if __exit was never reached). A test passes when xemu exits at READY. and the
-# status is 0; a hang or crash runs into the timeout.
+# status is 0 (and the program ran: crt0's return address from main is on the
+# stack at $BFF0-$BFFF, which is zero in a program that never started); a hang
+# or crash runs into the timeout.
 #
 # Usage: run_gte_all.sh [-j N] [-l names.txt]   (default: all tests, one job per CPU)
 
@@ -67,7 +69,7 @@ run_one() {
     if ! $LD -basic -o "$prg" "$CRT0" "$obj" "$LIB" > "$BUILD_DIR/$name.link.log" 2>&1; then
         echo "LINK FAIL: $name"; return
     fi
-    local mem="$BUILD_DIR/$name.mem" res status attempt
+    local mem="$BUILD_DIR/$name.mem" res status attempt ran
     # A run that times out or leaves no memory dump is retried once: under a
     # fully loaded machine that is the emulator, not the program
     for attempt in 1 2; do
@@ -78,6 +80,11 @@ run_one() {
         res=$?
         status=""
         [ -f "$mem" ] && status=$(od -An -tx1 -j 253 -N 2 "$mem" | tr -d ' \n')
+        # (a status of 0 is also what a program that never ran leaves: xemu's RAM
+        # is zero at boot; crt0's jsr main leaves its return address at the top
+        # of the 16-bit stack, $BFF0-$BFFF, all zero otherwise)
+        ran=1
+        [ -f "$mem" ] && [ -z "$(od -An -tx1 -j $((0xBFF0)) -N 16 "$mem" | tr -d ' 0\n')" ] && ran=0
         rm -f "$mem"
         if [ $res -ne 124 ] && { [ $res -ne 0 ] || [ ${#status} -eq 4 ]; }; then break; fi
     done
@@ -85,6 +92,8 @@ run_one() {
         echo "RUN FAIL (hang or crash): $name"
     elif [ $res -ne 0 ]; then
         echo "RUN FAIL (xemu exit $res): $name"
+    elif [ "$status" = "0000" ] && [ $ran = 0 ]; then
+        echo "RUN FAIL (never ran: exit status 0, \$BFF0-\$BFFF clear): $name"
     elif [ "$status" = "0000" ]; then
         echo "PASS: $name"
     elif [ "$status" = "feff" ]; then

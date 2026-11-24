@@ -193,9 +193,13 @@ static __forceinline int cbm_acptr(void) { return __jsr(KERNAL_ACPTR).A; }
 /* ===== PETSCII Control Codes ===== */
 
 /* ----------------------------------------------------------------------------
- * cc65's KERNAL functions (library: stdlib_asm/cbm_kernal.s45 and
- * stdlib/stdio_kernal.c; through __rom_call, so disk I/O works on the
- * relocated base page and 16-bit stack)
+ * cbm_k_*: the MEGA65 KERNAL's routines under cc65's names, each a call of
+ * the routine with its arguments in the registers it takes, returning what
+ * it returns: they do what the MEGA65's KERNAL does (not what the C64's
+ * did). Library: stdlib_asm/cbm_kernal.s45 and stdlib/stdio_kernal.c,
+ * through __rom_call, so disk I/O works on the relocated base page and
+ * 16-bit stack. Tests (test_cbmk_xemu.c, test_cc65_more_xemu.c) check them
+ * against the KERNAL itself.
  * ------------------------------------------------------------------------- */
 
 __fastcall__ unsigned char cbm_k_acptr(void);
@@ -215,6 +219,10 @@ __fastcall__ unsigned int cbm_k_load(unsigned char flag, unsigned int addr);
 __fastcall__ unsigned char cbm_k_save(unsigned int start, unsigned int end);
 __fastcall__ void cbm_k_scnkey(void);
 __fastcall__ void cbm_k_second(unsigned char addr);
+/* SETTIM ($FFDB) with timer in Q: A its low byte, X, Y, Z its high byte.
+ * The MEGA65's takes the time of day in packed BCD, A seconds, X minutes,
+ * Y hours, Z tenths: 0xTTHHMMSS, as its RDTIM returns in Q
+ * (__jsr(KERNAL_RDTIM).Q); not the C64's jiffies */
 __fastcall__ void cbm_k_settim(unsigned long timer);
 __fastcall__ void cbm_k_talk(unsigned char dev);
 __fastcall__ void cbm_k_tksa(unsigned char addr);
