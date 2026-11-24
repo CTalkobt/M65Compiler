@@ -1,0 +1,127 @@
+; hw_hyper.s45 — <hw_io.h>'s hypervisor DOS calls (#645; mega65-core
+; hyppo/dos.asm): a trap is a write of the function number to $D640 (A),
+; its arguments in X / Y / Z, then CLV (the instruction after the trap);
+; the carry is set when it succeeded.
+;
+;   setname ($2E)   the name from a page-aligned address below $7F00 (Y the
+;                   page): copied here to __hyp_name (PETSCII to ASCII), 0
+;                   terminated, at most 63 characters
+;   loadfile ($36)  the file named, whole, to the 28-bit address X / Y / Z
+;   trap $03        ($D643) a character to the serial monitor's UART
+;                   (<hw_peripherals.h>'s hw_debug_print)
+;
+; All the ZP convention (__fastcall__ in either library): the arguments
+; from $10.
+
+; no calls through pointers here (ln45's call graph)
+.weak cc45.icallinfo
+cc45.icallinfo = 1
+
+    .cpu 45gs02
+
+.global _hw_hyper_trap, _hw_hyper_set_filename, _hw_hyper_load_file, ___hw_debug_putc
+
+.segment "bss"
+    .align 256              ; (the hypervisor takes the name's page only)
+__hyp_name: .res 64
+
+.segment "code"
+
+; int hw_hyper_trap(int trap_num, unsigned int param): A, X / Y
+proc _hw_hyper_trap
+    .zp_uses $10, $11, $12, $13
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    ldz #0
+    ldx $12
+    ldy $13
+    lda $10
+    sta $D640
+    clv
+    lda #0
+    rol a                   ; the carry: 1 done
+    ldx #0
+    rts
+    .func_flags zp_call
+endproc
+
+; int hw_hyper_set_filename(const char *filename)
+proc _hw_hyper_set_filename
+    .zp_uses $10, $11
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    lda #>__hyp_name        ; (the buffer must be below $7F00)
+    cmp #$7F
+    bcs @bad
+    lda $10
+    ora $11
+    beq @bad
+    ldy #0
+@copy:
+    lda ($10),y
+    beq @end
+    cmp #$41                ; PETSCII to ASCII: $41-$5A lower case
+    bcc @put
+    cmp #$5B
+    bcs @upper
+    ora #$20
+    bra @put
+@upper:
+    cmp #$C1                ; $C1-$DA upper case
+    bcc @put
+    cmp #$DB
+    bcs @put
+    and #$7F
+@put:
+    sta __hyp_name,y
+    iny
+    cpy #63
+    bne @copy
+@bad:
+    lda #0                  ; (too long, NULL, or the buffer too high)
+    tax
+    rts
+@end:
+    sta __hyp_name,y
+    ldx #<__hyp_name
+    ldy #>__hyp_name
+    lda #$2E
+    sta $D640
+    clv
+    lda #0
+    rol a
+    ldx #0
+    rts
+    .func_flags zp_call
+endproc
+
+; int hw_hyper_load_file(unsigned long address)
+proc _hw_hyper_load_file
+    .zp_uses $10, $11, $12, $13
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    lda $12
+    taz                     ; (ldz $12 has no base-page mode)
+    ldx $10
+    ldy $11
+    lda #$36
+    sta $D640
+    clv
+    lda #0
+    rol a
+    ldx #0
+    rts
+    .func_flags zp_call
+endproc
+
+; void __hw_debug_putc(unsigned char c): A to the hypervisor's serial output
+proc ___hw_debug_putc
+    .zp_uses $10, $11
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    lda $10
+    sta $D643
+    clv
+    rts
+    .func_flags zp_call
+endproc

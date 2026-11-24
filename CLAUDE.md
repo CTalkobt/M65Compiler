@@ -449,8 +449,10 @@ pages of VIC-IV full-colour characters in bank 4/5; 640x200, 16 colours, nibble-
 `stdlib/tgi*.c`, `stdlib_asm/tgi_*.s45`). `sprites.h` is the VIC-IV's 8 hardware sprites
 (`stdlib_asm/sprites.s45`). `hw_raster.h` (raster interrupts: the program's `__interrupt` functions or plain
 callbacks at lines beside the KERNAL's, `stdlib_asm/hw_raster.s45`), `hw_scroll.h` (fine and coarse scrolling of the
-text screen, `hw_scroll.s45`), `mega65_version.h` (`$D629`-`$D635`), `event_system.h`, `mem_pool.h` (#645). 39 other
-headers (graphics, `sprite_*.h`, hw_io/hw_peripherals/hw_audio_mixer, uart...) declare
+text screen, `hw_scroll.s45`), `mega65_version.h` (`$D629`-`$D635`), `event_system.h`, `mem_pool.h`, `hw_audio_mixer.h`
+(the SIDs on the audio mixer), `hw_io.h` (SD card, F011 floppy, Ethernet, RTC, hypervisor DOS calls), `hw_peripherals.h`
+(CPU speed, debug output; the joystick ports' detection is `input.h`'s) (#645). 36 other
+headers (graphics, `sprite_*.h`, uart...) declare
 functions that no library implements: kept for the future, their contents inside `#ifdef CC45_FUTURE` (#642).
 
 ## Known Bugs (found in the 2026-10-11 doc audit; not yet fixed unless noted)
