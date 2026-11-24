@@ -4,6 +4,8 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+## [v1.5.0] - 2026-11-24
+
 ### `__builtin_trap()` ends the program (#761); `fopen` of names starting with `_`, `$` or `#` (#785)
 
 - `__builtin_trap()` compiled to nothing: the program went on past it (and `<stdlib.h>` declares it `_Noreturn`, so

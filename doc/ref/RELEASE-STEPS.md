@@ -58,7 +58,7 @@ installed-toolchain test `test_install.sh`, …) and then the examples (`test_ex
 programs (`test_stdlib_new.sh`, `test_examples.sh`) are skipped without `xemu-xmega65` on the `PATH`, so run
 the release's tests on a machine that has it.
 
-**Gate: all tests pass**: `make test`; `make test-xemu` (1092 tests); the GCC torture tests (551 with each
+**Gate: all tests pass**: `make test`; `make test-xemu` (1211 tests); the GCC torture tests (551 with each
 convention, none failing: `src/test/known_failures/gte.txt` is empty); the interop script (13 checks).
 
 `make test-distros` (needs Docker) builds the tree in a fresh container of each supported distribution with

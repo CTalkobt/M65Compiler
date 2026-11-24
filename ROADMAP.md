@@ -6,7 +6,7 @@
 > — [all milestones](https://github.com/CTalkobt/M65Compiler/milestones). What each release
 > contains is CHANGELOG.md. Every item below that was still open has an issue, named where it is.
 
-**Current Status:** v1.1.0 released; v1.5.0 in preparation (everything below it is on `main`)
+**Current Status:** v1.5.0 released (2026-11-24)
 **Last Updated:** 2026-11-24
 **Maintainer:** Craig Taylor (CTalkobt)
 
@@ -15,9 +15,9 @@
 
 ---
 
-## v1.5.0 Release (in preparation)
+## v1.5.0 Release (2026-11-24)
 
-What has landed since v1.1.0 (the entries, with their issues, are CHANGELOG.md's `[Unreleased]` section).
+What has landed since v1.1.0 (the entries, with their issues, are CHANGELOG.md's `[v1.5.0]` section).
 
 **New tools**
 
@@ -73,9 +73,9 @@ What has landed since v1.1.0 (the entries, with their issues, are CHANGELOG.md's
 - [x] Prebuilt archives for Linux x86_64 / arm64 (static) and macOS arm64, made by the release workflow (#621)
 - [x] Docker images with xemu (#99)
 - [x] Benchmarks against the other 6502 C compilers (`make bench`, #129)
-- [x] Tests: 1203 xemu runtime tests, GCC torture 551 in each convention, the validation tests in one program (#96), every runtime test on xemu
+- [x] Tests: 1211 xemu runtime tests, GCC torture 551 in each convention, the validation tests in one program (#96), every runtime test on xemu
 
-**Before the release** (#622, and the rest of the [v1.5 milestone](https://github.com/CTalkobt/M65Compiler/milestone/5)): `__builtin_trap` (#761), `cbm_delete` / `cbm_rename` / `cbm_format` (#762), `remove()` / `rename()` (#763), `cbm_rel_truncate` flushed to the disk (#764), al45 user-written rules (#765), objdump45 `-D` (#766); then the version, the changelog heading, the final validation, the tag and its notes. (The defects of the documentation check, #632-#643, and the Docker images on a registry, #625, are done.)
+Also in the release: `__builtin_trap` (#761), `cbm_delete` / `cbm_rename` / `cbm_format` (#762), `remove()` / `rename()` (#763), `cbm_rel_truncate` on the disk (#764), REL files through the drive (#783), al45 user-written rules (#765), objdump45 `-D` (#766), `fopen` of names starting with `_` / `$` / `#` (#785).
 
 ---
 

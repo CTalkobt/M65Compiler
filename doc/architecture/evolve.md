@@ -1037,7 +1037,7 @@ Potential enhancements documented in project roadmap:
 
 The narrative above ends on 2026-08-23. Development went on in the same way (an issue per feature, a branch and pull request per issue, a runtime test in xemu for each change), now tracked by GitHub issue number rather than phase number. In brief, from CHANGELOG.md and the git log:
 
-- **Releases**: v1.0.5 (tagged 2026-09-26), v1.0.6 (2026-10-14) and v1.1.0 (2026-10-16); the tree is `1.1.0.dev` since, with the changes under CHANGELOG.md's `[Unreleased]`.
+- **Releases**: v1.0.5 (tagged 2026-09-26), v1.0.6 (2026-10-14), v1.1.0 (2026-10-16) and v1.5.0 (2026-11-24).
 - **Testing moved to xemu**: the runtime tests (`*_xemu.c`, results at `$C0C0`) run on `xemu-xmega65` in parallel (`make test-xemu`, `XEMU_JOBS`); mmemu is no longer used for tests (`bench-optimizer` is the one exception). The GCC torture tests pass in both calling conventions.
 - **Code layout and memory** (October): code overlays, copied or mapped (`#pragma cc45 overlay`), `__far` functions in automatic overlays, `__bank(n)` variables, far and near pointers (#68, #69), the program-wide base-page plan (#304).
 - **New tools** (October and November): `tune45` (#314, `.sid` playback #393), `dbg45` with debug information in objects (#202), `pack45` with `<unpack.h>` (#345), `deploy45` (#145), `font45` (#466), the linters `cl45` and `al45` (#199) and the formatter `af45` (#611); `objdump45 --html` / `--tree` / `--json` (#201).
