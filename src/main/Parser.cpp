@@ -5374,6 +5374,12 @@ bool Parser::sizeOf(SizeofExpression& sz, int64_t& out) {
         out = n;
         return true;
     }
+    // sizeof "lit": its bytes and the terminator (L"...": 16-bit each), as
+    // IRBuilder sizes it -- an integer constant expression anywhere (#749)
+    if (auto* str = dynamic_cast<StringLiteral*>(sz.expression.get())) {
+        out = (int64_t)(str->value.size() + 1) * (str->isWide ? 2 : 1);
+        return true;
+    }
     if (auto* v = dynamic_cast<VariableReference*>(sz.expression.get())) {
         auto it = varByteSizes.find(v->name);
         if (it == varByteSizes.end()) return false;

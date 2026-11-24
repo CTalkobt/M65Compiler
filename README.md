@@ -362,7 +362,9 @@ New to the suite? Start with a tutorial: [C with cc45](doc/guide/getting-started
 [BASIC with basic45](doc/guide/getting-started-basic45.md) or [the other tools](doc/guide/getting-started-tools.md).
 When something goes wrong: [troubleshooting](doc/guide/troubleshooting.md). The terms the pages use:
 [glossary](doc/guide/glossary.md). Editors (the language server, the VS Code extension and its debugger):
-[doc/guide/ide.md](doc/guide/ide.md). Working on the suite itself: [CONTRIBUTING.md](CONTRIBUTING.md).
+[doc/guide/ide.md](doc/guide/ide.md). The C library, header by header: [doc/architecture/stdlib.md](doc/architecture/stdlib.md)
+(the CBM KERNAL interface, `<cbm.h>`: [doc/architecture/stdcbm.md](doc/architecture/stdcbm.md)). Working on the suite
+itself: [CONTRIBUTING.md](CONTRIBUTING.md).
 
 In addition to the Markdown files in the `doc/` directory (index: [doc/README.md](doc/README.md)), you can generate and view standard Unix man pages for every tool:
 
@@ -384,13 +386,19 @@ This runs the documentation check, the compiler, assembler and linker unit tests
 The runtime tests run on the [xemu](https://github.com/lgblgblgb/xemu) MEGA65 emulator (`xemu-xmega65` on your `PATH`):
 
 ```bash
-make test-xemu                      # bash src/test/test_xemu.sh: 1092 runtime tests, both calling conventions
+make test-xemu                      # bash src/test/test_xemu.sh: 1179 runtime tests, both calling conventions
 bash src/test/run_gte_all.sh        # GCC torture tests (551 with each calling convention)
 bash src/test/test_cc_interop.sh    # calling-convention interop (13 checks)
 ```
 
+Each runtime test writes its results to memory at `$C0C0` (one byte a check, `$AA` after them) or leaves its exit
+status at `$FD/$FE`, which the test reads from xemu's memory dump. A run passes only if xemu got back to BASIC's
+`READY.` (a timeout is a failure, even with the results written), and a status of 0 only if the program ran: xemu's
+memory is zero at boot, so the tests also want crt0's return address from `main` on the stack (`$BFF0`-`$BFFF`).
+
 For detailed information on each tool, refer to:
 - [doc/bin/cc45.md](doc/bin/cc45.md) — Compiler Usage and Features
+- [doc/architecture/stdlib.md](doc/architecture/stdlib.md) — Standard C Library: Headers, Functions, Linking
 - [doc/bin/ca45.md](doc/bin/ca45.md) — Assembler Syntax and Reference
 - [doc/bin/al45.md](doc/bin/al45.md) — Assembly Linter: Rules, Configuration, Output Formats
 - [doc/bin/af45.md](doc/bin/af45.md) — Assembly Formatter

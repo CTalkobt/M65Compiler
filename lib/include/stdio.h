@@ -103,6 +103,12 @@ int fflush(FILE *stream);
 /* Character I/O */
 int fgetc(FILE *stream);
 int fputc(int c, FILE *stream);
+/* getc / putc: fgetc / fputc (macros, as C allows; also functions, for
+ * their address or after #undef) */
+int getc(FILE *stream);
+int putc(int c, FILE *stream);
+#define getc(stream) fgetc(stream)
+#define putc(c, stream) fputc((c), (stream))
 char *fgets(char *restrict str, int size, FILE *restrict stream);
 /* A line from stdin without its '\n' (no bound: prefer gets_s or fgets);
  * NULL at EOF with nothing read */

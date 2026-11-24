@@ -4,6 +4,17 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### `sizeof` of a string literal in constant expressions; `putc` and `getc` (#749, #750)
+
+- cc45: `sizeof "lit"` inside a larger integer constant expression is one: `static char a[10 - sizeof "abc"];`,
+  `sizeof("abc") + 1`, an enum value, `_Static_assert`, a case label (Rogue's `NUMCOLS - sizeof "--More--"`). Only
+  a bare `sizeof "abc"`, an initializer and a block-scope array took it; the rest were "not a constant expression"
+  (the parser's evaluator had no size for a string literal). Its size is its bytes and the terminator, 16-bit each
+  for `L"..."` (#749). Test: `test_sizeof_string_xemu.c`.
+- `<stdio.h>`: `getc` and `putc` (C11 7.21.7.5, 7.21.7.7), macros for `fgetc` / `fputc` and functions too
+  (`stdlib/putc_getc.c`, linked only for their address or after `#undef`); they were not declared (#750). Test:
+  `test_stdin_scanf_xemu.c`.
+
 ### Tests: a program that never ran or never returned no longer passes; the library's untested functions
 
 - The runtime tests that pass on an exit status of 0 (`test_xemu.sh`'s return-from-main tests and

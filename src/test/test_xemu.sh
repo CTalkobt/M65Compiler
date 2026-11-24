@@ -3232,12 +3232,20 @@ for kmode in "zp|" "stack|-fno-zpcall"; do
     fi
 done
 
+# Test: sizeof of a string literal inside a larger integer constant
+# expression: array sizes, enum values, _Static_assert, case labels (#749)
+for zmode in "zp|" "stack|-fno-zpcall"; do
+    IFS='|' read -r zname zflags <<< "$zmode"
+    echo "Testing test_sizeof_string_xemu.c ($zname)..."
+    xemu_case "FAIL: test_sizeof_string_xemu.c $zname (compilation/linking failed)" "src/test-resources/test_sizeof_string_xemu.c" "build/test/test_sizeof_string_${zname}_xemu.prg" "$zflags" -- "test_sizeof_string_$zname" "build/test/test_sizeof_string_${zname}_xemu.prg" "C0C0" 5 "01 01 01 01 AA"
+done
+
 # Test: scanf / vscanf on stdin (keys typed into the KERNAL's buffer),
-# vsscanf, fflush; far_attic_hook after far_attic_init
+# vsscanf, fflush, putc / getc (#750); far_attic_hook after far_attic_init
 for smode in "zp|" "stack|-fno-zpcall"; do
     IFS='|' read -r sname sflags <<< "$smode"
     echo "Testing test_stdin_scanf_xemu.c ($sname)..."
-    xemu_case "FAIL: test_stdin_scanf_xemu.c $sname (compilation/linking failed)" "src/test-resources/test_stdin_scanf_xemu.c" "build/test/test_stdin_scanf_${sname}_xemu.prg" "$sflags" -- "test_stdin_scanf_$sname" "build/test/test_stdin_scanf_${sname}_xemu.prg" "C0C0" 5 "01 01 01 01 AA"
+    xemu_case "FAIL: test_stdin_scanf_xemu.c $sname (compilation/linking failed)" "src/test-resources/test_stdin_scanf_xemu.c" "build/test/test_stdin_scanf_${sname}_xemu.prg" "$sflags" -- "test_stdin_scanf_$sname" "build/test/test_stdin_scanf_${sname}_xemu.prg" "C0C0" 6 "01 01 01 01 01 AA"
     echo "Testing test_far_attic_hook_xemu.c ($sname)..."
     xemu_case "FAIL: test_far_attic_hook_xemu.c $sname (compilation/linking failed)" "src/test-resources/test_far_attic_hook_xemu.c" "build/test/test_far_attic_hook_${sname}_xemu.prg" "$sflags" -- "test_far_attic_hook_$sname" "build/test/test_far_attic_hook_${sname}_xemu.prg" "C0C0" 3 "01 01 AA"
 done
