@@ -6,7 +6,10 @@
 ; screen goes to the installed driver's routines (___tgi_mode): the 320x200
 ; drivers' (tgi_fcm.s45, ___tgi_f_*) or the 640x200 one's (tgi_ncm.s45,
 ; ___tgi_n_*); each set replaces weak defaults here and is linked only with
-; its drivers.
+; its drivers. The generic drivers (___tgi_mode bit 6: the text and bitmap
+; screens, tgi_gen.s45 / tgi_gendraw.c and each driver's set / get pixel) go
+; to ___tgi_g_*, weak here too: a pixel through the driver's routine, lines,
+; glyphs and bars in C, the ellipse a point at a time (__tgi_plot4).
 ;
 ; Pixel (x, y) of the draw page (tgi.c's 320x200 full-colour screen) is at
 ;   __tgi_draw + (x >> 3) * 1600 + y * 8 + (x & 7)
@@ -44,6 +47,9 @@ P3 = $1C                    ; (cx + x, cy + y)
 .global ___tgi_f_line, ___tgi_f_exstep, ___tgi_f_eplot, ___tgi_f_eset, ___tgi_f_glyph
 .weak ___tgi_f_line, ___tgi_f_exstep, ___tgi_f_eplot, ___tgi_f_eset, ___tgi_f_glyph
 .extern _tgi_curx, _tgi_cury, __divs32
+; the generic drivers' (tgi_gen.s45 / tgi_gendraw.c, linked with them; ___tgi_mode $40)
+.global ___tgi_g_set, ___tgi_g_get, ___tgi_g_line, ___tgi_g_glyph
+.weak ___tgi_g_set, ___tgi_g_get, ___tgi_g_line, ___tgi_g_glyph
 
 .segment "bss"
 __tgi_col:      .res 1      ; the ellipse's colour
@@ -223,6 +229,19 @@ endproc
 proc ___tgi_n_eplot
     rts
 endproc
+proc ___tgi_g_set
+    rts
+endproc
+proc ___tgi_g_get
+    lda #0
+    rts
+endproc
+proc ___tgi_g_line
+    rts
+endproc
+proc ___tgi_g_glyph
+    rts
+endproc
 
 ; void tgi_setpixel(int x, int y)
 proc _tgi_setpixel
@@ -230,8 +249,14 @@ proc _tgi_setpixel
     .reg_clobbers A, X, Z
     .flag_clobbers C, N, Z, V
     bit ___tgi_mode
+    bvs @gen
     bpl @fcm
     jmp ___tgi_n_setpixel
+@gen:
+    jsr __tgi_onscreen
+    bcs @out
+    lda _tgi_color
+    jmp ___tgi_g_set
 @fcm:
     jsr __tgi_onscreen
     bcs @out
@@ -250,8 +275,15 @@ proc _tgi_getpixel
     .reg_clobbers A, X, Z
     .flag_clobbers C, N, Z, V
     bit ___tgi_mode
+    bvs @gen
     bpl @fcm
     jmp ___tgi_n_getpixel
+@gen:
+    jsr __tgi_onscreen
+    lda #0
+    bcs @out
+    jsr ___tgi_g_get
+    bra @out
 @fcm:
     jsr __tgi_onscreen
     lda #0
@@ -273,8 +305,11 @@ proc ___tgi_line_on_screen
     .reg_clobbers A, X, Y, Z
     .flag_clobbers C, N, Z, V
     bit ___tgi_mode
+    bvs @gen
     bpl @fcm
     jmp ___tgi_n_line
+@gen:
+    jmp ___tgi_g_line
 @fcm:
     jmp ___tgi_f_line
     .func_flags zp_call
@@ -588,8 +623,16 @@ proc __tgi_plotc
     .reg_clobbers A, X, Z
     .flag_clobbers C, N, Z, V
     bit ___tgi_mode
+    bvs @gen
     bpl @fcm
     jmp ___tgi_n_plotc
+@gen:
+    jsr __tgi_onscreen
+    bcs @goff
+    lda __tgi_col
+    jmp ___tgi_g_set
+@goff:
+    rts
 @fcm:
     lda _tgi_xmax           ; x <= xmax (unsigned: a negative x is off)
     cmp $10
@@ -700,8 +743,11 @@ proc __tgi_exstep
     .reg_clobbers A, X
     .flag_clobbers C, N, Z, V
     bit ___tgi_mode
+    bvs @gen
     bpl @fcm
     jmp ___tgi_n_exstep
+@gen:
+    rts
 @fcm:
     jmp ___tgi_f_exstep
 endproc
@@ -784,8 +830,11 @@ proc __tgi_eplot
     jmp __tgi_plot4
 @fast:
     bit ___tgi_mode
+    bvs @gen
     bpl @fcm
     jmp ___tgi_n_eplot
+@gen:
+    jmp __tgi_plot4         ; (no addresses: each point clipped)
 @fcm:
     jmp ___tgi_f_eplot
 endproc
@@ -795,8 +844,11 @@ proc __tgi_eset
     .reg_clobbers A, X, Y, Z
     .flag_clobbers C, N, Z, V
     bit ___tgi_mode
+    bvs @gen
     bpl @fcm
     jmp ___tgi_n_eset
+@gen:
+    rts
 @fcm:
     jmp ___tgi_f_eset
 endproc
@@ -1204,8 +1256,11 @@ proc ___tgi_glyph
     .reg_clobbers A, X, Z
     .flag_clobbers C, N, Z, V
     bit ___tgi_mode
+    bvs @gen
     bpl @fcm
     jmp ___tgi_n_glyph
+@gen:
+    jmp ___tgi_g_glyph
 @fcm:
     jmp ___tgi_f_glyph
     .func_flags zp_call

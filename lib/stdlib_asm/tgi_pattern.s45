@@ -23,6 +23,7 @@
 cc45.icallinfo = 1
 
 .global _tgi_setpattern, _tgi_setpattern_mono, _tgi_setsolid, ___tgi_pbar
+.extern ___tgi_g_set
 .extern ___tgi_mode, __tgi_addr, _tgi_setpixel, _tgi_color
 
 PIX = $08                   ; __tgi_addr's result (32 bits)
@@ -457,6 +458,10 @@ proc ___tgi_pbar
     tax
     rts
 @on:
+    bit ___tgi_mode         ; a generic driver: a pixel at a time
+    bvc @vic
+    jmp __tp_gbar
+@vic:
     lda $10
     sta __tp_x
     lda $11
@@ -572,5 +577,68 @@ proc ___tgi_pbar
     lda #1
     jsr __tp_adv
     jmp @ncm
+    .func_flags zp_call
+endproc
+
+; A generic driver's patterned bar ($10 x1, $12 y1, $14 x2, $16 y2; clipped):
+; each pixel its pattern colour through the driver's set (___tgi_g_set:
+; $10 / $12 the pixel, A the colour), the transparent colour left
+proc __tp_gbar
+    .zp_uses $10, $11, $12, $13, $14, $15, $16, $17
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    lda $10
+    sta __tp_x
+    lda $11
+    sta __tp_x+1
+    lda $14
+    sta __tp_xe
+    lda $15
+    sta __tp_xe+1
+    lda $16
+    sta __tp_ye
+@row:
+    lda __tp_x              ; x from x1
+    sta $10
+    lda __tp_x+1
+    sta $11
+@px:
+    lda $12                 ; the pattern's colour: (y & 7) * 8 + (x & 7)
+    and #7
+    asl a
+    asl a
+    asl a
+    sta __tp_t
+    lda $10
+    and #7
+    ora __tp_t
+    tax
+    lda __tp_pat,x
+    ldy __tp_tron
+    beq @put
+    cmp __tp_tval
+    beq @next
+@put:
+    jsr ___tgi_g_set
+@next:
+    lda $10                 ; x <= xe
+    cmp __tp_xe
+    lda $11
+    sbc __tp_xe+1
+    bcs @nrow
+    inc $10
+    bne @px
+    inc $11
+    bra @px
+@nrow:
+    lda $12                 ; y < ye: the next row
+    cmp __tp_ye
+    bcs @done
+    inc $12
+    bra @row
+@done:
+    lda #1
+    ldx #0
+    rts
     .func_flags zp_call
 endproc

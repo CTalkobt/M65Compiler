@@ -3285,6 +3285,17 @@ if [ -f "$XEMU_ROM" ]; then
     done
 fi
 
+# Test: <tgi.h>'s generic drivers (the text screens with block characters,
+# the VIC-II bitmap modes, the shared drawing, tgi_copyrect) and <rrb.h>
+# (#645)
+for tmode in "zp|" "stack|-fno-zpcall"; do
+    IFS='|' read -r tname tflags <<< "$tmode"
+    for tt in tgi_modes rrb; do
+        echo "Testing test_${tt}_xemu.c ($tname)..."
+        xemu_case "FAIL: test_${tt}_xemu.c $tname (compilation/linking failed)" "src/test-resources/test_${tt}_xemu.c" "build/test/test_${tt}_${tname}_xemu.prg" "$tflags" -- "test_${tt}_$tname" "build/test/test_${tt}_${tname}_xemu.prg" "C0C0" 6 "01 01 01 01 01 AA"
+    done
+done
+
 # Test: sizeof of a string literal inside a larger integer constant
 # expression: array sizes, enum values, _Static_assert, case labels (#749)
 for zmode in "zp|" "stack|-fno-zpcall"; do

@@ -1,0 +1,333 @@
+; tgi_txt.s45 — <tgi.h>'s text-screen drivers (generic, tgi_gen.s45):
+; "mega65-text-40x25.tgi" (tgi_static_text40: 80x50 pixels) and
+; "mega65-text-80x50.tgi" (tgi_static_text80: 160x100)
+;
+; The KERNAL's own text screen, its size set by its screen editor as BASIC
+; sets it (ESC 4: 40x25, ESC 5: 80x50; ESC 8 back to 80x25), so text and
+; pixels share it: a pixel is a quarter of a character cell, the cell's
+; four quarters one of the 16 PETSCII block characters (in both character
+; sets: tgi_toggle_case keeps them), text written into the cells by
+; tgi_outtext (tgi_gendraw.c). A pixel's colour is its cell's (the colour RAM
+; byte): set in colour c, the quarter is on and the cell c; in 0 the
+; quarter off. tgi_done puts the screen's size and character set back.
+;
+; Pixel (x, y): cell (x >> 1, y >> 1) at the screen pointer ($D060-$D063)
+; + row * LINESTEP ($D058/$D059, the hardware multiplier) + column; quarter
+; bit (x & 1) + 2 * (y & 1): 1 upper left, 2 upper right, 4 lower left,
+; 8 lower right.
+
+; no calls through pointers here (ln45's call graph)
+.weak cc45.icallinfo
+cc45.icallinfo = 1
+
+    .cpu 45gs02
+
+.global _tgi_static_text40, _tgi_static_text80, ___tgi_text40_name, ___tgi_text80_name
+.extern ___tgi_gv, _putchar, _tgi_ymax
+
+PIX = $08                   ; an address (32 bits)
+MULTINA = $D770
+MULTINB = $D774
+MULTOUT = $D778
+
+.segment "data"
+; the drivers (stdlib/tgi_drv.h's tgi_driver_t)
+_tgi_static_text40:
+    .byte $74, $67, $69, $05        ; 't' 'g' 'i' TGI_API_VERSION
+    .word ___tgi_text40_name
+    .word 80, 50            ; xres, yres
+    .byte 16, 1             ; colours, pages
+    .byte 2, 2              ; the font: a character a cell (2x2 pixels)
+    .word $00D4             ; aspect ratio (320x200's)
+    .byte 0                 ; flags
+    .byte $60               ; mode: generic, a text screen
+    .word __tt_table        ; draw: the routines
+    .word 0                 ; heap: none
+_tgi_static_text80:
+    .byte $74, $67, $69, $05
+    .word ___tgi_text80_name
+    .word 160, 100
+    .byte 16, 1
+    .byte 2, 2
+    .word $00D4
+    .byte 0
+    .byte $60
+    .word __tt_table
+    .word 0
+; "mega65-text-40x25.tgi", "mega65-text-80x50.tgi" (as C strings: PETSCII)
+___tgi_text40_name:
+    .byte $4D, $45, $47, $41, $36, $35, $2D, $54, $45, $58, $54, $2D, $34, $30
+    .byte $58, $32, $35, $2E, $54, $47, $49, 0
+___tgi_text80_name:
+    .byte $4D, $45, $47, $41, $36, $35, $2D, $54, $45, $58, $54, $2D, $38, $30
+    .byte $58, $35, $30, $2E, $54, $47, $49, 0
+; install, uninstall, init, done, clear, set, get (tgi_gen.s45)
+__tt_table:
+    .word __tt_install, __tt_none, __tt_init, __tt_done, __tt_clear, __tt_set, __tt_get
+; the block characters by quarters (bit 0 upper left .. bit 3 lower right)
+__tt_blk:
+    .byte $20, $7E, $7C, $E2, $7B, $61, $FF, $EC
+    .byte $6C, $7F, $E1, $FB, $62, $FC, $FE, $A0
+__tt_link:  .word ___tgi_gv  ; (tgi_gen.s45, tgi_gendraw.c)
+
+.segment "bss"
+__tt_h640:  .res 1          ; the screen as tgi_init found it: $D031 bits
+__tt_lower: .res 1          ;   7 / 3, the lower-case set ($D069 bit 3)
+__tt_saved: .res 1          ; (init ran)
+__tt_off:   .res 2          ; a cell's offset
+__tt_bit:   .res 1          ; its quarter
+__tt_col:   .res 1          ; the colour
+
+.segment "code"
+
+; A to the screen editor (putchar, the KERNAL's CHROUT)
+proc __tt_out
+    .zp_uses $10, $11
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    sta $10
+    lda #0
+    sta $11
+    jmp _putchar
+    .func_flags zp_call
+endproc
+
+; ESC then A
+proc __tt_esc
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    pha
+    lda #27
+    jsr __tt_out
+    pla
+    jmp __tt_out
+    .func_flags zp_call
+endproc
+
+proc __tt_install
+    .reg_clobbers A
+    .flag_clobbers N, Z
+    lda #0
+    rts
+    .func_flags zp_call, leaf
+endproc
+
+proc __tt_none
+    rts
+    .func_flags zp_call, leaf
+endproc
+
+; the screen: 40x25 or 80x50 (by the driver's yres: 50 or 100), cleared
+proc __tt_init
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    lda $D031
+    and #$88
+    sta __tt_h640
+    lda $D069
+    and #$08
+    sta __tt_lower
+    lda #1
+    sta __tt_saved
+    lda #$34                ; '4': 40x25
+    ldx _tgi_ymax
+    cpx #99
+    bne @esc
+    lda #$35                ; '5': 80x50
+@esc:
+    jsr __tt_esc
+    jmp __tt_clear
+    .func_flags zp_call
+endproc
+
+; the screen's size and character set as tgi_init found them, cleared
+proc __tt_done
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    lda __tt_saved
+    beq @out
+    lda #0
+    sta __tt_saved
+    lda __tt_h640           ; H640 / V400: 80x50, 80x25, else 40x25
+    cmp #$88
+    bne @n50
+    lda #$35
+    bra @esc
+@n50:
+    cmp #$80
+    bne @n25
+    lda #$38                ; '8'
+    bra @esc
+@n25:
+    lda #$34
+@esc:
+    jsr __tt_esc
+    lda #142                ; the character set
+    ldx __tt_lower
+    beq @set
+    lda #14
+@set:
+    jsr __tt_out
+    jmp __tt_clear
+@out:
+    rts
+    .func_flags zp_call
+endproc
+
+; the screen cleared (CHR$(147): the screen editor's, its colour)
+proc __tt_clear
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    lda #147
+    jmp __tt_out
+    .func_flags zp_call
+endproc
+
+; pixel ($10, $12)'s cell: __tt_off, __tt_bit; PIX its screen address
+proc __tt_cell
+    .reg_clobbers A, X
+    .flag_clobbers C, N, Z, V
+    lda $12                 ; row = y >> 1 (y < 256)
+    lsr a
+    sta MULTINA
+    lda #0
+    sta MULTINA+1
+    sta MULTINA+2
+    sta MULTINA+3
+    sta MULTINB+2
+    sta MULTINB+3
+    lda $D058
+    sta MULTINB
+    lda $D059
+    sta MULTINB+1
+    lda $11                 ; column = x >> 1
+    lsr a
+    lda $10
+    ror a
+    clc
+    adc MULTOUT
+    sta __tt_off
+    lda MULTOUT+1
+    adc #0
+    sta __tt_off+1
+    lda $10                 ; the quarter: (x & 1) + 2 * (y & 1)
+    and #1
+    sta __tt_bit
+    lda $12
+    and #1
+    asl a
+    ora __tt_bit
+    tax
+    lda #1
+@sh:
+    dex
+    bmi @b
+    asl a
+    bra @sh
+@b:
+    sta __tt_bit
+    clc                     ; the screen address
+    lda $D060
+    adc __tt_off
+    sta PIX
+    lda $D061
+    adc __tt_off+1
+    sta PIX+1
+    lda $D062
+    adc #0
+    sta PIX+2
+    lda $D063
+    and #$0F
+    adc #0
+    sta PIX+3
+    rts
+endproc
+
+; PIX := the cell's colour RAM address ($FF80000 + COLPTR + offset)
+proc __tt_colad
+    .reg_clobbers A
+    .flag_clobbers C, N, Z, V
+    clc
+    lda $D064
+    adc __tt_off
+    sta PIX
+    lda $D065
+    adc __tt_off+1
+    sta PIX+1
+    lda #$F8
+    adc #0
+    sta PIX+2
+    lda #$0F
+    sta PIX+3
+    rts
+endproc
+
+; A := the quarters of screen code A (a character that is no block: 0)
+proc __tt_mask
+    .reg_clobbers A, X
+    .flag_clobbers C, N, Z
+    ldx #15
+@find:
+    cmp __tt_blk,x
+    beq @got
+    dex
+    bpl @find
+    ldx #0
+@got:
+    txa
+    rts
+endproc
+
+; pixel ($10, $12) := A
+proc __tt_set
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    sta __tt_col
+    jsr __tt_cell
+    ldz #0
+    lda [PIX],z
+    jsr __tt_mask
+    ldy __tt_col
+    beq @off
+    ora __tt_bit
+    bra @put
+@off:
+    tax
+    lda __tt_bit
+    eor #$FF
+    sta __tt_bit
+    txa
+    and __tt_bit
+@put:
+    tax
+    lda __tt_blk,x
+    ldz #0
+    sta [PIX],z
+    lda __tt_col
+    beq @out
+    jsr __tt_colad
+    lda __tt_col
+    and #$0F
+    ldz #0
+    sta [PIX],z
+@out:
+    rts
+endproc
+
+; A := pixel ($10, $12): its cell's colour, 0 when the quarter is off
+proc __tt_get
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    jsr __tt_cell
+    ldz #0
+    lda [PIX],z
+    jsr __tt_mask
+    and __tt_bit
+    beq @out
+    jsr __tt_colad
+    ldz #0
+    lda [PIX],z
+    and #$0F
+@out:
+    rts
+endproc

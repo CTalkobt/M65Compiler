@@ -4,6 +4,26 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### TGI: bitmap and text-screen drivers, `tgi_copyrect`, `tgi_toggle_case`; `<rrb.h>`; the graphics framework removed (#645)
+
+- TGI's generic drivers (mode `$40`): a driver gives its own install, init, done, clear and set / get pixel. Lines,
+  glyphs, bars, ellipses, pattern fills and `tgi_copyrect` are drawn through them (`stdlib_asm/tgi_gen.s45`,
+  `stdlib/tgi_gendraw.c`). The existing drivers keep their own fast paths and link none of it.
+- `mega65-hires.tgi` (320x200, two colours an 8x8 cell) and `mega65-mcm.tgi` (160x200, four a 4x8 cell): the VIC-II
+  bitmap modes on the VIC-IV, in a 16 KB block of bank 4 or 5. Bitmap text uses the font saved before the bitmap
+  took the character pointer.
+- `mega65-text-40x25.tgi` (80x50 pixels) and `mega65-text-80x50.tgi` (160x100): the KERNAL's text screen, set by
+  the screen editor (ESC 4 / ESC 5).
+  - A pixel is a quarter of a cell, drawn with the 16 PETSCII block characters.
+  - `tgi_outtext` writes characters into the cells, so text and block graphics mix.
+  - `tgi_done` puts the screen's size and character set back.
+  - `tgi_toggle_case()` switches the character set (CHR$(14) / CHR$(142)); the block characters are in both.
+- `tgi_copyrect(x1, y1, x2, y2, dx, dy)`: copies a rectangle on any driver, overlap-safe.
+- `<rrb.h>`: 16-bit character rows, GOTOX tokens (with transparency and the row mask), DBLRR, cell addresses.
+- The seven `graphics*.h` future headers, their 18 `lib/src` sources and 18 tests no driver ran are removed (29
+  future headers are left). The software-sprite manager and the particle emitters are #756 and #757.
+- Tests: `test_tgi_modes_xemu.c`, `test_rrb_xemu.c` (both conventions).
+
 ### Three more future headers: the audio mixer, I/O, peripherals; joystick-port detection in `<input.h>` (#645)
 
 - `<hw_audio_mixer.h>` (`stdlib/hw_audio_mixer.c`): the SIDs' volumes, pan, mute, fades and crossfades on the

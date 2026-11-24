@@ -21,6 +21,10 @@ cc45.icallinfo = 1
 .global ___tgi_draw, ___tgi_view, ___tgi_page, ___tgi_palsave, ___tgi_palset
 .global ___tgi_heap, ___tgi_unheap
 .weak ___tgi_heap, ___tgi_unheap
+; a generic driver's (___tgi_mode bit 6: tgi_gen.s45, linked with them):
+; its own memory and screen, no pages taken here
+.global ___tgi_g_install, ___tgi_g_uninstall, ___tgi_g_init, ___tgi_g_done
+.weak ___tgi_g_install, ___tgi_g_uninstall, ___tgi_g_init, ___tgi_g_done
 .extern _far_malloc, _far_free, ___dma_fill_far, ___dma_fill_far_step
 .extern _tgi_drv, _tgi_xres, _tgi_yres, _tgi_xmax, _tgi_ymax, _tgi_pagecount
 .extern _tgi_colorcount, _tgi_fontwidth, _tgi_fontheight, _tgi_error, _tgi_gmode
@@ -59,6 +63,22 @@ __ts_col:       .res 1
 __ts_drv:       .res 2      ; tgi_install's driver
 
 .segment "code"
+
+; The weak generic driver routines (without tgi_gen.s45 no generic driver
+; can be installed)
+proc ___tgi_g_install
+    lda #ERR_INV_DRIVER
+    rts
+endproc
+proc ___tgi_g_uninstall
+    rts
+endproc
+proc ___tgi_g_init
+    rts
+endproc
+proc ___tgi_g_done
+    rts
+endproc
 
 ; The weak __tgi_heap / __tgi_unheap: no heap
 proc ___tgi_heap
@@ -448,6 +468,15 @@ proc _tgi_install
 @tgi:
     .byte $74, $67, $69, $05
 @pages:
+    ldy #17                 ; a generic driver: its own set-up, no pages
+    lda (Q),y
+    and #$40
+    beq @vicpages
+    jsr ___tgi_g_install    ; ($10: the driver) A: 0, or the error
+    cmp #0
+    bne @err
+    bra @setdrv
+@vicpages:
     ldx #0                  ; the pages, then what fits beside them
     jsr __ts_take_page
     beq @nores
@@ -498,6 +527,7 @@ proc _tgi_install
     bne @save
     lda #0
     sta ___tgi_palset
+@setdrv:
     jsr @drvq               ; tgi_drv = driver
     sta _tgi_drv
     lda Q+1
@@ -560,7 +590,13 @@ proc _tgi_uninstall
     .reg_clobbers A, X, Y, Z
     .flag_clobbers C, N, Z, V
     jsr _tgi_done
+    bit ___tgi_mode
+    bvc @free
+    jsr ___tgi_g_uninstall
+    bra @gone
+@free:
     jsr __ts_free
+@gone:
     lda #0
     sta _tgi_drv
     sta _tgi_drv+1
@@ -582,6 +618,13 @@ proc _tgi_init
     rts
 @drv:
     jsr _tgi_done
+    bit ___tgi_mode
+    bvc @vic
+    jsr ___tgi_g_init       ; a generic driver: its screen, cleared
+    lda #1
+    sta _tgi_gmode
+    jmp @pal
+@vic:
     ldx #0                  ; the registers as they are
 @save:
     jsr __ts_reg
@@ -726,6 +769,11 @@ proc _tgi_done
     .flag_clobbers C, N, Z, V
     lda _tgi_gmode
     beq @out
+    bit ___tgi_mode
+    bvc @vic
+    jsr ___tgi_g_done
+    bra @pal
+@vic:
     lda __ts_old+5
     sta $D054
     ldx #0
@@ -751,13 +799,15 @@ endproc
 proc _tgi_setviewpage
     .zp_uses $10
     .reg_clobbers A, X
-    .flag_clobbers C, N, Z
+    .flag_clobbers C, N, Z, V
     lda $10
     cmp _tgi_pagecount
     bcs @inv
     sta ___tgi_view
     ldx _tgi_gmode
     beq @out
+    bit ___tgi_mode         ; (a generic driver has one page, its own screen)
+    bvs @out
     jsr __ts_show
 @out:
     rts

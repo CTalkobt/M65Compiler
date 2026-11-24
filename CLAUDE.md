@@ -445,14 +445,16 @@ it, `far_attic_init`/`far_attic_enable`: a buddy allocator in `far_attic.c`,
 power-of-two blocks aligned to their size, `far_malloc_long` over 64 KB) and
 `dma_controller.h`, `rom_ram.h` (the unused C64 ROM space, `$2A000`-`$2BFFF` and `$2E000`-`$2FFFF`, as RAM: the hypervisor's `$D641` write protection lifted; `__exit` protects it again). `conio.h` has a full-colour mode (a background colour per character:
 glyphs made from the font, cached in bank 4/5). `tgi.h` is cc65's TGI (320x200, 256 colours, one or two
-pages of VIC-IV full-colour characters in bank 4/5; 640x200, 16 colours, nibble-colour characters;
+pages of VIC-IV full-colour characters in bank 4/5; 640x200, 16 colours, nibble-colour characters; the VIC-II bitmaps (`mega65-hires`, `mega65-mcm`) and the
+KERNAL's 40x25 / 80x50 text screens with block characters (`mega65-text-*`: the generic drivers, `tgi_gen.s45`;
+`tgi_toggle_case`, `tgi_copyrect`, #645);
 `stdlib/tgi*.c`, `stdlib_asm/tgi_*.s45`). `sprites.h` is the VIC-IV's 8 hardware sprites
 (`stdlib_asm/sprites.s45`). `hw_raster.h` (raster interrupts: the program's `__interrupt` functions or plain
 callbacks at lines beside the KERNAL's, `stdlib_asm/hw_raster.s45`), `hw_scroll.h` (fine and coarse scrolling of the
 text screen, `hw_scroll.s45`), `mega65_version.h` (`$D629`-`$D635`), `event_system.h`, `mem_pool.h`, `hw_audio_mixer.h`
 (the SIDs on the audio mixer), `hw_io.h` (SD card, F011 floppy, Ethernet, RTC, hypervisor DOS calls), `hw_peripherals.h`
-(CPU speed, debug output; the joystick ports' detection is `input.h`'s) (#645). 36 other
-headers (graphics, `sprite_*.h`, uart...) declare
+(CPU speed, debug output; the joystick ports' detection is `input.h`'s), `rrb.h` (16-bit character rows, GOTOX tokens)
+(#645). 29 other headers (`sprite_*.h`, uart, game framework...) declare
 functions that no library implements: kept for the future, their contents inside `#ifdef CC45_FUTURE` (#642).
 
 ## Known Bugs (found in the 2026-10-11 doc audit; not yet fixed unless noted)

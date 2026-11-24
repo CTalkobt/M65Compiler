@@ -1,0 +1,511 @@
+; tgi_bmp.s45 — <tgi.h>'s bitmap drivers (generic, tgi_gen.s45): the
+; VIC-II's bitmap modes on the VIC-IV, "mega65-hires.tgi"
+; (tgi_static_hires: 320x200, two colours a cell) and "mega65-mcm.tgi"
+; (tgi_static_mcm: 160x200 multicolour, four a cell). Their install, init,
+; done and clear are stdlib/tgi_bmpsetup.c's; the pixels are here.
+;
+; The bitmap (8000 bytes, 8 KB aligned: the VIC-IV takes it from the
+; character pointer, $D068-$D06A, without its low 13 bits) at
+; ___tgi_b_bmp, the cells' colours (1000 bytes, the screen pointer) at
+; ___tgi_b_scr, both in one far_malloc block (tgi_bmpsetup.c). Cell (cx, cy):
+; offset cy * 40 + cx; its 8 bytes at bitmap + cy * 320 + cx * 8.
+;   hires  pixel (x, y): bit 7 - (x & 7) of byte (y >> 3) * 320 + (x & ~7)
+;          + (y & 7); set: the cell's colour byte's high nibble (the
+;          foreground; the low nibble the background, 0)
+;   mcm    pixel (x, y): bits 7-6 .. 1-0 (x & 3) of (y >> 3) * 320 +
+;          (x >> 2) * 8 + (y & 7); %00 the background ($D021), %01 the colour
+;          byte's high nibble, %10 its low nibble, %11 the colour RAM byte
+;          (colour RAM + the cell's offset). A colour takes the pair that
+;          has it, else one no pixel of the cell uses, else %01's.
+; A pixel set in colour 0 is the background (hires: its bit off).
+
+; no calls through pointers here (ln45's call graph)
+.weak cc45.icallinfo
+cc45.icallinfo = 1
+
+    .cpu 45gs02
+
+.global _tgi_static_hires, _tgi_static_mcm, ___tgi_hires_name, ___tgi_mcm_name
+.global ___tgi_b_bmp, ___tgi_b_scr
+.extern ___tgi_gv, ___tgi_b_install, ___tgi_b_uninstall, ___tgi_b_init, ___tgi_b_done
+.extern ___tgi_b_clear
+
+PIX = $08                   ; an address (32 bits)
+MULTINA = $D770
+MULTINB = $D774
+MULTOUT = $D778
+
+.segment "data"
+_tgi_static_hires:
+    .byte $74, $67, $69, $05        ; 't' 'g' 'i' TGI_API_VERSION
+    .word ___tgi_hires_name
+    .word 320, 200          ; xres, yres
+    .byte 16, 1             ; colours, pages
+    .byte 8, 8              ; the bitmap font
+    .word $00D4             ; aspect ratio: 200 / 320 * 4 / 3 (8.8)
+    .byte 0                 ; flags
+    .byte $40               ; mode: generic
+    .word __tb_htable       ; draw: the routines
+    .word 0                 ; heap
+_tgi_static_mcm:
+    .byte $74, $67, $69, $05
+    .word ___tgi_mcm_name
+    .word 160, 200
+    .byte 16, 1
+    .byte 8, 8
+    .word $01AB             ; 200 / 160 * 4 / 3
+    .byte 0
+    .byte $40
+    .word __tb_mtable
+    .word 0
+; "mega65-hires.tgi", "mega65-mcm.tgi" (as C strings: PETSCII)
+___tgi_hires_name:
+    .byte $4D, $45, $47, $41, $36, $35, $2D, $48, $49, $52, $45, $53, $2E, $54
+    .byte $47, $49, 0
+___tgi_mcm_name:
+    .byte $4D, $45, $47, $41, $36, $35, $2D, $4D, $43, $4D, $2E, $54, $47, $49, 0
+; install, uninstall, init, done, clear, set, get (tgi_gen.s45)
+__tb_htable:
+    .word ___tgi_b_install, ___tgi_b_uninstall, ___tgi_b_init, ___tgi_b_done, ___tgi_b_clear
+    .word __tb_hset, __tb_hget
+__tb_mtable:
+    .word ___tgi_b_install, ___tgi_b_uninstall, ___tgi_b_init, ___tgi_b_done, ___tgi_b_clear
+    .word __tb_mset, __tb_mget
+__tb_link:  .word ___tgi_gv  ; (tgi_gen.s45, tgi_gendraw.c)
+__tb_bit:   .byte $80, $40, $20, $10, $08, $04, $02, $01
+
+.segment "bss"
+___tgi_b_bmp:   .res 4      ; the bitmap
+___tgi_b_scr:   .res 4      ; the cells' colours
+__tb_cell:      .res 2      ; a cell's offset
+__tb_col:       .res 1      ; the colour
+__tb_sh:        .res 1      ; mcm: the pair's shift (6, 4, 2, 0)
+__tb_pair:      .res 1      ;   the pair
+__tb_used:      .res 1      ;   the pairs the cell's pixels use (a bit each)
+__tb_byte:      .res 4      ; the pixel's byte's address
+
+.segment "code"
+
+; PIX := pixel ($10 x, $12 y)'s bitmap byte, cell x-step A (8: hires' x &
+; ~7 is (x >> 3) * 8; mcm: (x >> 2) * 8): A = the cell column; __tb_cell
+proc __tb_addr
+    .reg_clobbers A, X
+    .flag_clobbers C, N, Z, V
+    pha                     ; (the cell's column)
+    lda $12                 ; y >> 3
+    lsr a
+    lsr a
+    lsr a
+    sta MULTINA
+    lda #0
+    sta MULTINA+1
+    sta MULTINA+2
+    sta MULTINA+3
+    sta MULTINB+2
+    sta MULTINB+3
+    lda #40
+    sta MULTINB
+    lda #0
+    sta MULTINB+1
+    pla
+    pha
+    clc                     ; the cell: row * 40 + column
+    adc MULTOUT
+    sta __tb_cell
+    lda MULTOUT+1
+    adc #0
+    sta __tb_cell+1
+    lda #<320               ; the byte: row * 320 + column * 8 + (y & 7)
+    sta MULTINB
+    lda #>320
+    sta MULTINB+1
+    pla
+    sta PIX                 ; column * 8 (16 bits)
+    lda #0
+    sta PIX+1
+    asl PIX
+    rol PIX+1
+    asl PIX
+    rol PIX+1
+    asl PIX
+    rol PIX+1
+    lda $12
+    and #7
+    clc
+    adc PIX
+    sta PIX
+    lda PIX+1
+    adc #0
+    sta PIX+1
+    clc
+    lda PIX
+    adc MULTOUT
+    sta PIX
+    lda PIX+1
+    adc MULTOUT+1
+    sta PIX+1
+    clc
+    lda PIX
+    adc ___tgi_b_bmp
+    sta PIX
+    lda PIX+1
+    adc ___tgi_b_bmp+1
+    sta PIX+1
+    lda ___tgi_b_bmp+2
+    adc #0
+    sta PIX+2
+    lda ___tgi_b_bmp+3
+    adc #0
+    sta PIX+3
+    rts
+endproc
+
+; PIX := the cell's colour byte (scr + cell)
+proc __tb_scrad
+    .reg_clobbers A
+    .flag_clobbers C, N, Z, V
+    clc
+    lda ___tgi_b_scr
+    adc __tb_cell
+    sta PIX
+    lda ___tgi_b_scr+1
+    adc __tb_cell+1
+    sta PIX+1
+    lda ___tgi_b_scr+2
+    adc #0
+    sta PIX+2
+    lda ___tgi_b_scr+3
+    adc #0
+    sta PIX+3
+    rts
+endproc
+
+; PIX := the cell's colour RAM byte ($FF80000 + COLPTR + cell)
+proc __tb_colad
+    .reg_clobbers A
+    .flag_clobbers C, N, Z, V
+    clc
+    lda $D064
+    adc __tb_cell
+    sta PIX
+    lda $D065
+    adc __tb_cell+1
+    sta PIX+1
+    lda #$F8
+    adc #0
+    sta PIX+2
+    lda #$0F
+    sta PIX+3
+    rts
+endproc
+
+; PIX <-> __tb_byte
+proc __tb_savepix
+    .reg_clobbers A, X
+    .flag_clobbers N, Z
+    ldx #3
+@c:
+    lda PIX,x
+    sta __tb_byte,x
+    dex
+    bpl @c
+    rts
+endproc
+proc __tb_loadpix
+    .reg_clobbers A, X
+    .flag_clobbers N, Z
+    ldx #3
+@c:
+    lda __tb_byte,x
+    sta PIX,x
+    dex
+    bpl @c
+    rts
+endproc
+
+; hires: the cell column x >> 3, the bit (x & 7)
+proc __tb_hcell
+    .reg_clobbers A, X
+    .flag_clobbers C, N, Z, V
+    lda $11
+    lsr a
+    lda $10
+    ror a
+    lsr a
+    lsr a
+    jmp __tb_addr
+endproc
+
+; hires pixel ($10, $12) := A
+proc __tb_hset
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    sta __tb_col
+    jsr __tb_hcell
+    lda $10
+    and #7
+    tax
+    ldz #0
+    lda __tb_col
+    beq @off
+    lda [PIX],z
+    ora __tb_bit,x
+    sta [PIX],z
+    jsr __tb_scrad          ; the cell's foreground: the colour
+    lda [PIX],z
+    and #$0F
+    sta __tb_pair
+    lda __tb_col
+    asl a
+    asl a
+    asl a
+    asl a
+    ora __tb_pair
+    sta [PIX],z
+    rts
+@off:
+    lda __tb_bit,x
+    eor #$FF
+    sta __tb_pair
+    lda [PIX],z
+    and __tb_pair
+    sta [PIX],z
+    rts
+endproc
+
+; A := hires pixel ($10, $12): the cell's foreground (bit on) or background
+proc __tb_hget
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    jsr __tb_hcell
+    lda $10
+    and #7
+    tax
+    ldz #0
+    lda [PIX],z
+    and __tb_bit,x
+    tay
+    jsr __tb_scrad
+    lda [PIX],z
+    cpy #0
+    beq @bg
+    lsr a
+    lsr a
+    lsr a
+    lsr a
+    rts
+@bg:
+    and #$0F
+    rts
+endproc
+
+; mcm: the cell column x >> 2, the pair's shift (3 - (x & 3)) * 2
+proc __tb_mcell
+    .reg_clobbers A, X
+    .flag_clobbers C, N, Z, V
+    lda $10
+    and #3
+    eor #3
+    asl a
+    sta __tb_sh
+    lda $10                 ; (x < 160)
+    lsr a
+    lsr a
+    jmp __tb_addr
+endproc
+
+; A := A >> __tb_sh & 3
+proc __tb_getpair
+    .reg_clobbers A, X
+    .flag_clobbers C, N, Z
+    ldx __tb_sh
+@s:
+    beq @d
+    lsr a
+    dex
+    bra @s
+@d:
+    and #3
+    rts
+endproc
+
+; mcm pixel ($10, $12) := A
+proc __tb_mset
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    sta __tb_col
+    jsr __tb_mcell
+    jsr __tb_savepix
+    lda __tb_col
+    and #$0F
+    sta __tb_col
+    beq @pair0
+    ; a pair with the colour already
+    jsr __tb_scrad
+    ldz #0
+    lda [PIX],z
+    tay
+    lsr a
+    lsr a
+    lsr a
+    lsr a
+    cmp __tb_col
+    beq @p1
+    tya
+    and #$0F
+    cmp __tb_col
+    beq @p2
+    jsr __tb_colad
+    lda [PIX],z
+    and #$0F
+    cmp __tb_col
+    beq @p3
+    ; one no pixel of the cell uses (the cell's 8 bytes: its first row's)
+    jsr __tb_loadpix
+    lda $12
+    and #7
+    eor #$FF
+    sec
+    adc PIX                 ; PIX - (y & 7): the cell's first byte
+    sta PIX
+    bcs @nb
+    lda PIX+1
+    bne @nb1
+    dec PIX+2
+@nb1:
+    dec PIX+1
+@nb:
+    lda #0
+    sta __tb_used
+    ldz #7
+@rows:
+    lda [PIX],z
+    ldy #4
+@pairs:
+    tax
+    and #3
+    phx
+    tax
+    lda __tb_bit+7          ; (bit 0)
+@sb:
+    dex
+    bmi @sbd
+    asl a
+    bra @sb
+@sbd:
+    ora __tb_used
+    sta __tb_used
+    plx
+    txa
+    lsr a
+    lsr a
+    dey
+    bne @pairs
+    dez
+    bpl @rows
+    lda __tb_used
+    and #$02
+    beq @new1
+    lda __tb_used
+    and #$04
+    beq @new2
+    lda __tb_used
+    and #$08
+    beq @new3
+@new1:                      ; %01: the colour byte's high nibble
+    jsr __tb_scrad
+    ldz #0
+    lda [PIX],z
+    and #$0F
+    sta __tb_pair
+    lda __tb_col
+    asl a
+    asl a
+    asl a
+    asl a
+    ora __tb_pair
+    sta [PIX],z
+@p1:
+    lda #1
+    bra @put
+@new2:                      ; %10: its low nibble
+    jsr __tb_scrad
+    ldz #0
+    lda [PIX],z
+    and #$F0
+    ora __tb_col
+    sta [PIX],z
+@p2:
+    lda #2
+    bra @put
+@new3:                      ; %11: the colour RAM byte
+    jsr __tb_colad
+    ldz #0
+    lda __tb_col
+    sta [PIX],z
+@p3:
+    lda #3
+    bra @put
+@pair0:
+    lda #0
+@put:
+    sta __tb_pair           ; the pair into the byte (the others kept)
+    ldx __tb_sh
+    lda #3
+@m:
+    dex
+    bmi @md
+    asl a                   ; (__tb_sh is in bits)
+    bra @m
+@md:
+    eor #$FF
+    sta __tb_used           ; (the mask of the others)
+    ldx __tb_sh
+    lda __tb_pair
+@v:
+    dex
+    bmi @vd
+    asl a
+    bra @v
+@vd:
+    sta __tb_pair
+    jsr __tb_loadpix
+    ldz #0
+    lda [PIX],z
+    and __tb_used
+    ora __tb_pair
+    sta [PIX],z
+    rts
+endproc
+
+; A := mcm pixel ($10, $12): its pair's colour (%00: 0)
+proc __tb_mget
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    jsr __tb_mcell
+    ldz #0
+    lda [PIX],z
+    jsr __tb_getpair
+    beq @out
+    cmp #3
+    beq @c3
+    tay
+    jsr __tb_scrad
+    lda [PIX],z
+    cpy #1
+    bne @lo
+    lsr a
+    lsr a
+    lsr a
+    lsr a
+    rts
+@lo:
+    and #$0F
+    rts
+@c3:
+    jsr __tb_colad
+    lda [PIX],z
+    and #$0F
+@out:
+    rts
+endproc
