@@ -1,0 +1,749 @@
+; hw_raster.s45 — <hw_raster.h>: raster interrupts and timing (#645)
+;
+; hw_raster_init puts __hwr_irq in the KERNAL's IRQ vector ($0314). The
+; table (__hwr_ll/lh: the lines, sorted; __hwr_il/ih: a line's __interrupt
+; function, 0 none; __hwr_k: 1 for the KERNAL's line) has the KERNAL's line
+; and up to 8 of the program's; __hwr_pos is the entry whose line is in the
+; VIC's raster compare. At its interrupt the next entry's line goes into the
+; compare, then:
+;   the KERNAL's line, no function     jmp (the KERNAL's vector): its handler
+;                                      acknowledges and returns
+;   a function                         the raster interrupt acknowledged, the
+;                                      function entered as the CPU would (a
+;                                      return address and the flags pushed),
+;                                      its RTI to __hwr_tail (the KERNAL's
+;                                      pushes pulled, RTI), or to
+;                                      __hwr_tailk (the KERNAL's handler
+;                                      next) when the line is the KERNAL's too
+; Entered from the KERNAL's IRQ entry (A X Y Z B pushed, base page 0):
+; absolute addressing only. The handler and the table are in the "init"
+; segment, below $4000 (float_map.s45 maps the ROM over $4000-$7FFF).
+;
+; The compare's bit 8 ($D011 bit 7: reading it gives the raster's) is kept
+; in __hwr_c8 and $D011 written only when it changes (a $D011 write
+; recalculates the VIC-IV's positions with the hot registers on).
+;
+; All the ZP convention (__fastcall__ in either library): the line in $10,
+; a function in $12.
+
+; (the calls through pointers here reach __interrupt functions only)
+.weak cc45.icallinfo
+cc45.icallinfo = 1
+
+    .cpu 45gs02
+
+.global _hw_raster_init, _hw_raster_done, _hw_raster_set_line, _hw_raster_get_line
+.global _hw_raster_set_isr, _hw_raster_clear_callback, _hw_raster_current
+.global _hw_raster_get_x, _hw_raster_in_vblank, _hw_raster_wait_line
+.global _hw_raster_wait_vblank, _hw_raster_get_frame, _hw_raster_disable
+.global _hw_raster_enable, ___hw_raster_fn
+.extern ___hw_raster_atexit
+
+IIRQ = $0314
+N = 9                       ; table entries: the KERNAL's and 8 of the program's
+KLINE = 255                 ; the KERNAL's line at first
+MAXFN = 8                   ; the program's lines (HW_RASTER_MAX)
+
+.segment "init"
+__hwr_on:   .byte 0         ; the handler in the vector
+__hwr_en:   .byte 1         ; the program's lines on
+__hwr_ax:   .byte 0         ; hw_raster_done given to atexit
+__hwr_n:    .byte 0         ; entries
+__hwr_pos:  .byte 0         ; the entry in the compare
+__hwr_c8:   .byte 0         ; the compare's bit 8 as written
+__hwr_tx:   .byte 0         ; the entry handled
+__hwr_old:  .word 0         ; the KERNAL's vector
+__hwr_vec:  .word 0         ; the function entered
+__hwr_cur:  .word 0         ; the line handled (hw_raster_current)
+__hwr_frame: .word 0        ; frames
+__hwr_ll:   .res N
+__hwr_lh:   .res N
+__hwr_il:   .res N
+__hwr_ih:   .res N
+__hwr_k:    .res N
+
+; the interrupt
+__hwr_irq:
+    lda $D019
+    lsr a
+    bcs @raster
+    jmp (__hwr_old)         ; (not the raster's)
+@raster:
+    ldx __hwr_pos
+    stx __hwr_tx
+    lda __hwr_ll,x
+    sta __hwr_cur
+    lda __hwr_lh,x
+    sta __hwr_cur+1
+    jsr __hwr_next          ; the next entry's line in the compare
+    ldx __hwr_tx
+    lda __hwr_k,x
+    beq @fn
+    inc __hwr_frame
+    bne @fn
+    inc __hwr_frame+1
+@fn:
+    lda __hwr_en
+    beq @nofn
+    lda __hwr_ih,x
+    beq @nofn
+    sta __hwr_vec+1
+    lda __hwr_il,x
+    sta __hwr_vec
+    lda #$01
+    sta $D019               ; acknowledged
+    lda __hwr_k,x
+    beq @plain
+    lda #>__hwr_tailk
+    pha
+    lda #<__hwr_tailk
+    pha
+    bra @go
+@plain:
+    lda #>__hwr_tail
+    pha
+    lda #<__hwr_tail
+    pha
+@go:
+    php
+    jmp (__hwr_vec)
+@nofn:
+    lda __hwr_k,x
+    beq @ack
+    jmp (__hwr_old)         ; the KERNAL's line: its handler
+@ack:
+    lda #$01                ; (a program line while they are off)
+    sta $D019
+__hwr_tail:
+    pla
+    tab
+    plz
+    ply
+    plx
+    pla
+    rti
+__hwr_tailk:
+    jmp (__hwr_old)
+
+; X: the entry handled; the next one due (only the KERNAL's while the
+; program's lines are off) in __hwr_pos and its line in the compare
+__hwr_next:
+@lp:
+    inx
+    cpx __hwr_n
+    bcc @ok
+    ldx #0
+@ok:
+    lda __hwr_en
+    bne __hwr_setpos
+    lda __hwr_k,x
+    beq @lp
+__hwr_setpos:
+    stx __hwr_pos
+; the compare at entry X's line
+__hwr_cmp:
+    lda __hwr_ll,x
+    sta $D012
+    lda __hwr_lh,x
+    and #$01
+    cmp __hwr_c8
+    beq @same
+    sta __hwr_c8
+    lsr a
+    lda $D011
+    and #$7F
+    bcc @lo
+    ora #$80
+@lo:
+    sta $D011
+@same:
+    rts
+
+; the raster line now in A/X (bit 8 read on both sides of the low byte)
+__hwr_line:
+@again:
+    lda $D011
+    sta __hwr_t
+    lda $D012
+    ldx $D011
+    cpx __hwr_t
+    bne @again              ; (bit 8 changed between)
+    pha
+    txa
+    asl a                   ; bit 7 to C
+    lda #0
+    rol a
+    tax
+    pla
+    rts
+
+; after a change to the table (interrupts off): the first entry due after
+; the line now in the compare
+__hwr_sync:
+    jsr __hwr_line
+    sta __hwr_t
+    stx __hwr_t+1
+    ldx #0
+@find:
+    cpx __hwr_n
+    bcs @wrap
+    lda __hwr_en
+    bne @elig
+    lda __hwr_k,x
+    beq @skip
+@elig:
+    lda __hwr_lh,x          ; line > now?
+    cmp __hwr_t+1
+    bne @hi
+    lda __hwr_t
+    cmp __hwr_ll,x
+    bcc __hwr_setpos        ; now < line
+    bra @skip
+@hi:
+    bcs __hwr_setpos        ; (line's high byte above)
+@skip:
+    inx
+    bra @find
+@wrap:
+    ldx #$FF                ; the first one due from the top
+    jmp __hwr_next
+
+__hwr_t:    .word 0         ; temporaries
+__hwr_l:    .word 0         ; the line being put / taken
+__hwr_kf:   .byte 0         ; it is the KERNAL's
+
+; the entry of line __hwr_l in X, C set; C clear when there is none
+__hwr_find:
+    ldx #0
+@lp:
+    cpx __hwr_n
+    bcs @no
+    lda __hwr_ll,x
+    cmp __hwr_l
+    bne @nx
+    lda __hwr_lh,x
+    cmp __hwr_l+1
+    beq @yes
+@nx:
+    inx
+    bra @lp
+@no:
+    clc
+    rts
+@yes:
+    sec
+    rts
+
+; line __hwr_l: the KERNAL's (__hwr_kf) or function __hwr_vec; A 1, or 0
+; when the table is full
+__hwr_put:
+    lda __hwr_kf
+    bne @any
+    ; a function on a line without one: at most MAXFN of them
+    jsr __hwr_find
+    bcc @count
+    lda __hwr_ih,x
+    bne @any
+@count:
+    ldy #0
+    ldx #0
+@cn:
+    cpx __hwr_n
+    bcs @cnd
+    lda __hwr_ih,x
+    beq @cnx
+    iny
+@cnx:
+    inx
+    bra @cn
+@cnd:
+    cpy #MAXFN
+    bcc @any
+    lda #0
+    rts
+@any:
+    jsr __hwr_find
+    bcs @set
+    ldx __hwr_n
+    cpx #N
+    bcc @room
+    lda #0
+    rts
+@room:
+    ; X = n: entries above the new line one up
+@up:
+    cpx #0
+    beq @here
+    lda __hwr_lh-1,x        ; entry X-1 below the line: here
+    cmp __hwr_l+1
+    bcc @here
+    bne @mv
+    lda __hwr_ll-1,x
+    cmp __hwr_l
+    bcc @here
+@mv:
+    lda __hwr_ll-1,x
+    sta __hwr_ll,x
+    lda __hwr_lh-1,x
+    sta __hwr_lh,x
+    lda __hwr_il-1,x
+    sta __hwr_il,x
+    lda __hwr_ih-1,x
+    sta __hwr_ih,x
+    lda __hwr_k-1,x
+    sta __hwr_k,x
+    dex
+    bra @up
+@here:
+    lda __hwr_l
+    sta __hwr_ll,x
+    lda __hwr_l+1
+    sta __hwr_lh,x
+    lda #0
+    sta __hwr_il,x
+    sta __hwr_ih,x
+    sta __hwr_k,x
+    inc __hwr_n
+@set:
+    lda __hwr_kf
+    beq @fn
+    lda #1
+    sta __hwr_k,x
+    rts
+@fn:
+    lda __hwr_vec
+    sta __hwr_il,x
+    lda __hwr_vec+1
+    sta __hwr_ih,x
+    lda #1
+    rts
+
+; line __hwr_l: the KERNAL's (__hwr_kf) or its function off; the entry out
+; when it has neither
+__hwr_del:
+    jsr __hwr_find
+    bcc @out
+    lda __hwr_kf
+    beq @fn
+    lda #0
+    sta __hwr_k,x
+    bra @chk
+@fn:
+    lda #0
+    sta __hwr_ih,x
+    sta __hwr_il,x
+@chk:
+    lda __hwr_k,x
+    ora __hwr_ih,x
+    bne @out
+    dec __hwr_n
+@down:
+    cpx __hwr_n
+    bcs @out
+    lda __hwr_ll+1,x
+    sta __hwr_ll,x
+    lda __hwr_lh+1,x
+    sta __hwr_lh,x
+    lda __hwr_il+1,x
+    sta __hwr_il,x
+    lda __hwr_ih+1,x
+    sta __hwr_ih,x
+    lda __hwr_k+1,x
+    sta __hwr_k,x
+    inx
+    bra @down
+@out:
+    rts
+
+; the line in $10/$11 to __hwr_l: C clear when it is past the frame's last
+; (311 PAL, 262 NTSC: $D06F bit 7)
+__hwr_arg:
+    lda $10
+    sta __hwr_l
+    lda $11
+    sta __hwr_l+1
+    beq @ok                 ; (0-255)
+    cmp #2
+    bcs @bad
+    ldx #<311
+    bit $D06F
+    bpl @pal
+    ldx #<262
+@pal:
+    cpx __hwr_l             ; last >= line
+    rts
+@ok:
+    sec
+    rts
+@bad:
+    clc
+    rts
+
+.segment "code"
+
+; void hw_raster_init(void)
+proc _hw_raster_init
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    lda __hwr_on
+    bne @done
+    php
+    sei
+    lda #KLINE
+    sta __hwr_ll
+    lda #0
+    sta __hwr_lh
+    sta __hwr_il
+    sta __hwr_ih
+    sta __hwr_frame
+    sta __hwr_frame+1
+    sta __hwr_cur
+    sta __hwr_cur+1
+    lda #1
+    sta __hwr_k
+    sta __hwr_n
+    sta __hwr_en
+    lda IIRQ
+    sta __hwr_old
+    lda IIRQ+1
+    sta __hwr_old+1
+    lda #<__hwr_irq
+    sta IIRQ
+    lda #>__hwr_irq
+    sta IIRQ+1
+    lda #1
+    sta __hwr_on
+    lda #$01
+    tsb $D01A               ; (the raster interrupt on: the KERNAL's is)
+    jsr __hwr_sync
+    plp
+    lda __hwr_ax            ; the vector back at exit
+    bne @done
+    inc __hwr_ax
+    jsr ___hw_raster_atexit  ; (atexit(hw_raster_done), in C: either convention)
+@done:
+    rts
+    .func_flags zp_call
+endproc
+
+; void hw_raster_done(void)
+proc _hw_raster_done
+    .reg_clobbers A, X, Y
+    .flag_clobbers C, N, Z, V
+    lda __hwr_on
+    beq @done
+    php
+    sei
+    lda __hwr_old
+    sta IIRQ
+    lda __hwr_old+1
+    sta IIRQ+1
+    lda #0
+    sta __hwr_on
+    ; the compare at the KERNAL's line
+    ldx #0
+@k:
+    lda __hwr_k,x
+    bne @cmp
+    inx
+    cpx __hwr_n
+    bcc @k
+    ldx #0
+@cmp:
+    jsr __hwr_cmp
+    plp
+@done:
+    rts
+    .func_flags zp_call
+endproc
+
+; int hw_raster_set_line(int line)
+proc _hw_raster_set_line
+    .zp_uses $10, $11
+    .reg_clobbers A, X, Y
+    .flag_clobbers C, N, Z, V
+    jsr __hwr_arg
+    bcc @bad
+    lda __hwr_on
+    bne @table
+    ; (no handler: the compare itself)
+    php
+    sei
+    ldx #0
+    stx __hwr_n
+    lda __hwr_l
+    sta __hwr_ll
+    lda __hwr_l+1
+    sta __hwr_lh
+    jsr __hwr_cmp
+    plp
+    bra @one
+@table:
+    php
+    sei
+    ; the KERNAL's entry: its line taken off, put at the new one
+    ldx #0
+@k:
+    lda __hwr_k,x
+    bne @got
+    inx
+    bra @k
+@got:
+    lda __hwr_l
+    pha
+    lda __hwr_l+1
+    pha
+    lda __hwr_ll,x
+    sta __hwr_l
+    lda __hwr_lh,x
+    sta __hwr_l+1
+    lda #1
+    sta __hwr_kf
+    jsr __hwr_del
+    pla
+    sta __hwr_l+1
+    pla
+    sta __hwr_l
+    jsr __hwr_put           ; (room: the KERNAL's own entry was freed)
+    lda #0
+    sta __hwr_kf
+    jsr __hwr_sync
+    plp
+@one:
+    lda #1
+    ldx #0
+    rts
+@bad:
+    lda #0
+    tax
+    rts
+    .func_flags zp_call
+endproc
+
+; int hw_raster_get_line(void)
+proc _hw_raster_get_line
+    .reg_clobbers A, X
+    .flag_clobbers C, N, Z
+    jmp __hwr_line
+    .func_flags zp_call
+endproc
+
+; int hw_raster_set_isr(int line, void (*isr)(void))
+proc _hw_raster_set_isr
+    .zp_uses $10, $11, $12, $13
+    .reg_clobbers A, X, Y
+    .flag_clobbers C, N, Z, V
+    lda $12
+    ora $13
+    bne @fn
+    jsr _hw_raster_clear_callback
+    lda #1
+    ldx #0
+    rts
+@fn:
+    lda __hwr_on
+    beq @bad
+    jsr __hwr_arg
+    bcc @bad
+    php
+    sei
+    lda $12
+    sta __hwr_vec
+    lda $13
+    sta __hwr_vec+1
+    lda #0
+    sta __hwr_kf
+    jsr __hwr_put
+    pha
+    jsr __hwr_sync
+    pla
+    plp
+    ldx #0
+    rts
+@bad:
+    lda #0
+    tax
+    rts
+    .func_flags zp_call
+endproc
+
+; void hw_raster_clear_callback(int line)
+proc _hw_raster_clear_callback
+    .zp_uses $10, $11
+    .reg_clobbers A, X, Y
+    .flag_clobbers C, N, Z, V
+    lda __hwr_on
+    beq @done
+    jsr __hwr_arg
+    bcc @done
+    php
+    sei
+    lda #0
+    sta __hwr_kf
+    jsr __hwr_del
+    jsr __hwr_sync
+    plp
+@done:
+    rts
+    .func_flags zp_call
+endproc
+
+; void (*__hw_raster_fn(int line))(void): the line's function (0: none;
+; hw_raster_cb.c: its slots of lines no longer its own)
+proc ___hw_raster_fn
+    .zp_uses $10, $11
+    .reg_clobbers A, X
+    .flag_clobbers C, N, Z
+    lda $10
+    sta __hwr_l
+    lda $11
+    sta __hwr_l+1
+    php
+    sei
+    jsr __hwr_find
+    bcc @none
+    lda __hwr_il,x
+    pha
+    lda __hwr_ih,x
+    tax
+    pla
+    plp
+    rts
+@none:
+    plp
+    lda #0
+    tax
+    rts
+    .func_flags zp_call
+endproc
+
+; int hw_raster_current(void)
+proc _hw_raster_current
+    .reg_clobbers A, X
+    .flag_clobbers N, Z
+    lda __hwr_cur
+    ldx __hwr_cur+1
+    rts
+    .func_flags zp_call, leaf
+endproc
+
+; int hw_raster_get_x(void)
+proc _hw_raster_get_x
+    .reg_clobbers A, X
+    .flag_clobbers C, N, Z
+    ; (the high bits read on both sides of the low byte; if they changed
+    ; between, the low byte once more with the second: no loop, XPOS moves
+    ; on all the time, and xemu's on every read)
+    ldx $D051
+    lda $D050
+    cpx $D051
+    beq @same
+    ldx $D051
+    lda $D050
+@same:
+    pha
+    txa
+    and #$3F
+    tax
+    pla
+    rts
+    .func_flags zp_call, leaf
+endproc
+
+; int hw_raster_in_vblank(void): lines 251- and 0-50
+proc _hw_raster_in_vblank
+    .reg_clobbers A, X
+    .flag_clobbers C, N, Z
+    jsr __hwr_line
+    cpx #0
+    bne @yes
+    cmp #51
+    bcc @yes
+    cmp #251
+    bcs @yes
+    lda #0
+    tax
+    rts
+@yes:
+    lda #1
+    ldx #0
+    rts
+    .func_flags zp_call
+endproc
+
+; void hw_raster_wait_line(int line): off it first, then onto it
+proc _hw_raster_wait_line
+    .zp_uses $10, $11
+    .reg_clobbers A, X
+    .flag_clobbers C, N, Z
+@off:
+    jsr __hwr_line
+    cmp $10
+    bne @on
+    cpx $11
+    beq @off
+@on:
+    jsr __hwr_line
+    cmp $10
+    bne @on
+    cpx $11
+    bne @on
+    rts
+    .func_flags zp_call
+endproc
+
+; void hw_raster_wait_vblank(void)
+proc _hw_raster_wait_vblank
+    .zp_uses $10, $11
+    .reg_clobbers A, X
+    .flag_clobbers C, N, Z
+    lda #<251
+    sta $10
+    lda #>251
+    sta $11
+    jmp _hw_raster_wait_line
+    .func_flags zp_call
+endproc
+
+; int hw_raster_get_frame(void)
+proc _hw_raster_get_frame
+    .reg_clobbers A, X
+    .flag_clobbers N, Z
+    php
+    sei
+    lda __hwr_frame
+    ldx __hwr_frame+1
+    plp
+    rts
+    .func_flags zp_call, leaf
+endproc
+
+; void hw_raster_disable(void) / hw_raster_enable(void)
+proc _hw_raster_disable
+    .reg_clobbers A, X, Y
+    .flag_clobbers C, N, Z, V
+    lda #0
+    jmp __hwr_setenable
+    .func_flags zp_call
+endproc
+
+proc _hw_raster_enable
+    .reg_clobbers A, X, Y
+    .flag_clobbers C, N, Z, V
+    lda #1
+    jmp __hwr_setenable
+    .func_flags zp_call
+endproc
+
+.segment "init"
+; A: the program's lines on (1) or off (0)
+__hwr_setenable:
+    php
+    sei
+    sta __hwr_en
+    lda __hwr_on
+    beq @out
+    jsr __hwr_sync
+@out:
+    plp
+    rts

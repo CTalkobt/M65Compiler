@@ -4,6 +4,31 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### Five of the future headers implemented: raster interrupts, scrolling, version, events, pools (#645)
+
+- `<hw_raster.h>` (assembly, `stdlib_asm/hw_raster.s45`): the library's raster interrupt handler in the KERNAL's
+  vector (put back at exit), a sorted table of lines: the KERNAL's own (255, `hw_raster_set_line` moves it; its
+  handler still runs once a frame, so the keyboard and `clock()` go on) and up to 8 of the program's, each an
+  `__interrupt` function (`hw_raster_set_isr`, entered as the CPU would) or a plain `void f(int line, void *user)`
+  (`hw_raster_set_callback`, called from the library's own `__interrupt` handler: ln45 then wants the callbacks to
+  have stack frames). Also the line, waits, `in_vblank`, the frame count, disable / enable. The handler is in the
+  `init` segment, below the `$4000`-`$7FFF` the float routines map the ROM over. The future header's
+  `hw_raster_in_hblank` and `hw_raster_get_cycle` (no hardware behind them) are not there.
+- `<hw_scroll.h>` (assembly, `stdlib_asm/hw_scroll.s45`): the text screen scrolled by the VIC-IV from the screen as
+  `hw_scroll_init` finds it: coarse by the screen and colour pointers (row × LINESTEP + column, the hardware
+  multiplier), fine by the text position (2 a pixel, 1 at H640 / V400); smooth moves (`hw_scroll_to`,
+  `hw_scroll_update`: the hardware divider), the state, reset. Parallax (nothing to drive in text mode) is not there.
+- `<mega65_version.h>` (`stdlib/mega65_version.c`): the model ID (`$D629`: MEGA65 R1-R6, MEGAphone, Nexys,
+  QMtech, Wukong, simulation, emulator), the FPGA design's date (`$D630`/`$D631`) and firmware ID (`$D632`-`$D635`),
+  names, a printed line. The future header read `$D07C` (a VIC-IV register) and had feature flags every core has.
+- `<event_system.h>` (`stdlib/event_system.c`): publish / subscribe with a deferred queue, allocated per system (the
+  old source's static tables needed about 150 KB); callbacks may subscribe, unsubscribe and publish.
+- `<mem_pool.h>` (`stdlib/mem_pool.c`): fixed-size object pools (O(1), checked frees), linear arenas (aligned,
+  save / restore) and a pool per type id.
+- Their headers are no longer inside `#ifdef CC45_FUTURE` (39 such headers are left); the old `lib/src` sources are
+  gone. Tests: `test_hw_raster_xemu.c`, `test_hw_scroll_xemu.c`, `test_mega65_version_xemu.c`,
+  `test_event_system_xemu.c`, `test_mem_pool_xemu.c` (both conventions).
+
 ### `sizeof` of a string literal in constant expressions; `putc` and `getc` (#749, #750)
 
 - cc45: `sizeof "lit"` inside a larger integer constant expression is one: `static char a[10 - sizeof "abc"];`,

@@ -3232,6 +3232,22 @@ for kmode in "zp|" "stack|-fno-zpcall"; do
     fi
 done
 
+# Test: headers implemented from the future ones (#645): <event_system.h>,
+# <mem_pool.h>, <mega65_version.h> (xemu: model 3, "Xemu"), <hw_raster.h>
+# (the library's raster interrupt handler: __interrupt functions and plain
+# callbacks at lines, the KERNAL's handler still once a frame),
+# <hw_scroll.h> (the VIC-IV's pointers and text position)
+for fmode in "zp|" "stack|-fno-zpcall"; do
+    IFS='|' read -r fname fflags <<< "$fmode"
+    for ft in "event_system|7|01 01 01 01 01 01 AA" "mem_pool|7|01 01 01 01 01 01 AA" \
+              "mega65_version|6|01 01 01 01 01 AA" "hw_raster|9|01 01 01 01 01 01 01 01 AA" \
+              "hw_scroll|7|01 01 01 01 01 01 AA"; do
+        IFS='|' read -r ftn ftb ftx <<< "$ft"
+        echo "Testing test_${ftn}_xemu.c ($fname)..."
+        xemu_case "FAIL: test_${ftn}_xemu.c $fname (compilation/linking failed)" "src/test-resources/test_${ftn}_xemu.c" "build/test/test_${ftn}_${fname}_xemu.prg" "$fflags" -- "test_${ftn}_$fname" "build/test/test_${ftn}_${fname}_xemu.prg" "C0C0" "$ftb" "$ftx"
+    done
+done
+
 # Test: sizeof of a string literal inside a larger integer constant
 # expression: array sizes, enum values, _Static_assert, case labels (#749)
 for zmode in "zp|" "stack|-fno-zpcall"; do
