@@ -8520,6 +8520,10 @@ normal_call:
                 auto it = functionReturnTypes_.find(node.name);
                 if (it != functionReturnTypes_.end()) {
                     retType = it->second;
+                } else if (node.name == "__builtin_trap") {
+                    // the parser's __builtin_trap() (#761): the library's
+                    // ___builtin_trap, declared or not
+                    retType = ir::Type::VOID;
                 } else {
                     if (allowImplicitFunctionDecl) {
                         warnings_.push_back(formatDiagnostic(node.sourceFile, node.line, node.column,

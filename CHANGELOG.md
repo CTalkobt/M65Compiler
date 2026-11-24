@@ -4,6 +4,17 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### `__builtin_trap()` ends the program (#761); `fopen` of names starting with `_`, `$` or `#` (#785)
+
+- `__builtin_trap()` compiled to nothing: the program went on past it (and `<stdlib.h>` declares it `_Noreturn`, so
+  what followed could be dropped). It is now a call of the library's `___builtin_trap`, which ends the program as
+  `abort()` does (exit status `$FFFE`) without a user's `abort()` or the `atexit` handlers; no header needed. Test
+  `test_builtin_trap_xemu.c` (both conventions).
+- `fopen(name, "r")` of a missing file whose name starts with `_` (PETSCII ←) succeeded and read the directory of
+  scratched files: the DOS takes a first `_` as that, `$` as the directory and `#` as a buffer (`dos.src`'s `open`).
+  `fopen` now gives every name without a `:` the drive number (`0:NAME,S,R`, `0:NAME,S,A`, as `@0:NAME,S,W`
+  already had), so such a name is a file's. `test_dosfile_xemu.c` [6].
+
 ### Disk files: DOS commands, `remove()` / `rename()`, REL files that work (#762, #763, #764, #783)
 
 - `cbm_delete`, `cbm_rename` and `cbm_format` send their DOS commands (`S0:`, `R0:new=0:old`, `N0:name,id`) on the
@@ -18,7 +29,7 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 - `cbm_rel_truncate` changes the file on the disk (#764): the records kept are copied into a new REL file, which
   replaces the old one.
 - Tests: `test_dosfile_xemu.c`, `test_relfile_xemu.c` (both conventions, scratch D81s). Found on the way: #785
-  (`fopen` of a missing file whose name starts with `_` succeeds).
+  (`fopen` of a missing file whose name starts with `_` succeeds; fixed, above).
 
 ### al45: user-written rules (#765)
 

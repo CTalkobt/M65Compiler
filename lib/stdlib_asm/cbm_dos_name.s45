@@ -2,9 +2,10 @@
 ;
 ; void __cbm_dos_name(char *dst, const char *name, unsigned char flags,
 ;                     unsigned char cbm_type);
-;   dst = ["@0:"] name ",T,M": T = U (CBM_T_USR), P (CBM_T_PRG) or S;
-;   M = A (flags & _IOAPPEND), W (flags & _IOTRUNC: also "@", and "0:"
-;   unless the name has a ':', which replaces an existing file) or R. A
+;   dst = ["@"]["0:"] name ",T,M": T = U (CBM_T_USR), P (CBM_T_PRG) or S;
+;   M = A (flags & _IOAPPEND), W (flags & _IOTRUNC: also "@", which
+;   replaces an existing file) or R; "0:" first unless the name has a ':'
+;   (#785: a name starting with '$', '_' or '#' is then a file's). A
 ;   name that already contains ',' is copied as given. At most 40 name
 ;   characters. dst needs 48 bytes.
 ; Parameters (2-byte slots): dst $10, name $12, flags $14, cbm_type $16;
@@ -69,10 +70,15 @@ proc ___cbm_dos_name
     lda $1A
     bne @copy               ; a ',': the name as given
     bit $14                 ; _IOTRUNC (bit 7): replace
-    bpl @copy
+    bpl @drive
     lda #'@'
     sta ($10),z
     inz
+@drive:
+    ; "0:" before a name without a drive, in every mode: the DOS takes a
+    ; name's first character '$' as the directory, '_' (PETSCII <-) as the
+    ; directory of scratched files, '#' as a buffer; after "0:" they are
+    ; letters of a file name (#785)
     lda $1B
     bne @copy
     lda #'0'
