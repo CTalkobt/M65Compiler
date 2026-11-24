@@ -148,6 +148,9 @@ int fileno(FILE *stream);
 /* Temporary files */
 FILE *tmpfile(void);
 char *tmpnam(char *str);
+/* on the disk drive (unit 8): 0, else -1 and errno (ENOENT, EEXIST, EACCES, EIO, EINVAL; #763) */
+int remove(const char *filename);
+int rename(const char *oldname, const char *newname);
 
 /* Buffer control */
 int setvbuf(FILE *restrict stream, char *restrict buffer, int mode, size_t size);
@@ -229,6 +232,7 @@ int cbm_dir_is_scratched(unsigned char type);           /* Check scratched/splat
 int cbm_dir_is_closed(unsigned char type);              /* Check closed bit */
 
 /* Device operations */
+/* DOS commands on the command channel: 0, or -1 (cbm_delete: -1 also when nothing was scratched) */
 int cbm_format(unsigned char device, const char *name, const char *id);
 int cbm_delete(unsigned char device, const char *filename);
 int cbm_rename(unsigned char device, const char *old_name, const char *new_name);
@@ -248,14 +252,14 @@ int cbm_rel_is_open(int handle);
 /* Phase 4d: Extended Record Operations */
 int cbm_rel_append(int handle, const void *buffer, unsigned int size);
 int cbm_rel_delete(int handle, unsigned int record_num);
-int cbm_rel_truncate(int handle, unsigned int num_records);   /* the count only: not flushed to the disk (#764) */
+int cbm_rel_truncate(int handle, unsigned int num_records);   /* copies the records kept: needs room on the disk (#764) */
 int cbm_rel_update(int handle, unsigned int record_num, const void *buffer, unsigned int size);
 
 #define CBM_REL_READ    0               /* Open for reading */
 #define CBM_REL_WRITE   1               /* Open for writing */
 
 /* Phase 4d: Record deletion marker */
-#define CBM_REL_DELETED 0xFF            /* Marker byte for deleted records */
+#define CBM_REL_DELETED 0xFF            /* The DOS's empty record ($FF alone): a deleted one reads as 0 bytes */
 
 /* Phase 4e: Error codes and recovery */
 #define CBM_REL_ERR_NONE        0       /* No error */

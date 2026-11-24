@@ -27,3 +27,8 @@ extern unsigned char _oserror;
    ERANGE for a result beyond the float range (exp, pow, log(0), strtof) */
 #define EDOM    4   /* Math argument out of domain */
 #define ESPIPE  5   /* Illegal seek: fseek on a stream written sequentially */
+/* remove() / rename(): the drive's answer (#763) */
+#define ENOENT  6   /* No such file (62 FILE NOT FOUND) */
+#define EEXIST  7   /* File exists (63 FILE EXISTS) */
+#define EACCES  8   /* Permission denied (26 WRITE PROTECT ON) */
+#define EIO     9   /* I/O error (another drive error, or no drive) */

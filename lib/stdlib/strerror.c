@@ -10,6 +10,10 @@ char *strerror(int errnum) {
         case EINVAL: return "Invalid argument";
         case EDOM:   return "Math domain error";
         case ESPIPE: return "Illegal seek";
+        case ENOENT: return "No such file or directory";
+        case EEXIST: return "File exists";
+        case EACCES: return "Permission denied";
+        case EIO:    return "Input/output error";
         default:     return "Unknown error";
     }
 }

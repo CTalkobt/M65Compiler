@@ -4,6 +4,22 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### Disk files: DOS commands, `remove()` / `rename()`, REL files that work (#762, #763, #764, #783)
+
+- `cbm_delete`, `cbm_rename` and `cbm_format` send their DOS commands (`S0:`, `R0:new=0:old`, `N0:name,id`) on the
+  command channel instead of returning -1 (#762). `cbm_delete` succeeds only when a file was scratched; `cbm_rename`
+  refuses a name that exists (the MEGA65's DOS would make a second file of the name).
+- `<stdio.h>`'s `remove()` and `rename()` (#763), on unit 8, with `errno` `ENOENT`, `EEXIST`, `EACCES`, `EIO` (new;
+  `strerror` knows them).
+- REL files (#783): `cbm_rel_*` never created, positioned or read a REL file — the open lacked `,L,<size>` and records
+  were "positioned" by writing into the file. Rewritten as CBM DOS has it: `name,L,<size>`, `P` on the command channel
+  before each record, the record count found at open (less the empty records the DOS adds a block at a time).
+  `cbm_rel_delete` empties a record (the DOS's `$FF`).
+- `cbm_rel_truncate` changes the file on the disk (#764): the records kept are copied into a new REL file, which
+  replaces the old one.
+- Tests: `test_dosfile_xemu.c`, `test_relfile_xemu.c` (both conventions, scratch D81s). Found on the way: #785
+  (`fopen` of a missing file whose name starts with `_` succeeds).
+
 ### Housekeeping: the TODO scan; ROADMAP.md deprecated
 
 - `cbm_rel_insert` is removed: it wrote the record without shifting the others, which is `cbm_rel_write` (any record
