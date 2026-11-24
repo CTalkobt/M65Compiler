@@ -1,60 +1,65 @@
-/* FOR THE FUTURE: NOT IMPLEMENTED.
+/* hw_scroll.h — hardware scrolling of the text screen (#645)
  *
- * No library defines what this header declares: a call of one of its
- * functions would compile and then fail to link. Its contents are kept for
- * later work and are left out unless CC45_FUTURE is defined (-DCC45_FUTURE),
- * so including it by accident declares nothing.
- * (doc/architecture/stdlib.md, "Headers Without a Library Implementation")
- */
-#ifdef CC45_FUTURE
-
-/* hw_scroll.h — Phase 82: Hardware Scrolling
+ * hw_scroll_init takes the screen as it is as the origin: the screen and
+ * colour pointers ($D060-$D063, $D064/$D065) and the text position
+ * ($D04C/$D04D X, $D04E/$D04F Y). A position (x, y) in pixels then shows
+ * the screen memory from there:
+ *   coarse  x / 8 characters, y / 8 rows: both pointers moved on by
+ *           row * LINESTEP ($D058/$D059) + column (two bytes a character
+ *           with 16-bit characters, $D054 bit 0)
+ *   fine    x % 8, y % 8: the text moved up and left by that many pixels,
+ *           the text position less 2 a pixel (1 at 640 wide, $D031 bit 7,
+ *           and at 400 lines, bit 3)
+ * The memory past the screen's last column and row shows as the view
+ * moves: a program scrolling a wider map keeps LINESTEP its width.
  *
- * Hardware-accelerated X/Y scrolling with fine scroll control,
- * parallax support, and tile-based alignment.
+ * hw_scroll_to moves smoothly to a position over duration_ms; each
+ * hw_scroll_update(delta_ms) steps it (1 while it is still moving, 0 at
+ * the end). hw_scroll_reset puts the origin back.
+ *
+ * A $D011 / $D016 write with the VIC-IV's hot registers on ($D05D bit 7)
+ * sets the text position again from those registers: set the position
+ * after such a write (hw_scroll_set_x), or turn the hot registers off.
+ *
+ * Positions are unsigned (0-65535). All __fastcall__ (the ZP convention in
+ * either library). Library: stdlib_asm/hw_scroll.s45. Test:
+ * test_hw_scroll_xemu.c.
  */
 
 #ifndef HW_SCROLL_H
 #define HW_SCROLL_H
 
 typedef struct {
-    int x;              /* Coarse X scroll (pixels) */
-    int y;              /* Coarse Y scroll (pixels) */
-    int fine_x;         /* Fine X scroll (0-7 subpixels) */
-    int fine_y;         /* Fine Y scroll (0-7 subpixels) */
-    int parallax_x;     /* Parallax layer offset */
-    int parallax_y;
+    int x;              /* the position, pixels */
+    int y;
+    int fine_x;         /* x % 8, y % 8: the fine scroll */
+    int fine_y;
 } hw_scroll_state_t;
 
-/* Initialize hardware scrolling */
-void hw_scroll_init(void);
+/* The screen as it is now: the origin, the position 0, 0 */
+__fastcall__ void hw_scroll_init(void);
 
-/* Set coarse scroll position */
-void hw_scroll_set_x(int pixels);
-void hw_scroll_set_y(int pixels);
+/* The position (fine and coarse) */
+__fastcall__ void hw_scroll_set_x(int pixels);
+__fastcall__ void hw_scroll_set_y(int pixels);
 
-/* Set fine scroll (subpixel, 0-7) */
-void hw_scroll_set_fine_x(int subpixels);
-void hw_scroll_set_fine_y(int subpixels);
+/* The fine scroll only (0-7; the position's character kept) */
+__fastcall__ void hw_scroll_set_fine_x(int subpixels);
+__fastcall__ void hw_scroll_set_fine_y(int subpixels);
 
 /* Get current scroll state */
-hw_scroll_state_t hw_scroll_get_state(void);
+__fastcall__ hw_scroll_state_t hw_scroll_get_state(void);
 
-/* Smooth scrolling (animate to target over time) */
-void hw_scroll_to(int target_x, int target_y, int duration_ms);
+/* Move to a position over duration_ms (0: at once) */
+__fastcall__ void hw_scroll_to(int target_x, int target_y, int duration_ms);
 
-/* Update smooth scrolling (call each frame) */
-int hw_scroll_update(int delta_ms);
+/* The move stepped on by delta_ms: 1 while still moving */
+__fastcall__ int hw_scroll_update(int delta_ms);
 
-/* Set parallax offset for background layers */
-void hw_scroll_set_parallax(int layer, int offset_x, int offset_y);
+/* The origin again (a move stopped) */
+__fastcall__ void hw_scroll_reset(void);
 
-/* Reset scrolling to origin */
-void hw_scroll_reset(void);
-
-/* Check if scrolling in progress */
-int hw_scroll_is_active(void);
+/* 1 while a move goes on */
+__fastcall__ int hw_scroll_is_active(void);
 
 #endif
-
-#endif /* CC45_FUTURE */

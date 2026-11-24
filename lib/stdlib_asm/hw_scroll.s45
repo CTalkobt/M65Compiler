@@ -1,0 +1,514 @@
+; hw_scroll.s45 — <hw_scroll.h>: hardware scrolling of the text screen (#645)
+;
+; __hws_apply shows the position (__hws_x, __hws_y) from the origin
+; hw_scroll_init saved: the screen and colour pointers on by row * LINESTEP
+; + column (the hardware multiplier, $D770/$D774 -> $D778), the text
+; position ($D04C/$D04E, 12 bits: the registers' high nibbles kept) less the
+; fine scroll in physical pixels. hw_scroll_update's steps: start + (target
+; - start) * elapsed / duration, by the hardware multiplier and divider
+; (MULTINA / MULTINB -> DIVOUT's whole part, $D76C, when $D70F bit 7 clears).
+;
+; All the ZP convention (__fastcall__ in either library): the arguments
+; from $10 (hw_scroll_get_state: the result's address there).
+
+; no calls through pointers here (ln45's call graph)
+.weak cc45.icallinfo
+cc45.icallinfo = 1
+
+    .cpu 45gs02
+
+.global _hw_scroll_init, _hw_scroll_set_x, _hw_scroll_set_y, _hw_scroll_set_fine_x
+.global _hw_scroll_set_fine_y, _hw_scroll_get_state, _hw_scroll_to, _hw_scroll_update
+.global _hw_scroll_reset, _hw_scroll_is_active
+
+MULTINA = $D770
+MULTINB = $D774
+MULTOUT = $D778
+DIVWHOLE = $D76C
+MATHBUSY = $D70F
+
+.segment "bss"
+__hws_scr:  .res 4          ; the origin: the screen pointer ($D060-$D063)
+__hws_col:  .res 2          ;   the colour pointer ($D064/$D065)
+__hws_tx:   .res 2          ;   the text position X, Y (12 bits)
+__hws_ty:   .res 2
+__hws_x:    .res 2          ; the position
+__hws_y:    .res 2
+__hws_sx:   .res 2          ; a move: from
+__hws_sy:   .res 2
+__hws_gx:   .res 2          ;   to
+__hws_gy:   .res 2
+__hws_dur:  .res 2          ;   its duration, the time gone
+__hws_el:   .res 2
+__hws_act:  .res 1          ;   going on
+__hws_off:  .res 4          ; the pointers' offset
+__hws_t:    .res 2          ; temporaries
+__hws_neg:  .res 1
+
+.segment "code"
+
+; the position shown
+proc __hws_apply
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    ; the row (y / 8) times LINESTEP
+    lda __hws_y+1
+    sta __hws_t+1
+    lda __hws_y
+    lsr __hws_t+1
+    ror a
+    lsr __hws_t+1
+    ror a
+    lsr __hws_t+1
+    ror a
+    sta MULTINA
+    lda __hws_t+1
+    sta MULTINA+1
+    lda #0
+    sta MULTINA+2
+    sta MULTINA+3
+    sta MULTINB+2
+    sta MULTINB+3
+    lda $D058
+    sta MULTINB
+    lda $D059
+    sta MULTINB+1
+    ; the column (x / 8; two bytes a character with CHR16)
+    lda __hws_x+1
+    sta __hws_t+1
+    lda __hws_x
+    lsr __hws_t+1
+    ror a
+    lsr __hws_t+1
+    ror a
+    lsr __hws_t+1
+    ror a
+    sta __hws_t
+    lda #0
+    sta __hws_neg           ; (the column's bit 16)
+    lda $D054
+    lsr a
+    bcc @chr8
+    asl __hws_t
+    rol __hws_t+1
+    rol __hws_neg
+@chr8:
+    clc
+    lda MULTOUT
+    adc __hws_t
+    sta __hws_off
+    lda MULTOUT+1
+    adc __hws_t+1
+    sta __hws_off+1
+    lda MULTOUT+2
+    adc __hws_neg
+    sta __hws_off+2
+    lda MULTOUT+3
+    adc #0
+    sta __hws_off+3
+    ; the screen pointer: the origin + the offset (28 bits)
+    clc
+    lda __hws_scr
+    adc __hws_off
+    sta $D060
+    lda __hws_scr+1
+    adc __hws_off+1
+    sta $D061
+    lda __hws_scr+2
+    adc __hws_off+2
+    sta $D062
+    lda __hws_scr+3
+    adc __hws_off+3
+    and #$0F
+    sta __hws_t
+    lda $D063
+    and #$F0
+    ora __hws_t
+    sta $D063
+    ; the colour pointer (16 bits)
+    clc
+    lda __hws_col
+    adc __hws_off
+    sta $D064
+    lda __hws_col+1
+    adc __hws_off+1
+    sta $D065
+    ; the fine scroll: X from $D04C (2 a pixel, 1 with H640)
+    lda __hws_x
+    and #7
+    bit $D031
+    bmi @h640
+    asl a
+@h640:
+    sta __hws_t
+    ldx #0
+    jsr __hws_pos
+    ; Y from $D04E (1 a pixel with V400)
+    lda __hws_y
+    and #7
+    tay
+    lda $D031
+    and #$08
+    bne @v400
+    tya
+    asl a
+    bra @fy
+@v400:
+    tya
+@fy:
+    sta __hws_t
+    ldx #2
+    jmp __hws_pos
+    .func_flags zp_call
+endproc
+
+; the text position X (X = 0) or Y (X = 2): the origin's less __hws_t (0
+; at the least), the register's high nibble kept
+proc __hws_pos
+    .reg_clobbers A, Y
+    .flag_clobbers C, N, Z, V
+    sec
+    lda __hws_tx,x
+    sbc __hws_t
+    tay
+    lda __hws_tx+1,x
+    sbc #0
+    bcs @ok
+    lda #0
+    tay
+@ok:
+    and #$0F
+    sta __hws_t+1
+    tya
+    sta $D04C,x
+    lda $D04D,x
+    and #$F0
+    ora __hws_t+1
+    sta $D04D,x
+    rts
+    .func_flags zp_call, leaf
+endproc
+
+; void hw_scroll_init(void)
+proc _hw_scroll_init
+    .reg_clobbers A, X
+    .flag_clobbers N, Z
+    ldx #3
+@scr:
+    lda $D060,x
+    sta __hws_scr,x
+    dex
+    bpl @scr
+    lda __hws_scr+3
+    and #$0F
+    sta __hws_scr+3
+    lda $D064
+    sta __hws_col
+    lda $D065
+    sta __hws_col+1
+    lda $D04C
+    sta __hws_tx
+    lda $D04D
+    and #$0F
+    sta __hws_tx+1
+    lda $D04E
+    sta __hws_ty
+    lda $D04F
+    and #$0F
+    sta __hws_ty+1
+    lda #0
+    sta __hws_x
+    sta __hws_x+1
+    sta __hws_y
+    sta __hws_y+1
+    sta __hws_act
+    rts
+    .func_flags zp_call, leaf
+endproc
+
+; void hw_scroll_set_x(int pixels) / hw_scroll_set_y(int pixels)
+proc _hw_scroll_set_x
+    .zp_uses $10, $11
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    lda $10
+    sta __hws_x
+    lda $11
+    sta __hws_x+1
+    jmp __hws_apply
+    .func_flags zp_call
+endproc
+
+proc _hw_scroll_set_y
+    .zp_uses $10, $11
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    lda $10
+    sta __hws_y
+    lda $11
+    sta __hws_y+1
+    jmp __hws_apply
+    .func_flags zp_call
+endproc
+
+; void hw_scroll_set_fine_x(int subpixels) / _fine_y: the low 3 bits only
+proc _hw_scroll_set_fine_x
+    .zp_uses $10, $11
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    lda $10
+    and #7
+    sta __hws_t
+    lda __hws_x
+    and #$F8
+    ora __hws_t
+    sta __hws_x
+    jmp __hws_apply
+    .func_flags zp_call
+endproc
+
+proc _hw_scroll_set_fine_y
+    .zp_uses $10, $11
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    lda $10
+    and #7
+    sta __hws_t
+    lda __hws_y
+    and #$F8
+    ora __hws_t
+    sta __hws_y
+    jmp __hws_apply
+    .func_flags zp_call
+endproc
+
+; hw_scroll_state_t hw_scroll_get_state(void): at ($10)
+proc _hw_scroll_get_state
+    .zp_uses $10, $11
+    .reg_clobbers A, Y
+    .flag_clobbers N, Z
+    ldy #0
+    lda __hws_x
+    sta ($10),y
+    iny
+    lda __hws_x+1
+    sta ($10),y
+    iny
+    lda __hws_y
+    sta ($10),y
+    iny
+    lda __hws_y+1
+    sta ($10),y
+    iny
+    lda __hws_x
+    and #7
+    sta ($10),y
+    iny
+    lda #0
+    sta ($10),y
+    iny
+    lda __hws_y
+    and #7
+    sta ($10),y
+    iny
+    lda #0
+    sta ($10),y
+    rts
+    .func_flags zp_call, leaf
+endproc
+
+; void hw_scroll_to(int target_x, int target_y, int duration_ms)
+proc _hw_scroll_to
+    .zp_uses $10, $11, $12, $13, $14, $15
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    lda __hws_x
+    sta __hws_sx
+    lda __hws_x+1
+    sta __hws_sx+1
+    lda __hws_y
+    sta __hws_sy
+    lda __hws_y+1
+    sta __hws_sy+1
+    lda $10
+    sta __hws_gx
+    lda $11
+    sta __hws_gx+1
+    lda $12
+    sta __hws_gy
+    lda $13
+    sta __hws_gy+1
+    lda $14
+    sta __hws_dur
+    lda $15
+    sta __hws_dur+1
+    lda #0
+    sta __hws_el
+    sta __hws_el+1
+    lda #1
+    sta __hws_act
+    lda $14
+    ora $15
+    bne @later
+    jmp __hws_end           ; (no time: there at once)
+@later:
+    rts
+    .func_flags zp_call
+endproc
+
+; int hw_scroll_update(int delta_ms)
+proc _hw_scroll_update
+    .zp_uses $10, $11
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    lda __hws_act
+    bne @go
+    lda #0
+    tax
+    rts
+@go:
+    clc
+    lda __hws_el
+    adc $10
+    sta __hws_el
+    lda __hws_el+1
+    adc $11
+    sta __hws_el+1
+    bcs @end                ; (past 65535 ms)
+    cmp __hws_dur+1         ; elapsed >= duration: the end
+    bcc @step
+    bne @end
+    lda __hws_el
+    cmp __hws_dur
+    bcs @end
+@step:
+    ldx #0
+    jsr __hws_lerp
+    ldx #2
+    jsr __hws_lerp
+    jsr __hws_apply
+    lda #1
+    ldx #0
+    rts
+@end:
+    jmp __hws_end
+    .func_flags zp_call
+endproc
+
+; the move's end: at the target, stopped; 0 in A/X
+proc __hws_end
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    lda __hws_gx
+    sta __hws_x
+    lda __hws_gx+1
+    sta __hws_x+1
+    lda __hws_gy
+    sta __hws_y
+    lda __hws_gy+1
+    sta __hws_y+1
+    lda #0
+    sta __hws_act
+    jsr __hws_apply
+    lda #0
+    tax
+    rts
+    .func_flags zp_call
+endproc
+
+; axis X (0: x, 2: y): from + (to - from) * elapsed / duration
+proc __hws_lerp
+    .reg_clobbers A, Y
+    .flag_clobbers C, N, Z, V
+    sec
+    lda __hws_gx,x          ; the distance, signed
+    sbc __hws_sx,x
+    sta __hws_t
+    lda __hws_gx+1,x
+    sbc __hws_sx+1,x
+    sta __hws_t+1
+    lda #0
+    sta __hws_neg
+    bit __hws_t+1
+    bpl @pos
+    inc __hws_neg           ; (its size: A is 0)
+    sec
+    sbc __hws_t
+    sta __hws_t
+    lda #0
+    sbc __hws_t+1
+    sta __hws_t+1
+@pos:
+    ; size * elapsed
+    lda __hws_t
+    sta MULTINA
+    lda __hws_t+1
+    sta MULTINA+1
+    lda #0
+    sta MULTINA+2
+    sta MULTINA+3
+    sta MULTINB+2
+    sta MULTINB+3
+    lda __hws_el
+    sta MULTINB
+    lda __hws_el+1
+    sta MULTINB+1
+    ; / duration
+    ldy #3
+@cp:
+    lda MULTOUT,y
+    sta MULTINA,y
+    dey
+    bpl @cp
+    lda __hws_dur
+    sta MULTINB
+    lda __hws_dur+1
+    sta MULTINB+1
+@busy:
+    bit MATHBUSY
+    bmi @busy
+    lda __hws_neg
+    bne @sub
+    clc
+    lda __hws_sx,x
+    adc DIVWHOLE
+    sta __hws_x,x
+    lda __hws_sx+1,x
+    adc DIVWHOLE+1
+    sta __hws_x+1,x
+    rts
+@sub:
+    sec
+    lda __hws_sx,x
+    sbc DIVWHOLE
+    sta __hws_x,x
+    lda __hws_sx+1,x
+    sbc DIVWHOLE+1
+    sta __hws_x+1,x
+    rts
+    .func_flags zp_call, leaf
+endproc
+
+; void hw_scroll_reset(void)
+proc _hw_scroll_reset
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    lda #0
+    sta __hws_x
+    sta __hws_x+1
+    sta __hws_y
+    sta __hws_y+1
+    sta __hws_act
+    jmp __hws_apply
+    .func_flags zp_call
+endproc
+
+; int hw_scroll_is_active(void)
+proc _hw_scroll_is_active
+    .reg_clobbers A, X
+    .flag_clobbers N, Z
+    lda __hws_act
+    ldx #0
+    rts
+    .func_flags zp_call, leaf
+endproc

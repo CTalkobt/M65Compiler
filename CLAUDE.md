@@ -447,7 +447,10 @@ power-of-two blocks aligned to their size, `far_malloc_long` over 64 KB) and
 glyphs made from the font, cached in bank 4/5). `tgi.h` is cc65's TGI (320x200, 256 colours, one or two
 pages of VIC-IV full-colour characters in bank 4/5; 640x200, 16 colours, nibble-colour characters;
 `stdlib/tgi*.c`, `stdlib_asm/tgi_*.s45`). `sprites.h` is the VIC-IV's 8 hardware sprites
-(`stdlib_asm/sprites.s45`). 44 other headers (graphics, `sprite_*.h`, hw_*, uart...) declare
+(`stdlib_asm/sprites.s45`). `hw_raster.h` (raster interrupts: the program's `__interrupt` functions or plain
+callbacks at lines beside the KERNAL's, `stdlib_asm/hw_raster.s45`), `hw_scroll.h` (fine and coarse scrolling of the
+text screen, `hw_scroll.s45`), `mega65_version.h` (`$D629`-`$D635`), `event_system.h`, `mem_pool.h` (#645). 39 other
+headers (graphics, `sprite_*.h`, hw_io/hw_peripherals/hw_audio_mixer, uart...) declare
 functions that no library implements: kept for the future, their contents inside `#ifdef CC45_FUTURE` (#642).
 
 ## Known Bugs (found in the 2026-10-11 doc audit; not yet fixed unless noted)

@@ -1,17 +1,21 @@
-/* FOR THE FUTURE: NOT IMPLEMENTED.
- *
- * No library defines what this header declares: a call of one of its
- * functions would compile and then fail to link. Its contents are kept for
- * later work and are left out unless CC45_FUTURE is defined (-DCC45_FUTURE),
- * so including it by accident declares nothing.
- * (doc/architecture/stdlib.md, "Headers Without a Library Implementation")
- */
-#ifdef CC45_FUTURE
 
-/* mem_pool.h — Phase 76: Memory Pooling & Object Allocation
+/* mem_pool.h — object pools and linear arenas (#645)
  *
- * Fixed-size object pools, alignment-aware allocators, and fragmentation
- * reduction strategies for performance-critical game systems.
+ * Object pool: max_objects (1-256) objects of object_size bytes in one
+ * block from malloc; alloc and free are O(1) (a stack of free slots).
+ * mem_pool_free refuses a pointer that is not one of the pool's objects or
+ * is free already (0); 1 when it was freed. Objects are not cleared.
+ *
+ * Linear arena: size bytes from malloc, handed out in order; alignment 1,
+ * 2, 4, 8 or 16 (of the address; anything else is 1); NULL when it does
+ * not fit. mem_arena_save gives the offset, mem_arena_restore goes back to
+ * it (the allocations after it are dropped); mem_arena_reset to 0.
+ *
+ * Pool manager: a pool per type id (mem_pool_manager_register: 1, 0 when
+ * the id has one already or memory is short), destroyed with the manager.
+ *
+ * The statistics are counts since the pool / arena was made (peak: the
+ * most at once). Library: stdlib/mem_pool.c. Test: test_mem_pool_xemu.c.
  */
 
 #ifndef MEM_POOL_H
@@ -42,7 +46,7 @@ typedef struct {
 
 /* ===== Object Pool API ===== */
 
-/* Create fixed-size object pool (max 256 objects) */
+/* Create fixed-size object pool (1-256 objects): NULL when out of memory */
 mem_pool_t mem_pool_create(int object_size, int max_objects);
 
 /* Destroy pool and free all memory */
@@ -57,7 +61,7 @@ int mem_pool_free(mem_pool_t pool, void *object);
 /* Get pool statistics */
 mem_pool_stats_t mem_pool_get_stats(mem_pool_t pool);
 
-/* Reset pool (free all, ready for reuse) */
+/* Reset pool (free all, ready for reuse): 1 */
 int mem_pool_reset(mem_pool_t pool);
 
 /* Check if object belongs to pool */
@@ -68,7 +72,7 @@ int mem_pool_available(mem_pool_t pool);
 
 /* ===== Linear Arena API ===== */
 
-/* Create linear arena (push-only allocator for temporary data) */
+/* Create linear arena (push-only allocator for temporary data): NULL when out of memory */
 mem_arena_t mem_arena_create(int size);
 
 /* Destroy arena */
@@ -116,5 +120,3 @@ mem_pool_stats_t mem_pool_manager_stats(mem_pool_manager_t mgr, int type_id);
 void mem_pool_manager_destroy(mem_pool_manager_t mgr);
 
 #endif
-
-#endif /* CC45_FUTURE */
