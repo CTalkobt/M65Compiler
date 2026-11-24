@@ -1,12 +1,15 @@
 /* test_stdin_scanf_xemu.c — the scanf family on stdin (the keyboard, a
- * line typed into the KERNAL's buffer) and through a va_list; fflush
+ * line typed into the KERNAL's buffer) and through a va_list; fflush;
+ * putc and getc
  *
  * Results at $C0C0 (01 = pass):
  *   [0] scanf("%d %d") of a typed line
  *   [1] vscanf: the same through a va_list
  *   [2] vsscanf: a string through a va_list; its count, a matching failure
  *   [3] fflush(stdout) and fflush(NULL): 0
- *   [4] $AA sentinel
+ *   [4] putc / getc (#750): the macros, the functions by address and after
+ *       #undef
+ *   [5] $AA sentinel
  */
 #include <stdio.h>
 #include <stdarg.h>
@@ -40,10 +43,28 @@ static int my_sscanf(const char *s, const char *fmt, ...) {
     return n;
 }
 
+/* (taken before the #undef: a function-like macro's name alone is the
+ * function) */
+static int (*const put_fn)(int, FILE *) = putc;
+static int (*const get_fn)(FILE *) = getc;
+
+static int t_putc_getc(void) {
+    int ok;
+    ok = putc('a', stdout) == 'a' && put_fn('b', stdout) == 'b';
+    /* the '\n' vscanf left (it stops before it), then a new line */
+    ok = ok && getc(stdin) == '\n';
+    keys("xyz\n");
+    ok = ok && getc(stdin) == 'x' && get_fn(stdin) == 'y';
+#undef putc
+#undef getc
+    ok = ok && putc('c', stdout) == 'c' && getc(stdin) == 'z' && getc(stdin) == '\n';
+    return ok && put_fn == putc && get_fn == getc;
+}
+
 int main(void) {
     int a = 0, b = 0, n;
     char w[8];
-    OUT[4] = 0;
+    OUT[5] = 0;
 
     keys("12 34\n");               /* ('\n' is RETURN, $0D) */
     n = scanf("%d %d", &a, &b);
@@ -61,6 +82,7 @@ int main(void) {
 
     printf("ok");
     OUT[3] = fflush(stdout) == 0 && fflush(NULL) == 0;
-    OUT[4] = 0xAA;
+    OUT[4] = t_putc_getc();
+    OUT[5] = 0xAA;
     return 0;
 }
