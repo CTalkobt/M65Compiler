@@ -1875,6 +1875,26 @@ for fsmode in "stack|-fno-zpcall" "zp|"; do
     fi
 done
 
+# Test: DOS commands on the command channel: cbm_delete / cbm_rename /
+# cbm_format (#762), C's remove() / rename() (#763); REL files through the
+# drive (#783) and cbm_rel_truncate (#764); each on a scratch D81
+for dmode in "stack|-fno-zpcall" "zp|"; do
+    IFS='|' read -r dname dflags <<< "$dmode"
+    for dt in "dosfile|7|01 01 01 01 01 01 AA" "relfile|7|01 01 01 01 01 01 AA"; do
+        IFS='|' read -r dtn dtc dtx <<< "$dt"
+        echo "Testing test_${dtn}_xemu.c ($dname)..."
+        compile_link_test "src/test-resources/test_${dtn}_xemu.c" "build/test/test_${dtn}_${dname}_xemu.prg" "$dflags"
+        if [ $? -eq 0 ] && rm -f "build/test/test_${dtn}_${dname}.d81" &&
+           ./bin/disk45 create "build/test/test_${dtn}_${dname}.d81" -n "DOSTEST" >/dev/null 2>&1; then
+            run_xemu_test "test_${dtn}_$dname" "build/test/test_${dtn}_${dname}_xemu.prg" "C0C0" "$dtc" "$dtx" \
+                -8 "$PWD/build/test/test_${dtn}_${dname}.d81"
+        else
+            echo "FAIL: test_${dtn}_xemu.c $dname (build failed)"
+            failed=$((failed + 1))
+        fi
+    done
+done
+
 # Test: a REL file made by disk45 on a D81, used by BASIC 65's DOS (and the
 # records BASIC wrote read back by disk45)
 echo "Testing test_disk45_rel_xemu.bas..."

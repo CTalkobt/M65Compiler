@@ -2,9 +2,7 @@
  *
  * Implements Commodore file system operations:
  * - cbm_opendir, cbm_readdir, cbm_closedir — directory listing
- * - cbm_delete — delete files
- * - cbm_rename — rename files
- * - cbm_format — format disks
+ * (cbm_delete, cbm_rename, cbm_format: cbm_fileops.c)
  *
  * Phase 3 of FILE I/O implementation
  */
@@ -172,97 +170,6 @@ int cbm_closedir(int fd_handle) {
 /* ============================================================================
  * FILE OPERATIONS
  * ============================================================================ */
-
-/**
- * cbm_delete - Delete a file
- *
- * Deletes a file using the Commodore SCRATCH command.
- * Device interprets "S-FILENAME" as a scratch command.
- *
- * Parameters:
- *   device   — Device number
- *   filename — File to delete
- *
- * Returns:
- *   0 on success, -1 on error
- */
-int cbm_delete(unsigned char device, const char *filename) {
-    if (device == 0 || !filename) {
-        return -1;
-    }
-
-    /* Commodore deletion uses special SCRATCH command
-     * Format: "S-FILENAME" or ":FILENAME,S"
-     * We'll use the simpler approach: open for write with special handling
-     *
-     * TODO: Implement actual SCRATCH command via SETNAM
-     * For now, return error as this requires special KERNAL handling
-     */
-
-    return -1;  /* Not yet implemented */
-}
-
-/**
- * cbm_rename - Rename a file
- *
- * Renames a file using the Commodore RENAME command.
- * Device interprets "R-NEWNAME=OLDNAME" as a rename command.
- *
- * Parameters:
- *   device   — Device number
- *   old_name — Original filename
- *   new_name — New filename
- *
- * Returns:
- *   0 on success, -1 on error
- */
-int cbm_rename(unsigned char device, const char *old_name, const char *new_name) {
-    if (device == 0 || !old_name || !new_name) {
-        return -1;
-    }
-
-    /* Commodore renaming uses special RENAME command
-     * Format: "R-NEWNAME=OLDNAME"
-     *
-     * TODO: Implement actual RENAME command via SETNAM
-     * For now, return error as this requires special KERNAL handling
-     */
-
-    return -1;  /* Not yet implemented */
-}
-
-/**
- * cbm_format - Format a disk
- *
- * Formats a disk with a new name and ID.
- * WARNING: This is DESTRUCTIVE and erases all data!
- *
- * Parameters:
- *   device — Device number
- *   name   — Volume name (16 characters max)
- *   id     — Disk ID (typically "00")
- *
- * Returns:
- *   0 on success, -1 on error
- *
- * Note: Requires explicit confirmation or should be protected
- */
-int cbm_format(unsigned char device, const char *name, const char *id) {
-    if (device == 0 || !name || !id) {
-        return -1;
-    }
-
-    /* Commodore formatting uses special NEW/FORMAT command
-     * Format: "N-DISKNAME,ID"
-     *
-     * WARNING: This is DESTRUCTIVE!
-     *
-     * TODO: Implement actual FORMAT command via SETNAM
-     * Should require explicit confirmation from user
-     */
-
-    return -1;  /* Not yet implemented */
-}
 
 /* ============================================================================
  * DIRECTORY ITERATION HELPER

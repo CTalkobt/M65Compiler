@@ -4,6 +4,47 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### Disk files: DOS commands, `remove()` / `rename()`, REL files that work (#762, #763, #764, #783)
+
+- `cbm_delete`, `cbm_rename` and `cbm_format` send their DOS commands (`S0:`, `R0:new=0:old`, `N0:name,id`) on the
+  command channel instead of returning -1 (#762). `cbm_delete` succeeds only when a file was scratched; `cbm_rename`
+  refuses a name that exists (the MEGA65's DOS would make a second file of the name).
+- `<stdio.h>`'s `remove()` and `rename()` (#763), on unit 8, with `errno` `ENOENT`, `EEXIST`, `EACCES`, `EIO` (new;
+  `strerror` knows them).
+- REL files (#783): `cbm_rel_*` never created, positioned or read a REL file — the open lacked `,L,<size>` and records
+  were "positioned" by writing into the file. Rewritten as CBM DOS has it: `name,L,<size>`, `P` on the command channel
+  before each record, the record count found at open (less the empty records the DOS adds a block at a time).
+  `cbm_rel_delete` empties a record (the DOS's `$FF`).
+- `cbm_rel_truncate` changes the file on the disk (#764): the records kept are copied into a new REL file, which
+  replaces the old one.
+- Tests: `test_dosfile_xemu.c`, `test_relfile_xemu.c` (both conventions, scratch D81s). Found on the way: #785
+  (`fopen` of a missing file whose name starts with `_` succeeds).
+
+### al45: user-written rules (#765)
+
+- An `asm_rules` entry of `.cc45-lint.yml` with a `pattern:` is a rule of the project's own: an id (not
+  `mega65-`: a project prefix), a message, a severity and the instructions to look for, one after another in a
+  straight line, a list of steps (`- "lda #0"`, `- "sta {dst}"`) or one string, `pattern: "inc {x}; inc {x}"`.
+- Mnemonics with globs (`ld*`, `*`) and alternatives (`asl|lsr`); operands by their text as written, without
+  spaces or case: `*` any text, `{name}` a capture, the same text where it comes again, and in the message.
+- Reported as the built-in rules are: text / JSON / SARIF, `NOLINT(id)`, `overrides:`, `--severity=`,
+  `--checks=` / `--disable=`, `--list-rules`, `--explain`.
+- A malformed rule (a `mega65-` id, no message, a bad step or capture, an unknown key) is an error naming the
+  file and line. cl45 has none: it leaves `asm_rules`' to al45; `c_checks.pattern` is an error.
+- Test: `src/test-resources/al45/patterns/` in `test_al45.sh`; docs `doc/bin/al45.md`, `doc/architecture/lint.md`.
+
+### objdump45: binary diff mode -D (#766)
+
+- `objdump45 -D A B` compares two objects, two PRGs or two binaries (two of a kind; a `.prg` and a `.o45` are an
+  error). Objects and PRGs with symbols (an object's exports; a PRG's `-m` maps, `<prog>.map`, `<prog>.dbg`) are
+  compared symbol by symbol, each from its own start: the symbols whose bytes or relocations differ, with the
+  instructions that differ of both side by side (data as hex); without symbols, by address.
+- An object's relocations are part of the diff: another type or target at the same offset (an import resolved to
+  another symbol) is a difference even with equal bytes. The symbols that moved, those only in one file and an
+  object's imports only in one are listed; a summary line ends it.
+- Exit status as `cmp`'s: 0 identical, 1 different, 2 an error (was 0 for any comparison). `--json` writes the
+  comparison as one object (`doc/bin/objdump45.md#binary-diff--d`). The TODO in `objdump45_main.cpp` is gone.
+
 ### Housekeeping: the TODO scan; ROADMAP.md deprecated
 
 - `cbm_rel_insert` is removed: it wrote the record without shifting the others, which is `cbm_rel_write` (any record

@@ -38,7 +38,7 @@ FUSE, both optional, only for disk45):
   `CompilationConfig::lint`); `// NOLINT(id)`, `#pragma cc45 lint(ignore, id)`; `make lint-lib` runs both linters over
   the library (kept clean); the language server (`tools/ide/lsp-server`, `runLint`) runs cl45 and al45 on the text
   being edited (`m65.lint.enabled`); `doc/bin/cl45.md`
-- **objdump45** — object/PRG/binary/`.ovd`/`.ov1` inspector and disassembler (45GS02, or 65CE02 / 6502 / 6510 with `--cpu`; a `$0801` PRG is 6510; ROM routines and I/O registers by name from `-S` symbol files, `lib/symbols/c64.sym` / `mega65.sym`; `--source`: ca45 source that assembles back to the same bytes; `--cycles[=MHZ]` (the 45GS02's at 40 MHz measured: `include/CpuCycles.hpp`), `--vice`; `--html` / `--tree` / `--json`: everything in the files as a page, a terminal tree to browse, or data (`objdump45_html.cpp`, `objdump45_tree.cpp`, #201); also BASIC listing with `-bas`)
+- **objdump45** — object/PRG/binary/`.ovd`/`.ov1` inspector and disassembler (45GS02, or 65CE02 / 6502 / 6510 with `--cpu`; a `$0801` PRG is 6510; ROM routines and I/O registers by name from `-S` symbol files, `lib/symbols/c64.sym` / `mega65.sym`; `--source`: ca45 source that assembles back to the same bytes; `--cycles[=MHZ]` (the 45GS02's at 40 MHz measured: `include/CpuCycles.hpp`), `--vice`; `--html` / `--tree` / `--json`: everything in the files as a page, a terminal tree to browse, or data (`objdump45_html.cpp`, `objdump45_tree.cpp`, #201); `-D A B`: two objects / PRGs / binaries compared by symbol (both disassemblies, relocations, moved symbols; exit 0/1/2 as cmp, `--json`; #766); also BASIC listing with `-bas`)
 - **basic45** — BASIC 65 program generator (label-based source, PETSCII tokenizer, preprocessor,
   long variable names, block IF / proc, `--link` C functions, `--decompile`, `--disk`, `--emulator`;
   `--compile`: the program to machine code through cc45's IR and code generator, BASIC 65 but for the statements on the program's text (`MERGE`, `SAVE`, `LIST`…),
@@ -291,7 +291,7 @@ not change what is tested; a test's own later `-O` still wins. Use an
 explicit `-O<n>` in ad-hoc test commands too.
 
 - `make test` — unit tests; its example and library steps (`test_examples.sh`, `test_stdlib_new.sh`) run in xemu when it is there and are skipped without.
-- `bash src/test/test_xemu.sh` (`make test-xemu`) — runtime tests on xemu (1203 pass, about 3 minutes): each
+- `bash src/test/test_xemu.sh` (`make test-xemu`) — runtime tests on xemu (1207 pass, about 3 minutes): each
   `*_xemu.c` writes results to `$C0C0` (01 = pass, `$AA` sentinel), built in
   both conventions. New runtime tests follow this pattern and are registered
   in `test_xemu.sh`, most as one line: `xemu_case "FAIL message" <compile_link_test

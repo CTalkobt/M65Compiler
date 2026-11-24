@@ -44,6 +44,28 @@ struct Yaml {
 // false and err = "line N: ..." on a syntax error
 bool parseYaml(const std::string& text, Yaml& out, std::string& err);
 
+class Engine;
+
+// A user-written rule (#765): asm_rules entry with a pattern, a sequence of
+// instructions al45 looks for (AsmLint.cpp runPatterns; doc/bin/al45.md)
+struct PatternStep {
+    std::vector<std::string> mnemonics;   // lower case globs (ld*; *: any instruction), one to match
+    bool anyOperand = true;               // no operand pattern given
+    std::string operand;                  // the operand pattern (spaces removed, lower case)
+    std::string text;                     // as written (for --explain)
+};
+struct PatternRule {
+    std::string id, message, file;
+    int line = 0;
+    Level level = Level::Warning;
+    std::vector<PatternStep> steps;
+};
+// one step "mnemonic[|mnemonic...] [operand pattern]"; false and err on a malformed one
+bool parsePatternStep(const std::string& text, PatternStep& out, std::string& err);
+// an operand pattern over an operand's text (both spaces removed, lower case):
+// * any run, {name} a capture (a non-empty run, the same text where bound again)
+bool matchOperand(const std::string& pat, const std::string& text, std::map<std::string, std::string>& caps);
+
 // The configuration in force: what the files, the command line and the
 // defaults say, in that order of precedence (inline suppression is the
 // Engine's).
@@ -56,6 +78,7 @@ struct Config {
     std::map<std::string, std::string> messages;   // message per id
     std::map<std::string, std::string> options;    // mega65-...: value
     std::vector<std::string> sources;          // the files read (for -v)
+    std::vector<PatternRule> patterns;         // user-written rules (al45's; a later file's id replaces)
     // what was ignored, "file:line: ..." (#708): an unknown option or rule id,
     // a glob matching no rule, an option value that is not a number
     std::vector<std::string> warnings;
@@ -66,10 +89,15 @@ struct Config {
     bool loadDefaults(const std::string& dir, std::string& err);
     // --checks=LIST / --disable=ID[,ID] / --profile=P / --severity=ID=LEVEL
     bool applyOption(const std::string& arg, std::string& err);
+    // the user-written rules as the engine's rules (al45)
+    void addPatternRules(Engine& e) const;
     // the warnings on os as "<tool>: warning: ..." (each once per Config)
     void printWarnings(std::ostream& os, const std::string& tool);
 private:
     size_t warningsPrinted_ = 0;
+    std::set<std::string> userIds_;            // the ids of patterns (known to the warnings)
+    bool known(const std::string& id) const;
+    bool patternRule(const Yaml& r, const std::string& file, std::set<std::string>& idsHere, std::string& err);
     void option(const std::string& where, const std::string& key, const Yaml& v);
     void ruleId(const std::string& where, const std::string& id);
     void ruleGlob(const std::string& where, const std::string& glob);

@@ -287,6 +287,101 @@ void run(lint::Engine& e, AssemblerParser& p, const std::string& mainFile, bool 
             if (!refs.count(name) && !cc45Labels.count(name))
                 e.report("mega65-unused-label", p.lintTokenFile(*t), t->line, t->column, "local label '" + name + "' is never used");
     }
+
+    runPatterns(e, p, mainFile);   // (the configuration's own rules)
+}
+
+// --- user-written rules (#765): .cc45-lint.yml asm_rules entries with a
+// pattern, a sequence of instructions in one straight line ---
+
+namespace {
+
+// an instruction's operand as written: its tokens after the mnemonic, to the
+// end of the line, without spaces
+std::string operandText(AssemblerParser& p, const ST& s) {
+    const auto& toks = p.getTokens();
+    int i = s.instr.operandTokenIndex;
+    if (i < 0 || i >= (int)toks.size())
+        return s.instr.mode == AddressingMode::ACCUMULATOR ? "a" : "";
+    int line = toks[i].line;
+    // (back to the mnemonic: the index is not always the operand's first token, lda #n)
+    int k = i;
+    while (k > 0 && toks[k - 1].line == line && toks[k - 1].type != AssemblerTokenType::NEWLINE &&
+           toks[k - 1].type != AssemblerTokenType::INSTRUCTION)
+        k--;
+    if (k > 0 && toks[k - 1].type == AssemblerTokenType::INSTRUCTION && toks[k - 1].line == line) i = k;
+    std::string out;
+    for (; i < (int)toks.size(); i++) {
+        const auto& t = toks[i];
+        if (t.type == AssemblerTokenType::NEWLINE || t.type == AssemblerTokenType::END_OF_FILE || t.line != line) break;
+        if (t.type == AssemblerTokenType::STRING_LITERAL) out += "\"" + t.value + "\"";
+        else if (t.type == AssemblerTokenType::CHAR_LITERAL) out += "'" + t.value + "'";
+        else out += t.value;
+    }
+    std::string o;
+    for (char c : out)
+        if (c != ' ' && c != '\t') o += c;
+    return o;
+}
+
+}  // namespace
+
+void runPatterns(lint::Engine& e, AssemblerParser& p, const std::string& mainFile) {
+    const auto& rules = e.config.patterns;
+    bool any = false;
+    for (const auto& r : rules) any = any || e.levelOf(r.id) != lint::Level::Off;
+    if (!any) return;
+    auto fileOf = [&](const ST& s) { return s.asmFile.empty() ? mainFile : s.asmFile; };
+
+    // the straight-line runs of instructions: a label, proc / endproc, a
+    // segment change, data, a simulated operation or another file ends one
+    struct Insn { const ST* s; std::string mn, op, file; };
+    std::vector<std::vector<Insn>> runs(1);
+    auto cut = [&] { if (!runs.back().empty()) runs.emplace_back(); };
+    static const std::set<std::string> moves = {"segment", "org", "code", "text", "data", "bss", "align", "overlay"};
+    for (const auto& sp : p.statements) {
+        const ST& s = *sp;
+        if (s.deleted) continue;
+        if (!s.label.empty()) cut();
+        if (s.type == ST::NONE || s.type == ST::EXPR) continue;
+        if (s.type == ST::DIRECTIVE) {
+            if (s.size > 0 || moves.count(lower(s.dir.name))) cut();
+            continue;
+        }
+        if (s.type != ST::INSTRUCTION || s.instr.mnemonic == "proc" || s.instr.mnemonic == "endproc") {
+            cut();
+            continue;
+        }
+        std::string f = fileOf(s);
+        if (!runs.back().empty() && runs.back().back().file != f) cut();
+        runs.back().push_back({&s, lower(s.instr.mnemonic), operandText(p, s), f});
+    }
+
+    for (const auto& r : rules) {
+        if (e.levelOf(r.id) == lint::Level::Off || r.steps.empty()) continue;
+        for (const auto& run : runs) {
+            for (size_t i = 0; i + r.steps.size() <= run.size();) {
+                std::map<std::string, std::string> caps;
+                bool ok = true;
+                for (size_t k = 0; k < r.steps.size() && ok; k++) {
+                    const lint::PatternStep& st = r.steps[k];
+                    const Insn& in = run[i + k];
+                    ok = false;
+                    for (const auto& m : st.mnemonics) ok = ok || lint::globMatch(m, in.mn);
+                    if (ok && !st.anyOperand) ok = lint::matchOperand(st.operand, in.op, caps);
+                }
+                if (!ok) { i++; continue; }
+                std::string msg = r.message;
+                for (const auto& [name, v] : caps) {
+                    std::string key = "{" + name + "}";
+                    for (size_t at = msg.find(key); at != std::string::npos; at = msg.find(key, at + v.size()))
+                        msg.replace(at, key.size(), v);
+                }
+                e.report(r.id, run[i].file, run[i].s->line, 1, msg);
+                i += r.steps.size();   // (matches do not overlap)
+            }
+        }
+    }
 }
 
 }  // namespace asmlint

@@ -24,6 +24,10 @@ std::string defaultProfile(const AssemblerParser& p, bool relocMode);
 // works them out (--suggest-clobbers), on standard output
 void run(lint::Engine& e, AssemblerParser& p, const std::string& mainFile, bool suggest = false);
 
+// The user-written rules of the configuration (#765; e.config.patterns,
+// registered by Config::addPatternRules): run by run()
+void runPatterns(lint::Engine& e, AssemblerParser& p, const std::string& mainFile);
+
 // The rules on data flow (AsmLintFlow.cpp; phase 3): stale flags, stack
 // balance, dead register writes, redundant loads, dead base-page stores,
 // the parameter block and library temporaries across calls, declared

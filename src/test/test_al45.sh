@@ -52,8 +52,8 @@ printf 'asm_rules:\n  - id: mega65-no-bp-mode\n    pattern: "x"\n' > $C/.cc45-li
 $AL $C/sub/a.s45 > $D/cfg3.txt 2>&1; rc3=$?
 rm -f $C/.cc45-lint.yml
 if [ $rc1 = 1 ] && grep -q ": error: .*\[mega65-no-bp-mode\]" $D/cfg1.txt && [ $rc2 = 0 ] && [ ! -s $D/cfg2.txt ] &&
-   [ $rc3 = 1 ] && grep -q "not supported yet" $D/cfg3.txt; then
-    pass "al45: .cc45-lint.yml searched upward, severity error fails the run, --disable wins, pattern: refused"
+   [ $rc3 = 1 ] && grep -q "the mega65- ids are the built-in rules'" $D/cfg3.txt; then
+    pass "al45: .cc45-lint.yml searched upward, severity error fails the run, --disable wins, a pattern under a built-in id refused"
 else
     fail "al45 configuration: rc $rc1 $rc2 $rc3: $(cat $D/cfg1.txt $D/cfg2.txt $D/cfg3.txt | head -5)"
 fi
@@ -123,6 +123,70 @@ if [ "$(grep -c "has no base-page mode: its pointer is read at absolute" $D/j714
     pass "jmp / jsr (\$xx) and (\$xx,x): ca45 warns, al45's mega65-no-bp-mode agrees; (\$0040), (\$1234), phw \$0040 do not (#714)"
 else
     fail "#714 jmp (\$xx) warnings: $(cat $D/j714a.txt $D/j714b.txt)"
+fi
+
+# #765: user-written rules (pattern: in an asm_rules entry), the fixture's
+# .cc45-lint.yml beside it: the findings on the EXPECT lines; an override
+# before the rule makes one an error (exit 1); --checks turns on one that is
+# off; JSON and SARIF carry them; --list-rules and --explain show them
+P=src/test-resources/al45/patterns
+want=$(grep -n "EXPECT proj-" $P/patterns.s45 | sed -E 's/^([0-9]+):.*EXPECT (proj-[a-z0-9-]+).*/\1 \2/' | sort)
+got=$($AL --disable='mega65-*' $P/patterns.s45 2>$D/pat.err | sed -nE 's/^[^:]+:([0-9]+):[0-9]+: [a-z]+: .* \[(proj-[a-z0-9-]+)\]$/\1 \2/p' | sort)
+$AL --disable='mega65-*' $P/patterns.s45 > $D/pat.txt 2>&1; rc=$?
+$AL --disable='mega65-*' --checks=proj-any-then-rts --severity=proj-shift-a=warning $P/patterns.s45 > $D/pat2.txt 2>&1; rc2=$?
+$AL --disable='mega65-*' --format=json $P/patterns.s45 > $D/pat.json 2>&1
+$AL --disable='mega65-*' --format=sarif $P/patterns.s45 > $D/pat.sarif 2>&1
+if [ "$want" = "$got" ] && [ ! -s $D/pat.err ] && [ $rc = 1 ] && [ $rc2 = 0 ] &&
+   grep -qF "patterns.s45:4:1: warning: lda #0 then sta \$d020: stz \$d020 needs no A [proj-use-stz]" $D/pat.txt &&
+   grep -qF "patterns.s45:16:1: error: a shift of A [proj-shift-a]" $D/pat.txt &&
+   grep -qF "patterns.s45:24:1: warning: an instruction then rts [proj-any-then-rts]" $D/pat2.txt &&
+   grep -qF "patterns.s45:16:1: warning: a shift of A [proj-shift-a]" $D/pat2.txt &&
+   python3 -c "
+import json
+j=json.load(open('$D/pat.json')); s=json.load(open('$D/pat.sarif'))
+assert any(d['rule']=='proj-inc-twice' and d['severity']=='info' and d['line']==12 for d in j)
+r=s['runs'][0]
+assert any(x['ruleId']=='proj-use-stz' for x in r['results'])
+assert any(x['id']=='proj-use-stz' for x in r['tool']['driver']['rules'])
+" && $AL --config=$P/.cc45-lint.yml --list-rules | grep -q "^proj-any-then-rts  *off " &&
+   $AL --config=$P/.cc45-lint.yml --explain=proj-use-stz | grep -q "sta {dst}"; then
+    pass "al45: user-written rules: findings, captures, NOLINT, overrides, --checks / --severity, JSON / SARIF, --list-rules, --explain (#765)"
+else
+    fail "al45 user-written rules: want [$(echo $want)] got [$(echo $got)] rc $rc $rc2 $(head -3 $D/pat.err $D/pat2.txt)"
+fi
+
+# #765: malformed user-written rules are errors naming the file and line;
+# cl45 reads asm_rules' patterns and leaves them to al45, and refuses one in c_checks
+C=$D/cfg765
+mkdir -p $C
+cp $P/patterns.s45 $C/a.s45
+bad765() {   # yml, the error's text
+    printf "$1" > $C/.cc45-lint.yml
+    $AL $C/a.s45 > $C/out.txt 2>&1; local rc=$?
+    if [ $rc = 1 ] && grep -qF "al45: error: $C/.cc45-lint.yml:$2" $C/out.txt; then return 0; fi
+    echo "  (rc $rc: $(head -2 $C/out.txt))"
+    return 1
+}
+ok765=1
+bad765 'asm_rules:\n  - id: mega65-mine\n    message: m\n    pattern: nop\n' "2: 'mega65-mine': the mega65- ids are the built-in rules'" || ok765=0
+bad765 'asm_rules:\n  - id: proj-x\n    pattern: nop\n' "2: user-written rule 'proj-x' needs a message" || ok765=0
+bad765 'asm_rules:\n  - id: proj-x\n    message: m\n    pattern:\n      - nop\n      - "lda {x"\n' "6: pattern: 'lda {x': a capture is {name}" || ok765=0
+bad765 'asm_rules:\n  - id: proj-x\n    message: m\n    pattern: "l$da"\n' "4: pattern: 'l\$da': a mnemonic" || ok765=0
+bad765 'asm_rules:\n  - id: proj-x\n    message: "{y}"\n    pattern: "lda {x}"\n' "3: message: {y} is not a capture of the pattern" || ok765=0
+bad765 'asm_rules:\n  - id: proj-x\n    message: m\n    options:\n      a: 1\n    pattern: nop\n' "5: unknown key 'options' in a user-written rule" || ok765=0
+bad765 'asm_rules:\n  - id: proj-x\n    message: m\n    pattern: ""\n' "4: pattern: no instructions" || ok765=0
+bad765 'asm_rules:\n  - id: proj-x\n    message: m\n    pattern: nop\n  - id: proj-x\n    message: m\n    pattern: nop\n' "5: a second user-written rule 'proj-x'" || ok765=0
+printf 'int main(void) { return 0; }\n' > $C/m.c
+printf 'asm_rules:\n  - id: proj-x\n    message: m\n    pattern: nop\noverrides:\n  proj-x: error\n' > $C/.cc45-lint.yml
+./bin/cl45 -O2 $C/m.c > $C/cl1.txt 2>&1; rc1=$?
+printf 'c_checks:\n  pattern: "x"\n' > $C/.cc45-lint.yml
+./bin/cl45 -O2 $C/m.c > $C/cl2.txt 2>&1; rc2=$?
+rm -f $C/.cc45-lint.yml
+if [ $ok765 = 1 ] && [ $rc1 = 0 ] && [ ! -s $C/cl1.txt ] && [ $rc2 = 1 ] &&
+   grep -qF "cl45: error: $C/.cc45-lint.yml:2: c_checks: user-written rules (pattern:) are al45's only" $C/cl2.txt; then
+    pass "al45: malformed user-written rules are errors at their line; cl45 leaves asm_rules' to al45, refuses c_checks.pattern (#765)"
+else
+    fail "al45 #765 errors: ok $ok765, cl45 rc $rc1 $rc2: $(head -2 $C/cl1.txt $C/cl2.txt)"
 fi
 
 echo ""

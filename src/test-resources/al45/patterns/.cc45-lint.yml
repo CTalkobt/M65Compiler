@@ -1,0 +1,29 @@
+# user-written rules (#765): src/test/test_al45.sh
+overrides:
+  proj-shift-a: error         # (before the rule: still known)
+asm_rules:
+  - id: proj-use-stz
+    severity: warning
+    message: "lda #0 then sta {dst}: stz {dst} needs no A"
+    pattern:
+      - "lda #0"            # (quoted: # starts a YAML comment)
+      - "sta {dst}"
+  - id: proj-inc-twice
+    severity: info
+    message: "{x} incremented twice"
+    pattern: "inc {x}; inc {x}"
+  - id: proj-shift-a
+    message: "a shift of A"
+    pattern: "asl|lsr a"
+  - id: proj-load-store-same
+    message: "loaded from and stored back to {m}"
+    pattern:
+      - "ld* {m}"
+      - "st* {m}"
+  - id: proj-any-then-rts
+    severity: off
+    message: "an instruction then rts"
+    pattern: "*; rts"
+  - id: proj-indirect
+    message: "a store through a pointer"
+    pattern: "sta (*),y"
