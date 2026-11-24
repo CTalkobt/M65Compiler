@@ -199,24 +199,8 @@ private:
 };
 
 // Compression support
-class CompressionHelper {
+class CompressionHelper {   // (the archives are stored uncompressed: CRC32 only)
 public:
-    enum class CompressionLevel {
-        STORE = 0,      // No compression
-        FAST = 1,       // Fast compression
-        BALANCED = 6,   // Balanced speed/ratio
-        BEST = 9        // Best compression ratio
-    };
-
-    // Compress data
-    static std::vector<uint8_t> compress(
-        const std::vector<uint8_t>& data,
-        CompressionLevel level = CompressionLevel::BALANCED
-    );
-
-    // Decompress data
-    static std::vector<uint8_t> decompress(const std::vector<uint8_t>& compressedData);
-
     // Calculate CRC32
     static uint32_t calculateCRC32(const std::vector<uint8_t>& data);
 

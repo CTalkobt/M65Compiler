@@ -393,7 +393,7 @@ The masks are the base-page addresses themselves (`$00`–`$FF`, #360), as range
 
 A record means the convention is known; exports without one are never convention-checked by the linker. The linker bridges ZP/stack mismatches in **both** directions with thunks (an error with `ln45 --no-thunks`), and rejects SAC functions that are recursive or reachable from an ISR — see [ln45](../bin/ln45.md#calling-convention-thunks).
 
-The writer API can also put a content-flag record (`$FB`, flags byte; `O45_CONTENT_FLAG_*`) before the attribute record. No tool writes it and the reader does not understand it.
+(`$FB` was a content-flag record, flags byte, before the attribute record; no tool wrote it, the reader never understood it, and the writer no longer can. The byte stays reserved.)
 
 ---
 

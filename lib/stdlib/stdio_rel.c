@@ -693,9 +693,9 @@ int cbm_rel_truncate(int handle, unsigned int num_records) {
     unsigned int old_total = rel_files[handle].total_records;
 
     if (num_records < old_total) {
-        /* Truncating - just update metadata
-         * TODO: Actual truncation would require disk space management
-         */
+        /* Truncating: the handle's record count only. The truncation needs
+         * to be flushed to the disk, which is not done yet: the file keeps
+         * its records, and reopening it gives the old size back (#764) */
         rel_files[handle].total_records = num_records;
 
         /* Invalidate cache if beyond new size */
@@ -745,57 +745,6 @@ int cbm_rel_update(int handle, unsigned int record_num, const void *buffer, unsi
 
     /* Write to existing record (reuses cbm_rel_write logic) */
     return cbm_rel_write(handle, record_num, buffer, size);
-}
-
-/**
- * cbm_rel_insert - Insert record at position, shifting others
- *
- * Inserts a new record at specified position, shifting all records
- * after it down by one position. This is expensive as it requires
- * rewriting multiple records.
- *
- * Parameters:
- *   handle      — REL file handle
- *   record_num  — Position to insert (1-based)
- *   buffer      — Data for new record
- *   size        — Number of bytes
- *
- * Returns:
- *   Record number of inserted record (record_num), -1 on error
- *
- * Implementation Notes:
- *   - Not recommended for large files (O(n) operation)
- *   - Alternative: Use sparse file technique with deletion markers
- */
-int cbm_rel_insert(int handle, unsigned int record_num, const void *buffer, unsigned int size) {
-    if (handle < 0 || handle >= 8 || _rel_closed(handle) || !buffer) {
-        return -1;
-    }
-
-    if (record_num == 0 || record_num > rel_files[handle].total_records + 1) {
-        return -1;  /* Invalid position */
-    }
-
-    if (size > rel_files[handle].record_size) {
-        size = rel_files[handle].record_size;
-    }
-
-    /* TODO: Implement actual insertion with shifting
-     * This would require:
-     * 1. Read all records from record_num to end
-     * 2. Write them to record_num+1 to end+1
-     * 3. Write new record at record_num
-     *
-     * For now, just append to end or write to existing position
-     */
-
-    if (record_num <= rel_files[handle].total_records) {
-        /* Overwrite existing record (no shifting) */
-        return cbm_rel_write(handle, record_num, buffer, size);
-    } else {
-        /* Append at end */
-        return cbm_rel_append(handle, buffer, size);
-    }
 }
 
 /* ============================================================================
@@ -1028,7 +977,8 @@ static int _rel_can_retry(int error) {
  *   ✅ Removes all records after position N
  *   ✅ Invalidates cache if beyond new size
  *   ✅ Returns 0 on success, -1 on error
- *   ⚠️  Note: Actual disk truncation not implemented (future optimization)
+ *   ⚠️  Note: only the handle's record count changes; the truncation still
+ *       needs to be flushed to the disk (the file keeps its records, #764)
  *
  * In-Place Updates: cbm_rel_update(handle, record_num, buffer, size)
  *   ✅ Updates existing record with overflow handling
@@ -1036,12 +986,6 @@ static int _rel_can_retry(int error) {
  *   ✅ Validates record exists (record_num ≤ total_records)
  *   ✅ Returns bytes written, -1 on error
  *   ✅ Invalidates cache (file modified)
- *
- * Record Insert: cbm_rel_insert(handle, record_num, buffer, size)
- *   ✅ Inserts new record at position with shifting (O(n) operation)
- *   ✅ Warns: Not recommended for large files
- *   ✅ Current: Overwrites existing or appends (no actual shifting)
- *   ⚠️  Note: Full shifting implementation deferred (expensive)
  *
  * Constants:
  *   ✅ CBM_REL_DELETED = 0xFF (deletion marker byte)

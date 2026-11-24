@@ -1,7 +1,13 @@
 # M65 Compiler Suite Roadmap: v1.0 → v2.0
 
+> **Deprecated (2026-11-24).** This file is no longer maintained. The plan is the
+> GitHub issues and their milestones: [v1.5](https://github.com/CTalkobt/M65Compiler/milestone/5)
+> (the release in preparation), `v1.7.0`, `v2.0`, `v2.2` and `Future` (not assigned to a release)
+> — [all milestones](https://github.com/CTalkobt/M65Compiler/milestones). What each release
+> contains is CHANGELOG.md. Every item below that was still open has an issue, named where it is.
+
 **Current Status:** v1.1.0 released; v1.5.0 in preparation (everything below it is on `main`)
-**Last Updated:** 2026-11-18
+**Last Updated:** 2026-11-24
 **Maintainer:** Craig Taylor (CTalkobt)
 
 > The milestones below (v1.1 to v1.4, v2.0) group features; they shipped
@@ -53,7 +59,8 @@ What has landed since v1.1.0 (the entries, with their issues, are CHANGELOG.md's
 
 **Library**
 
-- [x] cc65's conio (in assembly, with a full-colour mode), TGI graphics (`<tgi.h>`, 320x200x256 and 640x200x16), `joystick.h`, `serial.h`, the `cbm_k_` functions
+- [x] cc65's conio (in assembly, with a full-colour mode), TGI graphics (`<tgi.h>`, 320x200x256 and 640x200x16; the VIC-II bitmaps and the 40x25 / 80x50 text screens with block characters, #645), `joystick.h`, `serial.h`, the `cbm_k_` functions
+- [x] Future headers implemented (#645): `hw_raster.h`, `hw_scroll.h`, `mega65_version.h`, `event_system.h`, `mem_pool.h`, `hw_audio_mixer.h`, `hw_io.h`, `hw_peripherals.h`, `rrb.h`; the graphics framework headers removed (29 future headers left, v1.7.0)
 - [x] `sprites.h`, `palette.h`, `seam.h`, `rom_ram.h`, `load.h`, stepped DMA, containers (arrays, maps, sets, ring buffers, lists), the far heap in assembly
 
 **disk45**
@@ -66,9 +73,9 @@ What has landed since v1.1.0 (the entries, with their issues, are CHANGELOG.md's
 - [x] Prebuilt archives for Linux x86_64 / arm64 (static) and macOS arm64, made by the release workflow (#621)
 - [x] Docker images with xemu (#99)
 - [x] Benchmarks against the other 6502 C compilers (`make bench`, #129)
-- [x] Tests: 1092 xemu runtime tests, GCC torture 551 in each convention, the validation tests in one program (#96), every runtime test on xemu
+- [x] Tests: 1203 xemu runtime tests, GCC torture 551 in each convention, the validation tests in one program (#96), every runtime test on xemu
 
-**Before the release** (#622; it waits for the defects the documentation check found, #632-#643): the Docker images on a registry (#625), the version, the changelog heading, the final validation, the tag and its notes.
+**Before the release** (#622, and the rest of the [v1.5 milestone](https://github.com/CTalkobt/M65Compiler/milestone/5)): `__builtin_trap` (#761), `cbm_delete` / `cbm_rename` / `cbm_format` (#762), `remove()` / `rename()` (#763), `cbm_rel_truncate` flushed to the disk (#764), al45 user-written rules (#765), objdump45 `-D` (#766); then the version, the changelog heading, the final validation, the tag and its notes. (The defects of the documentation check, #632-#643, and the Docker images on a registry, #625, are done.)
 
 ---
 
@@ -86,44 +93,37 @@ What has landed since v1.1.0 (the entries, with their issues, are CHANGELOG.md's
 
 ## Queued
 
-| Issue | Task | Category | Status |
-|-------|------|----------|--------|
-| #625 | The Docker images on a registry (`docker pull`) | release | in progress (for v1.5.0) |
-| #622 | Release housekeeping for v1.5.0 | release | open |
-| #611 | al45: style rules (`mega65-style-*`) and the `af45` formatter | linter | open (for v1.5.0) |
-| #577 | basic45: mixed programs (some procedures compiled, the rest interpreted) | basic45 | open |
-| #248 | Pluggable allocation with interprocedural liveness analysis | codegen | open |
-| #143 | The C64IDE AI integration on Linux | IDE | open |
-| #65 | Graph-colouring allocation for locals | codegen | open (v2.0) |
-| #59 | Inter-TU optimization (Phase 4) | optimizer | open (v2.0) |
+Moved to the milestones. Open there: #622 (release housekeeping, v1.5); #645 (the future headers), #656 (bitplane screens),
+#756 / #757 (software sprites, particles), #248 (pluggable allocation) for v1.7.0; #59 (inter-TU optimization), #65
+(graph-colouring allocation) for v2.0; #143 (the C64IDE AI integration on Linux) for v2.2.
 
-Done since v1.1.0 and formerly listed here: `__zp` globals (#67), `break N` (#71), `__likely` / `__unlikely` (#75), `__pure` / `__const` (#76).
+Done since v1.1.0 and formerly listed here: `__zp` globals (#67), `break N` (#71), `__likely` / `__unlikely` (#75), `__pure` / `__const` (#76), the Docker images on a registry (#625), al45 style rules and af45 (#611), basic45 mixed programs (#577).
 
 ---
 
 ## Language Extension Candidates
 
-Extensions that would make C convert to shorter or faster 45GS02 code. Not assigned to a release; in the order they would pay.
+Extensions that would make C convert to shorter or faster 45GS02 code. Not assigned to a release (milestone `Future`); in the order they would pay.
 
 | Extension | What it gives | Notes |
 |-----------|---------------|-------|
-| `__striped` arrays | An array of structs or 16-bit values stored as one byte array per byte of the element: `a[i].hp` is `ldx i` / `lda a_hp,x`, with no multiply and no pointer | The keyword is reserved (no effect yet); design in `doc/architecture/striped-arrays.md`. An element has no plain address (`&a[i]`, `memcpy` over the array); arrays over 256 elements need a second scheme |
-| `__assume(expr)` and value ranges | A fact the compiler cannot derive (`__assume(i < 40)`): an index kept in X or Y, no high-byte arithmetic, no carry propagation | Feeds the known-bits tracking (#350) and type narrowing; makes `__striped` more useful |
-| Compile-time generated tables | A `static const` array written as a formula of its index, evaluated by the compiler: the lookup tables that replace multiply, divide, sine and row addresses | A loop around `ConstEval` in an initializer |
-| Results in flags and registers | A function that returns a status in the carry flag, or two small values in A and X, as the ROM and hand-written assembly do | Touches the calling convention, the function records of `.o45` and ln45's convention thunks |
-| A BCD type | Decimal-mode arithmetic for scores and counters: no division by ten to print | Small and self-contained |
+| `__striped` arrays (#767) | An array of structs or 16-bit values stored as one byte array per byte of the element: `a[i].hp` is `ldx i` / `lda a_hp,x`, with no multiply and no pointer | The keyword is reserved (no effect yet); design in `doc/architecture/striped-arrays.md`. An element has no plain address (`&a[i]`, `memcpy` over the array); arrays over 256 elements need a second scheme |
+| `__assume(expr)` and value ranges (#768) | A fact the compiler cannot derive (`__assume(i < 40)`): an index kept in X or Y, no high-byte arithmetic, no carry propagation | Feeds the known-bits tracking (#350) and type narrowing; makes `__striped` more useful |
+| Compile-time generated tables (#769) | A `static const` array written as a formula of its index, evaluated by the compiler: the lookup tables that replace multiply, divide, sine and row addresses | A loop around `ConstEval` in an initializer |
+| Results in flags and registers (#770) | A function that returns a status in the carry flag, or two small values in A and X, as the ROM and hand-written assembly do | Touches the calling convention, the function records of `.o45` and ln45's convention thunks |
+| A BCD type (#771) | Decimal-mode arithmetic for scores and counters: no division by ten to print | Small and self-contained |
 
 Less conventional ones, which fit what cc45 already has (static frames, ln45's call graph, the measured cycle table). None has been checked against the source for parts that exist.
 
 | Extension | What it gives | Notes |
 |-----------|---------------|-------|
-| Coroutines on static frames (`yield`) | A function that suspends and resumes: game entities, music drivers and scripted sequences as straight-line code instead of hand-written state machines | A non-recursive function's locals are already in fixed storage (SAC): suspending costs two bytes for the resume address |
-| Cycle budgets (`__budget(cycles)`) | The build fails when a function can take more than a stated number of cycles: interrupt handlers, per-frame routines | ln45's call graph and `include/CpuCycles.hpp`; loops need bounds (`__assume`) |
-| Cycle-exact blocks (`__cycles(n)`) | A block padded to an exact length, or an error when it cannot be: raster effects without counting by hand | The same cycle table |
-| Compile-time functions | A C function evaluated by the compiler when its arguments are constant | Generalises the generated tables; `ConstEval` |
-| Variables in instruction operands | A variable kept in the immediate operand of the instruction that reads it (`lda #imm`, no storage of its own): the hand-coder's trick for inner loops | Safe for non-recursive functions, whose every read and write the compiler knows; not for code run from ROM |
-| Atomic blocks (`__atomic { ... }`) | Interrupts off around a block and the state before restored, nesting correctly | Replaces inline `sei` / `cli` |
-| Encoding-typed characters | PETSCII, screen codes and ASCII as distinct character types: a screen-code string passed to a PETSCII routine is a compile error | The string prefixes exist (`p"…"`, `s"…"`, `a"…"`); the encoding is lost once the literal has its type |
+| Coroutines on static frames (`yield`) (#772) | A function that suspends and resumes: game entities, music drivers and scripted sequences as straight-line code instead of hand-written state machines | A non-recursive function's locals are already in fixed storage (SAC): suspending costs two bytes for the resume address |
+| Cycle budgets (`__budget(cycles)`) (#773) | The build fails when a function can take more than a stated number of cycles: interrupt handlers, per-frame routines | ln45's call graph and `include/CpuCycles.hpp`; loops need bounds (`__assume`) |
+| Cycle-exact blocks (`__cycles(n)`) (#774) | A block padded to an exact length, or an error when it cannot be: raster effects without counting by hand | The same cycle table |
+| Compile-time functions (#775) | A C function evaluated by the compiler when its arguments are constant | Generalises the generated tables; `ConstEval` |
+| Variables in instruction operands (#776) | A variable kept in the immediate operand of the instruction that reads it (`lda #imm`, no storage of its own): the hand-coder's trick for inner loops | Safe for non-recursive functions, whose every read and write the compiler knows; not for code run from ROM |
+| Atomic blocks (`__atomic { ... }`) (#777) | Interrupts off around a block and the state before restored, nesting correctly | Replaces inline `sei` / `cli` |
+| Encoding-typed characters (#778) | PETSCII, screen codes and ASCII as distinct character types: a screen-code string passed to a PETSCII routine is a compile error | The string prefixes exist (`p"…"`, `s"…"`, `a"…"`); the encoding is lost once the literal has its type |
 
 ---
 
@@ -143,7 +143,7 @@ Less conventional ones, which fit what cc45 already has (static frames, ln45's c
 - [x] mega65.h hardware register overlays complete (VIC-IV, SID, CIA, DMA, math accel, audio mixer, FDC, SD, Ethernet, Hypervisor)
 - [x] Calling convention enforcement implemented (FUNC_FLAG_ZP_CONV bit, linker safety checks, thunk generation)
 - [x] _Alignas support Phase 1 complete (alignment computation, .align directives)
-- [ ] Final QA on real MEGA65 hardware (the runtime tests run on xemu)
+- [ ] Final QA on real MEGA65 hardware (the runtime tests run on xemu) — #782
 - [x] Release notes finalized (CHANGELOG.md)
 - [x] Man pages generated (`make man`, requires pandoc)
 
@@ -159,9 +159,9 @@ Less conventional ones, which fit what cc45 already has (static frames, ln45's c
 
 | Task | Category | Status |
 |------|----------|--------|
-| Regression test validation (diverse 45GS02 patterns) | test | todo |
+| Regression test validation (diverse 45GS02 patterns) | test | **done** (#47) |
 | Performance microbenchmarks | test | **done** (`make bench`, #129) |
-| Documentation cleanup (remove stale .tmp/, consolidate todo.md) | doc | todo |
+| Documentation cleanup (remove stale .tmp/, consolidate todo.md) | doc | **done** (both gone) |
 
 ---
 
@@ -247,9 +247,9 @@ Less conventional ones, which fit what cc45 already has (static frames, ln45's c
 ## Post-v2.0 (Deferred)
 
 - ~~Floating-point support~~ — **done** (CBM 40-bit via BASIC 65 ROM; 27 math functions)
-- Lambda expressions
-- Link-Time Code Generation (LTO) — the Phase 100 LTCO code exists but is not connected (`doc/architecture/cross-module-optimization.md`)
-- Static analysis & sanitizers — static analysis **done** as the linters cl45 and al45 (v1.5.0); sanitizers open
+- Lambda expressions — #779
+- Link-Time Code Generation (LTO) — #780; the Phase 100 LTCO code exists but is not connected (`doc/architecture/cross-module-optimization.md`)
+- Static analysis & sanitizers — static analysis **done** as the linters cl45 and al45 (v1.5.0); sanitizers #781
 
 ### Optimizer — Remaining Items
 

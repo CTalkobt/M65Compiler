@@ -289,16 +289,6 @@ void O45Writer::emitExports(std::vector<uint8_t>& out) const {
         out.push_back(segByte);
         writeU32(out, exp.offset);
 
-        // Phase 49: Emit content flags if explicitly set
-        // NOTE: Content flag marker is not yet handled by O45Reader,
-        // so we only emit it if explicitly requested via exportContentFlags_
-        auto flagIt = exportContentFlags_.find(exp.name);
-        if (flagIt != exportContentFlags_.end()) {
-            out.push_back(O45_CONTENTFLAG_MARKER);  // $FB marker for content flags
-            uint8_t flags = flagIt->second;
-            out.push_back(flags);
-        }
-
         // Emit function attribute record if present
         auto it = funcAttrs_.find(exp.name);
         if (it != funcAttrs_.end()) {

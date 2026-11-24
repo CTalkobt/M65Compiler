@@ -728,12 +728,6 @@
    "doc": ""
   },
   {
-   "name": "cbm_rel_insert",
-   "header": "stdio.h",
-   "signature": "int cbm_rel_insert(int handle, unsigned int record_num, const void *buffer, unsigned int size)",
-   "doc": ""
-  },
-  {
    "name": "cbm_rel_is_open",
    "header": "stdio.h",
    "signature": "int cbm_rel_is_open(int handle)",

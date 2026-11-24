@@ -602,7 +602,9 @@ and `VSYNC line` (0-511, below the frame's last line) set the VIC-IV's registers
 screen is with the graphics below. Test: `test_basic_compile10_xemu.bas`.
 
 **Graphics**: `SCREEN DEF / OPEN / SET / CLOSE / CLR` and the old `SCREEN [screen,] width, height, depth`,
-`PEN [pen,] colour`, `DMODE`, `DPAT`, `DOT`, `LINE` (a chain of points; a value left out is the last point's), `BOX`
+`PEN [pen,] colour`, `DMODE jam, complement, stencil, style, thickness` (the line thickness, 1-8, is kept but not used:
+lines are one pixel wide, as BASIC 65's ROM draws them, V920413's `kg65.drawmode` bits 5-7 "unused"; the MEGA65
+Book's `DMODE` lists a sixth argument, `inverse`, which the ROM does not take), `DPAT`, `DOT`, `LINE` (a chain of points; a value left out is the last point's), `BOX`
 (two or four corners, solid), `CIRCLE` / `ELLIPSE` (`flag`: solid, no legs, angles from 12 o'clock; a sector from
 `start` to `end` degrees), `POLYGON` (sides, the sides drawn, subtend lines, the start angle, solid), `PALETTE screen,
 colour, red, green, blue`, `SCNCLR colour`, `GRAPHIC CLR`, `PAINT x, y [, mode [, colour]]` (mode 0: the area of
@@ -1023,7 +1025,7 @@ differs — checked against BASIC 65's own source and the C128 System Guide, the
 | `SCALE n [, xmax, ymax]` | coordinates 0–`xmax` / 0–`ymax` (default 1023) across the bit map | the screen's pixels | the drawing statements' coordinates (and radii) times two factors `SCALE` sets (320 or, in multicolour, 160 / (xmax + 1); 200 / (ymax + 1); 1 after `SCALE 0`) |
 | `POKE 53265, v` (`$D011`) | bit 7 written: the raster compare's bit 8 (read, the raster line's; the C128's KERNAL runs on its own raster IRQ, the C64's on a CIA timer) | the KERNAL's IRQ is the raster IRQ at line 255: a compare of 256 or more (a `PEEK(53265)` written back while the raster is past line 255) is a line that never comes, and every IRQ stops — `PLAY`, `TI`'s clock, the keyboard | `POKE 53265, (v) and 127` (a number: its value and 127); the conversion's own `$D011` writes too |
 | `SSHAPE a$, x1, y1 [, x2, y2]` / `GSHAPE a$ [, x, y] [, mode]` | an area saved in a string / drawn back (mode 0 as it is, 1 inverted, 2 OR, 3 AND, 4 XOR) | `GCOPY x, y, width, height` / `PASTE x, y`: one buffer, under 1024 pixels on a 16-colour screen (`?ILLEGAL QUANTITY`) | when the program keeps one shape (one string): `GCOPY` / `PASTE` (the pixel cursor for an omitted corner or place); a mode other than 0, an area known to be too large, several shapes warned |
-| No counterpart | `WIDTH` (BASIC 65's `DMODE` thickness is not implemented), `PUDEF`, `SPRDEF`, `QUIT` | | left as written, warned |
+| No counterpart | `WIDTH` (BASIC 65's `DMODE` thickness is not used: lines are one pixel wide, see [Compiling](#compiling-compile)), `PUDEF`, `SPRDEF`, `QUIT` | | left as written, warned |
 | `MOVSPR n, distance;angle` | a move by a distance at an angle (0 up, clockwise) | `MOVSPR n, +dx, +dy` | `+(INT(d * SIN(a) + .5)), +(INT(-d * COS(a) + .5))`: BASIC 65's relative move (from where the sprite is going) |
 | `RWINDOW(0)` / `RWINDOW(1)` | the window's lines / columns | `RWINDOW(1)` / `RWINDOW(0)` | swapped (BASIC 65: 0 the width, 1 the height); of an expression warned |
 | Other arguments | `BANK` (the C128's bank numbers), `PLAY` of a string variable (its voices timed together only for a literal) | | warned |
