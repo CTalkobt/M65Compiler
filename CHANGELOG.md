@@ -4,6 +4,15 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### A static-allocation parameter has one slot, not two (#791)
+
+- Every parameter of a static-allocation function whose vreg was in memory got, beside its `_f__param_<name>`
+  slot, a `_f__local_<n>` slot for its vreg that nothing named (every access to a parameter goes to
+  `_f__param_<name>`). No longer emitted, in either convention. The library's SAC storage (`cc45.sacsize`, summed):
+  stack convention 7,789 → 6,422 bytes (−18%; 9,426 before #790), ZP convention 6,827 → 6,476 (−5%); the examples'
+  3,952 → 3,372 and 3,424 → 3,374.
+  Test: `src/test/test_alloc_report.sh`.
+
 ### Where each variable is placed, and why: `cc45 -Ralloc`, ln45 `-M` (#248); SAC slot sharing works again (#790)
 
 - `cc45 -Ralloc`: for each function, static allocation or a stack frame (and why), its convention, the frame, static
