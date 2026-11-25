@@ -3,8 +3,8 @@
 Can cc45 save space by compiling functions to a compact p-code that an interpreter runs, instead of 45GS02 code,
 and what does it cost? This directory has the measurements and the prototypes: an interpreter, a translator
 that turns p-code into native code the first time it runs (and keeps it), and both reading their p-code from far
-memory. Nothing here is part of the toolchain; `CC45_PCODE_STATS` (below) is the only change to cc45, and it only
-measures.
+memory, and a p-code back end in cc45 that runs a whole example (musicgen) as p-code. Nothing here is part of the
+toolchain: cc45's changes act only with `CC45_PCODE_STATS` (it measures) or `CC45_PCODE` (the back end) set.
 
 ## Summary
 
@@ -23,6 +23,11 @@ measures.
 - **Cost.** An interpreter of the whole instruction set about 3-3.5 KB, a translator 2-3 KB more, the cache a fixed
   few KB. Against the per-function saving the interpreter pays for itself in a program with about 9-10 KB of C
   code, interpreter and translator at about 15-20 KB.
+- **A real program.** cc45's first p-code back end (`CC45_PCODE`) runs examples/musicgen with 47 of its 49
+  functions as p-code: it draws its screen and answers keys as the native build does. Its `.prg` is **20,141 bytes
+  against 17,034 native (+18%)**: the back end is the plain encoding (no scheme B forms) and the runtime is 2.8 KB.
+  An operation-by-operation test against native code found only native bugs (#794, #795); the work found a ca45
+  bug too (#796).
 
 ## How big would p-code be?
 
@@ -155,6 +160,66 @@ and runs it from each.
 - xemu does not model attic RAM's latency: on a MEGA65 interpreting from attic RAM will be slower than here; the
   translator reads the p-code once, so hot code should not be. To be measured on the hardware.
 
+## The p-code back end (`CC45_PCODE`; `src/main/PcodeEmit.cpp`, `pcode_rt.s45`)
+
+cc45 translates the functions named by `CC45_PCODE` (`all`, or a comma list) from their optimized IR to p-code;
+`CC45_PCODE_REPORT=1` names each one chosen or left native, and why (an operation it does not translate, inline
+asm). The program is linked with the runtime, `ca45 -c pcode_rt.s45`.
+
+- **A function** is its frame, `<f>__pf` (static: the function is marked recursive so it gets no SAC block of its
+  own; parameters, locals and the IR's temporaries, temporaries of different blocks sharing bytes, at most 250
+  bytes), a native entry and its p-code. The entry copies the ZP parameters into the frame and jumps to the
+  interpreter with the p-code's address in A/X and the frame's in Y/Z (`jmp __pc_enter`). It declares
+  `.zp_clobbers $08-$FF`, so callers keep nothing in the base page across it. RET leaves the result in A/X/Y/Z and
+  returns to the native caller.
+- **The encoding**: an opcode byte (bits 5-0 the operation, bit 7 the word form, bit 6 the long form), then frame
+  offsets, an immediate of the operation's width, or a 2-byte address. 47 opcodes: CONST, MOV, LDG/STG (globals),
+  LD/ST (through a pointer), LEAL, ELEM (base + index * stride), the ALU operations with immediate forms, DIV/MOD
+  signed and unsigned, NEG, NOT, CMP/CMPI (a condition code), BR/BNZ/BZ, CALL (ZP convention: native, or p-code
+  through its entry), RET/RETV, ZEXT/SEXT, and ADV (a run of over 240 bytes). Left native: a function with an
+  operation the back end does not translate (far and near access, floats and the like), inline asm, calls through
+  a pointer or to stack-convention or `__regparm` functions, the stack convention itself, variadic, `__interrupt`,
+  `__naked`, nested and recursive functions.
+- **The interpreter** (`pcode_rt.s45`, about 2.8 KB): one generic handler per operation working on two
+  accumulators of the operation's width (1, 2 or 4 bytes), dispatched by `asl / tax / jmp (handlers,x)`; its state
+  in the base page (IP `$08`, FP `$0A`, accumulators at `$F3` and `$F7`). CALL saves IP and FP on the stack.
+
+### Correctness (`test_pcops_xemu.c`, `run_pcops.sh`)
+
+Every operation at 8, 16 and 32 bits, signed and unsigned, over a spread of values, element access of several
+strides, calls with each argument and result width, and branches on each width; built native and as p-code, a
+checksum per call compared. All the differences found were native cc45's: signed 16-bit `%` (#794) and 32-bit
+`$FFFFFFFF / 1` and `% 1` (#795); the p-code gives the C result.
+
+### musicgen
+
+Every file of `examples/c/musicgen` compiled with `CC45_PCODE=all` and linked with the runtime: 47 functions as
+p-code, `main` and `video_on` native (inline asm). Driven headless in xemu with virtual keys (`$D615`), it draws the
+whole screen and keys change the style, the drums and the tempo as in the native build (the songs differ: they
+are random).
+
+| | native | p-code |
+|---|---:|---:|
+| `.prg`, interactive build | 17,034 | 20,141 |
+| `.prg`, `MG_TEST` build | 8,674 | 10,676 |
+| BSS | 3,191 | 4,416 |
+
+The p-code is larger because this back end is the plain encoding: none of scheme B's combined instructions, every
+global or constant operand without an immediate form first copied into the frame (a MOV or CONST); plus the 2.8 KB
+runtime and frames that ln45 does not overlay as it does SAC blocks (hence the BSS). Scheme B's forms and
+overlaid frames are the next steps; the measurements above put the plain encoding's saving at 17% for the
+examples before the runtime, so musicgen (about 13 KB of its own code) is near the break-even point.
+
+### Bugs found on the way
+
+- **The startup that returned at once to `READY.`** was ca45's tail deduplication (#796): the first entries ended
+  `jsr __pc_enter` + `.word` p-code + `.word` frame + `rts`; ca45 compared only the instructions, found the tails
+  the same and made most entries jump into another function's entry, which then ran that function's p-code. The
+  entry now passes the addresses in registers.
+- Branches taken the wrong way (BR_COND's targets read in the wrong order), and callers keeping arguments in
+  `$10` across a call into p-code (the entry did not declare what the interpreter changes): both in the back end,
+  fixed.
+
 ## What a design would have to settle
 
 - The p-code instruction set: scheme B's forms, the rare operations as escapes, a native escape for inline asm.
@@ -180,6 +245,9 @@ and runs it from each.
 | `pcode_jit.s45` | the translator: the frame in the base page, the peephole (`pcode_jit`) |
 | `pcode_jit_abs.s45` | the translator, variables at absolute addresses (`pcode_jita`) |
 | `pcode_jitf.s45` | `pcode_jit.s45` with far p-code (`pcode_jitf`) |
+| `pcode_rt.s45` | the runtime of cc45's p-code back end (`__pc_enter`) |
+| `test_pcops_xemu.c`, `run_pcops.sh` | every p-code operation against native code, in xemu |
+| `../../src/main/PcodeEmit.cpp` | the back end (`CC45_PCODE`, `CC45_PCODE_REPORT`) |
 | `pcode_progs.s45` | the p-code programs, written by hand |
 | `test_pcode_xemu.c`, `test_jit_xemu.c`, `test_far_xemu.c` | the xemu tests (`run.sh` builds and runs them) |
 | `tools/collect.sh` | `CC45_PCODE_STATS` over the library and the examples, and the tables |
