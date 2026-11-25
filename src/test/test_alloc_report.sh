@@ -3,7 +3,7 @@
 # cc45 -Ralloc (on stderr; with -S also as "; alloc:" comments), the same
 # code with and without it; ln45 -M's Static Allocation section and the base
 # page blocks' sharing (the programs' call graphs), and SAC slot sharing
-# happening at all (#790)
+# happening at all (#790); no unused slot for a parameter (#791)
 cd "$(dirname "$0")/../.." || exit 1
 BIN=./bin
 TMP=$(mktemp -d)
@@ -77,6 +77,17 @@ for conv in "zp|" "stack|-fno-zpcall"; do
         ok "-Ralloc -S ($cname): '; alloc:' comments, the assembly otherwise the same"
     else
         bad "-Ralloc -S ($cname): comments missing or the assembly differs"
+    fi
+done
+# #791: a static-allocation parameter has its _f__param_ slot only (no
+# _f__local_<n> for its vreg), in both conventions, sharing on or off
+for flags in "" "-fno-zpcall" "-fno-zpcall -fno-sac-slot-sharing"; do
+    $BIN/cc45 -O2 $flags -fno-zp-locals -S "$TMP/a.c" -o "$TMP/p791.s45" 2>/dev/null
+    if grep -q '^_branches__param_c:' "$TMP/p791.s45" && ! grep -q '^_branches__local_0:' "$TMP/p791.s45" &&
+       ! grep -q '^_sum__local_[01]:' "$TMP/p791.s45"; then
+        ok "#791 ($flags): no unused _local_ slot for a parameter"
+    else
+        bad "#791 ($flags): a parameter's vreg has a slot: $(grep -E '^_(branches|sum)__local_[01]:' "$TMP/p791.s45")"
     fi
 done
 grep -q -- '-Ralloc' <($BIN/cc45 --help 2>&1) && ok "cc45 --help names -Ralloc" || bad "cc45 --help: no -Ralloc"

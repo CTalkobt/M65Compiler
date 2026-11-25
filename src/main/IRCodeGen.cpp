@@ -5503,6 +5503,7 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
             bool aligned = false;
             for (const auto& [vregId, offset] : vregOffset_) {
                 (void)offset;
+                if (vregId < fn.paramTypes.size()) continue;   // (its __param_ slot: above)
                 if (alloc_.getAlloc(vregId).loc != VRegAllocator::IN_FRAME) continue;
                 hasStorage = true;
                 auto ait = fn.vregAlign.find(vregId);
@@ -5567,8 +5568,11 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
             }
         }
 
-        // Emit storage for locals
+        // Emit storage for locals (not a parameter's vreg: a parameter is
+        // always reached as <fn>__param_<name>, its slot above; a
+        // _local_<n> of its own was never named, #791)
         for (const auto& [vregId, offset] : vregOffset_) {
+            if (vregId < fn.paramTypes.size()) continue;
             auto alloc = alloc_.getAlloc(vregId);
             if (alloc.loc == VRegAllocator::IN_FRAME) {
                 std::string localSymbol = fn.name + "__local_" + std::to_string(vregId);
