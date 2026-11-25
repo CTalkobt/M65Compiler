@@ -80,6 +80,7 @@ public:
     void setEmitReasons(bool r) { emitReasons_ = r; }   // -Rcodegen
     void setAllocReport(bool r) { allocReport_ = r; }   // -Ralloc (#248)
     static std::string finishAllocReport(const std::string& text, std::ostream& err);
+    void writePcodeStats(const char* path);   // research/pcode: CC45_PCODE_STATS
     // Assemble trial texts (ca45, at once): for each, where its exported code
     // symbols start and its code's size (loop rotation keeps what is not
     // larger; the pipeline reuses the object of the text it keeps)

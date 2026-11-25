@@ -1,0 +1,544 @@
+; pcode_jit.s45 — research/pcode: option B, a prototype. The p-code of a
+; block is translated, the first time it runs, into 45GS02 code in a cache
+; (a template per instruction, its variables at fixed addresses: the frame
+; is the same at every run, as a function's static block is), and run from
+; there. The frame is in the base page: while the cached code runs, B is the
+; frame's page and a variable is the base-page byte FP.lo + its offset (the
+; frame must not cross a page; offsets 14-15 are the templates' element
+; pointer). jit_miss and RET put the program's B back (pcode_jit_abs.s45:
+; the same with the variables at absolute addresses). A branch leaves its block through a stub (jsr jit_miss; .word
+; target): the first time it is taken, jit_miss finds or translates the
+; target's block and makes the stub a jmp to it (chaining), so code that runs
+; again runs from the cache alone.
+;
+; unsigned pcode_jit(const unsigned char *code, void *frame);
+;   As pcode_run (pcode_vm.s45), for the instructions translated here:
+;   SET.w, ADD2.w, INC.w, LDE.w (s 0 or 1), BGEU.w, BLTU.w, BR, RET.w
+;   (another: returns $FFFF). The cache is 1 KB, 32 blocks: when full it is
+;   emptied. pcode_jit_flush() empties it.
+;
+; Base page (the program's scratch, and the library's temps):
+;   IP  $08/$09  the p-code being translated: (IP),Z
+;   FP  $0A/$0B  the frame (the templates' variables: FP + their offset)
+;   PTR $0C/$0D  the templates' element address
+;   CP  $0E/$0F  where the block being translated goes: (CP),Y
+;   (jt, the native address to jump to, is absolute: jmp (abs) has no
+;   base-page mode, jmp ($F6) would read page 0)
+;   SA  $F8/$F9  a stub's address (jit_miss)
+
+; no calls through pointers here (ln45's call graph)
+.weak cc45.icallinfo
+cc45.icallinfo = 1
+
+IP  = $08
+FP  = $0A
+PTR = $0C
+CP  = $0E
+SA  = $F8
+
+EP  = 14                        ; the frame's element pointer (LDE)
+NBLOCKS = 32
+CACHE   = 1024
+MAXBLK  = 120                   ; the largest block translated (bytes of code)
+
+.global _pcode_jit, _pcode_jit_flush, _pcode_jit_used
+.segment "code"
+
+; emit a byte: (CP),Y = v; Y++
+.macro EMIT v
+    lda #(v)
+    sta (CP),y
+    iny
+.endmacro
+
+; an opcode, then the base-page address of the variable whose offset is in A
+.macro EMIT_A_AFTER op
+    pha
+    EMIT op
+    pla
+    jsr emit_var
+.endmacro
+
+proc _pcode_jit
+    .zp_uses $10, $11, $12, $13
+    .zp_clobbers $08, $09, $0A, $0B, $0C, $0D, $0E, $0F, $F8, $F9
+    .zp_release $10, $11, $12, $13
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    lda $10
+    sta IP
+    lda $11
+    sta IP+1
+    lda $12
+    sta FP
+    lda $13
+    sta FP+1
+    lda used                    ; (first use: the cache empty)
+    ora used+1
+    bne go
+    jsr flush
+go:
+    tba                         ; the program's base page (RET and jit_miss
+    sta progb                   ; put it back)
+    jsr block_at                ; jt = the native code of the block at IP
+    lda FP+1                    ; the frame's page: the cached code's base page
+    tab
+    jmp (jt)
+
+; jit_miss: a stub's jsr: the target (the word after the jsr) found or
+; translated, the stub made a jmp to it, and run
+jit_miss:
+    lda progb                   ; the program's base page (IP, FP, SA are there)
+    tab
+    pla                         ; the return address: the stub + 2
+    sec
+    sbc #2
+    sta SA
+    pla
+    sbc #0
+    sta SA+1
+    ldy #3                      ; the target: the stub + 3
+    lda (SA),y
+    sta IP
+    iny
+    lda (SA),y
+    sta IP+1
+    jsr block_at
+    ldy #0                      ; the stub: jmp jt
+    lda #$4C
+    sta (SA),y
+    iny
+    lda jt
+    sta (SA),y
+    iny
+    lda jt+1
+    sta (SA),y
+    lda FP+1                    ; back to the frame's page
+    tab
+    jmp (jt)
+
+; block_at: jt = the native code of the block at IP (translated if new)
+block_at:
+    ldx #0
+@find:
+    cpx nblk
+    beq @new
+    lda tag_lo,x
+    cmp IP
+    bne @next
+    lda tag_hi,x
+    cmp IP+1
+    bne @next
+    lda nat_lo,x
+    sta jt
+    lda nat_hi,x
+    sta jt+1
+    rts
+@next:
+    inx
+    bra @find
+@new:
+    ; room for one more (a block, and an entry): else the cache emptied
+    lda nblk
+    cmp #NBLOCKS
+    bcs @full
+    lda used
+    clc
+    adc #MAXBLK
+    lda used+1
+    adc #0
+    cmp #>(CACHE - MAXBLK)
+    bcc @room
+@full:
+    jsr flush
+@room:
+    ldx nblk
+    lda IP
+    sta tag_lo,x
+    lda IP+1
+    sta tag_hi,x
+    lda #<cache                 ; CP = cache + used
+    clc
+    adc used
+    sta CP
+    sta nat_lo,x
+    sta jt
+    lda #>cache
+    adc used+1
+    sta CP+1
+    sta nat_hi,x
+    sta jt+1
+    inc nblk
+    jsr translate               ; Y = the block's bytes
+    tya
+    clc
+    adc used
+    sta used
+    bcc @done
+    inc used+1
+@done:
+    rts
+
+flush:
+    lda #0
+    sta nblk
+    sta used
+    sta used+1
+    rts
+
+; translate: the block at IP into (CP),Y; returns Y = its bytes
+translate:
+    ldy #0
+    ldz #0
+@inst:
+    lda (IP),z                  ; the opcode
+    inz
+    cmp #$85
+    beq @set
+    cmp #$89
+    beq @add2
+    cmp #$8A
+    beq @inc
+    cmp #$8B
+    beq @lde
+    cmp #$84
+    beq @bgeu
+    cmp #$8C
+    beq @bltu
+    cmp #$06
+    beq @br
+    cmp #$87
+    beq @ret
+    ; not translated: the block returns $FFFF (B back)
+    EMIT $A9                    ; lda #progb
+    lda progb
+    sta (CP),y
+    iny
+    EMIT $5B                    ; tab
+    EMIT $A9                    ; lda #$FF
+    EMIT $FF
+    EMIT $AA                    ; tax
+    EMIT $60                    ; rts
+    rts
+
+@set:                           ; SET.w d, #imm: lda #lo; sta d; lda #hi; sta d+1
+    lda (IP),z
+    inz
+    tax                         ; d
+    EMIT $A9
+    lda (IP),z
+    inz
+    sta (CP),y
+    iny
+    EMIT $85
+    txa
+    jsr emit_var
+    EMIT $A9
+    lda (IP),z
+    inz
+    sta (CP),y
+    iny
+    EMIT $85
+    txa
+    inc a
+    jsr emit_var
+    jmp @inst
+
+@add2:                          ; ADD2.w d, a: d = d + a
+    lda (IP),z
+    inz
+    sta t_d
+    lda (IP),z
+    inz
+    sta t_a
+    EMIT $A5                    ; lda d
+    lda t_d
+    jsr emit_var
+    EMIT $18                    ; clc
+    EMIT $65                    ; adc a
+    lda t_a
+    jsr emit_var
+    EMIT $85                    ; sta d
+    lda t_d
+    jsr emit_var
+    EMIT $A5                    ; lda d+1
+    lda t_d
+    inc a
+    jsr emit_var
+    EMIT $65                    ; adc a+1
+    lda t_a
+    inc a
+    jsr emit_var
+    EMIT $85                    ; sta d+1
+    lda t_d
+    inc a
+    jsr emit_var
+    jmp @inst
+
+@inc:                           ; INC.w d: inw d (a base-page word)
+    lda (IP),z
+    inz
+    EMIT_A_AFTER $E3
+    jmp @inst
+
+@lde:                           ; LDE.w d, b, i, s (s 0 or 1)
+    lda (IP),z
+    inz
+    sta t_d
+    lda (IP),z
+    inz
+    sta t_a                     ; b
+    lda (IP),z
+    inz
+    sta t_b                     ; i
+    lda (IP),z
+    inz
+    sta t_s
+    EMIT $A5                    ; lda i
+    lda t_b
+    jsr emit_var
+    lda t_s
+    beq @l0
+    EMIT $0A                    ; asl
+@l0:
+    EMIT $AA                    ; tax
+    EMIT $A5                    ; lda i+1
+    lda t_b
+    inc a
+    jsr emit_var
+    lda t_s
+    beq @l1
+    EMIT $2A                    ; rol
+@l1:
+    EMIT $A8                    ; tay
+    EMIT $8A                    ; txa
+    EMIT $18                    ; clc
+    EMIT $65                    ; adc b
+    lda t_a
+    jsr emit_var
+    EMIT $85                    ; sta EP (the frame's element pointer)
+    lda #EP
+    jsr emit_var
+    EMIT $98                    ; tya
+    EMIT $65                    ; adc b+1
+    lda t_a
+    inc a
+    jsr emit_var
+    EMIT $85                    ; sta EP+1
+    lda #EP+1
+    jsr emit_var
+    ; the peephole: LDE d, ...; ADD2.w x, d -> the element's bytes added to
+    ; x as they are loaded (no load of d again; d still stored: it may be
+    ; read later)
+    lda #0
+    sta t_f
+    lda (IP),z                  ; the next instruction ADD2.w ...
+    cmp #$89
+    bne @nofuse
+    inz
+    inz
+    lda (IP),z                  ; ... whose a is d
+    cmp t_d
+    bne @undo
+    dez
+    lda (IP),z                  ; its x
+    sta t_x
+    inz                         ; (past the ADD2)
+    inz
+    inc t_f
+    inc npeep
+    bra @nofuse
+@undo:
+    dez
+    dez
+@nofuse:
+    EMIT $A0                    ; ldy #0
+    EMIT 0
+    EMIT $B1                    ; lda (EP),y
+    lda #EP
+    jsr emit_var
+    EMIT $85                    ; sta d
+    lda t_d
+    jsr emit_var
+    lda t_f
+    beq @p1
+    EMIT $18                    ; clc
+    EMIT $65                    ; adc x
+    lda t_x
+    jsr emit_var
+    EMIT $85                    ; sta x
+    lda t_x
+    jsr emit_var
+@p1:
+    EMIT $C8                    ; iny
+    EMIT $B1                    ; lda (EP),y
+    lda #EP
+    jsr emit_var
+    EMIT $85                    ; sta d+1
+    lda t_d
+    inc a
+    jsr emit_var
+    lda t_f
+    beq @p2
+    EMIT $65                    ; adc x+1
+    lda t_x
+    inc a
+    jsr emit_var
+    EMIT $85                    ; sta x+1
+    lda t_x
+    inc a
+    jsr emit_var
+@p2:
+    jmp @inst
+
+@bgeu:                          ; BGEU.w a, b, t: taken when C is set
+    lda #$90                    ; bcc: over the taken stub
+    bra @cmpbr
+@bltu:                          ; BLTU.w a, b, t: taken when C is clear
+    lda #$B0                    ; bcs: over the taken stub
+@cmpbr:
+    sta t_s
+    lda (IP),z
+    inz
+    sta t_a
+    lda (IP),z
+    inz
+    sta t_b
+    EMIT $A5                    ; lda a
+    lda t_a
+    jsr emit_var
+    EMIT $C5                    ; cmp b
+    lda t_b
+    jsr emit_var
+    EMIT $A5                    ; lda a+1
+    lda t_a
+    inc a
+    jsr emit_var
+    EMIT $E5                    ; sbc b+1
+    lda t_b
+    inc a
+    jsr emit_var
+    lda t_s                     ; bcc / bcs +5: the not-taken way
+    sta (CP),y
+    iny
+    EMIT 5
+    jsr emit_stub_target        ; the taken stub: the target in the p-code
+    jsr emit_stub_next          ; the not-taken stub: the next instruction
+    rts
+
+@br:                            ; BR t: the stub
+    jsr emit_stub_target
+    rts
+
+@ret:                           ; RET.w a: ldy a; ldx a+1; B back; tya; rts
+    lda (IP),z
+    inz
+    sta t_a
+    EMIT $A4                    ; ldy a
+    lda t_a
+    jsr emit_var
+    EMIT $A6                    ; ldx a+1
+    lda t_a
+    inc a
+    jsr emit_var
+    EMIT $A9                    ; lda #progb
+    lda progb
+    sta (CP),y
+    iny
+    EMIT $5B                    ; tab
+    EMIT $98                    ; tya
+    EMIT $60
+    rts
+
+; the base-page address of a variable: FP.lo + A, at (CP),Y (1 byte; the
+; frame within its page)
+emit_var:
+    clc
+    adc FP
+    sta (CP),y
+    iny
+    rts
+
+; a stub to the target at (IP),Z (Z past it): jsr jit_miss; .word target
+emit_stub_target:
+    jsr emit_jsr
+    lda (IP),z
+    inz
+    sta (CP),y
+    iny
+    lda (IP),z
+    inz
+    sta (CP),y
+    iny
+    rts
+
+; a stub to the next instruction (IP + Z)
+emit_stub_next:
+    jsr emit_jsr
+    tza
+    clc
+    adc IP
+    sta (CP),y
+    iny
+    lda IP+1
+    adc #0
+    sta (CP),y
+    iny
+    rts
+
+emit_jsr:
+    EMIT $20
+    lda #<jit_miss
+    sta (CP),y
+    iny
+    lda #>jit_miss
+    sta (CP),y
+    iny
+    rts
+
+    .func_flags zp_call
+    endproc
+
+; void pcode_jit_flush(void): empty the cache
+proc _pcode_jit_flush
+    .reg_clobbers A
+    .flag_clobbers N, Z
+    lda #0
+    sta nblk
+    sta used
+    sta used+1
+    rts
+    .func_flags zp_call
+    endproc
+
+; unsigned pcode_jit_used(void): the cache's bytes in use
+proc _pcode_jit_used
+    .reg_clobbers A, X
+    .flag_clobbers N, Z
+    lda used
+    ldx used+1
+    rts
+    .func_flags zp_call
+    endproc
+
+.segment "bss"
+jt:     .res 2
+progb:  .res 1
+nblk:   .res 1
+used:   .res 2
+t_d:    .res 1
+t_a:    .res 1
+t_b:    .res 1
+t_s:    .res 1
+t_x:    .res 1
+t_f:    .res 1
+.global _pcode_jit_npeep
+_pcode_jit_npeep:
+npeep:  .res 1                  ; the peepholes made (research: counted)
+tag_lo: .res NBLOCKS
+tag_hi: .res NBLOCKS
+nat_lo: .res NBLOCKS
+nat_hi: .res NBLOCKS
+.global _pcode_jit_cache
+_pcode_jit_cache:
+cache:  .res CACHE

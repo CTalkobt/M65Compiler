@@ -1,0 +1,124 @@
+; pcode_progs.s45 — research/pcode: p-code programs for test_pcode_xemu.c,
+; written by hand as cc45 would emit them (pcode_vm.s45 has the encoding)
+
+LD   = $01
+ST   = $02
+ADD  = $03
+BGEU = $04
+SET  = $05
+BR   = $06
+RET  = $07
+ADV  = $08
+ADD2 = $09
+INCR = $0A
+LDE  = $0B
+BLTU = $0C
+W    = $80                  ; the word form
+
+.global _pc_sum, _pc_bytes, _pc_cmp, _pc_sum2, _pc_sum3, _pc_adv, _pc_lde
+.segment "data"
+
+; unsigned sum(const unsigned *p, unsigned n): the sum of p[0..n-1]
+; frame: p 0, n 2, s 4, i 6, t 8, v 10, one 12
+_pc_sum:
+    .byte SET|W, 4, 0, 0            ; s = 0
+    .byte SET|W, 6, 0, 0            ; i = 0
+    .byte SET|W, 12, 1, 0           ; one = 1
+sum_loop:
+    .byte BGEU|W, 6, 2              ; if i >= n: done
+    .word sum_end
+    .byte ADD|W, 8, 6, 6            ; t = i + i
+    .byte ADD|W, 8, 8, 0            ; t = t + p   (&p[i])
+    .byte LD|W, 10, 8               ; v = *t
+    .byte ADD|W, 4, 4, 10           ; s = s + v
+    .byte ADD|W, 6, 6, 12           ; i = i + 1
+    .byte BR
+    .word sum_loop
+sum_end:
+    .byte RET|W, 4                  ; return s
+
+; unsigned char bytes(const char *src, char *dst, unsigned n, char k):
+; dst[i] = src[i] + k; returns the last
+; frame: src 0, dst 2, n 4, i 6, t 8, v 10, one 12, k 14
+_pc_bytes:
+    .byte SET|W, 6, 0, 0            ; i = 0
+    .byte SET|W, 12, 1, 0           ; one = 1
+bytes_loop:
+    .byte BGEU|W, 6, 4
+    .word bytes_end
+    .byte ADD|W, 8, 6, 0            ; t = src + i
+    .byte LD, 10, 8                 ; v = *t            (a byte)
+    .byte ADD, 10, 10, 14           ; v = v + k         (a byte: wraps)
+    .byte ADD|W, 8, 6, 2            ; t = dst + i
+    .byte ST, 8, 10                 ; *t = v            (a byte)
+    .byte ADD|W, 6, 6, 12
+    .byte BR
+    .word bytes_loop
+bytes_end:
+    .byte RET, 10
+
+; the byte compare: 200 >= 100 taken, 100 >= 200 not; returns a (200)
+; frame: a 0, b 1
+_pc_cmp:
+    .byte SET, 0, 200
+    .byte SET, 1, 100
+    .byte BGEU, 1, 0                ; 100 >= 200: not taken
+    .word cmp_wrong
+    .byte BGEU, 0, 1                ; 200 >= 100: taken
+    .word cmp_right
+cmp_wrong:
+    .byte RET, 1
+cmp_right:
+    .byte RET, 0
+
+; version 2: sum with the combined instructions, as the IR has it (the test
+; at the top: 6 instructions a pass)
+; frame: p 0, n 2, s 4, i 6, v 10
+_pc_sum2:
+    .byte SET|W, 4, 0, 0            ; s = 0
+    .byte SET|W, 6, 0, 0            ; i = 0
+sum2_loop:
+    .byte BGEU|W, 6, 2              ; if i >= n: done
+    .word sum2_end
+    .byte LDE|W, 10, 0, 6, 1        ; v = p[i]
+    .byte ADD2|W, 4, 10             ; s += v
+    .byte INCR|W, 6                  ; i++
+    .byte BR
+    .word sum2_loop
+sum2_end:
+    .byte RET|W, 4
+
+; version 2, the loop rotated (the test at the bottom: 4 instructions a pass)
+_pc_sum3:
+    .byte SET|W, 4, 0, 0
+    .byte SET|W, 6, 0, 0
+    .byte BGEU|W, 6, 2
+    .word sum3_end
+sum3_loop:
+    .byte LDE|W, 10, 0, 6, 1
+    .byte ADD2|W, 4, 10
+    .byte INCR|W, 6
+    .byte BLTU|W, 6, 2              ; if i < n: again
+    .word sum3_loop
+sum3_end:
+    .byte RET|W, 4
+
+; ADV, and INC with and without a carry: returns w ($00FF + 1)
+; frame: a 0, w 2, c 4, (c+1 5: a sentinel, left alone)
+_pc_adv:
+    .byte SET, 0, 5
+    .byte ADV
+    .byte INCR, 0                    ; a = 6
+    .byte SET|W, 2, $FF, $00
+    .byte ADV
+    .byte INCR|W, 2                  ; w = $0100
+    .byte SET, 4, 255
+    .byte INCR, 4                    ; c = 0 (a byte: c+1 untouched)
+    .byte RET|W, 2
+
+; LDE of a byte: returns b[2]
+; frame: b 0, i 2, d 4
+_pc_lde:
+    .byte SET|W, 2, 2, 0
+    .byte LDE, 4, 0, 2, 0
+    .byte RET, 4

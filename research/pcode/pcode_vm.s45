@@ -1,0 +1,423 @@
+; pcode_vm.s45 — research/pcode: a p-code interpreter for the 45GS02 (ZP
+; convention), version 2: combined instructions, and the dispatch copied
+; into every handler with no check of Z (version 1: pcode_vm_v1.s45).
+;
+; unsigned pcode_run(const unsigned char *code, void *frame);
+;   Runs p-code from code with its frame at frame; RET returns its value
+;   (A, or A/X for a word) to the caller.
+;
+; Registers of the machine (base page, the program's scratch $08-$0F: no C
+; code runs while it does):
+;   IP   $08/$09  the p-code: the instruction stream is (IP),Z
+;   FP   $0A/$0B  the frame: a variable is (FP),Y, Y its byte offset
+;   PTR  $0C/$0D  an address being loaded / stored through
+;   T0   $0E      a destination's offset;  T1 $0F an operand's offset
+;   Z             the byte of the stream after IP being read. It runs on over
+;                 instructions and is never checked: the compiler puts an ADV
+;                 (IP += Z, Z = 0) into straight-line code before Z could pass
+;                 $FF; a branch sets IP to its target and Z to 0
+;
+; Instructions: an opcode byte, then its operands, each a frame byte offset
+; (a variable; a word is the offset and the next byte), an immediate, a
+; shift count or a target (the target's address, 2 bytes):
+;   bit 7 of the opcode  the width: 0 a byte, 1 a word
+;   bits 6-0             the operation: the handler (the table's entry)
+; The dispatch (NEXT: lda (IP),z; inz; asl; tax; jmp (handlers,x)) shifts
+; bit 7 into the carry, which tax and jmp leave alone: every handler starts
+; with C set for the word form, and one handler serves both widths. It is
+; copied at the end of each handler (no jmp back to a shared loop).
+;
+;   $01 / $81  LD   d, a           d = *(a)              (a: a word, the address)
+;   $02 / $82  ST   a, v           *(a) = v
+;   $03 / $83  ADD  d, a, b        d = a + b
+;   $04 / $84  BGEU a, b, t        if a >= b (unsigned): go to t
+;   $05 / $85  SET  d, #imm        d = imm               (1 or 2 bytes)
+;   $06        BR   t              go to t
+;   $07 / $87  RET  a              return a
+;   $08        ADV                 IP += Z, Z = 0
+;   $09 / $89  ADD2 d, a           d = d + a             (in place)
+;   $0A / $8A  INC  d              d = d + 1
+;   $0B / $8B  LDE  d, b, i, s     d = *(b + (i << s))   (an element: b, i words)
+;   $0C / $8C  BLTU a, b, t        if a < b (unsigned): go to t
+
+; no calls through pointers here (ln45's call graph)
+.weak cc45.icallinfo
+cc45.icallinfo = 1
+
+IP  = $08
+FP  = $0A
+PTR = $0C
+T0  = $0E
+T1  = $0F
+
+.global _pcode_run
+.segment "code"
+
+; the dispatch, at the end of every handler
+.macro NEXT
+    lda (IP),z
+    inz
+    asl
+    tax
+    jmp (handlers,x)
+.endmacro
+
+; IP = the target at (IP),Z; Z = 0; dispatch
+.macro JUMP
+    lda (IP),z
+    inz
+    tax
+    lda (IP),z
+    sta IP+1
+    stx IP
+    ldz #0
+    NEXT
+.endmacro
+
+proc _pcode_run
+    .zp_uses $10, $11, $12, $13
+    .zp_clobbers $08, $09, $0A, $0B, $0C, $0D, $0E, $0F
+    .zp_release $10, $11, $12, $13
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    lda $10
+    sta IP
+    lda $11
+    sta IP+1
+    lda $12
+    sta FP
+    lda $13
+    sta FP+1
+    ldz #0
+    NEXT
+
+; --- ADV: IP += Z, Z = 0 ---------------------------------------------------
+op_adv:
+    tza
+    clc
+    adc IP
+    sta IP
+    bcc @adv_nc
+    inc IP+1
+@adv_nc:
+    ldz #0
+    NEXT
+
+; --- LD d, a: d = *(a) -------------------------------------------------------
+op_ld:
+    lda (IP),z              ; d
+    inz
+    sta T0
+    lda (IP),z              ; a: the address, a word variable
+    inz
+    tay
+    lda (FP),y
+    sta PTR
+    iny
+    lda (FP),y
+    sta PTR+1
+    ldy #0
+    lda (PTR),y
+    bcs @ld_w
+    ldy T0
+    sta (FP),y
+    NEXT
+@ld_w:
+    tax                     ; the low byte
+    iny
+    lda (PTR),y
+    ldy T0
+    iny
+    sta (FP),y
+    dey
+    txa
+    sta (FP),y
+    NEXT
+
+; --- ST a, v: *(a) = v -----------------------------------------------------
+op_st:
+    lda (IP),z              ; a: the address
+    inz
+    tay
+    lda (FP),y
+    sta PTR
+    iny
+    lda (FP),y
+    sta PTR+1
+    lda (IP),z              ; v
+    inz
+    tay
+    lda (FP),y
+    bcs @st_w
+    ldy #0
+    sta (PTR),y
+    NEXT
+@st_w:
+    tax                     ; the low byte
+    iny
+    lda (FP),y
+    ldy #1
+    sta (PTR),y
+    dey
+    txa
+    sta (PTR),y
+    NEXT
+
+; --- ADD d, a, b: d = a + b ------------------------------------------------
+op_add:
+    lda (IP),z              ; d
+    inz
+    sta T0
+    lda (IP),z              ; a
+    inz
+    sta T1
+    lda (IP),z              ; b
+    inz
+    sta PTR
+    bcs @add_w
+    ldy T1
+    lda (FP),y
+    ldy PTR
+    clc
+    adc (FP),y
+    ldy T0
+    sta (FP),y
+    NEXT
+@add_w:
+    ldy T1
+    lda (FP),y
+    ldy PTR
+    clc
+    adc (FP),y
+    ldy T0
+    sta (FP),y              ; (the low byte first: d may be a or b, whose
+    ldy T1                  ; high bytes are read after it)
+    iny
+    lda (FP),y
+    ldy PTR
+    iny
+    adc (FP),y
+    ldy T0
+    iny
+    sta (FP),y
+    NEXT
+
+; --- ADD2 d, a: d = d + a --------------------------------------------------
+op_add2:
+    lda (IP),z              ; d
+    inz
+    sta T0
+    lda (IP),z              ; a
+    inz
+    tay
+    bcs @add2_w
+    lda (FP),y
+    ldy T0
+    clc
+    adc (FP),y
+    sta (FP),y
+    NEXT
+@add2_w:
+    sty T1
+    lda (FP),y
+    ldy T0
+    clc
+    adc (FP),y
+    sta (FP),y
+    ldy T1
+    iny
+    lda (FP),y
+    ldy T0
+    iny
+    adc (FP),y
+    sta (FP),y
+    NEXT
+
+; --- INC d: d = d + 1 ------------------------------------------------------
+op_inc:
+    lda (IP),z              ; d
+    inz
+    tay
+    lda (FP),y
+    inc a                   ; (C, the width, is left alone)
+    sta (FP),y
+    bcc @inc_done           ; the byte form: done
+    bne @inc_done           ; no carry into the high byte
+    iny
+    lda (FP),y
+    inc a
+    sta (FP),y
+@inc_done:
+    NEXT
+
+; --- LDE d, b, i, s: d = *(b + (i << s)) -----------------------------------
+; PTR = b + (i << s), Y = 0 (s 0 and 1 without a loop; inline: no jsr)
+.macro LDEADDR
+    lda (IP),z              ; s
+    inz
+    tax
+    beq @add\@
+    asl PTR
+    rol PTR+1
+    dex
+    beq @add\@
+@more\@:
+    asl PTR
+    rol PTR+1
+    dex
+    bne @more\@
+@add\@:
+    ldy T1
+    lda (FP),y
+    clc
+    adc PTR
+    sta PTR
+    iny
+    lda (FP),y
+    adc PTR+1
+    sta PTR+1
+    ldy #0
+.endmacro
+op_lde:
+    lda (IP),z              ; d
+    inz
+    sta T0
+    lda (IP),z              ; b
+    inz
+    sta T1
+    lda (IP),z              ; i
+    inz
+    tay
+    lda (FP),y
+    sta PTR
+    iny
+    lda (FP),y
+    sta PTR+1
+    bcs @lde_w
+    LDEADDR
+    lda (PTR),y
+    ldy T0
+    sta (FP),y
+    NEXT
+@lde_w:
+    LDEADDR
+    lda (PTR),y
+    tax
+    iny
+    lda (PTR),y
+    ldy T0
+    iny
+    sta (FP),y
+    dey
+    txa
+    sta (FP),y
+    NEXT
+
+; --- BGEU a, b, t / BLTU a, b, t (unsigned) --------------------------------
+; C = a >= b (the width from C on entry; inline: no jsr)
+.macro CMPAB
+    lda (IP),z              ; a
+    inz
+    sta T1
+    lda (IP),z              ; b
+    inz
+    sta PTR
+    ldy T1
+    bcs @w\@
+    lda (FP),y
+    ldy PTR
+    cmp (FP),y
+    bra @done\@
+@w\@:
+    lda (FP),y
+    ldy PTR
+    cmp (FP),y              ; the low bytes' borrow into the high ones
+    ldy T1
+    iny
+    lda (FP),y
+    ldy PTR
+    iny
+    sbc (FP),y
+@done\@:
+.endmacro
+
+op_bgeu:
+    CMPAB
+    bcs take
+skip:
+    inz                     ; past the target
+    inz
+    NEXT
+take:
+    JUMP
+
+op_bltu:
+    CMPAB
+    bcs skip
+    JUMP
+
+; --- SET d, #imm -----------------------------------------------------------
+op_set:
+    lda (IP),z              ; d
+    inz
+    tay
+    lda (IP),z              ; the immediate's low byte
+    inz
+    sta (FP),y
+    bcs @set_w
+    NEXT
+@set_w:
+    iny
+    lda (IP),z
+    inz
+    sta (FP),y
+    NEXT
+
+; --- BR t ------------------------------------------------------------------
+op_br:
+    JUMP
+
+; --- RET a: return a to pcode_run's caller ----------------------------------
+op_ret:
+    lda (IP),z              ; a
+    tay
+    lda (FP),y
+    bcs @ret_w
+    ldx #0
+    rts
+@ret_w:
+    tax
+    iny
+    lda (FP),y
+    pha
+    txa
+    plx
+    rts
+
+op_bad:
+    lda #$FF                ; an opcode with no handler: return $FFFF
+    tax
+    rts
+
+; the handlers by opcode bits 6-0 (in the proc: its labels are its own)
+handlers:
+    .word op_bad, op_ld, op_st, op_add, op_bgeu, op_set, op_br, op_ret
+    .word op_adv, op_add2, op_inc, op_lde, op_bltu, op_bad, op_bad, op_bad
+    ; $10-$7F: none yet
+    .word op_bad, op_bad, op_bad, op_bad, op_bad, op_bad, op_bad, op_bad
+    .word op_bad, op_bad, op_bad, op_bad, op_bad, op_bad, op_bad, op_bad
+    .word op_bad, op_bad, op_bad, op_bad, op_bad, op_bad, op_bad, op_bad
+    .word op_bad, op_bad, op_bad, op_bad, op_bad, op_bad, op_bad, op_bad
+    .word op_bad, op_bad, op_bad, op_bad, op_bad, op_bad, op_bad, op_bad
+    .word op_bad, op_bad, op_bad, op_bad, op_bad, op_bad, op_bad, op_bad
+    .word op_bad, op_bad, op_bad, op_bad, op_bad, op_bad, op_bad, op_bad
+    .word op_bad, op_bad, op_bad, op_bad, op_bad, op_bad, op_bad, op_bad
+    .word op_bad, op_bad, op_bad, op_bad, op_bad, op_bad, op_bad, op_bad
+    .word op_bad, op_bad, op_bad, op_bad, op_bad, op_bad, op_bad, op_bad
+    .word op_bad, op_bad, op_bad, op_bad, op_bad, op_bad, op_bad, op_bad
+    .word op_bad, op_bad, op_bad, op_bad, op_bad, op_bad, op_bad, op_bad
+    .word op_bad, op_bad, op_bad, op_bad, op_bad, op_bad, op_bad, op_bad
+    .word op_bad, op_bad, op_bad, op_bad, op_bad, op_bad, op_bad, op_bad
+
+    .func_flags zp_call
+    endproc

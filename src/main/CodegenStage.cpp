@@ -14,6 +14,8 @@
 #include <sstream>
 #include <memory>
 #include <algorithm>
+#include <fstream>
+#include <set>
 
 Stage::Result CodegenStage::execute() {
     if (verboseLevel_ >= 1) {
@@ -431,6 +433,13 @@ void CodegenStage::generateAssembly() {
 
     if (allocReport_) irOutput_ = finishAllocReport(irOutput_, std::cerr);
 
+    // research/pcode: CC45_PCODE_STATS=<file> appends, per function, the
+    // bytes its final IR would take in a byte-oriented p-code beside the
+    // bytes of its 45GS02 code (the assembled text, as the size trial
+    // finds each function's start)
+    if (const char* statsPath = getenv("CC45_PCODE_STATS"); statsPath && *statsPath && sizeTrial_ && !lint_)
+        writePcodeStats(statsPath);
+
     if (verboseLevel_ >= 2) {
         Logger::stream(LogLevel::DEBUG) << "Generated " << irOutput_.size()
                  << " bytes of assembly." << std::endl;
@@ -520,4 +529,265 @@ std::string CodegenStage::finishAllocReport(const std::string& text, std::ostrea
         if (i + 1 < lines.size() || (!text.empty() && text.back() == '\n')) o << "\n";
     }
     return o.str();
+}
+
+
+// ---------------------------------------------------------------------------
+// research/pcode: what the IR would take as p-code
+//
+// The encoding measured (scheme A, a register p-code mirroring the IR):
+//   opcode     1 byte: the operation and its operand type
+//   vreg       1 byte (2 when the function has more than 256 vregs)
+//   immediate  1 byte when it fits in -128..255, else its type's size (>= 2)
+//   global     2 bytes (an address); elemOffset != 0: +2
+//   label      2 bytes; a BR to the next block is nothing, a BR_COND one of
+//              whose targets is the next block names the other only
+//   call       target 2 (indirect: its vreg), an argument count byte, the
+//              arguments as operands
+//   switch     value, default label, a count byte, each case (value + label)
+//   asm        not encodable: counted apart (native escape)
+// Per function: a 3-byte header (frame size, parameter bytes, flags) and the
+// native entry that enters the interpreter (jsr __pcode: 3 bytes).
+namespace {
+int pcImm(const ir::Operand& o) {
+    if (o.immVal >= -128 && o.immVal <= 255) return 1;
+    int n = ir::typeSize(o.type);
+    if (o.type == ir::Type::I_N) n = o.byteWidth;
+    return n < 2 ? 2 : n;
+}
+int pcOperand(const ir::Operand& o, int vb) {
+    switch (o.kind) {
+        case ir::OperandKind::NONE: return 0;
+        case ir::OperandKind::VREG: return vb;
+        case ir::OperandKind::IMM: return pcImm(o);
+        case ir::OperandKind::GLOBAL: return 2;
+        case ir::OperandKind::LABEL: return 2;
+        case ir::OperandKind::FRAME_RELATIVE: return 2;
+    }
+    return 0;
+}
+}  // namespace
+
+// Scheme B: scheme A with the combined instructions of the interpreter's
+// version 2 (research/pcode/pcode_vm.s45), where a temporary is used only
+// by the next instruction:
+//   const t; store t -> x            SET x, #imm            1 + v + imm
+//   t = a op b; store t -> x         x == a (or b, commuted): op2 x, b (in
+//                                    place, 1 + 2v; INC / DEC for +-1, 1 + v);
+//                                    else op x, a, b (1 + 3v)
+//   t = cmp a, b; br_cond t          CMPBR a, b, target     1 + 2 operands + 2
+//   t = addr_elem b, i, n; load/store [t]   LDE / STE       1 + 3v + 1
+//   t = add p, #off; load/store [t]  LDO / STO [p + off]    1 + 2v + 1-2
+//   call with 0-3 arguments          the count in the opcode: -1
+// and an ADV (1 byte) for every 240 bytes.
+namespace {
+bool isCmp(ir::Op o) { return o >= ir::Op::CMP_EQ && o <= ir::Op::CMP_GEU; }
+bool isAlu(ir::Op o) {
+    switch (o) {
+        case ir::Op::ADD: case ir::Op::SUB: case ir::Op::AND: case ir::Op::OR: case ir::Op::XOR:
+        case ir::Op::SHL: case ir::Op::SHR: case ir::Op::LSL: case ir::Op::LSR: case ir::Op::ASR:
+        case ir::Op::MUL: case ir::Op::MUL_U: case ir::Op::DIV: case ir::Op::DIV_U: case ir::Op::MOD:
+        case ir::Op::MOD_U: return true;
+        default: return false;
+    }
+}
+bool commutes(ir::Op o) {
+    return o == ir::Op::ADD || o == ir::Op::AND || o == ir::Op::OR || o == ir::Op::XOR ||
+           o == ir::Op::MUL || o == ir::Op::MUL_U;
+}
+bool sameVreg(const ir::Operand& a, const ir::Operand& b) { return a.isVreg() && b.isVreg() && a.vregId == b.vregId; }
+}  // namespace
+
+static long pcodeSchemeB(const ir::Function& fn, long& instsOut) {
+    const int vb = fn.nextVreg > 256 ? 2 : 1;
+    std::map<uint32_t, int> uses;
+    auto use = [&](const ir::Operand& o) { if (o.isVreg()) uses[o.vregId]++; };
+    for (const auto& b : fn.blocks)
+        for (const auto& in : b.insts) {
+            use(in.src1); use(in.src2);
+            if (in.op == ir::Op::STORE || in.op == ir::Op::BR_COND) {} // (dest is no use)
+            for (const auto& a : in.args) use(a);
+            for (const auto& ph : in.phiIncoming) use(ph.first);
+        }
+    long bytes = 6, insts = 0;
+    for (size_t bi = 0; bi < fn.blocks.size(); bi++) {
+        const auto& insts_ = fn.blocks[bi].insts;
+        const std::string next = bi + 1 < fn.blocks.size() ? fn.blocks[bi + 1].label : "";
+        // the next instruction that is not a NOP
+        auto nextOf = [&](size_t k) { size_t j = k + 1; while (j < insts_.size() && insts_[j].op == ir::Op::NOP) j++; return j; };
+        for (size_t k = 0; k < insts_.size(); k++) {
+            const auto& in = insts_[k];
+            if (in.op == ir::Op::NOP || in.op == ir::Op::ASM_INLINE) continue;
+            size_t j = nextOf(k);
+            const ir::Inst* nx = j < insts_.size() ? &insts_[j] : nullptr;
+            bool once = in.dest.isVreg() && uses[in.dest.vregId] == 1;
+            // const + store
+            if (in.op == ir::Op::CONST && once && nx && nx->op == ir::Op::STORE && sameVreg(nx->src1, in.dest)) {
+                bytes += 1 + pcOperand(nx->src2, vb) + pcImm(in.src1); insts++; k = j; continue;
+            }
+            // op + store
+            if (isAlu(in.op) && once && nx && nx->op == ir::Op::STORE && sameVreg(nx->src1, in.dest)) {
+                const ir::Operand& x = nx->src2;
+                const ir::Operand* other = nullptr;
+                if (sameVreg(in.src1, x)) other = &in.src2;
+                else if (commutes(in.op) && sameVreg(in.src2, x)) other = &in.src1;
+                if (other && other->isImm() && other->immVal == 1 && (in.op == ir::Op::ADD || in.op == ir::Op::SUB))
+                    bytes += 1 + vb;
+                else if (other)
+                    bytes += 1 + pcOperand(x, vb) + pcOperand(*other, vb);
+                else
+                    bytes += 1 + pcOperand(x, vb) + pcOperand(in.src1, vb) + pcOperand(in.src2, vb);
+                insts++; k = j; continue;
+            }
+            // compare + br_cond
+            if (isCmp(in.op) && once && nx && nx->op == ir::Op::BR_COND && sameVreg(nx->src1, in.dest)) {
+                bool t = nx->src2.kind == ir::OperandKind::LABEL && nx->src2.name == next;
+                bool f = nx->dest.kind == ir::OperandKind::LABEL && nx->dest.name == next;
+                bytes += 1 + pcOperand(in.src1, vb) + pcOperand(in.src2, vb) + 2 + ((t || f) ? 0 : 3);
+                insts += (t || f) ? 1 : 2; k = j; continue;
+            }
+            // addr_elem + load / store
+            if (in.op == ir::Op::ADDR_ELEM && once && nx &&
+                ((nx->op == ir::Op::LOAD && sameVreg(nx->src1, in.dest)) ||
+                 (nx->op == ir::Op::STORE && sameVreg(nx->src2, in.dest)))) {
+                const ir::Operand& v = nx->op == ir::Op::LOAD ? nx->dest : nx->src1;
+                bytes += 1 + pcOperand(v, vb) + pcOperand(in.src1, vb) + pcOperand(in.src2, vb) + 1 + (in.elemOffset ? 2 : 0);
+                insts++; k = j; continue;
+            }
+            // pointer + constant offset, then load / store
+            if (in.op == ir::Op::ADD && in.resultType == ir::Type::PTR && once && in.src2.isImm() && nx &&
+                ((nx->op == ir::Op::LOAD && sameVreg(nx->src1, in.dest)) ||
+                 (nx->op == ir::Op::STORE && sameVreg(nx->src2, in.dest)))) {
+                const ir::Operand& v = nx->op == ir::Op::LOAD ? nx->dest : nx->src1;
+                bytes += 1 + pcOperand(v, vb) + pcOperand(in.src1, vb) + (in.src2.immVal >= 0 && in.src2.immVal < 256 ? 1 : 2);
+                insts++; k = j; continue;
+            }
+            // otherwise as scheme A (calls with 0-3 arguments: the count in the opcode)
+            long n = 1;
+            switch (in.op) {
+                case ir::Op::BR:
+                    n = (in.src1.kind == ir::OperandKind::LABEL && in.src1.name == next) ? 0 : 3;
+                    break;
+                case ir::Op::BR_COND: {
+                    bool t = in.src2.kind == ir::OperandKind::LABEL && in.src2.name == next;
+                    bool f = in.dest.kind == ir::OperandKind::LABEL && in.dest.name == next;
+                    n += pcOperand(in.src1, vb) + ((t || f) ? 2 : 4);
+                    break;
+                }
+                case ir::Op::SWITCH:
+                    n += pcOperand(in.src1, vb) + 3;
+                    for (const auto& c : in.switchCases) n += pcImm(ir::Operand::imm(c.first, in.src1.type)) + 2;
+                    break;
+                case ir::Op::CALL: case ir::Op::CALL_VOID: case ir::Op::CALL_INDIRECT:
+                    n += pcOperand(in.dest, vb) + (in.op == ir::Op::CALL_INDIRECT ? pcOperand(in.src1, vb) : 2) +
+                         (in.args.size() <= 3 ? 0 : 1);
+                    for (const auto& a : in.args) n += pcOperand(a, vb);
+                    break;
+                case ir::Op::PHI:
+                    n += pcOperand(in.dest, vb) + 1;
+                    for (const auto& [o, l] : in.phiIncoming) n += pcOperand(o, vb) + 2;
+                    break;
+                case ir::Op::FCONST: n += pcOperand(in.dest, vb) + 5; break;
+                default:
+                    n += pcOperand(in.dest, vb) + pcOperand(in.src1, vb) + pcOperand(in.src2, vb);
+                    for (const auto& a : in.args) n += pcOperand(a, vb);
+                    if (in.elemOffset) n += 2;
+                    break;
+            }
+            if (n) insts++;
+            bytes += n;
+        }
+    }
+    bytes += bytes / 240;   // ADV
+    instsOut = insts;
+    return bytes;
+}
+
+void CodegenStage::writePcodeStats(const char* path) {
+    std::vector<TrialResult> res;
+    std::map<std::string, uint32_t> native;
+    if (sizeTrial_({irOutput_}, res) && res.size() == 1) {
+        std::map<std::string, uint32_t> start;
+        std::set<uint32_t> starts;
+        for (const auto& fn : irModule_->functions) {
+            uint32_t at = UINT32_MAX;
+            for (const std::string& n : {fn.name, fn.name + "__sac"}) {
+                auto it = res[0].starts.find(n);
+                if (it != res[0].starts.end()) at = std::min(at, it->second);
+            }
+            if (at != UINT32_MAX) { start[fn.name] = at; starts.insert(at); }
+        }
+        // (bounded by the next function's start only: a function's own
+        // __sac entry and its exported labels are inside it)
+        for (const auto& [n, at] : start) {
+            auto next = starts.upper_bound(at);
+            native[n] = (next == starts.end() ? res[0].textSize : *next) - at;
+        }
+    }
+    std::ofstream out(path, std::ios::app);
+    if (!out) return;
+    for (const auto& fn : irModule_->functions) {
+        if (fn.blocks.empty()) continue;
+        const int vb = fn.nextVreg > 256 ? 2 : 1;
+        long bytes = 6, insts = 0, asmCount = 0, labels = 0;
+        std::map<std::string, std::pair<long, long>> perOp;   // "op/type" -> (count, bytes)
+        std::map<std::string, size_t> blockAt;
+        for (size_t b = 0; b < fn.blocks.size(); b++) blockAt[fn.blocks[b].label] = b;
+        for (size_t b = 0; b < fn.blocks.size(); b++) {
+            const std::string next = b + 1 < fn.blocks.size() ? fn.blocks[b + 1].label : "";
+            for (const auto& in : fn.blocks[b].insts) {
+                if (in.op == ir::Op::NOP) continue;
+                insts++;
+                long n = 1;
+                switch (in.op) {
+                    case ir::Op::ASM_INLINE: asmCount++; n = 0; break;
+                    case ir::Op::BR:
+                        n = (in.src1.kind == ir::OperandKind::LABEL && in.src1.name == next) ? 0 : 1 + 2;
+                        if (n) labels++;
+                        break;
+                    case ir::Op::BR_COND: {
+                        bool t = in.src2.kind == ir::OperandKind::LABEL && in.src2.name == next;
+                        bool f = in.dest.kind == ir::OperandKind::LABEL && in.dest.name == next;
+                        n += pcOperand(in.src1, vb) + ((t || f) ? 2 : 4);
+                        labels += (t || f) ? 1 : 2;
+                        break;
+                    }
+                    case ir::Op::SWITCH:
+                        n += pcOperand(in.src1, vb) + 2 + 1;
+                        for (const auto& c : in.switchCases) {
+                            ir::Operand v = ir::Operand::imm(c.first, in.src1.type);
+                            n += pcImm(v) + 2;
+                        }
+                        break;
+                    case ir::Op::CALL: case ir::Op::CALL_VOID: case ir::Op::CALL_INDIRECT:
+                        n += pcOperand(in.dest, vb) + (in.op == ir::Op::CALL_INDIRECT ? pcOperand(in.src1, vb) : 2) + 1;
+                        for (const auto& a : in.args) n += pcOperand(a, vb);
+                        break;
+                    case ir::Op::PHI:
+                        n += pcOperand(in.dest, vb) + 1;
+                        for (const auto& [o, l] : in.phiIncoming) n += pcOperand(o, vb) + 2;
+                        break;
+                    case ir::Op::FCONST: n += pcOperand(in.dest, vb) + 5; break;
+                    default:
+                        n += pcOperand(in.dest, vb) + pcOperand(in.src1, vb) + pcOperand(in.src2, vb);
+                        for (const auto& a : in.args) n += pcOperand(a, vb);
+                        if (in.elemOffset) n += 2;
+                        break;
+                }
+                bytes += n;
+                std::ostringstream k;
+                k << ir::opName(in.op);
+                k << "/" << (int)in.resultType;
+                auto& po = perOp[k.str()];
+                po.first++;
+                po.second += n;
+            }
+        }
+        auto nat = native.find(fn.name);
+        long instsB = 0, bytesB = pcodeSchemeB(fn, instsB);
+        out << "F " << fn.name << " " << (nat != native.end() ? (long)nat->second : -1L) << " " << bytes << " "
+            << insts << " " << fn.blocks.size() << " " << fn.nextVreg << " " << fn.paramTypes.size() << " "
+            << asmCount << " " << labels << " " << bytesB << " " << instsB << "\n";
+        for (const auto& [k, v] : perOp) out << "O " << k << " " << v.first << " " << v.second << "\n";
+    }
 }
