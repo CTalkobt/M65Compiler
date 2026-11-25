@@ -1,0 +1,977 @@
+; pcode_rt.s45 — research/pcode: the interpreter of cc45's p-code
+; (src/main/PcodeEmit.cpp writes it: CC45_PCODE). A first version, for
+; correctness: every operation in its byte, word and long forms, through
+; two 4-byte accumulators (A0, B0) and byte loops over the width.
+;
+; Entry: a function's native entry copies its parameters into its frame,
+; then A/X = its p-code, Y/Z = its frame, jmp __pc_enter: RET returns its
+; value (A, A/X, A/X/Y/Z) to the function's caller. (Not jsr __pc_enter
+; with the two addresses after it: ca45's TailDedup took entries that
+; differed only in that data for one.)
+;
+; The instruction: an opcode byte (bits 5-0 the operation; bit 7 the word
+; form, bit 6 the long one, neither the byte form), then its operands: a
+; variable is its frame offset (a byte); an immediate as wide as the
+; operation; an address or a target 2 bytes.
+;
+;   $01 CONST d, #imm          $02 MOV d, a            $03 LDG d, @addr
+;   $04 STG @addr, a           $05 LD d, [p]           $06 ST [p], a
+;   $07 LEAL d, v  (d.w = &v)  $08 ELEM d, b, i, size, #off  (d.w = b + i*size + off; i byte / word)
+;   $09 / $0A ADD / ADDI d, a, b|#imm     $0B / $0C SUB / SUBI
+;   $0D / $0E AND / ANDI       $0F / $10 OR / ORI      $11 / $12 XOR / XORI
+;   $13 / $14 SHL / SHLI d, a, b|#n (#n a byte)        $15 / $16 SHR / SHRI
+;   $17 / $18 ASR / ASRI       $19 / $1A MUL / MULI   $1B / $1C DIVU / DIVUI
+;   $1D / $1E MODU / MODUI     $1F NEG d, a           $20 NOT d, a
+;   $21 / $22 CMP / CMPI d, a, b|#imm, cc   (d a byte: 0 / 1; cc: 0 eq,
+;             1 ne, 2 ltu, 3 leu, 4 gtu, 5 geu, 6 lt, 7 le, 8 gt, 9 ge)
+;   $23 BR t                   $24 BNZ c, t            $25 BZ c, t
+;   $26 CALL @f, n, (v, bytes) x n, d, bytes   (the ZP convention: the
+;             arguments into $10..., 2 bytes each at least; bytes 0: void)
+;   $27 RET a                  $28 RETV                $29 ZEXT d, a, ws
+;   $2A SEXT d, a, ws          $2B ADV (IP += Z, Z = 0)
+;   $2C / $2D DIV / DIVI       $2E / $2F MOD / MODI   (signed)
+
+; no calls through pointers here but CALL's (to the functions the p-code names)
+.weak cc45.icallinfo
+cc45.icallinfo = 1
+
+IP  = $08
+FP  = $0A
+PTR = $0C
+T0  = $0E                       ; a destination's offset
+T1  = $0F
+W   = $F2                       ; the operation's width: 1, 2 or 4
+A0  = $F3                       ; 4 bytes
+B0  = $F7                       ; 4 bytes
+CNT = $FB
+CC  = $FC
+
+.global __pc_enter
+.extern __abort
+.segment "code"
+
+.macro NEXT
+    lda (IP),z
+    inz
+    asl
+    tax
+    jmp (handlers,x)
+.endmacro
+
+.macro FETCH
+    lda (IP),z
+    inz
+.endmacro
+
+; IP = the target at (IP),Z; Z = 0; dispatch
+.macro JUMP
+    lda (IP),z
+    inz
+    tax
+    lda (IP),z
+    sta IP+1
+    stx IP
+    ldz #0
+    NEXT
+.endmacro
+
+; W = 1, or 2 for the word form (C: bit 7 of the opcode)
+.macro WIDTH
+    ldy #1
+    bcc @w\@
+    ldy #2
+@w\@:
+    sty W
+.endmacro
+
+; a handler's two entries: nm (byte / word: C) and nml (long)
+.macro ENTRIES nm, nml
+nm:
+    WIDTH
+    bra @c\@
+nml:
+    ldy #4
+    sty W
+@c\@:
+.endmacro
+
+proc __pc_enter
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    sta IP                      ; A/X the p-code
+    stx IP+1
+    sty FP                      ; Y/Z the frame
+    stz FP+1
+    ldz #0
+    NEXT
+
+; --- operands ------------------------------------------------------------
+get_d:                          ; T0 = the destination
+    FETCH
+    sta T0
+    rts
+get_a:                          ; A0 = the variable (W bytes)
+    FETCH
+    tay
+    ldx #0
+@ga:
+    lda (FP),y
+    sta A0,x
+    iny
+    inx
+    cpx W
+    bne @ga
+    rts
+get_b:                          ; B0 = the variable (W bytes)
+    FETCH
+    tay
+    ldx #0
+@gb:
+    lda (FP),y
+    sta B0,x
+    iny
+    inx
+    cpx W
+    bne @gb
+    rts
+get_bi:                         ; B0 = the immediate (W bytes)
+    ldx #0
+@gbi:
+    FETCH
+    sta B0,x
+    inx
+    cpx W
+    bne @gbi
+    rts
+put_a:                          ; the destination (T0) = A0 (W bytes)
+    ldy T0
+    ldx #0
+@pa:
+    lda A0,x
+    sta (FP),y
+    iny
+    inx
+    cpx W
+    bne @pa
+    rts
+ptr_var:                        ; PTR = the word variable named next
+    FETCH
+    tay
+    lda (FP),y
+    sta PTR
+    iny
+    lda (FP),y
+    sta PTR+1
+    rts
+ptr_imm:                        ; PTR = the address next
+    FETCH
+    sta PTR
+    FETCH
+    sta PTR+1
+    rts
+load_ptr:                       ; A0 = W bytes at PTR (A0,x: there is no
+    ldy #0                      ; base-page A0,y)
+    ldx #0
+@lp:
+    lda (PTR),y
+    sta A0,x
+    iny
+    inx
+    cpx W
+    bne @lp
+    rts
+store_ptr:                      ; W bytes at PTR = A0
+    ldy #0
+    ldx #0
+@sp:
+    lda A0,x
+    sta (PTR),y
+    iny
+    inx
+    cpx W
+    bne @sp
+    rts
+
+; --- the arithmetic on A0 and B0 (W bytes) -------------------------------
+do_add:
+    clc
+    ldx #0
+    ldy W
+@add:
+    lda A0,x
+    adc B0,x
+    sta A0,x
+    inx
+    dey
+    bne @add
+    rts
+do_sub:
+    sec
+    ldx #0
+    ldy W
+@sub:
+    lda A0,x
+    sbc B0,x
+    sta A0,x
+    inx
+    dey
+    bne @sub
+    rts
+do_and:
+    ldx #0
+@and:
+    lda A0,x
+    and B0,x
+    sta A0,x
+    inx
+    cpx W
+    bne @and
+    rts
+do_or:
+    ldx #0
+@or:
+    lda A0,x
+    ora B0,x
+    sta A0,x
+    inx
+    cpx W
+    bne @or
+    rts
+do_xor:
+    ldx #0
+@xor:
+    lda A0,x
+    eor B0,x
+    sta A0,x
+    inx
+    cpx W
+    bne @xor
+    rts
+do_shl:                         ; A0 <<= B0 (its low byte)
+    lda B0
+    beq @shl_done
+    sta CNT
+@shl_n:
+    clc
+    ldx #0
+    ldy W
+@shl_b:
+    rol A0,x
+    inx
+    dey
+    bne @shl_b
+    dec CNT
+    bne @shl_n
+@shl_done:
+    rts
+do_shr:                         ; A0 >>= B0 (logical)
+    lda B0
+    beq @shr_done
+    sta CNT
+@shr_n:
+    clc
+    ldx W
+    dex
+@shr_b:
+    ror A0,x
+    dex
+    bpl @shr_b
+    dec CNT
+    bne @shr_n
+@shr_done:
+    rts
+do_asr:                         ; A0 >>= B0 (the sign kept)
+    lda B0
+    beq @asr_done
+    sta CNT
+@asr_n:
+    ldx W
+    dex
+    lda A0,x
+    asl                         ; C = the sign
+@asr_b:
+    ror A0,x
+    dex
+    bpl @asr_b
+    dec CNT
+    bne @asr_n
+@asr_done:
+    rts
+do_mul:                         ; A0 = A0 * B0 (the low W bytes)
+    ldx #3
+    lda #0
+@mz:
+    sta mr,x
+    dex
+    bpl @mz
+    lda W
+    asl
+    asl
+    asl
+    sta CNT                     ; 8W bits
+@mbit:
+    lda B0
+    and #1
+    beq @mshift
+    clc                         ; mr += A0
+    ldx #0
+    ldy W
+@madd:
+    lda mr,x
+    adc A0,x
+    sta mr,x
+    inx
+    dey
+    bne @madd
+@mshift:
+    clc                         ; A0 <<= 1
+    ldx #0
+    ldy W
+@ma:
+    rol A0,x
+    inx
+    dey
+    bne @ma
+    clc                         ; B0 >>= 1
+    ldx W
+    dex
+@mb:
+    ror B0,x
+    dex
+    bpl @mb
+    dec CNT
+    bne @mbit
+    ldx #3
+@mr:
+    lda mr,x
+    sta A0,x
+    dex
+    bpl @mr
+    rts
+do_divu:                        ; A0 = A0 / B0, mr = A0 % B0 (unsigned, W bytes)
+    ldx #3
+    lda #0
+@dz:
+    sta mr,x
+    dex
+    bpl @dz
+    lda W
+    asl
+    asl
+    asl
+    sta CNT
+@dbit:
+    asl A0                      ; the dividend's top bit into the remainder
+    ldx #1
+    ldy W
+    dey
+    beq @dq
+@dqr:
+    rol A0,x
+    inx
+    dey
+    bne @dqr
+@dq:
+    ldx #0
+    ldy W
+@dr:
+    rol mr,x
+    inx
+    dey
+    bne @dr
+    sec                         ; mt = mr - B0
+    ldx #0
+    ldy W
+@dt:
+    lda mr,x
+    sbc B0,x
+    sta mt,x
+    inx
+    dey
+    bne @dt
+    bcc @dnext                  ; mr < B0
+    ldx #0
+@dc:
+    lda mt,x
+    sta mr,x
+    inx
+    cpx W
+    bne @dc
+    inc A0                      ; the quotient's bit (A0 bit 0 is clear: shifted in)
+@dnext:
+    dec CNT
+    bne @dbit
+    rts
+neg_a0:                         ; A0 = -A0
+    sec
+    ldx #0
+    ldy W
+@na:
+    lda #0
+    sbc A0,x
+    sta A0,x
+    inx
+    dey
+    bne @na
+    rts
+neg_b0:
+    sec
+    ldx #0
+    ldy W
+@nb:
+    lda #0
+    sbc B0,x
+    sta B0,x
+    inx
+    dey
+    bne @nb
+    rts
+neg_mr:
+    sec
+    ldx #0
+    ldy W
+@nm:
+    lda #0
+    sbc mr,x
+    sta mr,x
+    inx
+    dey
+    bne @nm
+    rts
+; signed division: CC = the signs (bit 7 the quotient's, bit 6 the remainder's)
+do_divs:
+    ldx W
+    dex
+    lda A0,x
+    eor B0,x
+    and #$80                    ; bit 7: the quotient's sign
+    sta CC
+    lda A0,x
+    and #$80
+    lsr                         ; bit 6: the remainder's (the dividend's)
+    ora CC
+    sta CC
+    lda A0,x
+    bpl @ds_a
+    jsr neg_a0
+@ds_a:
+    ldx W
+    dex
+    lda B0,x
+    bpl @ds_b
+    jsr neg_b0
+@ds_b:
+    jsr do_divu
+    bit CC
+    bpl @ds_q
+    jsr neg_a0
+@ds_q:
+    bit CC                      ; (again: the negation changed V)
+    bvc @ds_r
+    jsr neg_mr
+@ds_r:
+    rts
+mr_to_a0:
+    ldx #3
+@ma0:
+    lda mr,x
+    sta A0,x
+    dex
+    bpl @ma0
+    rts
+
+; --- the handlers --------------------------------------------------------
+.macro BINARY nm, nml, sub
+    ENTRIES nm, nml
+    jsr get_d
+    jsr get_a
+    jsr get_b
+    jsr sub
+    jsr put_a
+    NEXT
+.endmacro
+.macro BINARYI nm, nml, sub
+    ENTRIES nm, nml
+    jsr get_d
+    jsr get_a
+    jsr get_bi
+    jsr sub
+    jsr put_a
+    NEXT
+.endmacro
+.macro SHIFTI nm, nml, sub
+    ENTRIES nm, nml
+    jsr get_d
+    jsr get_a
+    FETCH
+    sta B0
+    jsr sub
+    jsr put_a
+    NEXT
+.endmacro
+
+    BINARY h_add, h_add_l, do_add
+    BINARYI h_addi, h_addi_l, do_add
+    BINARY h_sub, h_sub_l, do_sub
+    BINARYI h_subi, h_subi_l, do_sub
+    BINARY h_and, h_and_l, do_and
+    BINARYI h_andi, h_andi_l, do_and
+    BINARY h_or, h_or_l, do_or
+    BINARYI h_ori, h_ori_l, do_or
+    BINARY h_xor, h_xor_l, do_xor
+    BINARYI h_xori, h_xori_l, do_xor
+    BINARY h_shl, h_shl_l, do_shl
+    SHIFTI h_shli, h_shli_l, do_shl
+    BINARY h_shr, h_shr_l, do_shr
+    SHIFTI h_shri, h_shri_l, do_shr
+    BINARY h_asr, h_asr_l, do_asr
+    SHIFTI h_asri, h_asri_l, do_asr
+    BINARY h_mul, h_mul_l, do_mul
+    BINARYI h_muli, h_muli_l, do_mul
+    BINARY h_divu, h_divu_l, do_divu
+    BINARYI h_divui, h_divui_l, do_divu
+    BINARY h_modu, h_modu_l, do_modu
+    BINARYI h_modui, h_modui_l, do_modu
+    BINARY h_div, h_div_l, do_divs
+    BINARYI h_divi, h_divi_l, do_divs
+    BINARY h_mod, h_mod_l, do_mods
+    BINARYI h_modi, h_modi_l, do_mods
+do_modu:
+    jsr do_divu
+    jmp mr_to_a0
+do_mods:
+    jsr do_divs
+    jmp mr_to_a0
+
+    ENTRIES h_const, h_const_l             ; CONST d, #imm
+    jsr get_d
+    ldy T0
+    ldx W
+@cst:
+    FETCH
+    sta (FP),y
+    iny
+    dex
+    bne @cst
+    NEXT
+
+    ENTRIES h_mov, h_mov_l               ; MOV d, a
+    jsr get_d
+    jsr get_a
+    jsr put_a
+    NEXT
+
+    ENTRIES h_ldg, h_ldg_l               ; LDG d, @addr
+    jsr get_d
+    jsr ptr_imm
+    jsr load_ptr
+    jsr put_a
+    NEXT
+
+    ENTRIES h_stg, h_stg_l               ; STG @addr, a
+    jsr ptr_imm
+    jsr get_a
+    jsr store_ptr
+    NEXT
+
+    ENTRIES h_ld, h_ld_l                ; LD d, [p]
+    jsr get_d
+    jsr ptr_var
+    jsr load_ptr
+    jsr put_a
+    NEXT
+
+    ENTRIES h_st, h_st_l                ; ST [p], a
+    jsr ptr_var
+    jsr get_a
+    jsr store_ptr
+    NEXT
+
+h_leal:                         ; LEAL d, v: d = FP + v
+    jsr get_d
+    FETCH
+    clc
+    adc FP
+    sta A0
+    lda FP+1
+    adc #0
+    sta A0+1
+    lda #2
+    sta W
+    jsr put_a
+    NEXT
+
+    ENTRIES h_elem, h_elem_l              ; ELEM d, b, i, size, #off (i: W bytes, 1 or 2)
+    jsr get_d
+    FETCH                       ; b: its word into A0
+    tay
+    lda (FP),y
+    sta A0
+    iny
+    lda (FP),y
+    sta A0+1
+    FETCH                       ; i: into B0 (a word)
+    tay
+    lda (FP),y
+    sta B0
+    lda #0
+    sta B0+1
+    lda W
+    cmp #1
+    beq @el_i
+    iny
+    lda (FP),y
+    sta B0+1
+@el_i:
+    FETCH                       ; size: B0 * size added to A0, a bit at a time
+    sta CNT
+@el_bit:
+    lsr CNT
+    bcc @el_sh
+    clc
+    lda A0
+    adc B0
+    sta A0
+    lda A0+1
+    adc B0+1
+    sta A0+1
+@el_sh:
+    lda CNT
+    beq @el_off
+    asl B0
+    rol B0+1
+    bra @el_bit
+@el_off:
+    clc                         ; + off
+    FETCH
+    adc A0
+    sta A0
+    FETCH
+    adc A0+1
+    sta A0+1
+    lda #2
+    sta W
+    jsr put_a
+    NEXT
+
+    ENTRIES h_neg, h_neg_l               ; NEG d, a
+    jsr get_d
+    jsr get_a
+    jsr neg_a0
+    jsr put_a
+    NEXT
+
+    ENTRIES h_not, h_not_l               ; NOT d, a
+    jsr get_d
+    jsr get_a
+    ldx #0
+@not:
+    lda A0,x
+    eor #$FF
+    sta A0,x
+    inx
+    cpx W
+    bne @not
+    jsr put_a
+    NEXT
+
+    ENTRIES h_cmp, h_cmp_l               ; CMP d, a, b, cc
+    jsr get_d
+    jsr get_a
+    jsr get_b
+    jmp cmp_cc
+    ENTRIES h_cmpi, h_cmpi_l              ; CMPI d, a, #imm, cc
+    jsr get_d
+    jsr get_a
+    jsr get_bi
+cmp_cc:
+    FETCH
+    sta CC
+    cmp #6                      ; signed: the sign bits flipped, then unsigned
+    bcc @cc_u
+    ldx W
+    dex
+    lda A0,x
+    eor #$80
+    sta A0,x
+    lda B0,x
+    eor #$80
+    sta B0,x
+    lda CC
+    sec
+    sbc #4
+    sta CC
+@cc_u:
+    ldx #0                      ; equal?
+@cc_eq:
+    lda A0,x
+    cmp B0,x
+    bne @cc_ne
+    inx
+    cpx W
+    bne @cc_eq
+    lda #1
+    bra @cc_e
+@cc_ne:
+    lda #0
+@cc_e:
+    sta CNT                     ; CNT = equal
+    sec                         ; C = a >= b
+    ldx #0
+    ldy W
+@cc_sub:
+    lda A0,x
+    sbc B0,x
+    inx
+    dey
+    bne @cc_sub
+    lda #0
+    rol                         ; A = C (a >= b)
+    ldx CC
+    beq @r_eq
+    dex
+    beq @r_ne
+    dex
+    beq @r_ltu
+    dex
+    beq @r_leu
+    dex
+    beq @r_gtu
+    bra @r_set                  ; geu: C
+@r_eq:
+    lda CNT
+    bra @r_set
+@r_ne:
+    lda CNT
+    eor #1
+    bra @r_set
+@r_ltu:
+    eor #1
+    bra @r_set
+@r_leu:
+    eor #1
+    ora CNT
+    bra @r_set
+@r_gtu:
+    ldx CNT
+    beq @r_set
+    lda #0
+@r_set:
+    sta A0
+    lda #1
+    sta W
+    jsr put_a
+    NEXT
+
+h_br:
+    JUMP
+
+    ENTRIES h_bnz, h_bnz_l               ; BNZ c, t
+    jsr test_c
+    bne @bnz_t
+    inz
+    inz
+    NEXT
+@bnz_t:
+    JUMP
+    ENTRIES h_bz, h_bz_l                ; BZ c, t
+    jsr test_c
+    beq @bz_t
+    inz
+    inz
+    NEXT
+@bz_t:
+    JUMP
+test_c:                         ; Z clear when the variable (W bytes) is not 0
+    FETCH
+    tay
+    lda #0
+    ldx W
+@tc:
+    ora (FP),y
+    iny
+    dex
+    bne @tc
+    tax                         ; (the flags of the bytes or'ed)
+    rts
+
+h_call:                         ; CALL @f, n, (v, bytes) x n, d, bytes
+    FETCH
+    sta jv
+    FETCH
+    sta jv+1
+    FETCH
+    sta CNT                     ; the arguments
+    ldx #0                      ; X: the next byte of the ZP parameter block
+@ca:
+    lda CNT
+    beq @ca_done
+    FETCH
+    tay                         ; the variable
+    FETCH
+    sta T1                      ; its bytes
+@cab:
+    lda (FP),y
+    sta $10,x
+    iny
+    inx
+    dec T1
+    bne @cab
+    txa                         ; a byte: its slot is 2
+    and #1
+    beq @ca_next
+    inx
+@ca_next:
+    dec CNT
+    bra @ca
+@ca_done:
+    FETCH
+    sta T0                      ; the result's variable
+    FETCH
+    sta T1                      ; and bytes
+    lda IP                      ; the machine, while the function runs
+    pha
+    lda IP+1
+    pha
+    lda FP
+    pha
+    lda FP+1
+    pha
+    phz
+    lda T0
+    pha
+    lda T1
+    pha
+    jsr call_jv
+    sta rv
+    stx rv+1
+    sty rv+2
+    stz rv+3
+    pla
+    sta T1
+    pla
+    sta T0
+    plz
+    pla
+    sta FP+1
+    pla
+    sta FP
+    pla
+    sta IP+1
+    pla
+    sta IP
+    lda T1
+    beq @cr_done
+    ldy T0
+    ldx #0
+@cr:
+    lda rv,x
+    sta (FP),y
+    iny
+    inx
+    cpx T1
+    bne @cr
+@cr_done:
+    NEXT
+call_jv:
+    jmp (jv)
+
+    ENTRIES h_ret, h_ret_l               ; RET a
+    FETCH
+    tay
+    ldx #0
+@rt:
+    lda (FP),y
+    sta rv,x
+    iny
+    inx
+    cpx W
+    bne @rt
+    lda rv
+    ldx rv+1
+    ldy rv+2
+    ldz rv+3
+    rts
+h_retv:
+    rts
+
+    ENTRIES h_zext, h_zext_l              ; ZEXT d, a, ws
+    lda #0
+    bra ext
+    ENTRIES h_sext, h_sext_l              ; SEXT d, a, ws
+    lda #$80
+ext:
+    sta CC                      ; $80: extend the sign
+    jsr get_d
+    FETCH
+    tay                         ; a
+    FETCH
+    sta CNT                     ; ws
+    ldx #0
+@ex_c:
+    lda (FP),y
+    sta A0,x
+    iny
+    inx
+    cpx CNT
+    bne @ex_c
+    lda #0
+    bit CC
+    bpl @ex_f
+    lda A0-1,x                  ; the top byte copied: its sign
+    asl
+    lda #0
+    bcc @ex_f
+    lda #$FF
+@ex_f:
+    cpx W
+    beq @ex_done
+    sta A0,x
+    inx
+    bra @ex_f
+@ex_done:
+    jsr put_a
+    NEXT
+
+h_adv:
+    tza
+    clc
+    adc IP
+    sta IP
+    bcc @adv_nc
+    inc IP+1
+@adv_nc:
+    ldz #0
+    NEXT
+
+h_bad:
+    jmp __abort                 ; an opcode with no handler
+
+; the handlers by opcode bits 6-0: bits 5-0 the operation; bit 6 the long form
+handlers:
+    .word h_bad,   h_const, h_mov,  h_ldg,  h_stg,  h_ld,   h_st,   h_leal
+    .word h_elem,  h_add,   h_addi, h_sub,  h_subi, h_and,  h_andi, h_or
+    .word h_ori,   h_xor,   h_xori, h_shl,  h_shli, h_shr,  h_shri, h_asr
+    .word h_asri,  h_mul,   h_muli, h_divu, h_divui, h_modu, h_modui, h_neg
+    .word h_not,   h_cmp,   h_cmpi, h_br,   h_bnz,  h_bz,   h_call, h_ret
+    .word h_retv,  h_zext,  h_sext, h_adv,  h_div,  h_divi, h_mod,  h_modi
+    .word h_bad,   h_bad,   h_bad,  h_bad,  h_bad,  h_bad,  h_bad,  h_bad
+    .word h_bad,   h_bad,   h_bad,  h_bad,  h_bad,  h_bad,  h_bad,  h_bad
+    ; the long forms ($40 + the operation)
+    .word h_bad,   h_const_l, h_mov_l, h_ldg_l, h_stg_l, h_ld_l, h_st_l, h_bad
+    .word h_bad,   h_add_l, h_addi_l, h_sub_l, h_subi_l, h_and_l, h_andi_l, h_or_l
+    .word h_ori_l, h_xor_l, h_xori_l, h_shl_l, h_shli_l, h_shr_l, h_shri_l, h_asr_l
+    .word h_asri_l, h_mul_l, h_muli_l, h_divu_l, h_divui_l, h_modu_l, h_modui_l, h_neg_l
+    .word h_not_l, h_cmp_l, h_cmpi_l, h_bad, h_bnz_l, h_bz_l, h_bad,  h_ret_l
+    .word h_bad,   h_zext_l, h_sext_l, h_bad, h_div_l, h_divi_l, h_mod_l, h_modi_l
+    .word h_bad,   h_bad,   h_bad,  h_bad,  h_bad,  h_bad,  h_bad,  h_bad
+    .word h_bad,   h_bad,   h_bad,  h_bad,  h_bad,  h_bad,  h_bad,  h_bad
+
+    .func_flags zp_call
+    endproc
+
+.segment "bss"
+jv:     .res 2                  ; CALL's target (jmp (jv))
+rv:     .res 4                  ; a call's or RET's value
+mr:     .res 4                  ; MUL's product; DIV's remainder
+mt:     .res 4                  ; DIV's trial remainder

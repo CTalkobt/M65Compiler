@@ -126,6 +126,7 @@ private:
     std::map<std::string, int> frames_;   // (cl45) function -> bytes of its stack frame
     bool emitReasons_ = false;
     bool allocReport_ = false;
+    std::set<std::string> pcodeChosen_;   // research/pcode
     SizeTrial sizeTrial_;
 
     // Is the catalog optimization `name` on: its -f/-fno- override, else the -O level's default

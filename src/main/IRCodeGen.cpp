@@ -3180,6 +3180,11 @@ void IRCodeGen::generate(const ir::Module& mod, uint32_t zpStart, bool relocMode
         if (inlineOnlyFunctions_.count(fn.name)) {
             continue;  // Skip emitting inline-only function (only available inlined)
         }
+        // research/pcode: its p-code instead
+        if (auto pt = pcodeText_.find(fn.name); pt != pcodeText_.end()) {
+            out_ << pt->second;
+            continue;
+        }
         // a __far function: in the "far" text segment, which ln45 keeps in
         // far memory and maps into the window when called
         if (fn.isFar && relocMode_) {

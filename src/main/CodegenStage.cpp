@@ -1,4 +1,5 @@
 #include "SacSlotShare.hpp"
+#include "PcodeEmit.hpp"
 #include "Logger.hpp"
 #include <cstdlib>
 #include "IR.hpp"
@@ -313,6 +314,16 @@ void CodegenStage::generateAssembly() {
             codegen.setClobberOverrides(clobberOverrides);
             codegen.setLintMode(lint_ != nullptr);
             codegen.setAllocReport(allocReport_ && !lint_);
+            // research/pcode: the functions chosen, as p-code
+            if (!pcodeChosen_.empty()) {
+                std::map<std::string, std::string> texts;
+                for (const auto& f : mod.functions)
+                    if (pcodeChosen_.count(f.name)) {
+                        PcodeResult r = pcodeEmit(f);
+                        if (r.ok) texts[f.name] = r.text;
+                    }
+                codegen.setPcodeText(texts);
+            }
             // Parameters: module, zpStart, relocMode, zpCallMode, emitReasons, staticAllocMode, sacDebugMode, prgBase
             codegen.generate(mod,
                              0x08,              // zpStart
@@ -342,6 +353,33 @@ void CodegenStage::generateAssembly() {
         if (objectOnly_ && optOn("FloatCopyCall")) out = IRCodeGen::callF32Copies(out);
         return out;
     };
+
+    // research/pcode: CC45_PCODE=all or a list of functions (C names, by
+    // commas): those that translate become p-code (not static allocation:
+    // a caller must enter through <f>); CC45_PCODE_REPORT=1: on stderr, each
+    // one's bytes or why it stays native
+    if (const char* pc = getenv("CC45_PCODE"); pc && *pc && !lint_) {
+        std::string list = std::string(",") + pc + ",";
+        bool all = list == ",all," || list == ",1,";
+        bool report = getenv("CC45_PCODE_REPORT") != nullptr;
+        for (auto& fn : irModule_->functions) {
+            if (fn.blocks.empty()) continue;
+            std::string cname = fn.name.substr(1);
+            size_t st = cname.find("__");
+            std::string bare = st == std::string::npos ? cname : cname.substr(0, st);
+            if (!all && list.find("," + cname + ",") == std::string::npos && list.find("," + bare + ",") == std::string::npos)
+                continue;
+            PcodeResult r = pcodeEmit(fn);
+            if (report) {
+                if (r.ok) std::cerr << "pcode: " << fn.name << ": " << r.pcodeBytes << " bytes of p-code, entry " << r.stubBytes
+                                    << ", frame " << r.frameBytes << "\n";
+                else std::cerr << "pcode: " << fn.name << ": native (" << r.why << ")\n";
+            }
+            if (!r.ok) continue;
+            pcodeChosen_.insert(fn.name);
+            fn.isRecurse = true;   // (no static allocation: its callers enter through <f>)
+        }
+    }
 
     // Parameter copy lists (#359): a pragma, then -fzp-args / -fno-zp-args,
     // then the level (off from -O3 / -Ospeed: the copies inline, faster)

@@ -702,10 +702,14 @@ public:
     // -Ralloc (#248): "; @alloc" comments after each function: where its
     // parameters, locals and temporaries are, and why
     void setAllocReport(bool on) { allocReport_ = on; }
+    // research/pcode: functions emitted as this text (their p-code) instead
+    // of their 45GS02 code
+    void setPcodeText(const std::map<std::string, std::string>& t) { pcodeText_ = t; }
     const std::map<std::string, int>& frameSizes() const { return frameSizes_; }
 private:
     bool lintMode_ = false;
     bool allocReport_ = false;
+    std::map<std::string, std::string> pcodeText_;
     int sacBlockBytes_ = 0;      // the SAC block's size as emitted (before #324's sharing)
     void emitAllocReport(const ir::Function& fn, bool useSAC, bool fnZp);
     std::map<std::string, int> frameSizes_;
