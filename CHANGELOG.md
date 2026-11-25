@@ -4,6 +4,23 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### Division fixes: signed 16-bit `%` (#794), 32-bit division by 1 (#795); ca45 TailDedup and data (#796)
+
+- **#794**: signed 16-bit `%` (ca45 `mod.s16`, the library's `__mods16`) subtracted the high bytes before the low
+  ones, losing the borrow: the high byte of the remainder was one too high whenever the low byte borrowed
+  (`256 % 255` gave `$0101`, `-32768 % 32767` gave `$FEFF`). Now the low byte first (+4 bytes).
+- **#795**: the MEGA65's hardware divider (Goldschmidt iterations, `fast_divide.vhdl`; xemu models it bit for bit)
+  returns one less than the quotient for a divisor of 1 and a dividend over `$88000000` (every dividend checked
+  against xemu's model); other divisors give the truncated quotient. `0xFFFFFFFFUL / 1` was `0xFFFFFFFE` and `% 1` was 1; `div.32`, `mod.32`, `div.s32` and
+  `mod.s32` now take the dividend as the quotient when the divisor is 1 (a constant divisor of 1 reads the
+  dividend directly). `__divu32` +25 bytes, `__divs32` +18, `__mods32` +11, `__modu32` +6.
+- **#796**: ca45's tail deduplication compared only the instructions of two procs' tails, skipping the directives
+  among them, so tails differing only in data (`jsr enter` / `.word code_f` vs `.word code_g`: an argument list the
+  routine reads from its return address) were merged and one proc ran with the other's data. A directive that
+  places bytes (`.byte`, `.word`, `.res`, `.align`…) now ends a tail.
+- Tests: `test_divmod_sweep_xemu.c` (`/` and `%` at 16 and 32 bits, signed and unsigned, over tables of values,
+  against a shift-and-subtract division in C), `test_taildedup_data.s45` (`test_assembler.sh`).
+
 ### A static-allocation parameter has one slot, not two (#791)
 
 - Every parameter of a static-allocation function whose vreg was in memory got, beside its `_f__param_<name>`

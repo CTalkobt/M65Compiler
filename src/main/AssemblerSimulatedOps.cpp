@@ -75,6 +75,28 @@ static void quadStoreMem(AssemblerParser* parser, M65Emitter& e, const std::stri
 static void quadStoreAbs(M65Emitter& e, uint16_t a) { e.emitByte(0x42); e.emitByte(0x42); e.sta_addr(a); }
 static void quadLoadAbs(M65Emitter& e, uint16_t a) { e.emitByte(0x42); e.emitByte(0x42); e.lda_addr(a); }
 
+// The 32-bit quotient into Q, after the divider has finished. The MEGA65's
+// divider (Goldschmidt iterations, mega65-core fast_divide.vhdl; xemu models
+// it bit for bit) gives one less than the quotient for a divisor of 1 and a
+// dividend over $88000000 ($FFFFFFFF / 1 = $FFFFFFFE, #795; all 2^32
+// dividends checked against xemu's model); other divisors give the truncated
+// quotient (none wrong in 200 million random 32-bit divisions, all of 2). Divided by 1 the quotient is the
+// dividend, still in DIV_ARG1. divisor: its value when constant, else -1.
+static void quadLoadQuotient(M65Emitter& e, int64_t divisor) {
+    if (divisor == 1) { quadLoadAbs(e, m65::DIV_ARG1); return; }
+    if (divisor >= 0) { quadLoadAbs(e, m65::DIV_RES); return; }
+    e.lda_abs(m65::DIV_ARG2 + 3); e.ora_abs(m65::DIV_ARG2 + 2); e.ora_abs(m65::DIV_ARG2 + 1);
+    auto notOne1 = e.emitBranchPlaceholder(0xD0);          // BNE
+    e.lda_abs(m65::DIV_ARG2); e.cmp_imm(1);
+    auto notOne2 = e.emitBranchPlaceholder(0xD0);          // BNE
+    e.emitByte(0x42); e.emitByte(0x42); e.lda_abs(m65::DIV_ARG1);
+    auto done = e.emitBranchPlaceholder(0x80);             // BRA
+    e.patchBranchTarget(notOne1);
+    e.patchBranchTarget(notOne2);
+    e.emitByte(0x42); e.emitByte(0x42); e.lda_abs(m65::DIV_RES);
+    e.patchBranchTarget(done);
+}
+
 void AssemblerSimulatedOps::emitMulCode(AssemblerParser* parser, M65Emitter& e, int width, const std::string& dest, int tokenIndex, const std::string& scopePrefix) {
     int bytes = width / 8;
     if (bytes < 1) bytes = 1;
@@ -153,7 +175,7 @@ void AssemblerSimulatedOps::emitMulCode(AssemblerParser* parser, M65Emitter& e, 
     }
 }
 
-void AssemblerSimulatedOps::emitDivCode(AssemblerParser* parser, M65Emitter& e, int width, const std::string& dest, int tokenIndex, const std::string& scopePrefix) {
+void AssemblerSimulatedOps::emitDivCode(AssemblerParser* parser, M65Emitter& e, int width, const std::string& dest, int tokenIndex, const std::string& scopePrefix, int saveDividendZp) {
     int bytes = width / 8;
     if (bytes < 1) bytes = 1;
     if (bytes > 4) bytes = 4;
@@ -220,7 +242,9 @@ void AssemblerSimulatedOps::emitDivCode(AssemblerParser* parser, M65Emitter& e, 
     }
     e.bit_addr(m65::MATH_BUSY_STATUS); e.bmi(-5);  // DIVBUSY is bit 7 → N
     if (bytes == 4) {
-        quadLoadAbs(e, m65::DIV_RES);
+        if (saveDividendZp >= 0)
+            for (int i = 0; i < 4; i++) { e.lda_abs(m65::MULT_ARG1 + i); e.sta_zp((uint8_t)(saveDividendZp + i)); }
+        quadLoadQuotient(e, isImmediate && srcAst->isConstant(parser) ? (int64_t)(uint32_t)srcAst->getValue(parser) : -1);
         if (!regs) quadStoreMem(parser, e, dest, scopePrefix);
     } else if (dest == ".A" || dest == ".AX" || dest == ".AXY" || dest == ".AXYZ" || dest == ".Q") {
         if (bytes >= 4) e.ldz_addr(m65::DIV_RES + 3);
@@ -1717,12 +1741,15 @@ void AssemblerSimulatedOps::emitSignedMathOp(AssemblerParser* parser, M65Emitter
         e.lda_addr(m65::DIV_RES + 1); e.sta_addr(m65::MULT_ARG1 + 1);
         e.lda_imm(0); e.sta_addr(m65::MULT_ARG1 + 2); e.sta_addr(m65::MULT_ARG1 + 3);
         // Product = quotient * divisor (combinational)
-        // Remainder = dividend - product
-        e.pla();       // dividend hi
+        // Remainder = dividend - product, the low byte first (its borrow
+        // goes into the high byte, #794); Y (the sign) is kept
+        e.pla(); e.tax();                         // X = dividend hi
+        e.pla();                                  // A = dividend lo
         e.sec();
-        e.sbc_addr(m65::MULT_RES + 1); e.tax();  // X = remainder hi
-        e.pla();       // dividend lo
-        e.sbc_addr(m65::MULT_RES);                // A = remainder lo
+        e.sbc_addr(m65::MULT_RES); e.pha();       // remainder lo
+        e.txa();
+        e.sbc_addr(m65::MULT_RES + 1); e.tax();   // X = remainder hi
+        e.pla();                                  // A = remainder lo
     }
 
     // --- Step 7: Sign correction ---
@@ -1787,9 +1814,11 @@ void AssemblerSimulatedOps::emitSignedMathOp32(AssemblerParser* parser, M65Emitt
     }
 
     // --- Step 4: Store abs(right) in hardware regs ---
+    int64_t divisorAbs = -1;                  // |right| when constant (quadLoadQuotient)
     if (srcIsConst) {
         int64_t val = (int64_t)(int32_t)srcAst->getValue(parser);
         if (val < 0) val = -val;
+        divisorAbs = (uint32_t)val;
         for (int i = 0; i < 4; ++i) {
             e.lda_imm((val >> (i * 8)) & 0xFF);
             e.sta_addr(rightBase + i);
@@ -1823,10 +1852,7 @@ void AssemblerSimulatedOps::emitSignedMathOp32(AssemblerParser* parser, M65Emitt
         e.ldx_addr(m65::MULT_RES + 1);
         e.lda_addr(m65::MULT_RES);
     } else if (op == 1) {
-        e.ldz_addr(m65::DIV_RES + 3);
-        e.ldy_addr(m65::DIV_RES + 2);
-        e.ldx_addr(m65::DIV_RES + 1);
-        e.lda_addr(m65::DIV_RES);
+        quadLoadQuotient(e, divisorAbs);
     } else {
         // Remainder = dividend - quotient * divisor (no hardware remainder register)
         // Save dividend to ZP scratch (4 bytes: scratchZP_ .. scratchZP_+3)
@@ -1836,9 +1862,8 @@ void AssemblerSimulatedOps::emitSignedMathOp32(AssemblerParser* parser, M65Emitt
             e.sta_zp(zps + i);
         }
         // Write quotient to MULT_ARG1
-        for (int i = 0; i < 4; i++) {
-            e.lda_addr(m65::DIV_RES + i); e.sta_addr(m65::MULT_ARG1 + i);
-        }
+        quadLoadQuotient(e, divisorAbs);
+        quadStoreAbs(e, m65::MULT_ARG1);
         // Product = quotient * divisor at MULT_RES (combinational, instant)
         // Remainder = dividend - product (32-bit subtraction)
         e.lda_zp(zps);     e.sec(); e.sbc_addr(m65::MULT_RES);     e.pha();
@@ -3010,16 +3035,11 @@ void AssemblerSimulatedOps::emitMod32Code(AssemblerParser* parser, M65Emitter& e
         return;
     } else {
         // Unsigned mod.32: remainder = dividend - quotient * divisor (no hw remainder)
-        emitDivCode(parser, e, 32, dest, tokenIndex, scopePrefix);
-        // Save dividend from MULT_ARG1 to ZP scratch
+        // (the dividend saved from MULT_ARG1 to ZP scratch, then the quotient in Q)
         uint8_t zps = e.scratchZP();
-        for (int i = 0; i < 4; i++) {
-            e.lda_addr(m65::MULT_ARG1 + i); e.sta_zp(zps + i);
-        }
-        // Write quotient to MULT_ARG1 for remainder calculation
-        for (int i = 0; i < 4; i++) {
-            e.lda_addr(m65::DIV_RES + i); e.sta_addr(m65::MULT_ARG1 + i);
-        }
+        emitDivCode(parser, e, 32, dest, tokenIndex, scopePrefix, zps);
+        // Write quotient to MULT_ARG1 for remainder calculation (Q holds it)
+        quadStoreAbs(e, m65::MULT_ARG1);
         // Product = quotient * divisor (combinational)
         // Remainder = dividend - product
         e.lda_zp(zps);     e.sec(); e.sbc_addr(m65::MULT_RES);     e.pha();

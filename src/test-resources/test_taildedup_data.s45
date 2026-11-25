@@ -1,0 +1,47 @@
+; test_taildedup_data.s45 — ca45 TailDedup and data among the code (#796):
+; _f and _g end in the same instructions with different .word arguments after
+; the jsr (a routine reading them from its return address): not merged; _h
+; and _k (no data) are
+    .segment "code"
+    .global _f, _g, _h, _k
+    .extern enter, code_f, code_g, frame_f, frame_g
+    proc _f
+    lda $10
+    sta frame_f
+@t:
+    lda #1
+    ldx #2
+    jsr enter
+    .word code_f, frame_f
+    rts
+    endproc
+    proc _g
+    lda $11
+    sta frame_g
+@t:
+    lda #1
+    ldx #2
+    jsr enter
+    .word code_g, frame_g
+    rts
+    endproc
+    proc _h
+    lda #5
+    sta $40
+@t:
+    lda $41
+    adc #9
+    sta $33
+    lda $40
+    rts
+    endproc
+    proc _k
+    lda #6
+    sta $40
+@t:
+    lda $41
+    adc #9
+    sta $33
+    lda $40
+    rts
+    endproc
