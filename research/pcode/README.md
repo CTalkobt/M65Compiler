@@ -205,6 +205,14 @@ asm). The program is linked with the runtime, `ca45 -c pcode_rt.s45`.
   207 bytes for 118 of musicgen's p-code: a net loss; on these six, 86 bytes for 108. An argument set by a CONST of a byte (or a word under 256) that nothing else reads is
   the byte itself in the call (width code 3, zero-extended into its 2-byte slot), the CONST dropped. `CC45_PCODE_LIST=1` writes each instruction as a comment (`; PC ...`), for the
   analysis of what follows what.
+- **Frames overlaid.** A frame is a static-allocation block for ln45 (`<f>__ar`, `cc45.sacsize.<f>`, a pad byte
+  either side; the entry `.func_flags static_alloc`), so ln45's SAC overlay shares it with the blocks of
+  functions never active with this one. The p-code's calls are data (CALL's `.word`), not JSRs, so each callee
+  is named for ln45's call graph by `cc45.pcall.<f>.<g>` (`O45Linker::buildCallGraph`). musicgen: 48 blocks,
+  1,297 bytes in 312, its BSS 4,557 -> 3,470 bytes (native 3,166). Without the markers ln45 overlays a caller's
+  frame with its callees' (53 bytes instead of 110 for `test_pcops`) and the test's results are wrong. With
+  the static-allocation flag ln45 also rejects p-code functions on a call cycle, or reachable from an
+  `__interrupt` handler.
 - **The interpreter** (`pcode_rt.s45`, about 3.2 KB): one generic handler per operation working on two
   accumulators of the operation's width (1, 2 or 4 bytes), dispatched by `asl / tax / jmp (handlers,x)`; its state
   in the base page (IP `$08`, FP `$0A`, accumulators at `$F3` and `$F7`). CALL saves IP and FP on the stack.
@@ -230,7 +238,7 @@ are random).
 |---|---:|---:|
 | `.prg`, interactive build | 17,059 | 17,011 |
 | `.prg`, `MG_TEST` build | 8,674 | 9,895 |
-| BSS (to the end of the page-aligned base page) | 3,166 | 4,557 |
+| BSS (to the end of the page-aligned base page) | 3,166 | 3,470 |
 
 (The `MG_TEST` build writes its songs from `$A000`; the p-code's are the same bytes as native's. It has less of
 musicgen's code, the interface left out, against the same runtime: still 14% larger.) Each step,
@@ -251,7 +259,7 @@ measured on musicgen's p-code and on the examples and the library (`CC45_PCODE_L
 Each combined form adds 20-100 bytes to the interpreter, which a small program pays without the gain (the
 `MG_TEST` build grew 21 bytes with the byte immediates). What is left: every global or constant operand without
 an immediate form still copied into the frame first, narrowing MOVs (a 4-byte result into a 1-byte variable), the
-3.2 KB runtime, and frames that ln45 does not overlay as it does SAC blocks (hence the BSS). The next candidates,
+3.2 KB runtime. The next candidates,
 from the pairs left in musicgen: indexed loads and stores (1.3%).
 
 ### Bugs found on the way

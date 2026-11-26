@@ -2145,6 +2145,16 @@ void O45Linker::buildCallGraph() {
         bool isCc45 = false;
         for (const auto& exp : input.obj.exports)
             if (exp.name == "cc45.mode_zp" || exp.name == "cc45.mode_stack") isCc45 = true;
+        // research/pcode: a p-code function's calls are data (its CALL's
+        // address), not JSRs: cc45.pcall.<f>.<g> names each (f and g have no dots)
+        for (const auto& exp : input.obj.exports)
+            if (exp.name.rfind("cc45.pcall.", 0) == 0) {
+                std::string fg = exp.name.substr(11);
+                size_t dot = fg.find('.');
+                if (dot == std::string::npos || dot == 0 || dot + 1 >= fg.size()) continue;
+                callGraph_[fg.substr(0, dot)].insert(fg.substr(dot + 1));
+                jsrEdges[fg.substr(0, dot)].insert(fg.substr(dot + 1));
+            }
         // Build a map of text-segment offset -> function name for this object.
         // Exports in text segment, sorted by offset, define function boundaries.
         struct FuncRange {

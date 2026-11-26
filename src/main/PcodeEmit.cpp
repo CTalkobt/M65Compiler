@@ -56,6 +56,7 @@ struct Emitter {
     std::ostringstream pc;              // the p-code's lines
     int bytes = 0, run = 0;
     std::vector<std::string> line;      // the current instruction's items
+    std::set<std::string> callees;      // the functions its CALLs name (ln45's call graph: cc45.pcall)
 
     explicit Emitter(const ir::Function& f) : fn(f) {}
 
@@ -675,6 +676,7 @@ struct Emitter {
                 if (zp > 32) return fail("more than 32 bytes of arguments");
                 int rw = in.op == Op::CALL && in.dest.isVreg() ? widthOfType(in.resultType, in.resultByteWidth) : 0;
                 if (rw != 0 && rw != 1 && rw != 2 && rw != 4) return fail("a call result of " + std::to_string(rw) + " bytes");
+                callees.insert(in.src1.name);
                 op(P_CALL, 1); word(in.src1.name); b((int)args.size());
                 for (const auto& [o, n] : args) { b(o); b(n); }
                 b(rw ? var(in.dest) : 0); b(rw);
@@ -725,7 +727,19 @@ PcodeResult pcodeEmit(const ir::Function& fn) {
     std::ostringstream t;
     const std::string pf = fn.name + "__pf";
     t << "; " << fn.name << ": p-code (research/pcode), its frame " << e.frame << " bytes\n";
-    t << "    .segment \"bss\"\n" << pf << ":\n    .res " << std::max(1, e.frame) << "\n";
+    // the frame as a static-allocation block (<f>__ar, cc45.sacsize.<f>, a pad
+    // byte either side): ln45 overlays it with the blocks of functions never
+    // active with this one. Its calls are data (CALL's .word), not JSRs: each
+    // callee named by cc45.pcall.<f>.<g>, an edge of ln45's call graph
+    t << "    .segment \"bss\"\n    .res 1\n";
+    t << "    .global " << fn.name << "__ar\n" << fn.name << "__ar:\n";
+    t << pf << ":\n    .res " << std::max(1, e.frame) << "\n    .res 1\n";
+    t << "    .global cc45.sacsize." << fn.name << "\n";
+    t << "    cc45.sacsize." << fn.name << " = " << std::max(1, e.frame) + 1 << "\n";
+    for (const auto& g : e.callees) {
+        t << "    .global cc45.pcall." << fn.name << "." << g << "\n";
+        t << "    cc45.pcall." << fn.name << "." << g << " = 1\n";
+    }
     t << "    .segment \"code\"\n";
     t << "    .global " << fn.name << "\n    .extern __pc_enter\n";
     t << "    proc " << fn.name << "\n";
@@ -758,7 +772,7 @@ PcodeResult pcodeEmit(const ir::Function& fn) {
         }
         t << "\n";
     }
-    t << "    .func_flags zp_call\n    endproc\n";
+    t << "    .func_flags zp_call, static_alloc\n    endproc\n";
     t << fn.name << "__pc:\n" << (e.list ? "    ; PCTEMP " + std::to_string(e.k0) + "\n" : std::string()) << e.pc.str() << "\n";
     r.ok = true;
     r.text = t.str();

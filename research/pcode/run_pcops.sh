@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # research/pcode: test_pcops_xemu.c native and as p-code (CC45_PCODE=all),
-# both run in xemu; their results at $A000 compared, the first group that
+# both run in xemu (the p-code's frames overlaid by ln45, its SAC overlay); their results at $A000 compared, the first group that
 # differs named
 #   run_pcops.sh [OUTDIR]
 cd "$(dirname "$0")" || exit 1
@@ -11,7 +11,7 @@ $B/ca45 -c pcode_rt.s45 -o "$O/rt.o45" >/dev/null || exit 1
 $B/cc45 -O2 -c test_pcops_xemu.c -o "$O/n.o45" 2>/dev/null &&
 $B/ln45 -basic -o "$O/n.prg" "$O/n.o45" ../../lib/build/c45.lib >/dev/null || { echo "native build failed"; exit 1; }
 CC45_PCODE=all CC45_PCODE_REPORT=1 $B/cc45 -O2 -c test_pcops_xemu.c -o "$O/p.o45" 2>"$O/p.rep" &&
-$B/ln45 -basic -o "$O/p.prg" "$O/p.o45" "$O/rt.o45" ../../lib/build/c45.lib >/dev/null || { echo "p-code build failed"; exit 1; }
+$B/ln45 -v -basic -o "$O/p.prg" "$O/p.o45" "$O/rt.o45" ../../lib/build/c45.lib 2>&1 | grep "SAC overlay:" ; [ -s "$O/p.prg" ] || { echo "p-code build failed"; exit 1; }
 grep native "$O/p.rep"
 for v in n p; do
     timeout 60 xemu-xmega65 -headless -besure -sleepless -prgmode 65 -prgexit -dumpmem "$O/$v.mem" -prg "$O/$v.prg" </dev/null >/dev/null 2>&1
