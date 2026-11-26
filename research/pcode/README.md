@@ -208,7 +208,7 @@ asm). The program is linked with the runtime, `ca45 -c pcode_rt.s45`.
 - **The entry** is `jsr __pc_enter` / `.word` the p-code / `.word` the frame / `.byte d` (8 bytes; far: 10):
   the interpreter copies up to 4 parameters of 1, 2 or 4 bytes from the ZP parameter block into the frame (`d`: 2
   bits each, their bytes, 3 the end); with more, the entry copies them (`lda`/`sta`, 5 bytes a byte) and `d` is
-  `$FF`. musicgen's 47 entries 1,104 -> 376 bytes.
+  `$FF`. musicgen's 47 entries 787 -> 376 bytes.
 - **Frames overlaid.** A frame is a static-allocation block for ln45 (`<f>__ar`, `cc45.sacsize.<f>`, a pad byte
   either side; the entry `.func_flags static_alloc`), so ln45's SAC overlay shares it with the blocks of
   functions never active with this one. The p-code's calls are data (CALL's `.word`), not JSRs, so each callee
