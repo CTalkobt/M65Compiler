@@ -371,7 +371,9 @@ struct Emitter {
     // an operand that is not a variable, in a scratch slot (CONST into it)
     int materialize(const ir::Operand& o, int w, int slot) {
         if (o.isVreg()) return var(o);
-        if (o.kind == ir::OperandKind::GLOBAL) {
+        if (o.kind == ir::OperandKind::GLOBAL) {   // (an address: 2 bytes; as a long, 2 zero bytes after them)
+            if (w == 4) { op(P_CONST, 4); b(slot); word(o.name); b(0); b(0); flush(); return slot; }
+            if (w == 1) { fail("an address in a byte"); return slot; }
             op(P_CONST, 2); b(slot); word(o.name); flush();
             return slot;
         }
@@ -722,6 +724,7 @@ PcodeResult pcodeEmit(const ir::Function& fn) {
             if (!e.inst(in, next)) { r.why = e.why; return r; }
         e.endBlock();
     }
+    if (!e.why.empty()) { r.why = e.why; return r; }   // (a failure inside an instruction's operands)
 
     // the native entry: the parameters from the ZP block into the frame
     std::ostringstream t;

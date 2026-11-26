@@ -115,6 +115,7 @@ __attribute__((noinline)) static u32 mix3(u32 c, u8 a, u16 b) { return c ^ ((u32
 __attribute__((noinline)) static u8 mix3b(u16 b, u8 a, u32 c) { return (u8)(c >> 3) + a - (u8)b; }
 __attribute__((noinline)) static u16 mix2(u8 a, u32 c) { return (u16)(c >> 7) ^ a; }
 __attribute__((noinline)) static u32 mix4(u8 a, u16 b, u32 c, u8 d) { return (c - b) ^ ((u32)a << 16) ^ ((u32)d << 24); }
+__attribute__((noinline)) static u16 hi16(u32 c, u8 a, u16 b) { return (u16)(c >> 16) + (a & 0) + (b & 0); }
 static u16 acc4;
 __attribute__((noinline)) static void put4(u16 a, u8 b, u16 c, u8 d) { acc4 = acc4 * 3 + a - c + (u16)(b ^ d); }
 static u8 hits;
@@ -127,6 +128,8 @@ static void calls(u8 i) {
     w8(mix3b(200, 0xFF, v32[i % N32])); w8(mix3b(0x1234, 0, v32[i % N32]));
     w16(mix2(7, v32[i % N32])); w16(mix2(v8[i], 70000UL));
     w32(mix3(v32[i % N32], 0, 255)); w32(mix3(1, v8[i], 256));
+    /* an address as a long, in a slot a long constant had (glamlambs' dma_copy_far: the upper bytes were left) */
+    w16(hi16(0x0FF7E000UL, v8[i], v16[i])); w16(hi16((u32)(u16)t16, v8[i], v16[i]));   /* (its address differs: its upper half 0) */
     /* 4 arguments (CALLC4), constants among them */
     w32(mix4(v8[i], v16[i], v32[i % N32], 9)); w32(mix4(3, 300, v32[i % N32], v8[i]));
     put4(v16[i], 0xFE, 77, v8[i]); w16(acc4);
