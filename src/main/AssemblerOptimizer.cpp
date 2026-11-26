@@ -2927,6 +2927,21 @@ bool AssemblerOptimizer::optimizeInternal(
             std::vector<size_t> tailIndices;
             size_t j = i - 1;
 
+            // A directive placing bytes (data after a jsr is an argument list
+            // the routine reads from its return address; a table; an
+            // alignment) is part of the code: a tail ends at it (#796: two
+            // tails differing only in their .word were merged)
+            auto placesBytes = [&](const AssemblerParser::Statement* st) {
+                static const std::set<std::string> byteDirs = {
+                    "byte", "word", "dword", "long", "float", "text", "ascii", "screencode", "petscii",
+                    "res", "fill", "fillto", "space", "incbin", "align", "org", "dc", "db", "dw", "dd"};
+                std::string d = st->dir.name;
+                if (!d.empty() && d[0] == '.') d.erase(0, 1);
+                std::transform(d.begin(), d.end(), d.begin(), ::tolower);
+                return byteDirs.count(d) > 0 || st->size > 0;
+            };
+            bool dataAtEnd = false;
+
             // First, skip directives immediately before endproc
             while ((int)j >= 0) {
                 auto* prev = parser->statements[j].get();
@@ -2935,11 +2950,14 @@ bool AssemblerOptimizer::optimizeInternal(
                     continue;
                 }
                 if (prev->type == AssemblerParser::Statement::DIRECTIVE) {
+                    if (placesBytes(prev)) { dataAtEnd = true; break; }
                     --j;
                     continue;
                 }
                 break;
             }
+
+            if (dataAtEnd) continue;
 
             // Now collect consecutive instructions until we hit a non-instruction.
             // NOTE: We skip directives (.local, .frameptr_zp, etc.) that appear between
@@ -2954,6 +2972,7 @@ bool AssemblerOptimizer::optimizeInternal(
                 if (!prev->label.empty()) break;
                 // Skip over directives (they're metadata, not code)
                 if (prev->type == AssemblerParser::Statement::DIRECTIVE) {
+                    if (placesBytes(prev)) break;
                     --j;
                     continue;
                 }

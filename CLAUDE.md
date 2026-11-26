@@ -291,7 +291,7 @@ not change what is tested; a test's own later `-O` still wins. Use an
 explicit `-O<n>` in ad-hoc test commands too.
 
 - `make test` — unit tests; its example and library steps (`test_examples.sh`, `test_stdlib_new.sh`) run in xemu when it is there and are skipped without.
-- `bash src/test/test_xemu.sh` (`make test-xemu`) — runtime tests on xemu (1211 pass, about 3 minutes): each
+- `bash src/test/test_xemu.sh` (`make test-xemu`) — runtime tests on xemu (1213 pass, about 3 minutes): each
   `*_xemu.c` writes results to `$C0C0` (01 = pass, `$AA` sentinel), built in
   both conventions. New runtime tests follow this pattern and are registered
   in `test_xemu.sh`, most as one line: `xemu_case "FAIL message" <compile_link_test

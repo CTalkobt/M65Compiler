@@ -316,6 +316,18 @@ else
     failed=$((failed + 1))
 fi
 
+echo "Testing TailDedup with data after a jsr (Issue #796)..."
+# two tails differing only in the .word after their jsr stay apart; tails
+# without data merge
+TD=$($AS -c -O2 -Roptimizer src/test-resources/test_taildedup_data.s45 -o build/test/test_taildedup_data.o45 2>&1)
+if ! grep -q "asm:22: \[tail-dedup" <<< "$TD" && grep -q "asm:42: \[tail-dedup\]" <<< "$TD"; then
+    echo "SUCCESS: tails with different data after a jsr stay apart; others merge"
+    passed=$((passed + 1))
+else
+    echo "FAIL: TailDedup with data ($(grep tail-dedup <<< "$TD" | tr '\n' ';'))"
+    failed=$((failed + 1))
+fi
+
 echo "Testing relocatable operands beside a .zpsym range (Issue #660)..."
 # an operand naming an extern or a label of a relocatable segment keeps its
 # offset, whatever its value before linking: with .zpsym _zs, $90, 7,
