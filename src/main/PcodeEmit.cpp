@@ -33,7 +33,7 @@ enum Pc : int {
     P_SHL, P_SHLI, P_SHR, P_SHRI, P_ASR, P_ASRI, P_MUL, P_MULI,
     P_DIVU, P_DIVUI, P_MODU, P_MODUI, P_NEG, P_NOT, P_CMP, P_CMPI,
     P_BR, P_BNZ, P_BZ, P_CALL, P_RET, P_RETV, P_ZEXT, P_SEXT, P_ADV,
-    P_DIV, P_DIVI, P_MOD, P_MODI, P_CBR, P_CBRI, P_CALLC, P_LDO, P_STO, P_ELEMG
+    P_DIV, P_DIVI, P_MOD, P_MODI, P_CBR, P_CBRI, P_CALLC, P_LDO, P_STO, P_ELEMG, P_CALLC4
 };
 
 // the condition codes of CMP / CMPI
@@ -145,12 +145,12 @@ struct Emitter {
         return true;
     }
 
-    // a CALL's argument (it has at most 3) set by a CONST of a byte, or of a
+    // a CALL's argument (it has at most 4) set by a CONST of a byte, or of a
     // word under 256, that nothing else reads: the CALLC immediate (width 3)
     bool constArgs() {
         for (size_t c = 0; c < blk.size(); c++) {
             PI& y = blk[c];
-            if (code(y) != P_CALL || num(y, 2) > 3) continue;
+            if (code(y) != P_CALL || num(y, 2) > 4) continue;
             int n = num(y, 2);
             for (int j = 0; j < n; j++) {
                 size_t ks = 3 + 2 * (size_t)j;
@@ -275,26 +275,27 @@ struct Emitter {
 
     // the block written: the peepholes, then each instruction (ADV before
     // one that would take the run past 240 bytes)
-    // CALL with at most 3 arguments as CALLC @f, d, v x n, [r]: d n and the
+    // CALL with at most 4 arguments as CALLC @f, d, v x n, [r] (4: CALLC4, d the widths only): d n and the
     // arguments' widths (2 bits each; 3 an immediate byte, zero-extended into
     // its 2-byte slot), the result's width in the opcode
     static void compactCall(PI& x) {
         if (code(x) != P_CALL) return;
         int n = num(x, 2);
-        if (n > 3) return;
+        if (n > 4) return;   // (4: CALLC4, d the widths only)
         auto wc = [](int w) { return w == 1 ? 0 : w == 2 ? 1 : w == 4 ? 2 : w == 3 ? 3 : -1; };
-        int d = n;
+        const int sh = n == 4 ? 0 : 2;
+        int d = n == 4 ? 0 : n;
         std::vector<std::string> slots;
         for (int j = 0; j < n; j++) {
             int c = wc(num(x, 4 + 2 * (size_t)j));
             if (c < 0) return;
-            d |= c << (2 + 2 * j);
+            d |= c << (sh + 2 * j);
             slots.push_back(x.items[3 + 2 * (size_t)j]);
         }
         int rw = num(x, 4 + 2 * (size_t)n);
         int opc = rw == 0 ? 0xC0 : rw == 1 ? 0 : rw == 2 ? 0x80 : rw == 4 ? 0x40 : -1;
         if (opc < 0) return;
-        std::vector<std::string> it{std::to_string(P_CALLC | opc), x.items[1], std::to_string(d)};
+        std::vector<std::string> it{std::to_string((n == 4 ? P_CALLC4 : P_CALLC) | opc), x.items[1], std::to_string(d)};
         it.insert(it.end(), slots.begin(), slots.end());
         if (rw) it.push_back(x.items[3 + 2 * (size_t)n]);
         x.items = it;
@@ -628,8 +629,8 @@ struct Emitter {
                     int aw = widthOf(a);
                     if (aw != 1 && aw != 2 && aw != 4) return fail("a call argument of " + std::to_string(aw) + " bytes");
                     // (a constant byte, or a word under 256, as CALLC's immediate: the width 3; the
-                    // call then always CALLC: at most 3 arguments)
-                    if (in.args.size() <= 3 && a.isImm() && aw <= 2 &&
+                    // call then always CALLC / CALLC4: at most 4 arguments)
+                    if (in.args.size() <= 4 && a.isImm() && aw <= 2 &&
                         ((uint64_t)a.immVal & (aw == 1 ? 0xFFu : 0xFFFFu)) < 256) {
                         args.push_back({(int)((uint64_t)a.immVal & 0xFF), 3});
                         zp += 2;

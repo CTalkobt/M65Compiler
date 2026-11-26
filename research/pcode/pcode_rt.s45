@@ -38,6 +38,7 @@
 ;   $33 LDO d, [p + #off]      $34 STO [p + #off], a   (off a byte, p a
 ;             word variable)
 ;   $35 ELEMG d, @b, i, size, #off   (ELEM, the base an address)
+;   $36 CALLC4 @f, d, v x 4, [r]     (CALLC with 4 arguments, d their widths)
 
 ; no calls through pointers here but CALL's (to the functions the p-code names)
 .weak cc45.icallinfo
@@ -963,7 +964,7 @@ callc:
     lsr
     sta CC                      ; their widths
     ldx #0                      ; X: the next byte of the ZP parameter block
-@k_a:
+k_args:
     lda CNT
     beq @k_done
     lda CC
@@ -990,7 +991,7 @@ callc:
     inx
 @k_n:
     dec CNT
-    bra @k_a
+    bra k_args
 @k_i:                           ; an immediate byte, its slot's high byte 0
     FETCH
     sta $10,x
@@ -1008,6 +1009,30 @@ callc:
     jmp call_go
 k_bytes:
     .byte 1, 2, 4
+
+; CALLC4 @f, d, v x 4, [r]: CALLC with 4 arguments, d their widths ($36 /
+; $B6 / $76 / $F6 as CALLC's)
+h_callc4:
+    lda #1
+    bcc callc4
+    lda #2
+    bra callc4
+h_callc4_l:
+    lda #4
+    bcc callc4
+    lda #0
+callc4:
+    sta T1
+    FETCH
+    sta jv
+    FETCH
+    sta jv+1
+    lda #4
+    sta CNT
+    FETCH
+    sta CC
+    ldx #0
+    jmp k_args
 
     ENTRIES h_ret, h_ret_l               ; RET a
     FETCH
@@ -1088,7 +1113,7 @@ handlers:
     .word h_asri,  h_mul,   h_muli, h_divu, h_divui, h_modu, h_modui, h_neg
     .word h_not,   h_cmp,   h_cmpi, h_br,   h_bnz,  h_bz,   h_call, h_ret
     .word h_retv,  h_zext,  h_sext, h_adv,  h_div,  h_divi, h_mod,  h_modi
-    .word h_cbr,   h_cbri,  h_callc,  h_ldo,  h_sto,  h_elemg,  h_bad,  h_bad
+    .word h_cbr,   h_cbri,  h_callc,  h_ldo,  h_sto,  h_elemg,  h_callc4,  h_bad
     .word h_bad,   h_bad,   h_bad,  h_bad,  h_bad,  h_bad,  h_bad,  h_bad
     ; the long forms ($40 + the operation)
     .word h_bad,   h_const_l, h_mov_l, h_ldg_l, h_stg_l, h_ld_l, h_st_l, h_bad
@@ -1097,7 +1122,7 @@ handlers:
     .word h_asri_l, h_mul_l, h_muli_l, h_divu_l, h_divui_l, h_modu_l, h_modui_l, h_neg_l
     .word h_not_l, h_cmp_l, h_cmpi_l, h_bad, h_bnz_l, h_bz_l, h_bad,  h_ret_l
     .word h_bad,   h_zext_l, h_sext_l, h_bad, h_div_l, h_divi_l, h_mod_l, h_modi_l
-    .word h_cbr_l, h_cbri_l, h_callc_l, h_ldo_l, h_sto_l,  h_bad,  h_bad,  h_bad
+    .word h_cbr_l, h_cbri_l, h_callc_l, h_ldo_l, h_sto_l,  h_bad,  h_callc4_l,  h_bad
     .word h_bad,   h_bad,   h_bad,  h_bad,  h_bad,  h_bad,  h_bad,  h_bad
 
     .func_flags zp_call

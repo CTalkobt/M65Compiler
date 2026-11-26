@@ -24,11 +24,11 @@ toolchain: cc45's changes act only with `CC45_PCODE_STATS` (it measures) or `CC4
   few KB. Against the per-function saving the interpreter pays for itself in a program with about 9-10 KB of C
   code, interpreter and translator at about 15-20 KB.
 - **A real program.** cc45's first p-code back end (`CC45_PCODE`) runs examples/musicgen with 47 of its 49
-  functions as p-code: it draws its screen and answers keys as the native build does. Its `.prg` is **17,295 bytes
-  against 17,059 native (+1.4%)**, runtime (3.0 KB) included; the plain encoding was 20,141 (+18%). Peepholes over
+  functions as p-code: it draws its screen and answers keys as the native build does. Its `.prg` is **17,033 bytes
+  against 17,059 native**, runtime (3.1 KB) included: smaller than native; the plain encoding was 20,141 (+18%). Peepholes over
   each block and combined instructions (compare and branch, a short call with immediate arguments, a load or
-  store at a pointer + offset, the element of a global array) took its p-code from 12,404 bytes to 9,266 (-25%),
-  the examples' and the library's by 21.7%.
+  store at a pointer + offset, the element of a global array) took its p-code from 12,404 bytes to 8,962 (-28%),
+  the examples' and the library's by 23.1%.
   An operation-by-operation test against native code found only native bugs (#794, #795); the work found a ca45
   bug too (#796).
 
@@ -198,7 +198,7 @@ asm). The program is linked with the runtime, `ca45 -c pcode_rt.s45`.
 
   and writes a CALL with at most 3 arguments as `$32 CALLC @f, d, v x n, [r]`: `d` the number of arguments and
   each one's width (2 bits), the result's width in the opcode's width bits (`$F2` none); 4 + n bytes, + 1 with a
-  result, against 6 + 2n. An argument set by a CONST of a byte (or a word under 256) that nothing else reads is
+  result, against 6 + 2n. With 4 arguments, `$36 CALLC4` (`d` the four widths). An argument set by a CONST of a byte (or a word under 256) that nothing else reads is
   the byte itself in the call (width code 3, zero-extended into its 2-byte slot), the CONST dropped. `CC45_PCODE_LIST=1` writes each instruction as a comment (`; PC ...`), for the
   analysis of what follows what.
 - **The interpreter** (`pcode_rt.s45`, about 3.0 KB): one generic handler per operation working on two
@@ -224,11 +224,12 @@ are random).
 |---|---:|---:|
 | | native | p-code |
 |---|---:|---:|
-| `.prg`, interactive build | 17,059 | 17,295 |
-| `.prg`, `MG_TEST` build | 8,674 | 9,832 |
+| `.prg`, interactive build | 17,059 | 17,033 |
+| `.prg`, `MG_TEST` build | 8,674 | 9,874 |
 | BSS (to the end of the page-aligned base page) | 3,166 | 4,557 |
 
-(The `MG_TEST` build writes its songs from `$A000`; the p-code's are the same bytes as native's.) Each step,
+(The `MG_TEST` build writes its songs from `$A000`; the p-code's are the same bytes as native's. It has less of
+musicgen's code, the interface left out, against the same runtime: still 14% larger.) Each step,
 measured on musicgen's p-code and on the examples and the library (`CC45_PCODE_LIST`, every file):
 
 | step | musicgen p-code | its `.prg` | vs native | examples + library p-code |
@@ -240,8 +241,9 @@ measured on musicgen's p-code and on the examples and the library (`CC45_PCODE_L
 | load / store at an offset (LDO, STO) | 9,934 | 17,916 | +5.0% | 116,591 |
 | constant call arguments (CALLC immediates) | 9,461 | 17,460 | +2.4% | 113,697 |
 | the element of a global array (ELEMG) | 9,266 | 17,295 | +1.4% | 112,005 |
+| 4-argument calls (CALLC4) | 8,962 | **17,033** | **-0.2%** | 109,995 |
 
-Each combined form adds 70-100 bytes to the interpreter. What is left: every global or constant operand without
+Each combined form adds 20-100 bytes to the interpreter. What is left: every global or constant operand without
 an immediate form still copied into the frame first, narrowing MOVs (a 4-byte result into a 1-byte variable), the
 3.0 KB runtime, and frames that ln45 does not overlay as it does SAC blocks (hence the BSS). The next candidates,
 from the pairs left in musicgen: byte immediates in the unused width bits `11` (about 1.7%), indexed loads and stores (1.3%).
