@@ -33,7 +33,7 @@ enum Pc : int {
     P_SHL, P_SHLI, P_SHR, P_SHRI, P_ASR, P_ASRI, P_MUL, P_MULI,
     P_DIVU, P_DIVUI, P_MODU, P_MODUI, P_NEG, P_NOT, P_CMP, P_CMPI,
     P_BR, P_BNZ, P_BZ, P_CALL, P_RET, P_RETV, P_ZEXT, P_SEXT, P_ADV,
-    P_DIV, P_DIVI, P_MOD, P_MODI, P_CBR, P_CBRI, P_CALLC
+    P_DIV, P_DIVI, P_MOD, P_MODI, P_CBR, P_CBRI, P_CALLC, P_LDO, P_STO
 };
 
 // the condition codes of CMP / CMPI
@@ -86,7 +86,7 @@ struct Emitter {
     static int dstOf(const PI& x) {
         switch (code(x)) {
             case P_STG: case P_ST: case P_BR: case P_BNZ: case P_BZ: case P_RET: case P_RETV: case P_ADV:
-            case P_CBR: case P_CBRI:
+            case P_CBR: case P_CBRI: case P_STO:
                 return -1;
             case P_CALL: {   // op, callee, n, n x (slot, width), result slot, result width
                 size_t k = 3 + 2 * (size_t)num(x, 2);
@@ -124,6 +124,8 @@ struct Emitter {
             case P_CMPI: return {num(x, 2)};
             case P_CBR: return {num(x, 1), num(x, 2)};
             case P_CBRI: return {num(x, 1)};
+            case P_LDO: return {num(x, 2)};
+            case P_STO: return {num(x, 1), num(x, 3)};
             default:   // the ALU operations: dst, a, b or dst, a, imm
                 if (code(x) % 2 == 0 && code(x) >= P_ADDI && code(x) <= P_MODUI) return {num(x, 2)};
                 if (code(x) == P_DIVI || code(x) == P_MODI) return {num(x, 2)};
@@ -190,6 +192,26 @@ struct Emitter {
                     blk.erase(blk.begin() + j + 1);
                     changed = true;
                     break;
+                }
+                // 5. ADDI.2 t, p, #off; LD d, t / ST t, v -> LDO d, p, off / STO p, off, v
+                //    (off a byte; off + the width within it: (PTR),y)
+                if (code(x) == P_ADDI && wOf(x) == 2 && (code(y) == P_LD || code(y) == P_ST)) {
+                    int o = num(x, 3) | (num(x, 4) << 8);
+                    int yw = std::stoi(y.items[0]) & 0xC0;
+                    if (o + wOf(y) <= 256) {
+                        if (code(y) == P_LD && num(y, 2) == t) {
+                            y.items = {std::to_string(P_LDO | yw), y.items[1], x.items[2], std::to_string(o)};
+                            blk.erase(blk.begin() + j);
+                            changed = true;
+                            break;
+                        }
+                        if (code(y) == P_ST && num(y, 1) == t && num(y, 2) != t) {
+                            y.items = {std::to_string(P_STO | yw), x.items[2], std::to_string(o), y.items[2]};
+                            blk.erase(blk.begin() + j);
+                            changed = true;
+                            break;
+                        }
+                    }
                 }
                 // 3. LEAL t, s; ADDI.2 d, t, off -> LEAL d, s + off (the frame is static)
                 if (code(x) == P_LEAL && code(y) == P_ADDI && wOf(y) == 2 && num(y, 2) == t) {

@@ -34,6 +34,8 @@
 ;             when a cc b)
 ;   $32 CALLC @f, d, v x n, [r]   (CALL with 0-3 arguments: d their number
 ;             and widths; the result's width in the opcode, $F2 none)
+;   $33 LDO d, [p + #off]      $34 STO [p + #off], a   (off a byte, p a
+;             word variable)
 
 ; no calls through pointers here but CALL's (to the functions the p-code names)
 .weak cc45.icallinfo
@@ -175,6 +177,7 @@ ptr_imm:                        ; PTR = the address next
     rts
 load_ptr:                       ; A0 = W bytes at PTR (A0,x: there is no
     ldy #0                      ; base-page A0,y)
+load_ptr_y:                     ; (at PTR + Y)
     ldx #0
 @lp:
     lda (PTR),y
@@ -186,6 +189,7 @@ load_ptr:                       ; A0 = W bytes at PTR (A0,x: there is no
     rts
 store_ptr:                      ; W bytes at PTR = A0
     ldy #0
+store_ptr_y:                    ; (at PTR + Y)
     ldx #0
 @sp:
     lda A0,x
@@ -589,6 +593,24 @@ do_mods:
     jsr ptr_var
     jsr get_a
     jsr store_ptr
+    NEXT
+
+    ENTRIES h_ldo, h_ldo_l              ; LDO d, [p + #off]
+    jsr get_d
+    jsr ptr_var
+    FETCH
+    tay
+    jsr load_ptr_y
+    jsr put_a
+    NEXT
+
+    ENTRIES h_sto, h_sto_l              ; STO [p + #off], a
+    jsr ptr_var
+    FETCH
+    sta T1
+    jsr get_a
+    ldy T1
+    jsr store_ptr_y
     NEXT
 
 h_leal:                         ; LEAL d, v: d = FP + v
@@ -1044,7 +1066,7 @@ handlers:
     .word h_asri,  h_mul,   h_muli, h_divu, h_divui, h_modu, h_modui, h_neg
     .word h_not,   h_cmp,   h_cmpi, h_br,   h_bnz,  h_bz,   h_call, h_ret
     .word h_retv,  h_zext,  h_sext, h_adv,  h_div,  h_divi, h_mod,  h_modi
-    .word h_cbr,   h_cbri,  h_callc,  h_bad,  h_bad,  h_bad,  h_bad,  h_bad
+    .word h_cbr,   h_cbri,  h_callc,  h_ldo,  h_sto,  h_bad,  h_bad,  h_bad
     .word h_bad,   h_bad,   h_bad,  h_bad,  h_bad,  h_bad,  h_bad,  h_bad
     ; the long forms ($40 + the operation)
     .word h_bad,   h_const_l, h_mov_l, h_ldg_l, h_stg_l, h_ld_l, h_st_l, h_bad
@@ -1053,7 +1075,7 @@ handlers:
     .word h_asri_l, h_mul_l, h_muli_l, h_divu_l, h_divui_l, h_modu_l, h_modui_l, h_neg_l
     .word h_not_l, h_cmp_l, h_cmpi_l, h_bad, h_bnz_l, h_bz_l, h_bad,  h_ret_l
     .word h_bad,   h_zext_l, h_sext_l, h_bad, h_div_l, h_divi_l, h_mod_l, h_modi_l
-    .word h_cbr_l, h_cbri_l, h_callc_l, h_bad,  h_bad,  h_bad,  h_bad,  h_bad
+    .word h_cbr_l, h_cbri_l, h_callc_l, h_ldo_l, h_sto_l,  h_bad,  h_bad,  h_bad
     .word h_bad,   h_bad,   h_bad,  h_bad,  h_bad,  h_bad,  h_bad,  h_bad
 
     .func_flags zp_call

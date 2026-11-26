@@ -89,6 +89,17 @@ static void elems(u8 i, u8 v) {
     w16(t16[i]); w8(t8[i + 1]); w32(t32[i & 3]); w16(g16); w8(g8);
 }
 
+/* through a pointer at an offset (LDO, STO: up to 255; 300 stays ADDI + LD) */
+struct big { u8 a; u32 l; u8 pad[240]; u16 w; u8 b; u32 m; u8 pad2[40]; u16 far_; };
+static struct big bg[2];
+static struct big *const bp[2] = {&bg[0], &bg[1]};   /* (main stays p-code: no 294-byte elements) */
+__attribute__((noinline)) static void fields(struct big *p, u8 v) {
+    p->a = v; p->l = (u32)v * 70001UL; p->w = (u16)v * 513; p->b = v ^ 0xA5;
+    p->m = (u32)v << 20; p->far_ = (u16)v * 3;
+    w8(p->a); w32(p->l); w16(p->w); w8(p->b); w32(p->m); w16(p->far_);
+    w32(p->l + p->m); w8(bg[0].b);
+}
+
 /* calls: arguments of each width, results of each width */
 static u32 mix(u8 a, u16 b, u32 c, const u8 *p) { return c + b * a + p[1]; }
 static u8 inc8(u8 a) { return a + 1; }
@@ -192,6 +203,7 @@ int main(void) {
     for (i = 0; i < N32; i++) for (j = 0; j < N32; j++) { ops32(v32[i], v32[j]); sum(); }
     group(4);
     for (i = 0; i < 6; i++) { elems(i, v8[i + 2]); sum(); }
+    for (i = 0; i < N8; i++) { fields(bp[i & 1], v8[i]); sum(); }
     group(5);
     for (i = 0; i < N8; i++) { calls(i); sum(); }
     group(6);
