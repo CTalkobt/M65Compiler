@@ -160,7 +160,7 @@ nml:
 .endmacro
 
 #ifdef PCODE_FAR
-; jsr __pc_enterf / .dword the p-code / .word the frame: the return address
+; jsr __pc_enterf / .dword the p-code / .word the frame / .byte d: the return address
 ; pulled (the caller's own is then on top, for RET's rts)
 proc __pc_enterf
     .reg_clobbers A, X, Y, Z
@@ -183,25 +183,70 @@ proc __pc_enterf
     iny
     lda (PTR),y
     sta IP+3
+    bra pc_frame
+#else
+; jsr __pc_enter / .word the p-code / .word the frame / .byte d
+proc __pc_enter
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    pla
+    sta PTR
+    pla
+    sta PTR+1
+    ldy #1
+    lda (PTR),y
+    sta IP
+    iny
+    lda (PTR),y
+    sta IP+1
+#endif
+; the frame, then d: the parameters (up to 4) the interpreter copies from
+; the ZP parameter block into the frame's first bytes: 2 bits each, the
+; first lowest, their bytes (0 one, 1 two, 2 four), 3 the end ($FF: none,
+; or the entry copied them)
+pc_frame:
     iny
     lda (PTR),y
     sta FP
     iny
     lda (PTR),y
     sta FP+1
+    iny
+    lda (PTR),y
+    sta CC
+    lda #4
+    sta CNT
+    ldx #0                      ; X: the parameter block's byte
+    stx T0                      ; T0: the frame's
+@pc_p:
+    lda CC
+    and #3
+    cmp #3
+    beq @pc_go
+    tay
+    lda k_bytes,y
+    sta T1
+    lsr CC
+    lsr CC
+    ldy T0
+@pc_b:
+    lda $10,x
+    sta (FP),y
+    inx
+    iny
+    dec T1
+    bne @pc_b
+    sty T0
+    txa                         ; a byte: its slot is 2
+    and #1
+    beq @pc_n
+    inx
+@pc_n:
+    dec CNT
+    bne @pc_p
+@pc_go:
     ldz #0
     NEXT
-#else
-proc __pc_enter
-    .reg_clobbers A, X, Y, Z
-    .flag_clobbers C, N, Z, V
-    sta IP                      ; A/X the p-code
-    stx IP+1
-    sty FP                      ; Y/Z the frame
-    stz FP+1
-    ldz #0
-    NEXT
-#endif
 
 ; --- operands ------------------------------------------------------------
 get_d:                          ; T0 = the destination

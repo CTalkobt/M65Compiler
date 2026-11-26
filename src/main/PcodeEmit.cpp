@@ -757,24 +757,34 @@ PcodeResult pcodeEmit(const ir::Function& fn) {
     t << "    .global " << fn.name << "\n    .extern " << (e.farBank >= 0 ? "__pc_enterf" : "__pc_enter") << "\n";
     t << "    proc " << fn.name << "\n";
     int zp = 0, stub = 0;
-    for (uint32_t v = 0; v < fn.paramTypes.size(); v++) {
+    // the parameters: copied by the interpreter when at most 4 of 1, 2 or 4
+    // bytes (d: 2 bits each, their bytes, 3 the end); else here, d $FF
+    const size_t np = fn.paramTypes.size();
+    int d = 0xFF;
+    for (uint32_t v = 0; v < np; v++) {
         int w = std::max(1, widthOfType(fn.paramTypes[v]));
-        for (int k = 0; k < w; k++) {
-            t << "    lda $" << std::hex << (0x10 + zp + k) << std::dec << "\n";
-            t << "    sta " << pf << "+" << (e.off[v] + k) << "\n";
-            stub += 5;
-        }
-        zp += std::max(2, w);
+        int c = w == 1 ? 0 : w == 2 ? 1 : w == 4 ? 2 : -1;
+        if (np > 4 || c < 0 || e.off[v] != (v ? e.off[v - 1] + std::max(1, widthOfType(fn.paramTypes[v - 1])) : 0)) d = -1;
+        if (d >= 0) d = (d & ~(3 << (2 * v))) | c << (2 * v);
     }
-    // (the p-code and the frame in registers, not as data after a jsr:
-    // ca45's TailDedup took stubs that differed only in that data for one)
-    if (e.farBank >= 0) {   // (far: the p-code's 28-bit address and the frame after the jsr)
-        t << "    jsr __pc_enterf\n    .dword " << fn.name << "__pc\n    .word " << pf << "\n";
-        stub += 9;
+    if (d < 0) {
+        d = 0xFF;
+        for (uint32_t v = 0; v < np; v++) {
+            int w = std::max(1, widthOfType(fn.paramTypes[v]));
+            for (int k = 0; k < w; k++) {
+                t << "    lda $" << std::hex << (0x10 + zp + k) << std::dec << "\n";
+                t << "    sta " << pf << "+" << (e.off[v] + k) << "\n";
+                stub += 5;
+            }
+            zp += std::max(2, w);
+        }
+    }
+    if (e.farBank >= 0) {   // (the p-code's address, the frame and d after the jsr)
+        t << "    jsr __pc_enterf\n    .dword " << fn.name << "__pc\n    .word " << pf << "\n    .byte " << d << "\n";
+        stub += 10;
     } else {
-        t << "    lda #<" << fn.name << "__pc\n    ldx #>" << fn.name << "__pc\n";
-        t << "    ldy #<" << pf << "\n    ldz #>" << pf << "\n    jmp __pc_enter\n";
-        stub += 11;
+        t << "    jsr __pc_enter\n    .word " << fn.name << "__pc\n    .word " << pf << "\n    .byte " << d << "\n";
+        stub += 8;
     }
     t << "    .reg_clobbers A, X, Y, Z\n    .flag_clobbers C, N, Z, V\n";
     // the base page from $08: the interpreter's bytes, the parameter block it

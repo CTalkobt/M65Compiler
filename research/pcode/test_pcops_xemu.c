@@ -116,6 +116,7 @@ __attribute__((noinline)) static u8 mix3b(u16 b, u8 a, u32 c) { return (u8)(c >>
 __attribute__((noinline)) static u16 mix2(u8 a, u32 c) { return (u16)(c >> 7) ^ a; }
 __attribute__((noinline)) static u32 mix4(u8 a, u16 b, u32 c, u8 d) { return (c - b) ^ ((u32)a << 16) ^ ((u32)d << 24); }
 __attribute__((noinline)) static u16 hi16(u32 c, u8 a, u16 b) { return (u16)(c >> 16) + (a & 0) + (b & 0); }
+__attribute__((noinline)) static u32 mix5(u8 a, u16 b, u32 c, u8 d, u16 e) { return c + ((u32)b << 3) - a + ((u32)d << 20) + e * 5; }   /* (5 parameters: the entry copies them; CALL) */
 static u16 acc4;
 __attribute__((noinline)) static void put4(u16 a, u8 b, u16 c, u8 d) { acc4 = acc4 * 3 + a - c + (u16)(b ^ d); }
 static u8 hits;
@@ -133,6 +134,7 @@ static void calls(u8 i) {
     /* 4 arguments (CALLC4), constants among them */
     w32(mix4(v8[i], v16[i], v32[i % N32], 9)); w32(mix4(3, 300, v32[i % N32], v8[i]));
     put4(v16[i], 0xFE, 77, v8[i]); w16(acc4);
+    w32(mix5(v8[i], v16[i], v32[i % N32], v8[(i + 3) % N8], v16[(i + 5) % N16]));
     w32(mix(v8[i], v16[i], v32[i % N32], v8));
     w8(inc8(v8[i])); w16((u16)neg16((s16)v16[i]));
 }

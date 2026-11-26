@@ -24,8 +24,8 @@ toolchain: cc45's changes act only with `CC45_PCODE_STATS` (it measures) or `CC4
   few KB. Against the per-function saving the interpreter pays for itself in a program with about 9-10 KB of C
   code, interpreter and translator at about 15-20 KB.
 - **A real program.** cc45's first p-code back end (`CC45_PCODE`) runs examples/musicgen with 47 of its 49
-  functions as p-code: it draws its screen and answers keys as the native build does. Its `.prg` is **17,011 bytes
-  against 17,059 native**, runtime (3.2 KB) included: smaller than native; the plain encoding was 20,141 (+18%). Peepholes over
+  functions as p-code: it draws its screen and answers keys as the native build does. Its `.prg` is **16,721 bytes
+  against 17,059 native (-2.0%)**, runtime (3.2 KB) included: smaller than native; the plain encoding was 20,141 (+18%). Peepholes over
   each block and combined instructions (compare and branch, a short call with immediate arguments, a load or
   store at a pointer + offset, the element of a global array) took its p-code from 12,404 bytes to 8,854 (-29%),
   the examples' and the library's by 25.1%.
@@ -205,6 +205,10 @@ asm). The program is linked with the runtime, `ca45 -c pcode_rt.s45`.
   207 bytes for 118 of musicgen's p-code: a net loss; on these six, 86 bytes for 108. An argument set by a CONST of a byte (or a word under 256) that nothing else reads is
   the byte itself in the call (width code 3, zero-extended into its 2-byte slot), the CONST dropped. `CC45_PCODE_LIST=1` writes each instruction as a comment (`; PC ...`), for the
   analysis of what follows what.
+- **The entry** is `jsr __pc_enter` / `.word` the p-code / `.word` the frame / `.byte d` (8 bytes; far: 10):
+  the interpreter copies up to 4 parameters of 1, 2 or 4 bytes from the ZP parameter block into the frame (`d`: 2
+  bits each, their bytes, 3 the end); with more, the entry copies them (`lda`/`sta`, 5 bytes a byte) and `d` is
+  `$FF`. musicgen's 47 entries 1,104 -> 376 bytes.
 - **Frames overlaid.** A frame is a static-allocation block for ln45 (`<f>__ar`, `cc45.sacsize.<f>`, a pad byte
   either side; the entry `.func_flags static_alloc`), so ln45's SAC overlay shares it with the blocks of
   functions never active with this one. The p-code's calls are data (CALL's `.word`), not JSRs, so each callee
@@ -236,9 +240,9 @@ are random).
 |---|---:|---:|
 | | native | p-code |
 |---|---:|---:|
-| `.prg`, interactive build | 17,059 | 17,011 |
-| `.prg`, `MG_TEST` build | 8,674 | 9,895 |
-| BSS (to the end of the page-aligned base page) | 3,166 | 3,470 |
+| `.prg`, interactive build | 17,059 | 16,721 |
+| `.prg`, `MG_TEST` build | 8,674 | 9,844 |
+| BSS (to the end of the page-aligned base page) | 3,166 | 3,504 |
 
 (The `MG_TEST` build writes its songs from `$A000`; the p-code's are the same bytes as native's. It has less of
 musicgen's code, the interface left out, against the same runtime: still 14% larger.) Each step,
@@ -254,7 +258,8 @@ measured on musicgen's p-code and on the examples and the library (`CC45_PCODE_L
 | constant call arguments (CALLC immediates) | 9,461 | 17,460 | +2.4% | 113,697 |
 | the element of a global array (ELEMG) | 9,266 | 17,295 | +1.4% | 112,005 |
 | 4-argument calls (CALLC4) | 8,962 | 17,033 | -0.2% | 109,995 |
-| byte immediates (width bits 11) | 8,854 | **17,011** | **-0.3%** | 107,136 |
+| byte immediates (width bits 11) | 8,854 | 17,011 | -0.3% | 107,136 |
+| frames overlaid; the interpreter copies the parameters (8-byte entries) | 8,854 | **16,721** | **-2.0%** | 107,136 |
 
 Each combined form adds 20-100 bytes to the interpreter, which a small program pays without the gain (the
 `MG_TEST` build grew 21 bytes with the byte immediates). What is left: every global or constant operand without
@@ -270,7 +275,7 @@ The runtime is built with `ca45 -DPCODE_FAR`: IP is a 28-bit address read with `
 its offset from the function's p-code, added to the function's base (pb) by the interpreter (ln45 allows only 32-bit
 references to a data overlay's symbols; a function's p-code never crosses a 64 KB bank, so a branch or ADV changes
 IP's low 16 bits only); the entry is `jsr __pc_enterf` / `.dword` the p-code / `.word` the frame (9 bytes). The
-far runtime is 3,569 bytes (W, T1 and pb in BSS, IP 4 bytes in the base page). `FAR=2048 run_pcops.sh` (and
+far runtime is 3,626 bytes (W, T1 and pb in BSS, IP 4 bytes in the base page). `FAR=2048 run_pcops.sh` (and
 `FAR=5`): the same results as native.
 
 examples/c/glamlambs (1,942 lines; code overlays `title` and `salon`; its demo build plays by itself), 99
@@ -278,15 +283,16 @@ functions as p-code, 2 native (`cpu_reg_write`):
 
 | | native | p-code in bank 0 | p-code in attic RAM |
 |---|---:|---:|---:|
-| `.prg` | 27,941 | 30,798 | **18,096** |
-| bank 0 code (TEXT) | 23,395 | 26,256 | 13,644 |
-| the program's end in bank 0 | `$9DFF` | `$AAFF` | `$78FF` |
-| code overlays (`.ov1`) | 7,932 | 6,979 | 877 |
+| `.prg` | 27,941 | 30,798 | **17,819** |
+| bank 0 code (TEXT) | 23,395 | 26,256 | 13,367 |
+| the program's end in bank 0 | `$9DFF` | `$AAFF` | `$77FF` |
+| code overlays (`.ov1`) | 7,932 | 6,979 | 739 |
 | p-code in attic RAM (`.ov2`) | | | 18,382 |
 | the demo's game time after 30 s | 27 s | 18 s | 17 s |
 
-In bank 0 the p-code loses: the interpreter is resident and the native entries take 1,222 bytes for `main.c`'s 67
-functions (an 18-byte average: 5 bytes per parameter byte copied), most of what its p-code saves; without the
+(The bank 0 column is before the 8- and 10-byte entries: then the native entries took 1,222 bytes for `main.c`'s
+67 functions, an 18-byte average, most of what its p-code saved; now all of glamlambs' 98 take 1,105.) In bank 0
+the p-code loses: the interpreter is resident; without the
 frames overlaid the program does not fit below the overlay region at all. In attic RAM the p-code costs bank 0
 nothing: the program ends 9.5 KB lower than native, and `title` and `salon` hardly need the code overlays any more
 (their native entries, 877 bytes). Reading the p-code from attic RAM costs little against bank 0 (17 s of game
