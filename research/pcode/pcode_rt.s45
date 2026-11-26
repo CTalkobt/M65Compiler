@@ -39,6 +39,9 @@
 ;             word variable)
 ;   $35 ELEMG d, @b, i, size, #off   (ELEM, the base an address)
 ;   $36 CALLC4 @f, d, v x 4, [r]     (CALLC with 4 arguments, d their widths)
+;
+; Width bits 11 ($C0 + the operation) on CONST, ADDI, SUBI, ANDI, CMPI and
+; CBRI: the word operation with a one-byte immediate, zero-extended.
 
 ; no calls through pointers here but CALL's (to the functions the p-code names)
 .weak cc45.icallinfo
@@ -104,6 +107,23 @@ nml:
 @c\@:
 .endmacro
 
+; ENTRIES for an operation with a byte form (width bits 11: C set at the
+; long entry): a word operation whose immediate is a byte, zero-extended;
+; bi 1 until get_bi (or CONST) has read it
+.macro ENTRIES_I nm, nml
+nm:
+    WIDTH
+    bra @c\@
+nml:
+    ldy #4
+    bcc @l\@
+    ldy #2
+    inc bi
+@l\@:
+    sty W
+@c\@:
+.endmacro
+
 proc __pc_enter
     .reg_clobbers A, X, Y, Z
     .flag_clobbers C, N, Z, V
@@ -143,7 +163,9 @@ get_b:                          ; B0 = the variable (W bytes)
     cpx W
     bne @gb
     rts
-get_bi:                         ; B0 = the immediate (W bytes)
+get_bi:                         ; B0 = the immediate (W bytes; bi: a byte, zero-extended)
+    lda bi
+    bne @gb1
     ldx #0
 @gbi:
     FETCH
@@ -151,6 +173,13 @@ get_bi:                         ; B0 = the immediate (W bytes)
     inx
     cpx W
     bne @gbi
+    rts
+@gb1:
+    dec bi
+    FETCH
+    sta B0
+    lda #0
+    sta B0+1
     rts
 put_a:                          ; the destination (T0) = A0 (W bytes)
     ldy T0
@@ -510,6 +539,15 @@ mr_to_a0:
     jsr put_a
     NEXT
 .endmacro
+.macro BINARYIB nm, nml, sub     ; (with the byte form)
+    ENTRIES_I nm, nml
+    jsr get_d
+    jsr get_a
+    jsr get_bi
+    jsr sub
+    jsr put_a
+    NEXT
+.endmacro
 .macro SHIFTI nm, nml, sub
     ENTRIES nm, nml
     jsr get_d
@@ -522,11 +560,11 @@ mr_to_a0:
 .endmacro
 
     BINARY h_add, h_add_l, do_add
-    BINARYI h_addi, h_addi_l, do_add
+    BINARYIB h_addi, h_addi_l, do_add
     BINARY h_sub, h_sub_l, do_sub
-    BINARYI h_subi, h_subi_l, do_sub
+    BINARYIB h_subi, h_subi_l, do_sub
     BINARY h_and, h_and_l, do_and
-    BINARYI h_andi, h_andi_l, do_and
+    BINARYIB h_andi, h_andi_l, do_and
     BINARY h_or, h_or_l, do_or
     BINARYI h_ori, h_ori_l, do_or
     BINARY h_xor, h_xor_l, do_xor
@@ -554,9 +592,11 @@ do_mods:
     jsr do_divs
     jmp mr_to_a0
 
-    ENTRIES h_const, h_const_l             ; CONST d, #imm
+    ENTRIES_I h_const, h_const_l           ; CONST d, #imm
     jsr get_d
     ldy T0
+    lda bi
+    bne @cst1
     ldx W
 @cst:
     FETCH
@@ -564,6 +604,14 @@ do_mods:
     iny
     dex
     bne @cst
+    NEXT
+@cst1:                          ; a byte, zero-extended to the word
+    dec bi
+    FETCH
+    sta (FP),y
+    iny
+    lda #0
+    sta (FP),y
     NEXT
 
     ENTRIES h_mov, h_mov_l               ; MOV d, a
@@ -718,7 +766,7 @@ elem_i:
     jsr get_a
     jsr get_b
     jmp cmp_cc
-    ENTRIES h_cmpi, h_cmpi_l              ; CMPI d, a, #imm, cc
+    ENTRIES_I h_cmpi, h_cmpi_l              ; CMPI d, a, #imm, cc
     jsr get_d
     jsr get_a
     jsr get_bi
@@ -734,7 +782,7 @@ cmp_cc:
     jsr get_a
     jsr get_b
     bra cbr_cc
-    ENTRIES h_cbri, h_cbri_l             ; CBRI a, #imm, cc, t
+    ENTRIES_I h_cbri, h_cbri_l             ; CBRI a, #imm, cc, t
     jsr get_a
     jsr get_bi
 cbr_cc:
@@ -1129,6 +1177,7 @@ handlers:
     endproc
 
 .segment "bss"
+bi:     .res 1                  ; 1: the operation's immediate is a byte (ENTRIES_I)
 jv:     .res 2                  ; CALL's target (jmp (jv))
 rv:     .res 4                  ; a call's or RET's value
 mr:     .res 4                  ; MUL's product; DIV's remainder

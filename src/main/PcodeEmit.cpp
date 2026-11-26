@@ -259,6 +259,21 @@ struct Emitter {
                     changed = true;
                     break;
                 }
+                // 7. CONST t, #v; OP d, a, t -> OPI d, a, #v (the same width; the IR gives a
+                //    divisor as a variable)
+                if (code(x) == P_CONST && x.items.size() == 2 + (size_t)wOf(x) && wOf(y) == wOf(x) &&
+                    y.items.size() == 4 && num(y, 3) == t && num(y, 2) != t) {
+                    int c = code(y);
+                    if (c == P_ADD || c == P_SUB || c == P_AND || c == P_OR || c == P_XOR || c == P_MUL ||
+                        c == P_DIVU || c == P_MODU || c == P_DIV || c == P_MOD) {
+                        std::vector<std::string> it{std::to_string((c + 1) | (std::stoi(y.items[0]) & 0xC0)), y.items[1], y.items[2]};
+                        it.insert(it.end(), x.items.begin() + 2, x.items.end());
+                        y.items = it;
+                        blk.erase(blk.begin() + j);
+                        changed = true;
+                        break;
+                    }
+                }
                 // 3. LEAL t, s; ADDI.2 d, t, off -> LEAL d, s + off (the frame is static)
                 if (code(x) == P_LEAL && code(y) == P_ADDI && wOf(y) == 2 && num(y, 2) == t) {
                     int o = num(y, 3) | (num(y, 4) << 8);
@@ -301,9 +316,25 @@ struct Emitter {
         x.items = it;
     }
 
+    // a word operation's immediate under 256 as a byte: width bits 11 (the
+    // interpreter zero-extends it)
+    static void byteImm(PI& x) {
+        int c = std::stoi(x.items[0]);
+        if ((c & 0xC0) != 0x80) return;
+        size_t k;
+        switch (c & 0x3F) {
+            case P_CONST: case P_CBRI: k = 2; break;
+            case P_ADDI: case P_SUBI: case P_ANDI: case P_CMPI: k = 3; break;   // (the others rarer than the handler's bytes)
+            default: return;
+        }
+        if (x.items.size() < k + 2 || x.items[k][0] == 'W' || x.items[k + 1] != "0") return;
+        x.items[0] = std::to_string(c | 0xC0);
+        x.items.erase(x.items.begin() + (long)k + 1);
+    }
+
     void endBlock() {
         peephole();
-        for (auto& x : blk) compactCall(x);
+        for (auto& x : blk) { compactCall(x); byteImm(x); }
         for (const auto& x : blk) {
             int n = size(x);
             if (run + n > 240) { pc << "    .byte " << P_ADV << "            ; ADV\n"; bytes++; run = 0; }

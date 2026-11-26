@@ -42,6 +42,7 @@ static void ops8(u8 a, u8 b) {
     w8(a < 100); w8(sa < -3); w8(sa >= 5);
     w8((u8)-a); w8((u8)~a);
     w16(a); w16((u16)(s16)sa); w32(a); w32((u32)(s32)sa);
+    w8(a / 7); w8(a % 10); w8((u8)(sa / 3)); w8((u8)(sa % 5));
 }
 /* 16 bits */
 static void ops16(u16 a, u16 b) {
@@ -55,6 +56,10 @@ static void ops16(u16 a, u16 b) {
     w8(a < 1000); w8(sa < -300); w8(sa >= 5);
     w16((u16)-a); w16((u16)~a); w8((u8)a); w8((u8)(a >> 8));
     w32(a); w32((u32)(s32)sa);
+    /* word operations with byte immediates (width bits 11) */
+    w16(a ^ 0x5A); w16(a * 13); w16(a / 7); w16(a % 13); w16((u16)(sa / 9)); w16((u16)(sa % 9));
+    w16(a - 200); w16(a & 0xF0); w16(a | 0x81); w16(a + 255);
+    if (a < 200) w8(1); if (a != 255) w8(2); if (sa > 100) w8(3); if (b == 0) w8(4);
 }
 /* 32 bits */
 static void ops32(u32 a, u32 b) {
@@ -67,6 +72,7 @@ static void ops32(u32 a, u32 b) {
     w8(sa < sb); w8(sa <= sb); w8(sa > sb); w8(sa >= sb);
     w8(a < 70000UL); w8(sa < -5);
     w32((u32)-a); w32(~a); w16((u16)a); w16((u16)(a >> 16));
+    w32(a / 1000); w32(a % 70000UL); w32((u32)(sa / 7)); w32((u32)(sa % 300));
 }
 
 /* elements of several sizes, through pointers and globals */
