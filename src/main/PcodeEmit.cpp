@@ -33,7 +33,7 @@ enum Pc : int {
     P_SHL, P_SHLI, P_SHR, P_SHRI, P_ASR, P_ASRI, P_MUL, P_MULI,
     P_DIVU, P_DIVUI, P_MODU, P_MODUI, P_NEG, P_NOT, P_CMP, P_CMPI,
     P_BR, P_BNZ, P_BZ, P_CALL, P_RET, P_RETV, P_ZEXT, P_SEXT, P_ADV,
-    P_DIV, P_DIVI, P_MOD, P_MODI
+    P_DIV, P_DIVI, P_MOD, P_MODI, P_CBR, P_CBRI
 };
 
 // the condition codes of CMP / CMPI
@@ -86,6 +86,7 @@ struct Emitter {
     static int dstOf(const PI& x) {
         switch (code(x)) {
             case P_STG: case P_ST: case P_BR: case P_BNZ: case P_BZ: case P_RET: case P_RETV: case P_ADV:
+            case P_CBR: case P_CBRI:
                 return -1;
             case P_CALL: {   // op, callee, n, n x (slot, width), result slot, result width
                 size_t k = 3 + 2 * (size_t)num(x, 2);
@@ -121,6 +122,8 @@ struct Emitter {
             case P_MOV: case P_LD: case P_NEG: case P_NOT: case P_ZEXT: case P_SEXT: return {num(x, 2)};
             case P_CMP: return {num(x, 2), num(x, 3)};
             case P_CMPI: return {num(x, 2)};
+            case P_CBR: return {num(x, 1), num(x, 2)};
+            case P_CBRI: return {num(x, 1)};
             default:   // the ALU operations: dst, a, b or dst, a, imm
                 if (code(x) % 2 == 0 && code(x) >= P_ADDI && code(x) <= P_MODUI) return {num(x, 2)};
                 if (code(x) == P_DIVI || code(x) == P_MODI) return {num(x, 2)};
@@ -170,6 +173,23 @@ struct Emitter {
                         changed = true;
                         break;
                     }
+                }
+                // 4. CMP(I) t, a, b, cc; BNZ / BZ t, @l -> CBR(I) a, b, cc', @l
+                //    (BZ: the condition inverted; the flag a byte)
+                if ((code(x) == P_CMP || code(x) == P_CMPI) && (code(y) == P_BNZ || code(y) == P_BZ) &&
+                    num(y, 1) == t && wOf(y) == 1) {
+                    int cc = num(x, x.items.size() - 1);
+                    if (code(y) == P_BZ) cc = invert(cc);
+                    std::vector<std::string> it{std::to_string((code(x) == P_CMP ? P_CBR : P_CBRI) |
+                                                               (std::stoi(x.items[0]) & 0xC0))};
+                    it.insert(it.end(), x.items.begin() + 2, x.items.end() - 1);
+                    it.push_back(std::to_string(cc));
+                    it.push_back(y.items[2]);
+                    x.items = it;
+                    x.resets = y.resets;
+                    blk.erase(blk.begin() + j + 1);
+                    changed = true;
+                    break;
                 }
                 // 3. LEAL t, s; ADDI.2 d, t, off -> LEAL d, s + off (the frame is static)
                 if (code(x) == P_LEAL && code(y) == P_ADDI && wOf(y) == 2 && num(y, 2) == t) {
@@ -322,6 +342,13 @@ struct Emitter {
             case ir::Op::CMP_GTU: return CC_GTU; case ir::Op::CMP_GEU: return CC_GEU;
             case ir::Op::CMP_LT: return CC_LT;   case ir::Op::CMP_LE: return CC_LE;
             case ir::Op::CMP_GT: return CC_GT;   default: return CC_GE;
+        }
+    }
+    static int invert(int cc) {   // !(a cc b)
+        switch (cc) {
+            case CC_EQ: return CC_NE;   case CC_NE: return CC_EQ;
+            case CC_LTU: return CC_GEU; case CC_GEU: return CC_LTU; case CC_LEU: return CC_GTU; case CC_GTU: return CC_LEU;
+            case CC_LT: return CC_GE;   case CC_GE: return CC_LT;   case CC_LE: return CC_GT;   default: return CC_LE;
         }
     }
     int mirror(int cc) {   // a < b == b > a

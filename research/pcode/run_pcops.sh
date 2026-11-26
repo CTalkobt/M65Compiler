@@ -22,9 +22,9 @@ n, p = open(sys.argv[1], "rb").read(), open(sys.argv[2], "rb").read()
 print("ended: native", hex(n[0xC0C0]), "p-code", hex(p[0xC0C0]))
 # groups: EE g, then a 2-byte checksum per call
 k, g, call, bad = 0xA000, None, 0, 0
-end = n.index(bytes([0xEE, 7]), 0xA000) + 2
+end = n.index(bytes([0xEE, 8]), 0xA000) + 2
 while k < end:
-    if n[k] == 0xEE and n[k + 1] in range(1, 8) and (k == 0xA000 or (k - 0xA000) % 2 == 0):
+    if n[k] == 0xEE and n[k + 1] in range(1, 9) and (k == 0xA000 or (k - 0xA000) % 2 == 0):
         g, call, k = n[k + 1], 0, k + 2
         continue
     if n[k:k + 2] != p[k:k + 2]:

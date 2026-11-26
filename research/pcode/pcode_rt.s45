@@ -30,6 +30,8 @@
 ;   $27 RET a                  $28 RETV                $29 ZEXT d, a, ws
 ;   $2A SEXT d, a, ws          $2B ADV (IP += Z, Z = 0)
 ;   $2C / $2D DIV / DIVI       $2E / $2F MOD / MODI   (signed)
+;   $30 / $31 CBR / CBRI a, b|#imm, cc, t   (CMP and BNZ as one: to t
+;             when a cc b)
 
 ; no calls through pointers here but CALL's (to the functions the p-code names)
 .weak cc45.icallinfo
@@ -685,6 +687,31 @@ h_leal:                         ; LEAL d, v: d = FP + v
     jsr get_a
     jsr get_bi
 cmp_cc:
+    jsr cmp_eval
+    sta A0
+    lda #1
+    sta W
+    jsr put_a
+    NEXT
+
+    ENTRIES h_cbr, h_cbr_l               ; CBR a, b, cc, t
+    jsr get_a
+    jsr get_b
+    bra cbr_cc
+    ENTRIES h_cbri, h_cbri_l             ; CBRI a, #imm, cc, t
+    jsr get_a
+    jsr get_bi
+cbr_cc:
+    jsr cmp_eval
+    tax
+    bne @cbr_t
+    inz
+    inz
+    NEXT
+@cbr_t:
+    JUMP
+
+cmp_eval:                       ; A = 1 when A0 cc B0 (W bytes; cc fetched), else 0
     FETCH
     sta CC
     cmp #6                      ; signed: the sign bits flipped, then unsigned
@@ -757,11 +784,7 @@ cmp_cc:
     beq @r_set
     lda #0
 @r_set:
-    sta A0
-    lda #1
-    sta W
-    jsr put_a
-    NEXT
+    rts
 
 h_br:
     JUMP
@@ -955,7 +978,7 @@ handlers:
     .word h_asri,  h_mul,   h_muli, h_divu, h_divui, h_modu, h_modui, h_neg
     .word h_not,   h_cmp,   h_cmpi, h_br,   h_bnz,  h_bz,   h_call, h_ret
     .word h_retv,  h_zext,  h_sext, h_adv,  h_div,  h_divi, h_mod,  h_modi
-    .word h_bad,   h_bad,   h_bad,  h_bad,  h_bad,  h_bad,  h_bad,  h_bad
+    .word h_cbr,   h_cbri,  h_bad,  h_bad,  h_bad,  h_bad,  h_bad,  h_bad
     .word h_bad,   h_bad,   h_bad,  h_bad,  h_bad,  h_bad,  h_bad,  h_bad
     ; the long forms ($40 + the operation)
     .word h_bad,   h_const_l, h_mov_l, h_ldg_l, h_stg_l, h_ld_l, h_st_l, h_bad
@@ -964,7 +987,7 @@ handlers:
     .word h_asri_l, h_mul_l, h_muli_l, h_divu_l, h_divui_l, h_modu_l, h_modui_l, h_neg_l
     .word h_not_l, h_cmp_l, h_cmpi_l, h_bad, h_bnz_l, h_bz_l, h_bad,  h_ret_l
     .word h_bad,   h_zext_l, h_sext_l, h_bad, h_div_l, h_divi_l, h_mod_l, h_modi_l
-    .word h_bad,   h_bad,   h_bad,  h_bad,  h_bad,  h_bad,  h_bad,  h_bad
+    .word h_cbr_l, h_cbri_l, h_bad, h_bad,  h_bad,  h_bad,  h_bad,  h_bad
     .word h_bad,   h_bad,   h_bad,  h_bad,  h_bad,  h_bad,  h_bad,  h_bad
 
     .func_flags zp_call

@@ -111,6 +111,68 @@ static u8 br(u8 a, u16 b, u32 c) {
     return r;
 }
 
+/* compare and branch (CBR, CBRI): every condition, each width */
+static u16 cb8(u8 a, u8 b) {
+    s8 sa = (s8)a, sb = (s8)b;
+    u16 r = 0;
+    if (a == b) r |= 1;
+    if (a != b) r |= 2;
+    if (a < b) r |= 4;
+    if (a <= b) r |= 8;
+    if (a > b) r |= 16;
+    if (a >= b) r |= 32;
+    if (sa < sb) r |= 64;
+    if (sa <= sb) r |= 128;
+    if (sa > sb) r |= 256;
+    if (sa >= sb) r |= 512;
+    if (a < 100) r |= 1024;
+    if (a >= 100) r |= 2048;
+    if (sa < -3) r |= 4096;
+    if (sa > -3) r |= 8192;
+    while (a != b && a > 100) { a >>= 1; r += 16384; }
+    return r;
+}
+static u16 cb16(u16 a, u16 b) {
+    s16 sa = (s16)a, sb = (s16)b;
+    u16 r = 0;
+    if (a == b) r |= 1;
+    if (a != b) r |= 2;
+    if (a < b) r |= 4;
+    if (a <= b) r |= 8;
+    if (a > b) r |= 16;
+    if (a >= b) r |= 32;
+    if (sa < sb) r |= 64;
+    if (sa <= sb) r |= 128;
+    if (sa > sb) r |= 256;
+    if (sa >= sb) r |= 512;
+    if (a < 1000) r |= 1024;
+    if (a >= 1000) r |= 2048;
+    if (sa < -300) r |= 4096;
+    if (sa > -300) r |= 8192;
+    while (a != b && a > 1000) { a >>= 1; r += 16384; }
+    return r;
+}
+static u16 cb32(u32 a, u32 b) {
+    s32 sa = (s32)a, sb = (s32)b;
+    u16 r = 0;
+    if (a == b) r |= 1;
+    if (a != b) r |= 2;
+    if (a < b) r |= 4;
+    if (a <= b) r |= 8;
+    if (a > b) r |= 16;
+    if (a >= b) r |= 32;
+    if (sa < sb) r |= 64;
+    if (sa <= sb) r |= 128;
+    if (sa > sb) r |= 256;
+    if (sa >= sb) r |= 512;
+    if (a < 70000UL) r |= 1024;
+    if (a >= 70000UL) r |= 2048;
+    if (sa < -5) r |= 4096;
+    if (sa > -5) r |= 8192;
+    while (a != b && a > 70000UL) { a >>= 1; r += 16384; }
+    return r;
+}
+
 int main(void) {
     u8 i, j;
     group(1);
@@ -126,6 +188,10 @@ int main(void) {
     group(6);
     for (i = 0; i < N8; i++) { w8(br(v8[i], v16[i], v32[i % N32])); sum(); }
     group(7);
+    for (i = 0; i < N8; i++) for (j = 0; j < N8; j++) { w16(cb8(v8[i], v8[j])); sum(); }
+    for (i = 0; i < N16; i++) for (j = 0; j < N16; j++) { w16(cb16(v16[i], v16[j])); sum(); }
+    for (i = 0; i < N32; i++) for (j = 0; j < N32; j++) { w16(cb32(v32[i], v32[j])); sum(); }
+    group(8);
     *(volatile u8 *)0xC0C0 = 0xAA;
     return 0;
 }
