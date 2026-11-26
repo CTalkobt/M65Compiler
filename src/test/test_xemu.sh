@@ -3946,6 +3946,13 @@ for dmmode in "zp|" "stack|-fno-zpcall"; do
     xemu_case "FAIL: test_divmod_xemu.c $dmname (compilation/linking failed)" "src/test-resources/test_divmod_xemu.c" "build/test/test_divmod_${dmname}_xemu.prg" "$dmflags" -- "test_divmod_$dmname" "build/test/test_divmod_${dmname}_xemu.prg" "C0C0" 6 "01 01 01 01 01 AA"
 done
 
+# Test: / and % over tables of values against a division written in C (#794, #795)
+for dsmode in "zp|" "stack|-fno-zpcall"; do
+    IFS='|' read -r dsname dsflags <<< "$dsmode"
+    echo "Testing test_divmod_sweep_xemu.c ($dsname)..."
+    xemu_case "FAIL: test_divmod_sweep_xemu.c $dsname (compilation/linking failed)" "src/test-resources/test_divmod_sweep_xemu.c" "build/test/test_divmod_sweep_${dsname}_xemu.prg" "$dsflags" -- "test_divmod_sweep_$dsname" "build/test/test_divmod_sweep_${dsname}_xemu.prg" "C0C0" 6 "01 01 01 01 01 AA"
+done
+
 # Test: signed compares with 0 as a sign test
 for csmode in "zp|" "stack|-fno-zpcall"; do
     IFS='|' read -r csname csflags <<< "$csmode"
