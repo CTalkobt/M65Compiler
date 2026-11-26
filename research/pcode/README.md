@@ -205,7 +205,7 @@ asm). The program is linked with the runtime, `ca45 -c pcode_rt.s45`.
   207 bytes for 118 of musicgen's p-code: a net loss; on these six, 86 bytes for 108. An argument set by a CONST of a byte (or a word under 256) that nothing else reads is
   the byte itself in the call (width code 3, zero-extended into its 2-byte slot), the CONST dropped. `CC45_PCODE_LIST=1` writes each instruction as a comment (`; PC ...`), for the
   analysis of what follows what.
-- **The interpreter** (`pcode_rt.s45`, about 3.0 KB): one generic handler per operation working on two
+- **The interpreter** (`pcode_rt.s45`, about 3.2 KB): one generic handler per operation working on two
   accumulators of the operation's width (1, 2 or 4 bytes), dispatched by `asl / tax / jmp (handlers,x)`; its state
   in the base page (IP `$08`, FP `$0A`, accumulators at `$F3` and `$F7`). CALL saves IP and FP on the stack.
 
@@ -251,7 +251,7 @@ measured on musicgen's p-code and on the examples and the library (`CC45_PCODE_L
 Each combined form adds 20-100 bytes to the interpreter, which a small program pays without the gain (the
 `MG_TEST` build grew 21 bytes with the byte immediates). What is left: every global or constant operand without
 an immediate form still copied into the frame first, narrowing MOVs (a 4-byte result into a 1-byte variable), the
-3.0 KB runtime, and frames that ln45 does not overlay as it does SAC blocks (hence the BSS). The next candidates,
+3.2 KB runtime, and frames that ln45 does not overlay as it does SAC blocks (hence the BSS). The next candidates,
 from the pairs left in musicgen: indexed loads and stores (1.3%).
 
 ### Bugs found on the way
