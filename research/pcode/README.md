@@ -24,10 +24,11 @@ toolchain: cc45's changes act only with `CC45_PCODE_STATS` (it measures) or `CC4
   few KB. Against the per-function saving the interpreter pays for itself in a program with about 9-10 KB of C
   code, interpreter and translator at about 15-20 KB.
 - **A real program.** cc45's first p-code back end (`CC45_PCODE`) runs examples/musicgen with 47 of its 49
-  functions as p-code: it draws its screen and answers keys as the native build does. Its `.prg` is **17,916 bytes
-  against 17,059 native (+5.0%)**, runtime (3.0 KB) included; the plain encoding was 20,141 (+18%). Peepholes over
-  each block and four combined instructions (compare and branch, a short call, a load or store at a pointer +
-  offset) took its p-code from 12,404 bytes to 9,934 (-20%), the examples' and the library's by 18.5%.
+  functions as p-code: it draws its screen and answers keys as the native build does. Its `.prg` is **17,460 bytes
+  against 17,059 native (+2.4%)**, runtime (3.0 KB) included; the plain encoding was 20,141 (+18%). Peepholes over
+  each block and combined instructions (compare and branch, a short call with immediate arguments, a load or
+  store at a pointer + offset) took its p-code from 12,404 bytes to 9,461 (-24%), the examples' and the library's
+  by 20.5%.
   An operation-by-operation test against native code found only native bugs (#794, #795); the work found a ca45
   bug too (#796).
 
@@ -196,7 +197,8 @@ asm). The program is linked with the runtime, `ca45 -c pcode_rt.s45`.
 
   and writes a CALL with at most 3 arguments as `$32 CALLC @f, d, v x n, [r]`: `d` the number of arguments and
   each one's width (2 bits), the result's width in the opcode's width bits (`$F2` none); 4 + n bytes, + 1 with a
-  result, against 6 + 2n. `CC45_PCODE_LIST=1` writes each instruction as a comment (`; PC ...`), for the
+  result, against 6 + 2n. An argument set by a CONST of a byte (or a word under 256) that nothing else reads is
+  the byte itself in the call (width code 3, zero-extended into its 2-byte slot), the CONST dropped. `CC45_PCODE_LIST=1` writes each instruction as a comment (`; PC ...`), for the
   analysis of what follows what.
 - **The interpreter** (`pcode_rt.s45`, about 3.0 KB): one generic handler per operation working on two
   accumulators of the operation's width (1, 2 or 4 bytes), dispatched by `asl / tax / jmp (handlers,x)`; its state
@@ -221,9 +223,9 @@ are random).
 |---|---:|---:|
 | | native | p-code |
 |---|---:|---:|
-| `.prg`, interactive build | 17,059 | 17,916 |
-| `.prg`, `MG_TEST` build | 8,674 | 9,898 |
-| BSS | 3,166 | 4,357 |
+| `.prg`, interactive build | 17,059 | 17,460 |
+| `.prg`, `MG_TEST` build | 8,674 | 9,859 |
+| BSS (to the end of the page-aligned base page) | 3,166 | 4,557 |
 
 (The `MG_TEST` build writes its songs from `$A000`; the p-code's are the same bytes as native's.) Each step,
 measured on musicgen's p-code and on the examples and the library (`CC45_PCODE_LIST`, every file):
@@ -235,12 +237,12 @@ measured on musicgen's p-code and on the examples and the library (`CC45_PCODE_L
 | compare and branch (CBR, CBRI) | 10,953 | 18,759 | +10% | 126,700 |
 | the short call (CALLC) | 10,330 | 18,236 | +6.9% | 120,615 |
 | load / store at an offset (LDO, STO) | 9,934 | 17,916 | +5.0% | 116,591 |
+| constant call arguments (CALLC immediates) | 9,461 | 17,460 | +2.4% | 113,697 |
 
 Each combined form adds 70-100 bytes to the interpreter. What is left: every global or constant operand without
 an immediate form still copied into the frame first, narrowing MOVs (a 4-byte result into a 1-byte variable), the
 3.0 KB runtime, and frames that ln45 does not overlay as it does SAC blocks (hence the BSS). The next candidates,
-from the pairs left in musicgen: byte immediates in the unused width bits `11` (about 1.7%), calls with constant
-arguments (2.6% before CALLC), the element of a global array (1.6%), indexed loads and stores (1.3%).
+from the pairs left in musicgen: byte immediates in the unused width bits `11` (about 1.7%), the element of a global array (1.6%), indexed loads and stores (1.3%).
 
 ### Bugs found on the way
 
