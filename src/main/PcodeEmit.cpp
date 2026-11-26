@@ -33,7 +33,7 @@ enum Pc : int {
     P_SHL, P_SHLI, P_SHR, P_SHRI, P_ASR, P_ASRI, P_MUL, P_MULI,
     P_DIVU, P_DIVUI, P_MODU, P_MODUI, P_NEG, P_NOT, P_CMP, P_CMPI,
     P_BR, P_BNZ, P_BZ, P_CALL, P_RET, P_RETV, P_ZEXT, P_SEXT, P_ADV,
-    P_DIV, P_DIVI, P_MOD, P_MODI, P_CBR, P_CBRI, P_CALLC, P_LDO, P_STO
+    P_DIV, P_DIVI, P_MOD, P_MODI, P_CBR, P_CBRI, P_CALLC, P_LDO, P_STO, P_ELEMG
 };
 
 // the condition codes of CMP / CMPI
@@ -100,7 +100,7 @@ struct Emitter {
     static int dstWidth(const PI& x) {
         switch (code(x)) {
             case P_CMP: case P_CMPI: return 1;
-            case P_LEAL: case P_ELEM: return 2;
+            case P_LEAL: case P_ELEM: case P_ELEMG: return 2;
             case P_CALL: return num(x, 4 + 2 * (size_t)num(x, 2));
             default: return wOf(x);
         }
@@ -126,6 +126,7 @@ struct Emitter {
             case P_CBR: return {num(x, 1), num(x, 2)};
             case P_CBRI: return {num(x, 1)};
             case P_LDO: return {num(x, 2)};
+            case P_ELEMG: return {num(x, 3)};
             case P_STO: return {num(x, 1), num(x, 3)};
             default:   // the ALU operations: dst, a, b or dst, a, imm
                 if (code(x) % 2 == 0 && code(x) >= P_ADDI && code(x) <= P_MODUI) return {num(x, 2)};
@@ -247,6 +248,16 @@ struct Emitter {
                             break;
                         }
                     }
+                }
+                // 6. CONST.2 t, addr; ELEM d, t, i, size, off -> ELEMG d, addr, i, size, off
+                if (code(x) == P_CONST && wOf(x) == 2 && code(y) == P_ELEM && num(y, 2) == t && num(y, 3) != t) {
+                    std::string addr = x.items.size() == 3 ? x.items[2]
+                                     : "W" + std::to_string(num(x, 2) | (num(x, 3) << 8));
+                    y.items = {std::to_string(P_ELEMG | (std::stoi(y.items[0]) & 0xC0)), y.items[1], addr,
+                               y.items[3], y.items[4], y.items[5], y.items[6]};
+                    blk.erase(blk.begin() + j);
+                    changed = true;
+                    break;
                 }
                 // 3. LEAL t, s; ADDI.2 d, t, off -> LEAL d, s + off (the frame is static)
                 if (code(x) == P_LEAL && code(y) == P_ADDI && wOf(y) == 2 && num(y, 2) == t) {
@@ -444,6 +455,10 @@ struct Emitter {
 
     // an element's address into the scratch k1: base + idx * size + offset
     bool elem(const ir::Operand& base, const ir::Operand& idx, int64_t size, int64_t offset, int dst) {
+        if (base.kind == ir::OperandKind::GLOBAL && idx.isVreg() && size >= 1 && size <= 255) {   // ELEMG: the address in it
+            op(P_ELEMG, std::min(widthOf(idx), 2)); b(dst); word(base.name); b(var(idx)); b((int)size); imm(offset, 2); flush();
+            return true;
+        }
         int bv;
         if (base.isVreg()) bv = var(base);
         else if (base.kind == ir::OperandKind::GLOBAL) bv = materialize(base, 2, k0);

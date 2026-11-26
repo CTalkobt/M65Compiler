@@ -37,6 +37,7 @@
 ;             opcode, $F2 none)
 ;   $33 LDO d, [p + #off]      $34 STO [p + #off], a   (off a byte, p a
 ;             word variable)
+;   $35 ELEMG d, @b, i, size, #off   (ELEM, the base an address)
 
 ; no calls through pointers here but CALL's (to the functions the p-code names)
 .weak cc45.icallinfo
@@ -614,6 +615,14 @@ do_mods:
     jsr store_ptr_y
     NEXT
 
+    ENTRIES h_elemg, h_elemg_l            ; ELEMG d, @b, i, size, #off (ELEM, b an address)
+    jsr get_d
+    FETCH
+    sta A0
+    FETCH
+    sta A0+1
+    jmp elem_i
+
 h_leal:                         ; LEAL d, v: d = FP + v
     jsr get_d
     FETCH
@@ -637,6 +646,7 @@ h_leal:                         ; LEAL d, v: d = FP + v
     iny
     lda (FP),y
     sta A0+1
+elem_i:
     FETCH                       ; i: into B0 (a word)
     tay
     lda (FP),y
@@ -1078,7 +1088,7 @@ handlers:
     .word h_asri,  h_mul,   h_muli, h_divu, h_divui, h_modu, h_modui, h_neg
     .word h_not,   h_cmp,   h_cmpi, h_br,   h_bnz,  h_bz,   h_call, h_ret
     .word h_retv,  h_zext,  h_sext, h_adv,  h_div,  h_divi, h_mod,  h_modi
-    .word h_cbr,   h_cbri,  h_callc,  h_ldo,  h_sto,  h_bad,  h_bad,  h_bad
+    .word h_cbr,   h_cbri,  h_callc,  h_ldo,  h_sto,  h_elemg,  h_bad,  h_bad
     .word h_bad,   h_bad,   h_bad,  h_bad,  h_bad,  h_bad,  h_bad,  h_bad
     ; the long forms ($40 + the operation)
     .word h_bad,   h_const_l, h_mov_l, h_ldg_l, h_stg_l, h_ld_l, h_st_l, h_bad
