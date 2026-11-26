@@ -309,6 +309,51 @@ in attic RAM alone (`--overlay-store=0x8000000-0x803FFFF`), that overlay and the
 (the last column); with bank 5 first, as before, `.ov1` 347 bytes and `.ov2` 18,382. The sources are unchanged:
 the pragmas stay. `OVL=t run_pcops.sh` (`-foverlay=t`, with `FAR=2048` too): the same results as native.
 
+### A large program: vim2
+
+vim2 (../vim2: 9,762 lines, 57 files, 53 of them code overlays kept in attic RAM; 930 scripted tests in xemu), built
+with this branch's tools, every file as far p-code (`CC45_PCODE=all`, `CC45_PCODE_FAR` per file: banks `$87E` and
+`$87F`, the code overlays' store moved down to `$87C0000`-`$87DFFFF`). 41 functions stay native (35 for a
+stack-convention call: a variadic callee; 4 `__naked`; 2 an address in a byte).
+
+| | native | all p-code | p-code, `screen.c` native |
+|---|---:|---:|---:|
+| `.prg` | 20,245 | 20,695 | 23,164 |
+| bank 0 code (TEXT) | 19,842 | 16,262 | 18,731 |
+| bank 0 data (DATA) | 389 | 4,419 | 4,419 |
+| the program's end in bank 0 | `$8DFF` | `$97FF` | `$A1FF` |
+| code overlays | 55, 130,528 bytes | 22, 27,065 (native leftovers, the attic allocator) | the same |
+| p-code (attic RAM) | | 68,189 (+ 4,500 of entries in bank 0) | 66,286 |
+| tests | 930 / 930 | 930 / 930 (`page_grow` with a 300 s limit) | 930 / 930 (the same) |
+| `page_grow`, `-sleepless` | 5.1 s | 68.6 s | 28.4 s |
+| `page_grow`, real time | 30.6 s | | 224.8 s |
+| a short command (`dd u`, `*n`, `:set tm`), `-sleepless` | 0.41-0.43 s | 0.60-0.71 s | |
+
+(Times include xemu's start, about 0.4 s; `page_grow` types 2,100 characters at the ends of lines growing past 300.)
+
+- **Size.** The p-code is 2.2 times as dense as vim2's native code at `-O1` (68 KB against about 150 KB). But bank 0
+  does not gain: native vim2 already keeps 130 KB in attic RAM and pays only its 4 KB overlay region for it. Far
+  p-code pays the interpreter (3.6 KB), the entries (4.5 KB) and the string literals the p-code uses (4 KB: a
+  literal that stayed in an overlay would be gone while the p-code runs with another overlay in the region). The
+  program ends 2.5 KB higher than native.
+- **Speed.** Commands feel the same; typing does not: the insert path (a key, the line, its redraw: `main.c`,
+  `buffer.c`, `screen.c`, the files vim2 keeps resident) is 14 times slower as p-code. With `screen.c` native it is 6-7
+  times slower: about 105 ms a key into a 300-character line on a MEGA65 (13 native). There is no room to keep
+  `buffer.c` native too: it fits only in the build without the tests' code.
+- **Correctness.** Two problems found, both in placing literals: a `__noescape` literal (`#pragma cc45
+  noescape_strings`) a p-code function uses, kept with the code in a file's overlay, is not there when the p-code
+  runs (its entry is resident). Now resident, and so is one reached through the initializer of a table the p-code
+  uses (`set.c`'s option names: Tab after `:set` completed nothing). Nothing in the translator: with those, all 930
+  cases pass.
+
+Of the 399 p-code functions' entries, 77 are called by native code (the 41 functions left native); the other 322
+(3.2 KB) are there only because a call from p-code to p-code goes out through the callee's native entry and back in.
+
+For vim2 as the p-code is now, far p-code is not worth it: the program is already arranged so that its cold code costs bank 0 almost
+nothing, and the p-code's fixed costs are larger than what it frees. Where it pays is a program whose code is in
+bank 0 or in overlays copied per call (glamlambs: bank 0 9.5 KB lower); and even there only for code off the hot
+path.
+
 ### Bugs found on the way
 
 - **The startup that returned at once to `READY.`** was ca45's tail deduplication (#796): the first entries ended

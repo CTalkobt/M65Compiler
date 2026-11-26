@@ -2855,8 +2855,7 @@ void IRCodeGen::generate(const ir::Module& mod, uint32_t zpStart, bool relocMode
         bool overlayCode = false;
         for (const auto& fn : mod.functions) {
             if (fn.blocks.empty() || deadCodeFunctions_.count(fn.name) || inlineOnlyFunctions_.count(fn.name)) continue;
-            auto pt = pcodeText_.find(fn.name);
-            if (pt == pcodeText_.end() || pt->second.find(".segment \"resident\"") == std::string::npos) overlayCode = true;
+            if (!residentPcode(fn.name)) overlayCode = true;
         }
         if (!mod.overlay.empty() && overlayCode) emit(".overlay " + mod.overlay);
         // -fbss-fill=V: the module defining main sets the byte crt0 fills
@@ -3272,13 +3271,40 @@ void IRCodeGen::placeNoescape(const ir::Module& mod) {
     for (const auto& g : mod.globals) if (g.noescape && g.hasInitValue) want.insert(g.name);
     // (literals kept with the code: emitStrings' rule)
     std::set<std::string> kept;
+    // (research/pcode: a literal a far p-code function uses stays resident:
+    // the function's entry is resident and it runs with any overlay loaded)
+    pcodeStrings_.clear();
+    for (const auto& fn : mod.functions) {
+        if (!residentPcode(fn.name)) continue;
+        for (const auto& b : fn.blocks)
+            for (const auto& in : b.insts) {
+                auto see = [&](const ir::Operand& o) {
+                    if (o.kind == ir::OperandKind::GLOBAL) pcodeStrings_.insert(o.name.substr(0, o.name.find('+')));
+                };
+                see(in.dest); see(in.src1); see(in.src2);
+                for (const auto& a : in.args) see(a);
+            }
+    }
+    // (and what the initializers of the globals it uses point to: a table of
+    // literals, followed)
+    for (bool more = true; more; ) {
+        more = false;
+        for (const auto& g : mod.globals) {
+            if (!pcodeStrings_.count(g.name)) continue;
+            auto add = [&](const std::string& l) {
+                if (pcodeStrings_.insert(l.substr(0, l.find('+'))).second) more = true;
+            };
+            for (const auto& l : g.initLabels) add(l);
+            for (const auto& [o, l] : g.initWords) add(l);
+        }
+    }
     for (const auto& sl : mod.strings)
-        if (sl.noescape && (sl.far || !mod.overlay.empty())) kept.insert(sl.label);
+        if (sl.noescape && (sl.far || !mod.overlay.empty()) && !pcodeStrings_.count(sl.label)) kept.insert(sl.label);
     if (want.empty() && kept.empty()) return;
     std::map<std::string, std::set<std::string>> places;   // object -> "code"/"far"
     for (const auto& fn : mod.functions) {
         if (deadCodeFunctions_.count(fn.name) || inlineOnlyFunctions_.count(fn.name)) continue;
-        std::string where = fn.isFar ? "far" : !mod.overlay.empty() ? "code" : "data";
+        std::string where = fn.isFar ? "far" : !mod.overlay.empty() && !residentPcode(fn.name) ? "code" : "data";
         // (a global at an offset, g+2 from foldGlobalOffsetAccess: g's)
         auto see = [&](const ir::Operand& o) {
             if (o.kind != ir::OperandKind::GLOBAL) return;
@@ -3641,7 +3667,7 @@ void IRCodeGen::emitStrings(const ir::Module& mod) {
     auto segOf = [&](const ir::Module::StringLiteral& sl) -> std::string {
         if (!relocMode_ || !sl.noescape) return "data";
         if (sl.far) return "far";
-        return mod.overlay.empty() ? "data" : "code";
+        return mod.overlay.empty() || pcodeStrings_.count(sl.label) ? "data" : "code";
     };
     std::string cur;
     for (const char* seg : {"data", "code", "far"})

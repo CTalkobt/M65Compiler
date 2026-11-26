@@ -710,6 +710,12 @@ private:
     bool lintMode_ = false;
     bool allocReport_ = false;
     std::map<std::string, std::string> pcodeText_;
+    std::set<std::string> pcodeStrings_;   // literals far p-code uses: resident
+    // a far p-code function: its entry resident (sub-segment "resident")
+    bool residentPcode(const std::string& f) const {
+        auto pt = pcodeText_.find(f);
+        return pt != pcodeText_.end() && pt->second.find(".segment \"resident\"") != std::string::npos;
+    }
     int sacBlockBytes_ = 0;      // the SAC block's size as emitted (before #324's sharing)
     void emitAllocReport(const ir::Function& fn, bool useSAC, bool fnZp);
     std::map<std::string, int> frameSizes_;
