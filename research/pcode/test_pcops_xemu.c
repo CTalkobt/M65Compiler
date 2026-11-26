@@ -227,6 +227,30 @@ __attribute__((noinline)) static u16 lits(u8 i) {
 }
 #pragma cc45 escape_strings
 
+/* calls of a variadic function (the stack convention: CALLS pushes the
+ * arguments), bytes, words and longs, a result of each width */
+#include <stdarg.h>
+__attribute__((noinline)) static u32 vsum(u8 n, ...) {
+    va_list ap;
+    u32 h = n;
+    u8 k;
+    va_start(ap, n);
+    for (k = 0; k < n; k++) {
+        u8 t = (u8)va_arg(ap, int);
+        if (t == 4) h = h * 7 + va_arg(ap, u32);
+        else h = h * 5 + (u16)va_arg(ap, int);
+    }
+    va_end(ap);
+    return h;
+}
+__attribute__((noinline)) static u16 vcalls(u8 i, u16 w, u32 l) {
+    u32 a = vsum(0);
+    u32 b = vsum(2, 2, w, 4, l);
+    u16 c = (u16)vsum(3, 2, (u16)i, 2, w ^ 0x5A5A, 4, l + i);
+    u8 d = (u8)vsum(1, 2, (u16)(i * 3));
+    return (u16)(a + b + (b >> 16)) ^ c ^ d;
+}
+
 int main(void) {
     u8 i, j;
     group(1);
@@ -249,6 +273,8 @@ int main(void) {
     group(8);
     for (i = 0; i < N8; i++) { w16(lits(i)); sum(); }
     group(9);
+    for (i = 0; i < N8; i++) { w16(vcalls(v8[i], v16[i], v32[i % N32])); sum(); }
+    group(10);
     *(volatile u8 *)0xC0C0 = 0xAA;
     return 0;
 }

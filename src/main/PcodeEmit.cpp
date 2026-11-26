@@ -18,6 +18,7 @@
 // inline asm, far pointers, ...) leaves the function native: why says what.
 #include "PcodeEmit.hpp"
 #include <algorithm>
+#include <cctype>
 #include <cstdio>
 #include <map>
 #include <set>
@@ -34,7 +35,7 @@ enum Pc : int {
     P_SHL, P_SHLI, P_SHR, P_SHRI, P_ASR, P_ASRI, P_MUL, P_MULI,
     P_DIVU, P_DIVUI, P_MODU, P_MODUI, P_NEG, P_NOT, P_CMP, P_CMPI,
     P_BR, P_BNZ, P_BZ, P_CALL, P_RET, P_RETV, P_ZEXT, P_SEXT, P_ADV,
-    P_DIV, P_DIVI, P_MOD, P_MODI, P_CBR, P_CBRI, P_CALLC, P_LDO, P_STO, P_ELEMG, P_CALLC4, P_CALLP, P_CALLP4, P_CSTR
+    P_DIV, P_DIVI, P_MOD, P_MODI, P_CBR, P_CBRI, P_CALLC, P_LDO, P_STO, P_ELEMG, P_CALLC4, P_CALLP, P_CALLP4, P_CSTR, P_CALLS
 };
 
 // the condition codes of CMP / CMPI
@@ -122,7 +123,7 @@ struct Emitter {
             case P_STG: case P_ST: case P_BR: case P_BNZ: case P_BZ: case P_RET: case P_RETV: case P_ADV:
             case P_CBR: case P_CBRI: case P_STO:
                 return -1;
-            case P_CALL: {   // op, callee, n, n x (slot, width), result slot, result width
+            case P_CALL: case P_CALLS: {   // op, callee, n, n x (slot, width), result slot, result width
                 size_t k = 3 + 2 * (size_t)num(x, 2);
                 return num(x, k + 1) ? num(x, k) : -1;
             }
@@ -135,7 +136,7 @@ struct Emitter {
         switch (code(x)) {
             case P_CMP: case P_CMPI: return 1;
             case P_LEAL: case P_ELEM: case P_ELEMG: case P_CSTR: return 2;
-            case P_CALL: return num(x, 4 + 2 * (size_t)num(x, 2));
+            case P_CALL: case P_CALLS: return num(x, 4 + 2 * (size_t)num(x, 2));
             default: return wOf(x);
         }
     }
@@ -147,7 +148,7 @@ struct Emitter {
             case P_ST: return {num(x, 1), num(x, 2)};
             case P_BNZ: case P_BZ: case P_RET: return {num(x, 1)};
             case P_ELEM: return {num(x, 2), num(x, 3)};
-            case P_CALL: {
+            case P_CALL: case P_CALLS: {
                 int k = num(x, 2);
                 std::vector<int> r;
                 for (int j = 0; j < k; j++)
@@ -201,7 +202,8 @@ struct Emitter {
                     if (dstOf(blk[i]) == slot) { ok = true; break; }
                     if (std::find(sr.begin(), sr.end(), slot) != sr.end()) break;
                 }
-                if (!ok || code(blk[i]) != P_CONST || wOf(blk[i]) != aw || blk[i].items.size() != 2 + (size_t)aw) continue;   // (not an address)
+                if (!ok || code(blk[i]) != P_CONST || wOf(blk[i]) != aw || blk[i].items.size() != 2 + (size_t)aw ||
+                    !isdigit((unsigned char)blk[i].items[2][0])) continue;   // (not an address)
                 int v = num(blk[i], 2) | (aw == 2 ? num(blk[i], 3) << 8 : 0);
                 if (v > 255) continue;
                 y.items[ks] = std::to_string(v);
@@ -224,7 +226,7 @@ struct Emitter {
                 if (t < 0 || !deadAfter(j + 1, t)) continue;
                 // 1. X t, ...; MOV v, t -> X v, ...
                 if (code(y) == P_MOV && num(y, 2) == t && wOf(y) == dstWidth(x)) {
-                    x.items[code(x) == P_CALL ? 3 + 2 * (size_t)num(x, 2) : 1] = y.items[1];
+                    x.items[code(x) == P_CALL || code(x) == P_CALLS ? 3 + 2 * (size_t)num(x, 2) : 1] = y.items[1];
                     blk.erase(blk.begin() + j + 1);
                     changed = true;
                     break;
@@ -379,9 +381,21 @@ struct Emitter {
         x.items.erase(x.items.begin() + (long)k + 1);
     }
 
+    // CALLS @f, n, (v, w) x n, [r]: the result's width in the opcode as CALLC's
+    static void stackCall(PI& x) {
+        if (code(x) != P_CALLS) return;
+        int n = num(x, 2);
+        int rw = num(x, 4 + 2 * (size_t)n);
+        int opc = rw == 0 ? 0xC0 : rw == 1 ? 0 : rw == 2 ? 0x80 : 0x40;
+        std::vector<std::string> it{std::to_string(P_CALLS | opc), x.items[1], x.items[2]};
+        for (int j = 0; j < n; j++) { it.push_back(x.items[3 + 2 * (size_t)j]); it.push_back(x.items[4 + 2 * (size_t)j]); }
+        if (rw) it.push_back(x.items[3 + 2 * (size_t)n]);
+        x.items = it;
+    }
+
     void endBlock() {
         peephole();
-        for (auto& x : blk) { compactCall(x); byteImm(x); }
+        for (auto& x : blk) { compactCall(x); stackCall(x); byteImm(x); }
         for (const auto& x : blk) {
             int n = size(x);
             if (run + n > 240) { pc << "    .byte " << P_ADV << "            ; ADV\n"; bytes++; run = 0; }
@@ -390,6 +404,7 @@ struct Emitter {
             for (const auto& it : x.items) {
                 if (it[0] == 'W') { out(); pc << "    .word " << it.substr(1) << "\n"; }
                 else if (it[0] == 'D') { out(); pc << "    .dword " << it.substr(1) << "\n"; }
+                else if (it[0] == 'L') { out(); pc << "    .byte <(" << it.substr(1) << ")\n"; }
                 else if (it[0] == 'O') { out(); pc << "    .word " << fn.name << "__lits+" << it.substr(1) << "\n"; }
                 else bytesLine += (bytesLine.empty() ? "" : ", ") + it;
             }
@@ -433,7 +448,10 @@ struct Emitter {
                 return slot;
             }
             if (w == 4) { op(P_CONST, 4); b(slot); word(o.name); b(0); b(0); flush(); return slot; }
-            if (w == 1) { fail("an address in a byte"); return slot; }
+            if (w == 1) {   // (its low byte: .byte <sym)
+                op(P_CONST, 1); b(slot); line.push_back("L" + o.name); flush();
+                return slot;
+            }
             op(P_CONST, 2); b(slot); word(o.name); flush();
             return slot;
         }
@@ -709,20 +727,23 @@ struct Emitter {
                     if (to != next) { op(P_BR, 1); word(label(to)); flush(); resetRun(); }
                     return true;
                 }
-                if (!in.src1.isVreg()) return fail("a branch condition");
-                int cw = std::min(widthOf(in.src1), 4);
+                // (an address: a linker symbol's, as a value; into the scratch)
+                if (!in.src1.isVreg() && in.src1.kind != ir::OperandKind::GLOBAL) return fail("a branch condition");
+                int cw = in.src1.isVreg() ? std::min(widthOf(in.src1), 4) : 2;
                 if (cw == 0) cw = 1;
                 if (!okWidth(cw)) return false;
-                if (t == next) { op(P_BZ, cw); b(var(in.src1)); word(label(f)); flush(); }
+                const int cv = in.src1.isVreg() ? var(in.src1) : materialize(in.src1, 2, k0);
+                if (t == next) { op(P_BZ, cw); b(cv); word(label(f)); flush(); }
                 else {
-                    op(P_BNZ, cw); b(var(in.src1)); word(label(t)); flush();
+                    op(P_BNZ, cw); b(cv); word(label(t)); flush();
                     if (f != next) { op(P_BR, 1); word(label(f)); flush(); resetRun(); }
                 }
                 return true;
             }
             case Op::CALL: case Op::CALL_VOID: {
                 if (in.src1.kind != ir::OperandKind::GLOBAL) return fail("a call through a pointer");
-                if (!in.args.empty() && in.callConv != ir::CallConv::ZP) return fail("a stack-convention call");
+                // (the stack convention, a variadic callee: CALLS pushes the arguments)
+                const bool stack = !in.args.empty() && in.callConv != ir::CallConv::ZP;
                 if (in.isRegparm) return fail("a __regparm call");
                 // (the arguments that are not variables: into the call scratch first)
                 std::vector<std::pair<int, int>> args;   // offset, bytes
@@ -732,7 +753,7 @@ struct Emitter {
                     if (aw != 1 && aw != 2 && aw != 4) return fail("a call argument of " + std::to_string(aw) + " bytes");
                     // (a constant byte, or a word under 256, as CALLC's immediate: the width 3; the
                     // call then always CALLC / CALLC4: at most 4 arguments)
-                    if (in.args.size() <= 4 && a.isImm() && aw <= 2 &&
+                    if (!stack && in.args.size() <= 4 && a.isImm() && aw <= 2 &&
                         ((uint64_t)a.immVal & (aw == 1 ? 0xFFu : 0xFFFFu)) < 256) {
                         args.push_back({(int)((uint64_t)a.immVal & 0xFF), 3});
                         zp += 2;
@@ -743,11 +764,11 @@ struct Emitter {
                     args.push_back({o, aw});
                     zp += std::max(2, aw);
                 }
-                if (zp > 32) return fail("more than 32 bytes of arguments");
+                if (zp > (stack ? 64 : 32)) return fail("more than 32 bytes of arguments");
                 int rw = in.op == Op::CALL && in.dest.isVreg() ? widthOfType(in.resultType, in.resultByteWidth) : 0;
                 if (rw != 0 && rw != 1 && rw != 2 && rw != 4) return fail("a call result of " + std::to_string(rw) + " bytes");
                 callees.insert(in.src1.name);
-                op(P_CALL, 1); word(in.src1.name); b((int)args.size());
+                op(stack ? P_CALLS : P_CALL, 1); word(in.src1.name); b((int)args.size());
                 for (const auto& [o, n] : args) { b(o); b(n); }
                 b(rw ? var(in.dest) : 0); b(rw);
                 flush();

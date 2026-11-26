@@ -1080,6 +1080,7 @@ call_go:                        ; (jv the function, $10... the arguments, T0 / T
     stx rv+1
     sty rv+2
     stz rv+3
+call_ret:                       ; (CALLS joins here, its arguments pulled)
     pla
     sta T1
     pla
@@ -1118,6 +1119,129 @@ call_go:                        ; (jv the function, $10... the arguments, T0 / T
     NEXT
 call_jv:
     jmp (jv)
+
+; CALLS @f, n, (v, w) x n, [r]: a call of a stack-convention (variadic)
+; function: each argument pushed, the last first, little-endian in a slot
+; of at least 2 bytes (a byte zero-extended), then jsr; the caller pulls
+; them. The result's bytes in the opcode as CALLC's ($3A 1, $BA 2, $7A 4,
+; $FA none). The machine is saved first, as call_go saves it; the bytes
+; pushed are kept on cs_stk over the call (a callee can make CALLS too)
+h_calls:
+    lda #1
+    bcc calls
+    lda #2
+    bra calls
+h_calls_l:
+    lda #4
+    bcc calls
+    lda #0
+calls:
+    sta T1
+    FETCH
+    sta jv
+    FETCH
+    sta jv+1
+    FETCH
+    sta CNT                     ; n
+    stz cs_z                    ; (Z: the first pair)
+    asl
+    sta cs_n                    ; the pairs' bytes
+    tza
+    clc
+    adc cs_n
+    taz                         ; past the pairs
+    lda T1
+    beq @cs_nr
+    FETCH
+    sta T0                      ; the result's variable
+@cs_nr:
+#ifdef PCODE_FAR
+    lda IP+2
+    pha
+    lda IP+3
+    pha
+    lda pb
+    pha
+    lda pb+1
+    pha
+#endif
+    lda IP
+    pha
+    lda IP+1
+    pha
+    lda FP
+    pha
+    lda FP+1
+    pha
+    phz
+    lda T0
+    pha
+    lda T1
+    pha
+    ldx #0                      ; X: the bytes pushed
+    lda CNT
+    beq @cs_go
+    lda cs_z
+    clc
+    adc cs_n
+    taz                         ; Z: past the last pair
+@cs_a:
+    dez
+    LDIP
+    sta T1                      ; w
+    dez
+    LDIP
+    tay                         ; v
+    lda T1
+    cmp #1
+    bne @cs_w
+    lda #0                      ; a byte: its slot's high byte 0
+    pha
+    inx
+    bra @cs_lo
+@cs_w:
+    sty cs_v                    ; (Y: v + w - 1 down to v; not phy: the stack takes the arguments)
+    tya
+    clc
+    adc T1
+    tay
+    dey
+@cs_b:
+    lda (FP),y
+    pha
+    inx
+    dey
+    dec T1
+    lda T1
+    cmp #1
+    bne @cs_b
+    ldy cs_v
+@cs_lo:
+    lda (FP),y
+    pha
+    inx
+    dec CNT
+    bne @cs_a
+@cs_go:
+    ldy cs_sp
+    txa
+    sta cs_stk,y
+    inc cs_sp
+    jsr call_jv
+    sta rv
+    stx rv+1
+    sty rv+2
+    stz rv+3
+    dec cs_sp
+    ldy cs_sp
+    ldx cs_stk,y
+    beq @cs_done
+@cs_p:
+    pla
+    dex
+    bne @cs_p
+@cs_done:
+    jmp call_ret
 
 ; CALLC @f, d, v x n, [r]: d's bits 1-0 n (0-3), above them each
 ; argument's bytes (2 bits: 0 one, 1 two, 2 four, 3 the byte v itself as
@@ -1417,10 +1541,10 @@ handlers:
     .word h_retv,  h_zext,  h_sext, h_adv,  h_div,  h_divi, h_mod,  h_modi
 #ifdef PCODE_FAR
     .word h_cbr,   h_cbri,  h_callc,  h_ldo,  h_sto,  h_elemg,  h_callc4,  h_callp
-    .word h_callp4, h_cstr, h_bad,  h_bad,  h_bad,  h_bad,  h_bad,  h_bad
+    .word h_callp4, h_cstr, h_calls, h_bad,  h_bad,  h_bad,  h_bad,  h_bad
 #else
     .word h_cbr,   h_cbri,  h_callc,  h_ldo,  h_sto,  h_elemg,  h_callc4,  h_bad
-    .word h_bad,   h_bad,   h_bad,  h_bad,  h_bad,  h_bad,  h_bad,  h_bad
+    .word h_bad,   h_bad,   h_calls, h_bad,  h_bad,  h_bad,  h_bad,  h_bad
 #endif
     ; the long forms ($40 + the operation)
     .word h_bad,   h_const_l, h_mov_l, h_ldg_l, h_stg_l, h_ld_l, h_st_l, h_bad
@@ -1431,10 +1555,10 @@ handlers:
     .word h_bad,   h_zext_l, h_sext_l, h_bad, h_div_l, h_divi_l, h_mod_l, h_modi_l
 #ifdef PCODE_FAR
     .word h_cbr_l, h_cbri_l, h_callc_l, h_ldo_l, h_sto_l,  h_bad,  h_callc4_l,  h_callp_l
-    .word h_callp4_l, h_bad, h_bad,  h_bad,  h_bad,  h_bad,  h_bad,  h_bad
+    .word h_callp4_l, h_bad, h_calls_l, h_bad,  h_bad,  h_bad,  h_bad,  h_bad
 #else
     .word h_cbr_l, h_cbri_l, h_callc_l, h_ldo_l, h_sto_l,  h_bad,  h_callc4_l,  h_bad
-    .word h_bad,   h_bad,   h_bad,  h_bad,  h_bad,  h_bad,  h_bad,  h_bad
+    .word h_bad,   h_bad,   h_calls_l, h_bad,  h_bad,  h_bad,  h_bad,  h_bad
 #endif
 
     .func_flags zp_call
@@ -1448,6 +1572,11 @@ pb:     .res 2                  ; the function's p-code (its low 16 bits): the b
 #endif
 bi:     .res 1                  ; 1: the operation's immediate is a byte (ENTRIES_I)
 jv:     .res 2                  ; CALL's target (jmp (jv))
+cs_z:   .res 1                  ; CALLS: Z at its pairs
+cs_n:   .res 1                  ;  their bytes
+cs_sp:  .res 1                  ;  cs_stk's depth
+cs_v:   .res 1                  ;  an argument's variable
+cs_stk: .res 16                 ;  the bytes each CALLS pending pushed
 #ifdef PCODE_FAR
 pp:     .res 4                  ; CALLP's p-code
 #endif

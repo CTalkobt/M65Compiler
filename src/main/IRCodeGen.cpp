@@ -2855,7 +2855,8 @@ void IRCodeGen::generate(const ir::Module& mod, uint32_t zpStart, bool relocMode
         bool overlayCode = false;
         for (const auto& fn : mod.functions) {
             if (fn.blocks.empty() || deadCodeFunctions_.count(fn.name) || inlineOnlyFunctions_.count(fn.name)) continue;
-            if (!residentPcode(fn.name)) overlayCode = true;
+            // (a __naked function, a few bytes of asm, goes resident with the rest)
+            if (!residentPcode(fn.name) && !(fn.isNaked && !pcodeText_.empty())) overlayCode = true;
         }
         if (!mod.overlay.empty() && overlayCode) emit(".overlay " + mod.overlay);
         // -fbss-fill=V: the module defining main sets the byte crt0 fills
