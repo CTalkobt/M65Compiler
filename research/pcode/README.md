@@ -262,12 +262,45 @@ an immediate form still copied into the frame first, narrowing MOVs (a 4-byte re
 3.2 KB runtime. The next candidates,
 from the pairs left in musicgen: indexed loads and stores (1.3%).
 
+### Far p-code and a program with overlays: glamlambs
+
+`CC45_PCODE_FAR=<bank>` keeps the p-code in far memory: in the text sub-segment `bank.<n>`, which ln45 makes a
+data overlay kept in that bank (5, or attic RAM: 2048 = `$800`), loaded from the program's overlay files at start.
+The runtime is built with `ca45 -DPCODE_FAR`: IP is a 28-bit address read with `lda [IP],z`; a branch's target is
+its offset from the function's p-code, added to the function's base (pb) by the interpreter (ln45 allows only 32-bit
+references to a data overlay's symbols; a function's p-code never crosses a 64 KB bank, so a branch or ADV changes
+IP's low 16 bits only); the entry is `jsr __pc_enterf` / `.dword` the p-code / `.word` the frame (9 bytes). The
+far runtime is 3,569 bytes (W, T1 and pb in BSS, IP 4 bytes in the base page). `FAR=2048 run_pcops.sh` (and
+`FAR=5`): the same results as native.
+
+examples/c/glamlambs (1,942 lines; code overlays `title` and `salon`; its demo build plays by itself), 99
+functions as p-code, 2 native (`cpu_reg_write`):
+
+| | native | p-code in bank 0 | p-code in attic RAM |
+|---|---:|---:|---:|
+| `.prg` | 27,941 | 30,798 | **18,096** |
+| bank 0 code (TEXT) | 23,395 | 26,256 | 13,644 |
+| the program's end in bank 0 | `$9DFF` | `$AAFF` | `$78FF` |
+| code overlays (`.ov1`) | 7,932 | 6,979 | 877 |
+| p-code in attic RAM (`.ov2`) | | | 18,382 |
+| the demo's game time after 30 s | 27 s | 18 s | 17 s |
+
+In bank 0 the p-code loses: the interpreter is resident and the native entries take 1,222 bytes for `main.c`'s 67
+functions (an 18-byte average: 5 bytes per parameter byte copied), most of what its p-code saves; without the
+frames overlaid the program does not fit below the overlay region at all. In attic RAM the p-code costs bank 0
+nothing: the program ends 9.5 KB lower than native, and `title` and `salon` hardly need the code overlays any more
+(their native entries, 877 bytes). Reading the p-code from attic RAM costs little against bank 0 (17 s of game
+time against 18).
+
 ### Bugs found on the way
 
 - **The startup that returned at once to `READY.`** was ca45's tail deduplication (#796): the first entries ended
   `jsr __pc_enter` + `.word` p-code + `.word` frame + `rts`; ca45 compared only the instructions, found the tails
   the same and made most entries jump into another function's entry, which then ran that function's p-code. The
   entry now passes the addresses in registers.
+- **An address passed as a long** (`(unsigned long)(unsigned int)glyph_data`, glamlambs' `setup()`) was written
+  into its 4-byte slot as 2 bytes, the upper half left from what the slot held before: `dma_copy_far` copied from
+  a wrong address. Now 4 bytes (`test_pcops` checks it).
 - Branches taken the wrong way (BR_COND's targets read in the wrong order), and callers keeping arguments in
   `$10` across a call into p-code (the entry did not declare what the interpreter changes): both in the back end,
   fixed.

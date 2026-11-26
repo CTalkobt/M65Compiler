@@ -47,23 +47,41 @@
 .weak cc45.icallinfo
 cc45.icallinfo = 1
 
+#ifdef PCODE_FAR
+; far p-code (ca45 -DPCODE_FAR; cc45 CC45_PCODE_FAR): IP the p-code's 28-bit
+; address, read with [IP],z; W, T1 and pb (the function's p-code, for the
+; branches: offsets from it) in BSS. A function's p-code is in one 64 KB
+; bank (ln45 places no overlay across one): a branch or ADV changes IP's
+; low 16 bits only.
+IP  = $08                       ; 4 bytes
+FP  = $0C
+PTR = $0E
+T0  = $F2                       ; a destination's offset
+#define LDIP lda [IP],z
+#else
 IP  = $08
 FP  = $0A
 PTR = $0C
 T0  = $0E                       ; a destination's offset
 T1  = $0F
 W   = $F2                       ; the operation's width: 1, 2 or 4
+#define LDIP lda (IP),z
+#endif
 A0  = $F3                       ; 4 bytes
 B0  = $F7                       ; 4 bytes
 CNT = $FB
 CC  = $FC
 
+#ifdef PCODE_FAR
+.global __pc_enterf
+#else
 .global __pc_enter
+#endif
 .extern __abort
 .segment "code"
 
 .macro NEXT
-    lda (IP),z
+    LDIP
     inz
     asl
     tax
@@ -71,21 +89,38 @@ CC  = $FC
 .endmacro
 
 .macro FETCH
-    lda (IP),z
+    LDIP
     inz
 .endmacro
 
-; IP = the target at (IP),Z; Z = 0; dispatch
+#ifdef PCODE_FAR
+; IP = pb + the offset at [IP],Z; Z = 0; dispatch
 .macro JUMP
-    lda (IP),z
-    inz
+    clc
+    LDIP
+    adc pb
     tax
-    lda (IP),z
+    inz
+    LDIP
+    adc pb+1
     sta IP+1
     stx IP
     ldz #0
     NEXT
 .endmacro
+#else
+; IP = the target at (IP),Z; Z = 0; dispatch
+.macro JUMP
+    LDIP
+    inz
+    tax
+    LDIP
+    sta IP+1
+    stx IP
+    ldz #0
+    NEXT
+.endmacro
+#endif
 
 ; W = 1, or 2 for the word form (C: bit 7 of the opcode)
 .macro WIDTH
@@ -124,6 +159,39 @@ nml:
 @c\@:
 .endmacro
 
+#ifdef PCODE_FAR
+; jsr __pc_enterf / .dword the p-code / .word the frame: the return address
+; pulled (the caller's own is then on top, for RET's rts)
+proc __pc_enterf
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    pla
+    sta PTR
+    pla
+    sta PTR+1
+    ldy #1
+    lda (PTR),y
+    sta IP
+    sta pb
+    iny
+    lda (PTR),y
+    sta IP+1
+    sta pb+1
+    iny
+    lda (PTR),y
+    sta IP+2
+    iny
+    lda (PTR),y
+    sta IP+3
+    iny
+    lda (PTR),y
+    sta FP
+    iny
+    lda (PTR),y
+    sta FP+1
+    ldz #0
+    NEXT
+#else
 proc __pc_enter
     .reg_clobbers A, X, Y, Z
     .flag_clobbers C, N, Z, V
@@ -133,6 +201,7 @@ proc __pc_enter
     stz FP+1
     ldz #0
     NEXT
+#endif
 
 ; --- operands ------------------------------------------------------------
 get_d:                          ; T0 = the destination
@@ -937,6 +1006,16 @@ h_call:                         ; CALL @f, n, (v, bytes) x n, d, bytes
     FETCH
     sta T1                      ; and bytes
 call_go:                        ; (jv the function, $10... the arguments, T0 / T1 the result)
+#ifdef PCODE_FAR
+    lda IP+2                    ; (a p-code callee sets them)
+    pha
+    lda IP+3
+    pha
+    lda pb
+    pha
+    lda pb+1
+    pha
+#endif
     lda IP                      ; the machine, while the function runs
     pha
     lda IP+1
@@ -968,6 +1047,16 @@ call_go:                        ; (jv the function, $10... the arguments, T0 / T
     sta IP+1
     pla
     sta IP
+#ifdef PCODE_FAR
+    pla
+    sta pb+1
+    pla
+    sta pb
+    pla
+    sta IP+3
+    pla
+    sta IP+2
+#endif
     lda T1
     beq @cr_done
     ldy T0
@@ -1177,6 +1266,11 @@ handlers:
     endproc
 
 .segment "bss"
+#ifdef PCODE_FAR
+W:      .res 1                  ; the operation's width: 1, 2 or 4
+T1:     .res 1
+pb:     .res 2                  ; the function's p-code (its low 16 bits): the branches' base
+#endif
 bi:     .res 1                  ; 1: the operation's immediate is a byte (ENTRIES_I)
 jv:     .res 2                  ; CALL's target (jmp (jv))
 rv:     .res 4                  ; a call's or RET's value

@@ -62,9 +62,19 @@ struct Emitter {
 
     bool fail(const std::string& w) { if (why.empty()) why = w; return false; }
 
-    std::string label(const std::string& l) {
+    // CC45_PCODE_FAR=<bank>: the p-code kept in that bank (ln45's data
+    // overlay, the text sub-segment bank.<n>; attic RAM 2048 = $800), read
+    // with [IP],z (ca45 -DPCODE_FAR pcode_rt.s45); a branch's target is its
+    // offset from the function's p-code (a 16-bit address of the data
+    // overlay is a link error, and the interpreter adds the offset)
+    int farBank = std::getenv("CC45_PCODE_FAR") && *std::getenv("CC45_PCODE_FAR")
+                  ? (int)std::strtol(std::getenv("CC45_PCODE_FAR"), nullptr, 0) : -1;
+    std::string labelName(const std::string& l) {
         auto it = blockIx.find(l);
         return fn.name + "__pcB" + std::to_string(it == blockIx.end() ? 0 : it->second);
+    }
+    std::string label(const std::string& l) {   // (a reference: an offset when far)
+        return farBank >= 0 ? labelName(l) + "-" + fn.name + "__pc" : labelName(l);
     }
 
     // --- the instruction being written: items, then flush
@@ -718,7 +728,7 @@ PcodeResult pcodeEmit(const ir::Function& fn) {
     for (size_t i = 0; i < fn.blocks.size(); i++) e.blockIx[fn.blocks[i].label] = (int)i;
     if (!e.layout()) { r.why = e.why; return r; }
     for (size_t i = 0; i < fn.blocks.size(); i++) {
-        e.pc << e.label(fn.blocks[i].label) << ":\n";
+        e.pc << e.labelName(fn.blocks[i].label) << ":\n";
         const std::string next = i + 1 < fn.blocks.size() ? fn.blocks[i + 1].label : "";
         for (const auto& in : fn.blocks[i].insts)
             if (!e.inst(in, next)) { r.why = e.why; return r; }
@@ -744,7 +754,7 @@ PcodeResult pcodeEmit(const ir::Function& fn) {
         t << "    cc45.pcall." << fn.name << "." << g << " = 1\n";
     }
     t << "    .segment \"code\"\n";
-    t << "    .global " << fn.name << "\n    .extern __pc_enter\n";
+    t << "    .global " << fn.name << "\n    .extern " << (e.farBank >= 0 ? "__pc_enterf" : "__pc_enter") << "\n";
     t << "    proc " << fn.name << "\n";
     int zp = 0, stub = 0;
     for (uint32_t v = 0; v < fn.paramTypes.size(); v++) {
@@ -758,9 +768,14 @@ PcodeResult pcodeEmit(const ir::Function& fn) {
     }
     // (the p-code and the frame in registers, not as data after a jsr:
     // ca45's TailDedup took stubs that differed only in that data for one)
-    t << "    lda #<" << fn.name << "__pc\n    ldx #>" << fn.name << "__pc\n";
-    t << "    ldy #<" << pf << "\n    ldz #>" << pf << "\n    jmp __pc_enter\n";
-    stub += 11;
+    if (e.farBank >= 0) {   // (far: the p-code's 28-bit address and the frame after the jsr)
+        t << "    jsr __pc_enterf\n    .dword " << fn.name << "__pc\n    .word " << pf << "\n";
+        stub += 9;
+    } else {
+        t << "    lda #<" << fn.name << "__pc\n    ldx #>" << fn.name << "__pc\n";
+        t << "    ldy #<" << pf << "\n    ldz #>" << pf << "\n    jmp __pc_enter\n";
+        stub += 11;
+    }
     t << "    .reg_clobbers A, X, Y, Z\n    .flag_clobbers C, N, Z, V\n";
     // the base page from $08: the interpreter's bytes, the parameter block it
     // fills for its calls, whatever those callees change (without this, a
@@ -776,7 +791,9 @@ PcodeResult pcodeEmit(const ir::Function& fn) {
         t << "\n";
     }
     t << "    .func_flags zp_call, static_alloc\n    endproc\n";
+    if (e.farBank >= 0) t << "    .segment \"bank." << e.farBank << "\"\n";
     t << fn.name << "__pc:\n" << (e.list ? "    ; PCTEMP " + std::to_string(e.k0) + "\n" : std::string()) << e.pc.str() << "\n";
+    if (e.farBank >= 0) t << "    .segment \"code\"\n";
     r.ok = true;
     r.text = t.str();
     r.pcodeBytes = e.bytes;
