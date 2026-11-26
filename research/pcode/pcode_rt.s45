@@ -32,6 +32,8 @@
 ;   $2C / $2D DIV / DIVI       $2E / $2F MOD / MODI   (signed)
 ;   $30 / $31 CBR / CBRI a, b|#imm, cc, t   (CMP and BNZ as one: to t
 ;             when a cc b)
+;   $32 CALLC @f, d, v x n, [r]   (CALL with 0-3 arguments: d their number
+;             and widths; the result's width in the opcode, $F2 none)
 
 ; no calls through pointers here but CALL's (to the functions the p-code names)
 .weak cc45.icallinfo
@@ -852,6 +854,7 @@ h_call:                         ; CALL @f, n, (v, bytes) x n, d, bytes
     sta T0                      ; the result's variable
     FETCH
     sta T1                      ; and bytes
+call_go:                        ; (jv the function, $10... the arguments, T0 / T1 the result)
     lda IP                      ; the machine, while the function runs
     pha
     lda IP+1
@@ -898,6 +901,69 @@ h_call:                         ; CALL @f, n, (v, bytes) x n, d, bytes
     NEXT
 call_jv:
     jmp (jv)
+
+; CALLC @f, d, v x n, [r]: d's bits 1-0 n (0-3), above them each
+; argument's bytes (2 bits: 0 one, 1 two, 2 four; the first lowest); the
+; result's bytes in the opcode: $32 1, $B2 2, $72 4, $F2 none (no r)
+h_callc:
+    lda #1
+    bcc callc
+    lda #2
+    bra callc
+h_callc_l:
+    lda #4
+    bcc callc
+    lda #0
+callc:
+    sta T1                      ; the result's bytes
+    FETCH
+    sta jv
+    FETCH
+    sta jv+1
+    FETCH
+    tay
+    and #3
+    sta CNT                     ; the arguments
+    tya
+    lsr
+    lsr
+    sta CC                      ; their widths
+    ldx #0                      ; X: the next byte of the ZP parameter block
+@k_a:
+    lda CNT
+    beq @k_done
+    lda CC
+    and #3
+    tay
+    lda k_bytes,y
+    sta T0
+    lsr CC
+    lsr CC
+    FETCH
+    tay                         ; the variable
+@k_b:
+    lda (FP),y
+    sta $10,x
+    iny
+    inx
+    dec T0
+    bne @k_b
+    txa                         ; a byte: its slot is 2
+    and #1
+    beq @k_n
+    inx
+@k_n:
+    dec CNT
+    bra @k_a
+@k_done:
+    lda T1
+    beq @k_v
+    FETCH
+    sta T0                      ; the result's variable
+@k_v:
+    jmp call_go
+k_bytes:
+    .byte 1, 2, 4
 
     ENTRIES h_ret, h_ret_l               ; RET a
     FETCH
@@ -978,7 +1044,7 @@ handlers:
     .word h_asri,  h_mul,   h_muli, h_divu, h_divui, h_modu, h_modui, h_neg
     .word h_not,   h_cmp,   h_cmpi, h_br,   h_bnz,  h_bz,   h_call, h_ret
     .word h_retv,  h_zext,  h_sext, h_adv,  h_div,  h_divi, h_mod,  h_modi
-    .word h_cbr,   h_cbri,  h_bad,  h_bad,  h_bad,  h_bad,  h_bad,  h_bad
+    .word h_cbr,   h_cbri,  h_callc,  h_bad,  h_bad,  h_bad,  h_bad,  h_bad
     .word h_bad,   h_bad,   h_bad,  h_bad,  h_bad,  h_bad,  h_bad,  h_bad
     ; the long forms ($40 + the operation)
     .word h_bad,   h_const_l, h_mov_l, h_ldg_l, h_stg_l, h_ld_l, h_st_l, h_bad
@@ -987,7 +1053,7 @@ handlers:
     .word h_asri_l, h_mul_l, h_muli_l, h_divu_l, h_divui_l, h_modu_l, h_modui_l, h_neg_l
     .word h_not_l, h_cmp_l, h_cmpi_l, h_bad, h_bnz_l, h_bz_l, h_bad,  h_ret_l
     .word h_bad,   h_zext_l, h_sext_l, h_bad, h_div_l, h_divi_l, h_mod_l, h_modi_l
-    .word h_cbr_l, h_cbri_l, h_bad, h_bad,  h_bad,  h_bad,  h_bad,  h_bad
+    .word h_cbr_l, h_cbri_l, h_callc_l, h_bad,  h_bad,  h_bad,  h_bad,  h_bad
     .word h_bad,   h_bad,   h_bad,  h_bad,  h_bad,  h_bad,  h_bad,  h_bad
 
     .func_flags zp_call

@@ -93,7 +93,16 @@ static void elems(u8 i, u8 v) {
 static u32 mix(u8 a, u16 b, u32 c, const u8 *p) { return c + b * a + p[1]; }
 static u8 inc8(u8 a) { return a + 1; }
 static s16 neg16(s16 a) { return -a; }
+/* (CALLC: up to 3 arguments, the widths packed; each result width) */
+__attribute__((noinline)) static u32 mix3(u32 c, u8 a, u16 b) { return c ^ ((u32)b << 8) ^ a; }
+__attribute__((noinline)) static u8 mix3b(u16 b, u8 a, u32 c) { return (u8)(c >> 3) + a - (u8)b; }
+__attribute__((noinline)) static u16 mix2(u8 a, u32 c) { return (u16)(c >> 7) ^ a; }
+static u8 hits;
+__attribute__((noinline)) static void tick(void) { hits++; }
 static void calls(u8 i) {
+    u32 r = mix3(v32[i % N32], v8[i], v16[i]);
+    w32(r); w8(mix3b(v16[i], v8[i], v32[i % N32])); w16(mix2(v8[i], v32[i % N32]));
+    tick(); w8(hits);
     w32(mix(v8[i], v16[i], v32[i % N32], v8));
     w8(inc8(v8[i])); w16((u16)neg16((s16)v16[i]));
 }
