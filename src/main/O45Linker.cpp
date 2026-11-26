@@ -4053,10 +4053,14 @@ void O45Linker::computeSacOverlay() {
     // Static Allocation section), each with what kept it from sharing
     for (const auto& input : objects_) {
         std::map<std::string, uint32_t> sizes;
-        for (const auto& exp : input.obj.exports)
+        std::set<std::string> pframes;   // (research/pcode: a p-code function's frame, cc45.pframe.<f>)
+        for (const auto& exp : input.obj.exports) {
             if (exp.name.rfind("cc45.sacsize.", 0) == 0) sizes[exp.name.substr(13)] = exp.offset;
+            if (exp.name.rfind("cc45.pframe.", 0) == 0) pframes.insert(exp.name.substr(12));
+        }
         for (const auto& [fn, len] : sizes) {
             auto fa = funcAttrs_.find(fn);
+            if (pframes.count(fn)) { if (len) sacInfo_[fn].len = len; sacInfo_[fn].why = "no other block to share with"; continue; }
             if (len == 0 || fa == funcAttrs_.end() || !(fa->second.flags & FUNC_FLAG_STATIC_ALLOC) ||
                 symbolSource_[fn] != input.filename)
                 continue;
@@ -4111,14 +4115,24 @@ void O45Linker::computeSacOverlay() {
                 if (r.type == R_LOW && r.segment == SEG_BSS) lowOnly = true;
         if (lowOnly) { keepAll("its object names static storage by a low byte alone (an older object): it stays in place"); continue; }
         std::map<std::string, uint32_t> sizes;
-        for (const auto& exp : input.obj.exports)
+        std::set<std::string> pframes;
+        for (const auto& exp : input.obj.exports) {
             if (exp.name.rfind("cc45.sacsize.", 0) == 0) sizes[exp.name.substr(13)] = exp.offset;
+            if (exp.name.rfind("cc45.pframe.", 0) == 0) pframes.insert(exp.name.substr(12));
+        }
         for (const auto& exp : input.obj.exports) {
             if (exp.segmentId() != SEG_BSS) continue;
             if (exp.name.size() <= 4 || exp.name.compare(exp.name.size() - 4, 4, "__ar") != 0) continue;
             std::string fn = exp.name.substr(0, exp.name.size() - 4);
             auto sz = sizes.find(fn);
             if (sz == sizes.end() || sz->second == 0) continue;
+            // (a p-code function's frame: static storage only its p-code and
+            // its entry, if it has one, use; its calls cc45.pcall edges)
+            if (pframes.count(fn)) {
+                if (unsafe.count(fn) || exp.offset + sz->second > input.obj.blen) continue;
+                blocks.push_back({fn, idx, exp.offset, sz->second});
+                continue;
+            }
             auto fa = funcAttrs_.find(fn);
             if (fa == funcAttrs_.end() || !(fa->second.flags & FUNC_FLAG_STATIC_ALLOC)) continue;
             if (unsafe.count(fn)) continue;

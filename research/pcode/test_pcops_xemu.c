@@ -214,6 +214,19 @@ static u16 cb32(u32 a, u32 b) {
     return r;
 }
 
+/* __noescape literals (#pragma cc45 noescape_strings): far p-code copies each
+ * into its frame from its bank (CSTR), here chosen, used in a loop, passed on */
+#pragma cc45 noescape_strings
+__attribute__((noinline)) static u16 ssum(const char *s) { u16 h = 0; while (*s) h = h * 31 + (u8)*s++; return h; }
+__attribute__((noinline)) static u16 lits(u8 i) {
+    const char *a = "alpha", *b = i & 1 ? "beta gamma" : "delta";
+    u16 h = ssum(a) ^ ssum(b);
+    u8 k;
+    for (k = 0; k < (i & 7); k++) h += ssum("loop");
+    return h + (a[0] == 'a') + ssum(i > 3 ? "" : "x") + (u8)b[2];
+}
+#pragma cc45 escape_strings
+
 int main(void) {
     u8 i, j;
     group(1);
@@ -234,6 +247,8 @@ int main(void) {
     for (i = 0; i < N16; i++) for (j = 0; j < N16; j++) { w16(cb16(v16[i], v16[j])); sum(); }
     for (i = 0; i < N32; i++) for (j = 0; j < N32; j++) { w16(cb32(v32[i], v32[j])); sum(); }
     group(8);
+    for (i = 0; i < N8; i++) { w16(lits(i)); sum(); }
+    group(9);
     *(volatile u8 *)0xC0C0 = 0xAA;
     return 0;
 }

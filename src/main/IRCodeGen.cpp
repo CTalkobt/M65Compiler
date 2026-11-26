@@ -3031,6 +3031,17 @@ void IRCodeGen::generate(const ir::Module& mod, uint32_t zpStart, bool relocMode
         auto symOf = [](const std::string& l) { return l.substr(0, l.find_first_of("+-", 1)); };
         std::set<std::string> referencedSymbols;
         for (const auto& fn : mod.functions) {
+            // (research/pcode: a far p-code function's references are its
+            // p-code's .word operands: a call to another p-code function,
+            // CALLP, names that function's p-code, not its native entry)
+            if (residentPcode(fn.name)) {
+                const std::string& t = pcodeText_.at(fn.name);
+                for (size_t p = 0; (p = t.find(".word ", p)) != std::string::npos; p += 6) {
+                    size_t e = t.find_first_of("\n", p);
+                    referencedSymbols.insert(symOf(t.substr(p + 6, e - p - 6)));
+                }
+                continue;
+            }
             for (const auto& blk : fn.blocks) {
                 for (const auto& inst : blk.insts) {
                     // Check operand names (GLOBAL/LABEL references)
@@ -3273,18 +3284,38 @@ void IRCodeGen::placeNoescape(const ir::Module& mod) {
     std::set<std::string> kept;
     // (research/pcode: a literal a far p-code function uses stays resident:
     // the function's entry is resident and it runs with any overlay loaded)
+    // (what the p-code names by a 16-bit address, .word: a literal it
+    // copies into its frame, CSTR, is named by its far copy, <L>__pcs)
     pcodeStrings_.clear();
+    nearStrings_.clear();
+    farStrings_.clear();
     for (const auto& fn : mod.functions) {
-        if (!residentPcode(fn.name)) continue;
-        for (const auto& b : fn.blocks)
-            for (const auto& in : b.insts) {
-                auto see = [&](const ir::Operand& o) {
-                    if (o.kind == ir::OperandKind::GLOBAL) pcodeStrings_.insert(o.name.substr(0, o.name.find('+')));
-                };
-                see(in.dest); see(in.src1); see(in.src2);
-                for (const auto& a : in.args) see(a);
-            }
+        if (!residentPcode(fn.name)) {
+            for (const auto& b : fn.blocks)
+                for (const auto& in : b.insts) {
+                    auto see = [&](const ir::Operand& o) {
+                        if (o.kind == ir::OperandKind::GLOBAL) nearStrings_.insert(o.name.substr(0, o.name.find_first_of("+-", 1)));
+                    };
+                    see(in.dest); see(in.src1); see(in.src2);
+                    for (const auto& a : in.args) see(a);
+                }
+            continue;
+        }
+        const std::string& t = pcodeText_.at(fn.name);
+        for (size_t p = 0; (p = t.find(".word ", p)) != std::string::npos; p += 6) {
+            std::string x = t.substr(p + 6, t.find('\n', p) - p - 6);
+            pcodeStrings_.insert(x.substr(0, x.find_first_of("+-", 1)));
+        }
+        for (size_t p = 0; (p = t.find(".dword ", p)) != std::string::npos; p += 7) {
+            std::string x = t.substr(p + 7, t.find('\n', p) - p - 7);
+            if (x.size() > 5 && x.compare(x.size() - 5, 5, "__pcs") == 0) farStrings_.insert(x.substr(0, x.size() - 5));
+        }
     }
+    for (const auto& g : mod.globals) {
+        for (const auto& l : g.initLabels) nearStrings_.insert(l.substr(0, l.find('+')));
+        for (const auto& [o, l] : g.initWords) nearStrings_.insert(l.substr(0, l.find('+')));
+    }
+    for (const auto& x : pcodeStrings_) nearStrings_.insert(x);
     // (and what the initializers of the globals it uses point to: a table of
     // literals, followed)
     for (bool more = true; more; ) {
@@ -3666,6 +3697,8 @@ void IRCodeGen::emitStrings(const ir::Module& mod) {
     // for an overlay object's code (Issue #301); the others are resident
     auto segOf = [&](const ir::Module::StringLiteral& sl) -> std::string {
         if (!relocMode_ || !sl.noescape) return "data";
+        // (research/pcode: one only far p-code uses, and only as its far copy: none here)
+        if (farStrings_.count(sl.label) && !nearStrings_.count(sl.label)) return "none";
         if (sl.far) return "far";
         return mod.overlay.empty() || pcodeStrings_.count(sl.label) ? "data" : "code";
     };
@@ -3688,6 +3721,19 @@ void IRCodeGen::emitStrings(const ir::Module& mod) {
         std::string line = stringDirective(sl.value, sl.escMask, sl.encoding);
         if (!line.empty()) emit(line);
         emit(".byte 0");
+    }
+    // research/pcode: the far copies CSTR reads, in the p-code's bank
+    if (!farStrings_.empty() && relocMode_) {
+        const char* fb = getenv("CC45_PCODE_FAR");
+        emit(std::string(".segment \"bank.") + std::to_string(fb ? (int)std::strtol(fb, nullptr, 0) : 0) + "\"");
+        for (const auto& sl : mod.strings) {
+            if (!farStrings_.count(sl.label)) continue;
+            emitLabel(sl.label + "__pcs");
+            std::string line = stringDirective(sl.value, sl.escMask, sl.encoding);
+            if (!line.empty()) emit(line);
+            emit(".byte 0");
+        }
+        emit(".segment \"" + (cur.empty() ? std::string("data") : cur) + "\"");
     }
 }
 

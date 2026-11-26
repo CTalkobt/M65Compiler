@@ -362,6 +362,21 @@ void CodegenStage::generateAssembly() {
         std::string list = std::string(",") + pc + ",";
         bool all = list == ",all," || list == ",1,";
         bool report = getenv("CC45_PCODE_REPORT") != nullptr;
+        std::set<std::string> pcodeEnterable;   // (CALLP can enter it)
+        pcodeModuleFunctions().clear();
+        // (far: the __noescape literals CSTR may copy; not one an initializer names)
+        pcodeFarStrings().clear();
+        if (const char* fb = getenv("CC45_PCODE_FAR"); fb && *fb) {
+            std::set<std::string> inInit;
+            for (const auto& g : irModule_->globals) {
+                for (const auto& l : g.initLabels) inInit.insert(l.substr(0, l.find('+')));
+                for (const auto& [o, l] : g.initWords) inInit.insert(l.substr(0, l.find('+')));
+            }
+            for (const auto& sl : irModule_->strings)
+                if (sl.noescape && !sl.wide && !sl.far && sl.value.size() < 255 && !inInit.count(sl.label))
+                    pcodeFarStrings()[sl.label] = (int)sl.value.size() + 1;
+        }
+        for (const auto& fn : irModule_->functions) if (!fn.blocks.empty()) pcodeModuleFunctions().insert(fn.name);
         for (auto& fn : irModule_->functions) {
             if (fn.blocks.empty()) continue;
             std::string cname = fn.name.substr(1);
@@ -369,6 +384,14 @@ void CodegenStage::generateAssembly() {
             std::string bare = st == std::string::npos ? cname : cname.substr(0, st);
             if (!all && list.find("," + cname + ",") == std::string::npos && list.find("," + bare + ",") == std::string::npos)
                 continue;
+            // CC45_PCODE_NATIVE: functions kept native (C names, by commas: the hot ones of a profile)
+            if (const char* nat = getenv("CC45_PCODE_NATIVE"); nat && *nat) {
+                std::string nl = std::string(",") + nat + ",";
+                if (nl.find("," + cname + ",") != std::string::npos || nl.find("," + bare + ",") != std::string::npos) {
+                    if (report) std::cerr << "pcode: " << fn.name << ": native (CC45_PCODE_NATIVE)\n";
+                    continue;
+                }
+            }
             PcodeResult r = pcodeEmit(fn);
             if (report) {
                 if (r.ok) std::cerr << "pcode: " << fn.name << ": " << r.pcodeBytes << " bytes of p-code, entry " << r.stubBytes
@@ -377,7 +400,34 @@ void CodegenStage::generateAssembly() {
             }
             if (!r.ok) continue;
             pcodeChosen_.insert(fn.name);
+            if (r.enterable) pcodeEnterable.insert(fn.name);
             fn.isRecurse = true;   // (no static allocation: its callers enter through <f>)
+        }
+        // CC45_PCODE_PLAN_OUT (far p-code's first pass, PcodeEmit.hpp): appended
+        if (const char* po = getenv("CC45_PCODE_PLAN_OUT"); po && *po) {
+            std::set<std::string> need = pcodeEntryRefs();
+            need.insert("_main");   // (crt0's jsr)
+            for (const auto& fn : irModule_->functions) {
+                bool native = !pcodeChosen_.count(fn.name);
+                for (const auto& b : fn.blocks)
+                    for (const auto& in : b.insts) {
+                        bool call = in.op == ir::Op::CALL || in.op == ir::Op::CALL_VOID;
+                        auto see = [&](const ir::Operand& o, bool callee) {
+                            if (o.kind != ir::OperandKind::GLOBAL) return;
+                            if (callee && !native) return;   // (p-code's calls: pcodeEntryRefs)
+                            need.insert(o.name.substr(0, o.name.find('+')));
+                        };
+                        see(in.src1, call);
+                        if (native) { see(in.dest, false); see(in.src2, false); for (const auto& a : in.args) see(a, false); }
+                    }
+            }
+            for (const auto& g : irModule_->globals) {   // (an address in an initializer)
+                for (const auto& l : g.initLabels) need.insert(l.substr(0, l.find('+')));
+                for (const auto& [o, l] : g.initWords) need.insert(l.substr(0, l.find('+')));
+            }
+            std::ofstream out(po, std::ios::app);
+            for (const auto& f : pcodeEnterable) out << "P " << f << "\n";
+            for (const auto& g : need) out << "E " << g << "\n";
         }
     }
 

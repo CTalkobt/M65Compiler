@@ -711,10 +711,12 @@ private:
     bool allocReport_ = false;
     std::map<std::string, std::string> pcodeText_;
     std::set<std::string> pcodeStrings_;   // literals far p-code uses: resident
-    // a far p-code function: its entry resident (sub-segment "resident")
+    std::set<std::string> nearStrings_;    // names something needs in bank 0
+    std::set<std::string> farStrings_;     // literals far p-code copies (CSTR): <L>__pcs in its bank
+    // a far p-code function (its p-code in a bank: its entry, if it has one, resident)
     bool residentPcode(const std::string& f) const {
         auto pt = pcodeText_.find(f);
-        return pt != pcodeText_.end() && pt->second.find(".segment \"resident\"") != std::string::npos;
+        return pt != pcodeText_.end() && pt->second.find(".segment \"bank.") != std::string::npos;
     }
     int sacBlockBytes_ = 0;      // the SAC block's size as emitted (before #324's sharing)
     void emitAllocReport(const ir::Function& fn, bool useSAC, bool fnZp);

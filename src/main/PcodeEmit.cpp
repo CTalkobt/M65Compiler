@@ -24,6 +24,7 @@
 #include <sstream>
 #include <vector>
 #include <cstdlib>
+#include <fstream>
 
 namespace {
 
@@ -33,11 +34,28 @@ enum Pc : int {
     P_SHL, P_SHLI, P_SHR, P_SHRI, P_ASR, P_ASRI, P_MUL, P_MULI,
     P_DIVU, P_DIVUI, P_MODU, P_MODUI, P_NEG, P_NOT, P_CMP, P_CMPI,
     P_BR, P_BNZ, P_BZ, P_CALL, P_RET, P_RETV, P_ZEXT, P_SEXT, P_ADV,
-    P_DIV, P_DIVI, P_MOD, P_MODI, P_CBR, P_CBRI, P_CALLC, P_LDO, P_STO, P_ELEMG, P_CALLC4
+    P_DIV, P_DIVI, P_MOD, P_MODI, P_CBR, P_CBRI, P_CALLC, P_LDO, P_STO, P_ELEMG, P_CALLC4, P_CALLP, P_CALLP4, P_CSTR
 };
 
 // the condition codes of CMP / CMPI
 enum Cc : int { CC_EQ, CC_NE, CC_LTU, CC_LEU, CC_GTU, CC_GEU, CC_LT, CC_LE, CC_GT, CC_GE };
+
+// the plan (CC45_PCODE_PLAN): P and E names
+struct Plan {
+    bool loaded = false;
+    std::set<std::string> p, e;
+    Plan() {
+        const char* f = std::getenv("CC45_PCODE_PLAN");
+        if (!f || !*f) return;
+        std::ifstream in(f);
+        std::string k, n;
+        while (in >> k >> n) (k == "P" ? p : e).insert(n);
+        loaded = true;
+    }
+    bool callp(const std::string& g) const { return loaded && p.count(g); }
+    bool noEntry(const std::string& f) const { return loaded && p.count(f) && !e.count(f) && f != "_main"; }
+};
+const Plan& plan() { static Plan pl; return pl; }
 
 int widthOf(const ir::Operand& o) {
     if (o.type == ir::Type::I_N) return o.byteWidth;
@@ -57,6 +75,11 @@ struct Emitter {
     int bytes = 0, run = 0;
     std::vector<std::string> line;      // the current instruction's items
     std::set<std::string> callees;      // the functions its CALLs name (ln45's call graph: cc45.pcall)
+    std::set<std::string> callp;        // those called by CALLP
+    // far: the literals CSTR copies into the frame, each its offset there
+    // (after the variables), in the order first used
+    std::map<std::string, int> litOff;
+    int lits = 0;
 
     explicit Emitter(const ir::Function& f) : fn(f) {}
 
@@ -89,7 +112,7 @@ struct Emitter {
     void flush() { blk.push_back({line, false}); line.clear(); }
     void resetRun() { if (!blk.empty()) blk.back().resets = true; }
 
-    static int size(const PI& x) { int n = 0; for (const auto& it : x.items) n += it[0] == 'W' ? 2 : 1; return n; }
+    static int size(const PI& x) { int n = 0; for (const auto& it : x.items) n += it[0] == 'W' || it[0] == 'O' ? 2 : it[0] == 'D' ? 4 : 1; return n; }
     static int code(const PI& x) { return std::stoi(x.items[0]) & 0x3F; }
     static int wOf(const PI& x) { int c = std::stoi(x.items[0]); return c & 0x80 ? 2 : c & 0x40 ? 4 : 1; }
     static int num(const PI& x, size_t k) { return std::stoi(x.items[k]); }
@@ -111,7 +134,7 @@ struct Emitter {
     static int dstWidth(const PI& x) {
         switch (code(x)) {
             case P_CMP: case P_CMPI: return 1;
-            case P_LEAL: case P_ELEM: case P_ELEMG: return 2;
+            case P_LEAL: case P_ELEM: case P_ELEMG: case P_CSTR: return 2;
             case P_CALL: return num(x, 4 + 2 * (size_t)num(x, 2));
             default: return wOf(x);
         }
@@ -119,7 +142,7 @@ struct Emitter {
     // the frame slots it reads
     static std::vector<int> srcOf(const PI& x) {
         switch (code(x)) {
-            case P_CONST: case P_LDG: case P_LEAL: case P_BR: case P_RETV: case P_ADV: return {};
+            case P_CONST: case P_LDG: case P_LEAL: case P_BR: case P_RETV: case P_ADV: case P_CSTR: return {};
             case P_STG: return {num(x, 2)};
             case P_ST: return {num(x, 1), num(x, 2)};
             case P_BNZ: case P_BZ: case P_RET: return {num(x, 1)};
@@ -304,8 +327,11 @@ struct Emitter {
     // CALL with at most 4 arguments as CALLC @f, d, v x n, [r] (4: CALLC4, d the widths only): d n and the
     // arguments' widths (2 bits each; 3 an immediate byte, zero-extended into
     // its 2-byte slot), the result's width in the opcode
-    static void compactCall(PI& x) {
+    void compactCall(PI& x) {
         if (code(x) != P_CALL) return;
+        const std::string callee = x.items[1].substr(1);
+        // (a call left CALL goes through the callee's native entry)
+        struct Need { std::string n; ~Need() { if (!n.empty()) pcodeEntryRefs().insert(n); } } need{callee};
         int n = num(x, 2);
         if (n > 4) return;   // (4: CALLC4, d the widths only)
         auto wc = [](int w) { return w == 1 ? 0 : w == 2 ? 1 : w == 4 ? 2 : w == 3 ? 3 : -1; };
@@ -322,6 +348,16 @@ struct Emitter {
         int opc = rw == 0 ? 0xC0 : rw == 1 ? 0 : rw == 2 ? 0x80 : rw == 4 ? 0x40 : -1;
         if (opc < 0) return;
         std::vector<std::string> it{std::to_string((n == 4 ? P_CALLC4 : P_CALLC) | opc), x.items[1], std::to_string(d)};
+        // (a p-code function, far: CALLP / CALLP4, its p-code's address)
+        // (compact: CALLP when the callee is a plan's P function; else CALLC,
+        // whose callee is native or keeps its entry: the plan's E needs only
+        // the calls left CALL)
+        need.n.clear();
+        if (farBank >= 0 && plan().callp(callee)) {
+            it[0] = std::to_string((n == 4 ? P_CALLP4 : P_CALLP) | opc);
+            it[1] = "D" + callee + "__pc";
+            callp.insert(callee);
+        }
         it.insert(it.end(), slots.begin(), slots.end());
         if (rw) it.push_back(x.items[3 + 2 * (size_t)n]);
         x.items = it;
@@ -353,6 +389,8 @@ struct Emitter {
             auto out = [&]() { if (!bytesLine.empty()) { pc << "    .byte " << bytesLine << "\n"; bytesLine.clear(); } };
             for (const auto& it : x.items) {
                 if (it[0] == 'W') { out(); pc << "    .word " << it.substr(1) << "\n"; }
+                else if (it[0] == 'D') { out(); pc << "    .dword " << it.substr(1) << "\n"; }
+                else if (it[0] == 'O') { out(); pc << "    .word " << fn.name << "__lits+" << it.substr(1) << "\n"; }
                 else bytesLine += (bytesLine.empty() ? "" : ", ") + it;
             }
             out();
@@ -382,6 +420,18 @@ struct Emitter {
     int materialize(const ir::Operand& o, int w, int slot) {
         if (o.isVreg()) return var(o);
         if (o.kind == ir::OperandKind::GLOBAL) {   // (an address: 2 bytes; as a long, 2 zero bytes after them)
+            pcodeEntryRefs().insert(o.name.substr(0, o.name.find('+')));   // (a function's: its entry)
+            // a __noescape literal, far: CSTR d, off, n, @@literal (its copy
+            // in the far bank copied into the frame; its address there)
+            auto fs = pcodeFarStrings().find(o.name);
+            if (farBank >= 0 && w == 2 && fs != pcodeFarStrings().end()) {
+                auto lo = litOff.find(o.name);
+                if (lo == litOff.end()) lo = litOff.emplace(o.name, lits).first, lits += fs->second;
+                op(P_CSTR, 2); b(slot); line.push_back("O" + std::to_string(lo->second)); b(fs->second);
+                line.push_back("D" + o.name + "__pcs");
+                flush();
+                return slot;
+            }
             if (w == 4) { op(P_CONST, 4); b(slot); word(o.name); b(0); b(0); flush(); return slot; }
             if (w == 1) { fail("an address in a byte"); return slot; }
             op(P_CONST, 2); b(slot); word(o.name); flush();
@@ -551,6 +601,14 @@ struct Emitter {
                 return true;
             }
             case Op::ADDR_GLOBAL:
+                // (an address taken: a function's needs its entry; a far
+                // __noescape literal's, CSTR: materialize)
+                pcodeEntryRefs().insert(in.src1.name.substr(0, in.src1.name.find('+')));
+                if (!in.elemOffset && in.src1.kind == ir::OperandKind::GLOBAL) {
+                    int d = var(in.dest);
+                    if (materialize(in.src1, 2, d) != d) return fail("addr_global");
+                    return true;
+                }
                 op(P_CONST, 2); b(var(in.dest)); word(in.src1.name + (in.elemOffset ? "+" + std::to_string(in.elemOffset) : "")); flush();
                 return true;
             case Op::ADDR_LOCAL:
@@ -712,6 +770,10 @@ struct Emitter {
 
 }  // namespace
 
+std::set<std::string>& pcodeEntryRefs() { static std::set<std::string> s; return s; }
+std::set<std::string>& pcodeModuleFunctions() { static std::set<std::string> s; return s; }
+std::map<std::string, int>& pcodeFarStrings() { static std::map<std::string, int> m; return m; }
+
 PcodeResult pcodeEmit(const ir::Function& fn) {
     PcodeResult r;
     if (fn.blocks.empty()) { r.why = "no code"; return r; }
@@ -746,22 +808,20 @@ PcodeResult pcodeEmit(const ir::Function& fn) {
     // callee named by cc45.pcall.<f>.<g>, an edge of ln45's call graph
     t << "    .segment \"bss\"\n    .res 1\n";
     t << "    .global " << fn.name << "__ar\n" << fn.name << "__ar:\n";
-    t << pf << ":\n    .res " << std::max(1, e.frame) << "\n    .res 1\n";
+    // (and after the variables, far, the literals CSTR copies there: from
+    // <f>__lits)
+    const int fbytes = std::max(1, e.frame + e.lits);
+    t << pf << ":\n    .res " << fbytes << "\n    .res 1\n";
     t << "    .global cc45.sacsize." << fn.name << "\n";
-    t << "    cc45.sacsize." << fn.name << " = " << std::max(1, e.frame) + 1 << "\n";
+    t << "    cc45.sacsize." << fn.name << " = " << fbytes + 1 << "\n";
+    if (e.lits) t << fn.name << "__lits = " << e.frame << "\n";
+    t << "    .global cc45.pframe." << fn.name << "\n    cc45.pframe." << fn.name << " = 1\n";
     for (const auto& g : e.callees) {
         t << "    .global cc45.pcall." << fn.name << "." << g << "\n";
         t << "    cc45.pcall." << fn.name << "." << g << " = 1\n";
     }
-    // (far: the entry in the sub-segment "resident", which ln45 keeps out of
-    // a code overlay: with the p-code in far memory, calling it costs no
-    // copy into the overlay region)
-    t << "    .segment \"" << (e.farBank >= 0 ? "resident" : "code") << "\"\n";
-    t << "    .global " << fn.name << "\n    .extern " << (e.farBank >= 0 ? "__pc_enterf" : "__pc_enter") << "\n";
-    t << "    proc " << fn.name << "\n";
-    int zp = 0, stub = 0;
     // the parameters: copied by the interpreter when at most 4 of 1, 2 or 4
-    // bytes (d: 2 bits each, their bytes, 3 the end); else here, d $FF
+    // bytes (d: 2 bits each, their bytes, 3 the end); else by the entry, d $FF
     const size_t np = fn.paramTypes.size();
     int d = 0xFF;
     for (uint32_t v = 0; v < np; v++) {
@@ -770,41 +830,59 @@ PcodeResult pcodeEmit(const ir::Function& fn) {
         if (np > 4 || c < 0 || e.off[v] != (v ? e.off[v - 1] + std::max(1, widthOfType(fn.paramTypes[v - 1])) : 0)) d = -1;
         if (d >= 0) d = (d & ~(3 << (2 * v))) | c << (2 * v);
     }
-    if (d < 0) {
-        d = 0xFF;
-        for (uint32_t v = 0; v < np; v++) {
-            int w = std::max(1, widthOfType(fn.paramTypes[v]));
-            for (int k = 0; k < w; k++) {
-                t << "    lda $" << std::hex << (0x10 + zp + k) << std::dec << "\n";
-                t << "    sta " << pf << "+" << (e.off[v] + k) << "\n";
-                stub += 5;
+    const bool copies = d < 0;   // (the entry copies them: CALLP cannot enter it)
+    if (d < 0) d = 0xFF;
+    int stub = 0;
+    // the native entry: not for a function the plan's CALLP reaches and
+    // nothing else (far: in the sub-segment "resident", which ln45 keeps out
+    // of a code overlay: with the p-code in far memory, calling it costs no
+    // copy into the overlay region)
+    if (!(e.farBank >= 0 && !copies && plan().noEntry(fn.name))) {
+        t << "    .segment \"" << (e.farBank >= 0 ? "resident" : "code") << "\"\n";
+        t << "    .global " << fn.name << "\n    .extern " << (e.farBank >= 0 ? "__pc_enterf" : "__pc_enter") << "\n";
+        t << "    proc " << fn.name << "\n";
+        if (copies) {
+            int zp = 0;
+            for (uint32_t v = 0; v < np; v++) {
+                int w = std::max(1, widthOfType(fn.paramTypes[v]));
+                for (int k = 0; k < w; k++) {
+                    t << "    lda $" << std::hex << (0x10 + zp + k) << std::dec << "\n";
+                    t << "    sta " << pf << "+" << (e.off[v] + k) << "\n";
+                    stub += 5;
+                }
+                zp += std::max(2, w);
             }
-            zp += std::max(2, w);
         }
-    }
-    if (e.farBank >= 0) {   // (the p-code's address, the frame and d after the jsr)
-        t << "    jsr __pc_enterf\n    .dword " << fn.name << "__pc\n    .word " << pf << "\n    .byte " << d << "\n";
-        stub += 10;
-    } else {
-        t << "    jsr __pc_enter\n    .word " << fn.name << "__pc\n    .word " << pf << "\n    .byte " << d << "\n";
-        stub += 8;
-    }
-    t << "    .reg_clobbers A, X, Y, Z\n    .flag_clobbers C, N, Z, V\n";
-    // the base page from $08: the interpreter's bytes, the parameter block it
-    // fills for its calls, whatever those callees change (without this, a
-    // caller keeps an argument in $10 over the call, as it may over a
-    // native function that leaves the block alone)
-    for (int a = 0x08; a <= 0xFF; a += 16) {
-        t << "    .zp_clobbers ";
-        for (int k = a; k < a + 16 && k <= 0xFF; k++) {
-            char h[8];
-            snprintf(h, sizeof h, "$%02X", k);
-            t << (k > a ? ", " : "") << h;
+        if (e.farBank >= 0) {   // (the p-code's address, the frame and d after the jsr)
+            t << "    jsr __pc_enterf\n    .dword " << fn.name << "__pc\n    .word " << pf << "\n    .byte " << d << "\n";
+            stub += 10;
+        } else {
+            t << "    jsr __pc_enter\n    .word " << fn.name << "__pc\n    .word " << pf << "\n    .byte " << d << "\n";
+            stub += 8;
         }
-        t << "\n";
+        t << "    .reg_clobbers A, X, Y, Z\n    .flag_clobbers C, N, Z, V\n";
+        // the base page from $08: the interpreter's bytes, the parameter block it
+        // fills for its calls, whatever those callees change (without this, a
+        // caller keeps an argument in $10 over the call, as it may over a
+        // native function that leaves the block alone)
+        for (int a = 0x08; a <= 0xFF; a += 16) {
+            t << "    .zp_clobbers ";
+            for (int k = a; k < a + 16 && k <= 0xFF; k++) {
+                char h[8];
+                snprintf(h, sizeof h, "$%02X", k);
+                t << (k > a ? ", " : "") << h;
+            }
+            t << "\n";
+        }
+        t << "    .func_flags zp_call, static_alloc\n    endproc\n";
     }
-    t << "    .func_flags zp_call, static_alloc\n    endproc\n";
-    if (e.farBank >= 0) t << "    .segment \"bank." << e.farBank << "\"\n";
+    for (const auto& g : e.callp)
+        if (!pcodeModuleFunctions().count(g)) t << "    .extern " << g << "__pc\n";
+    if (e.farBank >= 0) {
+        // the header CALLP reads: the frame and d, the 3 bytes before the p-code
+        t << "    .segment \"bank." << e.farBank << "\"\n";
+        t << "    .word " << pf << "\n    .byte " << d << "\n    .global " << fn.name << "__pc\n";
+    }
     t << fn.name << "__pc:\n" << (e.list ? "    ; PCTEMP " + std::to_string(e.k0) + "\n" : std::string()) << e.pc.str() << "\n";
     if (e.farBank >= 0) t << "    .segment \"code\"\n";
     r.ok = true;
@@ -812,5 +890,6 @@ PcodeResult pcodeEmit(const ir::Function& fn) {
     r.pcodeBytes = e.bytes;
     r.stubBytes = stub;
     r.frameBytes = e.frame;
+    r.enterable = !copies;
     return r;
 }

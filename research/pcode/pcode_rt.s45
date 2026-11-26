@@ -214,6 +214,7 @@ pc_frame:
     iny
     lda (PTR),y
     sta CC
+pc_params:                      ; (FP, CC set: CALLP enters here too)
     lda #4
     sta CNT
     ldx #0                      ; X: the parameter block's byte
@@ -1137,6 +1138,7 @@ callc:
     sta jv
     FETCH
     sta jv+1
+callc_d:
     FETCH
     tay
     and #3
@@ -1209,12 +1211,130 @@ callc4:
     sta jv
     FETCH
     sta jv+1
+callc4_d:
     lda #4
     sta CNT
     FETCH
     sta CC
     ldx #0
     jmp k_args
+
+#ifdef PCODE_FAR
+; CALLP @@f, d, v x n, [r] and CALLP4 @@f, d, v x 4, [r]: CALLC and CALLC4
+; of a p-code function, @@f its p-code's 28-bit address ($37 / $38 and
+; their forms as CALLC's): entered here (enter_pp), not through a native
+; entry. The function's frame and d are the 3 bytes before its p-code
+h_callp:
+    lda #1
+    bcc callp
+    lda #2
+    bra callp
+h_callp_l:
+    lda #4
+    bcc callp
+    lda #0
+callp:
+    sta T1
+    jsr fetch_pp
+    jmp callc_d
+h_callp4:
+    lda #1
+    bcc callp4
+    lda #2
+    bra callp4
+h_callp4_l:
+    lda #4
+    bcc callp4
+    lda #0
+callp4:
+    sta T1
+    jsr fetch_pp
+    jmp callc4_d
+fetch_pp:                       ; pp = the 4 bytes at IP; jv = enter_pp (call_go's jmp)
+    FETCH
+    sta pp
+    FETCH
+    sta pp+1
+    FETCH
+    sta pp+2
+    FETCH
+    sta pp+3
+    lda #<enter_pp
+    sta jv
+    lda #>enter_pp
+    sta jv+1
+    rts
+; (from call_go, the caller's machine saved: its rts is RET's)
+enter_pp:
+    lda pp+2
+    sta IP+2
+    lda pp+3
+    sta IP+3
+    sec                         ; IP = pp - 3, the header (in the same bank)
+    lda pp
+    sbc #3
+    sta IP
+    lda pp+1
+    sbc #0
+    sta IP+1
+    ldz #0
+    LDIP
+    sta FP
+    inz
+    LDIP
+    sta FP+1
+    inz
+    LDIP
+    sta CC
+    lda pp                      ; IP = pb = the p-code
+    sta IP
+    sta pb
+    lda pp+1
+    sta IP+1
+    sta pb+1
+    ldx #0
+    jmp pc_params
+
+; CSTR d, off, n, @@s ($B9): the literal at s (28 bits, n bytes with its 0)
+; copied into the frame at off (16 bits), its address there into d. The
+; frame is the literal's while the function runs: cc45 does this only for
+; __noescape literals (noescape_strings), whose address is not kept
+h_cstr:
+    jsr get_d
+    clc
+    FETCH
+    adc FP
+    sta PTR
+    FETCH
+    adc FP+1
+    sta PTR+1
+    FETCH
+    sta CNT
+    FETCH
+    sta A0
+    FETCH
+    sta A0+1
+    FETCH
+    sta A0+2
+    FETCH
+    sta A0+3
+    ldy T0
+    lda PTR
+    sta (FP),y
+    iny
+    lda PTR+1
+    sta (FP),y
+    phz
+    ldz #0
+@cs:
+    lda [A0],z
+    sta (PTR),z
+    inz
+    cpz CNT
+    bne @cs
+    plz
+    NEXT
+#endif
 
     ENTRIES h_ret, h_ret_l               ; RET a
     FETCH
@@ -1295,8 +1415,13 @@ handlers:
     .word h_asri,  h_mul,   h_muli, h_divu, h_divui, h_modu, h_modui, h_neg
     .word h_not,   h_cmp,   h_cmpi, h_br,   h_bnz,  h_bz,   h_call, h_ret
     .word h_retv,  h_zext,  h_sext, h_adv,  h_div,  h_divi, h_mod,  h_modi
+#ifdef PCODE_FAR
+    .word h_cbr,   h_cbri,  h_callc,  h_ldo,  h_sto,  h_elemg,  h_callc4,  h_callp
+    .word h_callp4, h_cstr, h_bad,  h_bad,  h_bad,  h_bad,  h_bad,  h_bad
+#else
     .word h_cbr,   h_cbri,  h_callc,  h_ldo,  h_sto,  h_elemg,  h_callc4,  h_bad
     .word h_bad,   h_bad,   h_bad,  h_bad,  h_bad,  h_bad,  h_bad,  h_bad
+#endif
     ; the long forms ($40 + the operation)
     .word h_bad,   h_const_l, h_mov_l, h_ldg_l, h_stg_l, h_ld_l, h_st_l, h_bad
     .word h_bad,   h_add_l, h_addi_l, h_sub_l, h_subi_l, h_and_l, h_andi_l, h_or_l
@@ -1304,8 +1429,13 @@ handlers:
     .word h_asri_l, h_mul_l, h_muli_l, h_divu_l, h_divui_l, h_modu_l, h_modui_l, h_neg_l
     .word h_not_l, h_cmp_l, h_cmpi_l, h_bad, h_bnz_l, h_bz_l, h_bad,  h_ret_l
     .word h_bad,   h_zext_l, h_sext_l, h_bad, h_div_l, h_divi_l, h_mod_l, h_modi_l
+#ifdef PCODE_FAR
+    .word h_cbr_l, h_cbri_l, h_callc_l, h_ldo_l, h_sto_l,  h_bad,  h_callc4_l,  h_callp_l
+    .word h_callp4_l, h_bad, h_bad,  h_bad,  h_bad,  h_bad,  h_bad,  h_bad
+#else
     .word h_cbr_l, h_cbri_l, h_callc_l, h_ldo_l, h_sto_l,  h_bad,  h_callc4_l,  h_bad
     .word h_bad,   h_bad,   h_bad,  h_bad,  h_bad,  h_bad,  h_bad,  h_bad
+#endif
 
     .func_flags zp_call
     endproc
@@ -1318,6 +1448,9 @@ pb:     .res 2                  ; the function's p-code (its low 16 bits): the b
 #endif
 bi:     .res 1                  ; 1: the operation's immediate is a byte (ENTRIES_I)
 jv:     .res 2                  ; CALL's target (jmp (jv))
+#ifdef PCODE_FAR
+pp:     .res 4                  ; CALLP's p-code
+#endif
 rv:     .res 4                  ; a call's or RET's value
 mr:     .res 4                  ; MUL's product; DIV's remainder
 mt:     .res 4                  ; DIV's trial remainder
