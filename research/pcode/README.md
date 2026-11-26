@@ -1,4 +1,4 @@
-# P-code for cc45: research notes (2026-11-24)
+# P-code for cc45: research notes (2026-11-24, the back end's results 2026-11-26)
 
 Can cc45 save space by compiling functions to a compact p-code that an interpreter runs, instead of 45GS02 code,
 and what does it cost? This directory has the measurements and the prototypes: an interpreter, a translator
@@ -24,8 +24,10 @@ toolchain: cc45's changes act only with `CC45_PCODE_STATS` (it measures) or `CC4
   few KB. Against the per-function saving the interpreter pays for itself in a program with about 9-10 KB of C
   code, interpreter and translator at about 15-20 KB.
 - **A real program.** cc45's first p-code back end (`CC45_PCODE`) runs examples/musicgen with 47 of its 49
-  functions as p-code: it draws its screen and answers keys as the native build does. Its `.prg` is **20,141 bytes
-  against 17,034 native (+18%)**: the back end is the plain encoding (no scheme B forms) and the runtime is 2.8 KB.
+  functions as p-code: it draws its screen and answers keys as the native build does. Its `.prg` is **17,916 bytes
+  against 17,059 native (+5.0%)**, runtime (3.0 KB) included; the plain encoding was 20,141 (+18%). Peepholes over
+  each block and four combined instructions (compare and branch, a short call, a load or store at a pointer +
+  offset) took its p-code from 12,404 bytes to 9,934 (-20%), the examples' and the library's by 18.5%.
   An operation-by-operation test against native code found only native bugs (#794, #795); the work found a ca45
   bug too (#796).
 
@@ -176,19 +178,36 @@ asm). The program is linked with the runtime, `ca45 -c pcode_rt.s45`.
   offsets, an immediate of the operation's width, or a 2-byte address. 47 opcodes: CONST, MOV, LDG/STG (globals),
   LD/ST (through a pointer), LEAL, ELEM (base + index * stride), the ALU operations with immediate forms, DIV/MOD
   signed and unsigned, NEG, NOT, CMP/CMPI (a condition code), BR/BNZ/BZ, CALL (ZP convention: native, or p-code
-  through its entry), RET/RETV, ZEXT/SEXT, and ADV (a run of over 240 bytes). Left native: a function with an
+  through its entry), RET/RETV, ZEXT/SEXT, and ADV (a run of over 240 bytes); and the combined forms below (52 in
+  all). Left native: a function with an
   operation the back end does not translate (far and near access, floats and the like), inline asm, calls through
   a pointer or to stack-convention or `__regparm` functions, the stack convention itself, variadic, `__interrupt`,
   `__naked`, nested and recursive functions.
-- **The interpreter** (`pcode_rt.s45`, about 2.8 KB): one generic handler per operation working on two
+- **The combined forms and the peepholes.** The back end keeps a block's instructions until its end, then joins
+  pairs whose first result (a temporary of the block, not read after) is used only by the second:
+
+  | pair | becomes | bytes saved |
+  |---|---|---:|
+  | `X t, ...; MOV v, t` (a call's result too) | `X v, ...` | 3 |
+  | `CONST.2 t, addr; LD d, t` / `ST t, v` | `LDG d, addr` / `STG addr, v` | 3 |
+  | `LEAL t, s; ADDI.2 d, t, off` | `LEAL d, s + off` (the frame is static) | 5 |
+  | `CMP(I) t, a, b, cc; BNZ / BZ t, @l` | `$30 CBR` / `$31 CBRI a, b, cc', @l` (BZ: cc inverted) | 3 |
+  | `ADDI.2 t, p, #off; LD d, t` / `ST t, v` | `$33 LDO d, [p + off]` / `$34 STO [p + off], v` (off + width <= 256) | 4 |
+
+  and writes a CALL with at most 3 arguments as `$32 CALLC @f, d, v x n, [r]`: `d` the number of arguments and
+  each one's width (2 bits), the result's width in the opcode's width bits (`$F2` none); 4 + n bytes, + 1 with a
+  result, against 6 + 2n. `CC45_PCODE_LIST=1` writes each instruction as a comment (`; PC ...`), for the
+  analysis of what follows what.
+- **The interpreter** (`pcode_rt.s45`, about 3.0 KB): one generic handler per operation working on two
   accumulators of the operation's width (1, 2 or 4 bytes), dispatched by `asl / tax / jmp (handlers,x)`; its state
   in the base page (IP `$08`, FP `$0A`, accumulators at `$F3` and `$F7`). CALL saves IP and FP on the stack.
 
 ### Correctness (`test_pcops_xemu.c`, `run_pcops.sh`)
 
 Every operation at 8, 16 and 32 bits, signed and unsigned, over a spread of values, element access of several
-strides, calls with each argument and result width, and branches on each width; built native and as p-code, a
-checksum per call compared. All the differences found were native cc45's: signed 16-bit `%` (#794) and 32-bit
+strides, calls with each argument and result width (mixed widths in one call), struct fields through a pointer at
+offsets up to 248 (and 292, left unjoined), and branches on every condition at each width, against a variable and
+an immediate; built native and as p-code, a checksum per call compared (1,388 bytes of results, the same). All the differences found were native cc45's: signed 16-bit `%` (#794) and 32-bit
 `$FFFFFFFF / 1` and `% 1` (#795); the p-code gives the C result.
 
 ### musicgen
@@ -200,15 +219,28 @@ are random).
 
 | | native | p-code |
 |---|---:|---:|
-| `.prg`, interactive build | 17,034 | 20,141 |
-| `.prg`, `MG_TEST` build | 8,674 | 10,676 |
-| BSS | 3,191 | 4,416 |
+| | native | p-code |
+|---|---:|---:|
+| `.prg`, interactive build | 17,059 | 17,916 |
+| `.prg`, `MG_TEST` build | 8,674 | 9,898 |
+| BSS | 3,166 | 4,357 |
 
-The p-code is larger because this back end is the plain encoding: none of scheme B's combined instructions, every
-global or constant operand without an immediate form first copied into the frame (a MOV or CONST); plus the 2.8 KB
-runtime and frames that ln45 does not overlay as it does SAC blocks (hence the BSS). Scheme B's forms and
-overlaid frames are the next steps; the measurements above put the plain encoding's saving at 17% for the
-examples before the runtime, so musicgen (about 13 KB of its own code) is near the break-even point.
+(The `MG_TEST` build writes its songs from `$A000`; the p-code's are the same bytes as native's.) Each step,
+measured on musicgen's p-code and on the examples and the library (`CC45_PCODE_LIST`, every file):
+
+| step | musicgen p-code | its `.prg` | vs native | examples + library p-code |
+|---|---:|---:|---:|---:|
+| the plain encoding | 12,404 | 20,141 | +18% | 143,003 |
+| the peepholes (MOV, LDG/STG, LEAL) | 11,610 | 19,344 | +13% | 132,706 |
+| compare and branch (CBR, CBRI) | 10,953 | 18,759 | +10% | 126,700 |
+| the short call (CALLC) | 10,330 | 18,236 | +6.9% | 120,615 |
+| load / store at an offset (LDO, STO) | 9,934 | 17,916 | +5.0% | 116,591 |
+
+Each combined form adds 70-100 bytes to the interpreter. What is left: every global or constant operand without
+an immediate form still copied into the frame first, narrowing MOVs (a 4-byte result into a 1-byte variable), the
+3.0 KB runtime, and frames that ln45 does not overlay as it does SAC blocks (hence the BSS). The next candidates,
+from the pairs left in musicgen: byte immediates in the unused width bits `11` (about 1.7%), calls with constant
+arguments (2.6% before CALLC), the element of a global array (1.6%), indexed loads and stores (1.3%).
 
 ### Bugs found on the way
 
@@ -245,9 +277,9 @@ examples before the runtime, so musicgen (about 13 KB of its own code) is near t
 | `pcode_jit.s45` | the translator: the frame in the base page, the peephole (`pcode_jit`) |
 | `pcode_jit_abs.s45` | the translator, variables at absolute addresses (`pcode_jita`) |
 | `pcode_jitf.s45` | `pcode_jit.s45` with far p-code (`pcode_jitf`) |
-| `pcode_rt.s45` | the runtime of cc45's p-code back end (`__pc_enter`) |
+| `pcode_rt.s45` | the runtime of cc45's p-code back end (`__pc_enter`); its header lists the encoding |
 | `test_pcops_xemu.c`, `run_pcops.sh` | every p-code operation against native code, in xemu |
-| `../../src/main/PcodeEmit.cpp` | the back end (`CC45_PCODE`, `CC45_PCODE_REPORT`) |
+| `../../src/main/PcodeEmit.cpp` | the back end (`CC45_PCODE`, `CC45_PCODE_REPORT`, `CC45_PCODE_LIST`) |
 | `pcode_progs.s45` | the p-code programs, written by hand |
 | `test_pcode_xemu.c`, `test_jit_xemu.c`, `test_far_xemu.c` | the xemu tests (`run.sh` builds and runs them) |
 | `tools/collect.sh` | `CC45_PCODE_STATS` over the library and the examples, and the tables |
