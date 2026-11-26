@@ -753,7 +753,10 @@ PcodeResult pcodeEmit(const ir::Function& fn) {
         t << "    .global cc45.pcall." << fn.name << "." << g << "\n";
         t << "    cc45.pcall." << fn.name << "." << g << " = 1\n";
     }
-    t << "    .segment \"code\"\n";
+    // (far: the entry in the sub-segment "resident", which ln45 keeps out of
+    // a code overlay: with the p-code in far memory, calling it costs no
+    // copy into the overlay region)
+    t << "    .segment \"" << (e.farBank >= 0 ? "resident" : "code") << "\"\n";
     t << "    .global " << fn.name << "\n    .extern " << (e.farBank >= 0 ? "__pc_enterf" : "__pc_enter") << "\n";
     t << "    proc " << fn.name << "\n";
     int zp = 0, stub = 0;

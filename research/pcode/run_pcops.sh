@@ -6,23 +6,30 @@
 #   FAR=2048 run_pcops.sh [OUTDIR]   the p-code in far memory (here attic RAM,
 #       bank $800; 5: bank 5): the runtime built with -DPCODE_FAR, cc45 with
 #       CC45_PCODE_FAR, the p-code in the program's overlay file, on a disk
+#   OVL=name run_pcops.sh   the p-code build with -foverlay=name (as a file
+#       with #pragma cc45 overlay): near, the p-code is in the code overlay;
+#       with FAR, the entries are resident and the overlay keeps only what
+#       stayed native (none here: no overlay at all)
 cd "$(dirname "$0")" || exit 1
 B=../../bin
 O=${1:-/tmp/pcops}
 mkdir -p "$O"
+OVF=; OVR=; [ -n "$OVL" ] && { OVF=-foverlay=$OVL; OVR=--overlay-region=0x8000-0x9FFF; }   # (the results are at $A000)
 RTF=; STORE=; [ -n "$FAR" ] && { RTF=-DPCODE_FAR; STORE="--overlay-store=$(( FAR << 16 ))"; }
 $B/ca45 $RTF -c pcode_rt.s45 -o "$O/rt.o45" >/dev/null || exit 1
 $B/cc45 -O2 -c test_pcops_xemu.c -o "$O/n.o45" 2>/dev/null &&
 $B/ln45 -basic -o "$O/n.prg" "$O/n.o45" ../../lib/build/c45.lib >/dev/null || { echo "native build failed"; exit 1; }
-rm -f "$O/p.prg" "$O/p.ov1"
-CC45_PCODE_FAR=$FAR CC45_PCODE=all CC45_PCODE_REPORT=1 $B/cc45 -O2 -c test_pcops_xemu.c -o "$O/p.o45" 2>"$O/p.rep" &&
-$B/ln45 -v -basic $STORE -o "$O/p.prg" "$O/p.o45" "$O/rt.o45" ../../lib/build/c45.lib 2>&1 | grep -E "SAC overlay:|error|Code overlays" ; [ -s "$O/p.prg" ] || { echo "p-code build failed"; exit 1; }
+rm -f "$O/p.prg" "$O"/p.ov?
+CC45_PCODE_FAR=$FAR CC45_PCODE=all CC45_PCODE_REPORT=1 $B/cc45 -O2 $OVF -c test_pcops_xemu.c -o "$O/p.o45" 2>"$O/p.rep" &&
+$B/ln45 -v -basic $STORE $OVR -o "$O/p.prg" "$O/p.o45" "$O/rt.o45" ../../lib/build/c45.lib 2>&1 | grep -E "SAC overlay:|error|Code overlays" ; [ -s "$O/p.prg" ] || { echo "p-code build failed"; exit 1; }
 grep native "$O/p.rep"
 DISK=
-if [ -n "$FAR" ]; then
+if [ -n "$FAR$OVL" ]; then
     rm -f "$O/p.d81"
-    $B/disk45 create "$O/p.d81" -n "PCOPS" -i "PC" >/dev/null && $B/disk45 add "$O/p.d81" "$O/p.prg" "p" >/dev/null &&
-    $B/disk45 add "$O/p.d81" "$O/p.ov1" "p.ov1" >/dev/null || { echo "disk failed"; exit 1; }
+    $B/disk45 create "$O/p.d81" -n "PCOPS" -i "PC" >/dev/null && $B/disk45 add "$O/p.d81" "$O/p.prg" "p" >/dev/null || { echo "disk failed"; exit 1; }
+    for f in "$O"/p.ov?; do
+        [ -e "$f" ] && { $B/disk45 add "$O/p.d81" "$f" "$(basename "$f")" >/dev/null || { echo "disk failed"; exit 1; }; }
+    done
     DISK="-8 $O/p.d81"
 fi
 timeout 60 xemu-xmega65 -headless -besure -sleepless -prgmode 65 -prgexit -dumpmem "$O/n.mem" -prg "$O/n.prg" </dev/null >/dev/null 2>&1

@@ -274,21 +274,22 @@ data overlay kept in that bank (5, or attic RAM: 2048 = `$800`), loaded from the
 The runtime is built with `ca45 -DPCODE_FAR`: IP is a 28-bit address read with `lda [IP],z`; a branch's target is
 its offset from the function's p-code, added to the function's base (pb) by the interpreter (ln45 allows only 32-bit
 references to a data overlay's symbols; a function's p-code never crosses a 64 KB bank, so a branch or ADV changes
-IP's low 16 bits only); the entry is `jsr __pc_enterf` / `.dword` the p-code / `.word` the frame (9 bytes). The
+IP's low 16 bits only); the entry is `jsr __pc_enterf` / `.dword` the p-code / `.word` the frame / `.byte` the parameters' widths (10 bytes). The
 far runtime is 3,626 bytes (W, T1 and pb in BSS, IP 4 bytes in the base page). `FAR=2048 run_pcops.sh` (and
 `FAR=5`): the same results as native.
 
 examples/c/glamlambs (1,942 lines; code overlays `title` and `salon`; its demo build plays by itself), 99
 functions as p-code, 2 native (`cpu_reg_write`):
 
-| | native | p-code in bank 0 | p-code in attic RAM |
-|---|---:|---:|---:|
-| `.prg` | 27,941 | 30,798 | **17,819** |
-| bank 0 code (TEXT) | 23,395 | 26,256 | 13,367 |
-| the program's end in bank 0 | `$9DFF` | `$AAFF` | `$77FF` |
-| code overlays (`.ov1`) | 7,932 | 6,979 | 739 |
-| p-code in attic RAM (`.ov2`) | | | 18,382 |
-| the demo's game time after 30 s | 27 s | 18 s | 17 s |
+| | native | p-code in bank 0 | p-code in attic RAM | the same, entries resident |
+|---|---:|---:|---:|---:|
+| `.prg` | 27,941 | 30,798 | **17,819** | 18,005 |
+| bank 0 code (TEXT) | 23,395 | 26,256 | 13,367 | 13,553 |
+| the program's end in bank 0 | `$9DFF` | `$AAFF` | `$77FF` | `$78FF` |
+| code overlays | 7,932 | 6,979 | 739 | 347 |
+| p-code in attic RAM | | | 18,382 | 18,382 |
+| overlay files | `.ov1` | `.ov1` | `.ov1` (bank 5), `.ov2` (attic) | `.ov1` (both, 18,727) |
+| the demo's game time after 30 s | 27 s | 18 s | 17 s | 17 s |
 
 (The bank 0 column is before the 8- and 10-byte entries: then the native entries took 1,222 bytes for `main.c`'s
 67 functions, an 18-byte average, most of what its p-code saved; now all of glamlambs' 98 take 1,105.) In bank 0
@@ -297,6 +298,16 @@ frames overlaid the program does not fit below the overlay region at all. In att
 nothing: the program ends 9.5 KB lower than native, and `title` and `salon` hardly need the code overlays any more
 (their native entries, 877 bytes). Reading the p-code from attic RAM costs little against bank 0 (17 s of game
 time against 18).
+
+**Entries resident.** In the attic build the code overlays held only the native entries of p-code functions:
+every call into `title` or `salon` copied an overlay of entries by DMA, for p-code that is in attic RAM anyway, and
+the program had two overlay files (ln45 writes one per 64 KB bank: bank 5's code overlays, attic RAM's p-code).
+With far p-code, cc45 now puts a function's entry in the text sub-segment `resident`, which ln45 keeps in the
+program's text even in a code overlay's object, and leaves out `.overlay` when nothing of the file is left for it
+(`title`). The overlay keeps what stays native: `salon_load` (`cpu_reg_write`), 347 bytes. With the overlay store
+in attic RAM alone (`--overlay-store=0x8000000-0x803FFFF`), that overlay and the p-code are in one bank: one file
+(the last column); with bank 5 first, as before, `.ov1` 347 bytes and `.ov2` 18,382. The sources are unchanged:
+the pragmas stay. `OVL=t run_pcops.sh` (`-foverlay=t`, with `FAR=2048` too): the same results as native.
 
 ### Bugs found on the way
 

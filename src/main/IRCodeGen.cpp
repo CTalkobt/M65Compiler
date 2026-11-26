@@ -2850,7 +2850,15 @@ void IRCodeGen::generate(const ir::Module& mod, uint32_t zpStart, bool relocMode
             }
         }
         // -foverlay=name: the module's code is in that code overlay
-        if (!mod.overlay.empty()) emit(".overlay " + mod.overlay);
+        // (research/pcode: not when all the module's code is far p-code, its
+        // entries resident and the p-code in far memory: an empty overlay)
+        bool overlayCode = false;
+        for (const auto& fn : mod.functions) {
+            if (fn.blocks.empty() || deadCodeFunctions_.count(fn.name) || inlineOnlyFunctions_.count(fn.name)) continue;
+            auto pt = pcodeText_.find(fn.name);
+            if (pt == pcodeText_.end() || pt->second.find(".segment \"resident\"") == std::string::npos) overlayCode = true;
+        }
+        if (!mod.overlay.empty() && overlayCode) emit(".overlay " + mod.overlay);
         // -fbss-fill=V: the module defining main sets the byte crt0 fills
         // BSS with (otherwise ln45's --bss-fill, default 0)
         // -fstack-size=N: the CPU stack's share below __stack_top (the heap

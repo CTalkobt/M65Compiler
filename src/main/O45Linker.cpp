@@ -966,6 +966,9 @@ bool O45Linker::layoutSegments(std::string& errorMsg) {
             // which is page-aligned; __far code: in its automatic overlay)
             auto fo = farOvl.find({chunk.objectIdx, chunk.subSegName});
             int chunkOvl = fo != farOvl.end() ? fo->second : input.ovl;
+            // (the sub-segment "resident": in the program's text even in a
+            // code overlay's object; cc45's far p-code entries)
+            if (chunk.subSegName == "resident") chunkOvl = 0;
             // a __section function's code: in its section's (resident, not
             // in a code overlay)
             int sect = -1;
