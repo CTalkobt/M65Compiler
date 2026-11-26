@@ -23,6 +23,7 @@
 #include <set>
 #include <sstream>
 #include <vector>
+#include <cstdlib>
 
 namespace {
 
@@ -70,21 +71,146 @@ struct Emitter {
     void imm(int64_t v, int w) { for (int i = 0; i < w; i++) b((int)((uint64_t)v >> (8 * i))); }
     // (an address: ".word sym", 2 bytes; the bytes around it in .byte lines)
     void word(const std::string& sym) { line.push_back("W" + sym); }
-    void flush() {
-        int n = 0;
-        for (const auto& it : line) n += it[0] == 'W' ? 2 : 1;
-        if (run + n > 240) { pc << "    .byte " << P_ADV << "            ; ADV\n"; bytes++; run = 0; }
-        std::string bytesLine;
-        auto out = [&]() { if (!bytesLine.empty()) { pc << "    .byte " << bytesLine << "\n"; bytesLine.clear(); } };
-        for (const auto& it : line) {
-            if (it[0] == 'W') { out(); pc << "    .word " << it.substr(1) << "\n"; }
-            else bytesLine += (bytesLine.empty() ? "" : ", ") + it;
+    // the block's instructions are kept until its end (endBlock): the
+    // peepholes, then written
+    struct PI { std::vector<std::string> items; bool resets = false; };   // resets: a branch or return
+    std::vector<PI> blk;
+    void flush() { blk.push_back({line, false}); line.clear(); }
+    void resetRun() { if (!blk.empty()) blk.back().resets = true; }
+
+    static int size(const PI& x) { int n = 0; for (const auto& it : x.items) n += it[0] == 'W' ? 2 : 1; return n; }
+    static int code(const PI& x) { return std::stoi(x.items[0]) & 0x3F; }
+    static int wOf(const PI& x) { int c = std::stoi(x.items[0]); return c & 0x80 ? 2 : c & 0x40 ? 4 : 1; }
+    static int num(const PI& x, size_t k) { return std::stoi(x.items[k]); }
+    // the frame slot an instruction writes (the first operand), -1 for none
+    static int dstOf(const PI& x) {
+        switch (code(x)) {
+            case P_STG: case P_ST: case P_BR: case P_BNZ: case P_BZ: case P_RET: case P_RETV: case P_ADV:
+                return -1;
+            case P_CALL: {   // op, callee, n, n x (slot, width), result slot, result width
+                size_t k = 3 + 2 * (size_t)num(x, 2);
+                return num(x, k + 1) ? num(x, k) : -1;
+            }
+            default: return num(x, 1);
         }
-        out();
-        bytes += n;
-        run += n;
-        line.clear();
     }
+    // the bytes it writes there
+    // (CMP: a flag byte; LEAL, ELEM: an address, whatever the index's width; CALL: the result's)
+    static int dstWidth(const PI& x) {
+        switch (code(x)) {
+            case P_CMP: case P_CMPI: return 1;
+            case P_LEAL: case P_ELEM: return 2;
+            case P_CALL: return num(x, 4 + 2 * (size_t)num(x, 2));
+            default: return wOf(x);
+        }
+    }
+    // the frame slots it reads
+    static std::vector<int> srcOf(const PI& x) {
+        switch (code(x)) {
+            case P_CONST: case P_LDG: case P_LEAL: case P_BR: case P_RETV: case P_ADV: return {};
+            case P_STG: return {num(x, 2)};
+            case P_ST: return {num(x, 1), num(x, 2)};
+            case P_BNZ: case P_BZ: case P_RET: return {num(x, 1)};
+            case P_ELEM: return {num(x, 2), num(x, 3)};
+            case P_CALL: {
+                int k = num(x, 2);
+                std::vector<int> r;
+                for (int j = 0; j < k; j++) r.push_back(num(x, 3 + 2 * j));
+                return r;
+            }
+            case P_MOV: case P_LD: case P_NEG: case P_NOT: case P_ZEXT: case P_SEXT: return {num(x, 2)};
+            case P_CMP: return {num(x, 2), num(x, 3)};
+            case P_CMPI: return {num(x, 2)};
+            default:   // the ALU operations: dst, a, b or dst, a, imm
+                if (code(x) % 2 == 0 && code(x) >= P_ADDI && code(x) <= P_MODUI) return {num(x, 2)};
+                if (code(x) == P_DIVI || code(x) == P_MODI) return {num(x, 2)};
+                return {num(x, 2), num(x, 3)};
+        }
+    }
+    // slot t (a block-local scratch or temporary) not read after instruction j before it is written again
+    bool deadAfter(size_t j, int t) const {
+        if (t < k0) return false;
+        for (size_t k = j + 1; k < blk.size(); k++) {
+            auto s = srcOf(blk[k]);
+            if (std::find(s.begin(), s.end(), t) != s.end()) return false;
+            if (dstOf(blk[k]) == t) return true;
+        }
+        return true;
+    }
+
+    // a pair of instructions as one: the first's result used by the second only
+    void peephole() {
+        for (bool changed = true; changed;) {
+            changed = false;
+            for (size_t j = 0; j + 1 < blk.size(); j++) {
+                PI& x = blk[j];
+                PI& y = blk[j + 1];
+                int t = dstOf(x);
+                if (t < 0 || !deadAfter(j + 1, t)) continue;
+                // 1. X t, ...; MOV v, t -> X v, ...
+                if (code(y) == P_MOV && num(y, 2) == t && wOf(y) == dstWidth(x)) {
+                    x.items[code(x) == P_CALL ? 3 + 2 * (size_t)num(x, 2) : 1] = y.items[1];
+                    blk.erase(blk.begin() + j + 1);
+                    changed = true;
+                    break;
+                }
+                // 2. CONST.2 t, addr; LD d, t / ST t, v -> LDG d, addr / STG addr, v
+                if (code(x) == P_CONST && wOf(x) == 2) {
+                    std::string addr = x.items.size() == 3 ? x.items[2]
+                                     : "W" + std::to_string(num(x, 2) | (num(x, 3) << 8));
+                    if (code(y) == P_LD && num(y, 2) == t) {
+                        y.items = {std::to_string(P_LDG | (std::stoi(y.items[0]) & 0xC0)), y.items[1], addr};
+                        blk.erase(blk.begin() + j);
+                        changed = true;
+                        break;
+                    }
+                    if (code(y) == P_ST && num(y, 1) == t && num(y, 2) != t) {
+                        y.items = {std::to_string(P_STG | (std::stoi(y.items[0]) & 0xC0)), addr, y.items[2]};
+                        blk.erase(blk.begin() + j);
+                        changed = true;
+                        break;
+                    }
+                }
+                // 3. LEAL t, s; ADDI.2 d, t, off -> LEAL d, s + off (the frame is static)
+                if (code(x) == P_LEAL && code(y) == P_ADDI && wOf(y) == 2 && num(y, 2) == t) {
+                    int o = num(y, 3) | (num(y, 4) << 8);
+                    if (num(x, 2) + o <= 255) {
+                        x.items = {x.items[0], y.items[1], std::to_string(num(x, 2) + o)};
+                        blk.erase(blk.begin() + j + 1);
+                        changed = true;
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
+    // the block written: the peepholes, then each instruction (ADV before
+    // one that would take the run past 240 bytes)
+    void endBlock() {
+        peephole();
+        for (const auto& x : blk) {
+            int n = size(x);
+            if (run + n > 240) { pc << "    .byte " << P_ADV << "            ; ADV\n"; bytes++; run = 0; }
+            std::string bytesLine;
+            auto out = [&]() { if (!bytesLine.empty()) { pc << "    .byte " << bytesLine << "\n"; bytesLine.clear(); } };
+            for (const auto& it : x.items) {
+                if (it[0] == 'W') { out(); pc << "    .word " << it.substr(1) << "\n"; }
+                else bytesLine += (bytesLine.empty() ? "" : ", ") + it;
+            }
+            out();
+            if (list) {                     // CC45_PCODE_LIST: the instruction as a comment (its items as written)
+                pc << "    ; PC";
+                for (const auto& it : x.items) pc << " " << it;
+                pc << "\n";
+            }
+            bytes += n;
+            run += n;
+            if (x.resets) run = 0;
+        }
+        blk.clear();
+    }
+    bool list = std::getenv("CC45_PCODE_LIST") != nullptr;
     void op(int code, int w) {
         int c = code;
         if (w == 2) c |= 0x80;
@@ -344,7 +470,7 @@ struct Emitter {
             case Op::BR:
                 if (in.src1.kind == ir::OperandKind::LABEL && in.src1.name == next) return true;
                 op(P_BR, 1); word(label(in.src1.name)); flush();
-                run = 0;   // (what follows is reached by a branch only: Z = 0 there)
+                resetRun();   // (what follows is reached by a branch only: Z = 0 there)
                 return true;
             case Op::BR_COND: {
                 // (src1 the condition, dest the true target, src2 the false one)
@@ -352,7 +478,7 @@ struct Emitter {
                 const std::string& f = in.src2.name;
                 if (in.src1.isImm()) {
                     const std::string& to = in.src1.immVal ? t : f;
-                    if (to != next) { op(P_BR, 1); word(label(to)); flush(); run = 0; }
+                    if (to != next) { op(P_BR, 1); word(label(to)); flush(); resetRun(); }
                     return true;
                 }
                 if (!in.src1.isVreg()) return fail("a branch condition");
@@ -362,7 +488,7 @@ struct Emitter {
                 if (t == next) { op(P_BZ, cw); b(var(in.src1)); word(label(f)); flush(); }
                 else {
                     op(P_BNZ, cw); b(var(in.src1)); word(label(t)); flush();
-                    if (f != next) { op(P_BR, 1); word(label(f)); flush(); run = 0; }
+                    if (f != next) { op(P_BR, 1); word(label(f)); flush(); resetRun(); }
                 }
                 return true;
             }
@@ -391,14 +517,14 @@ struct Emitter {
                 return true;
             }
             case Op::RET: {
-                if (in.src1.isNone() || w == 0) { op(P_RETV, 1); flush(); run = 0; return true; }
+                if (in.src1.isNone() || w == 0) { op(P_RETV, 1); flush(); resetRun(); return true; }
                 if (!okWidth(w)) return false;
                 int a = materialize(in.src1, w, k0);
                 op(P_RET, w); b(a); flush();
-                run = 0;
+                resetRun();
                 return true;
             }
-            case Op::RET_VOID: op(P_RETV, 1); flush(); run = 0; return true;
+            case Op::RET_VOID: op(P_RETV, 1); flush(); resetRun(); return true;
             default:
                 return fail(std::string("the operation ") + ir::opName(in.op));
         }
@@ -427,6 +553,7 @@ PcodeResult pcodeEmit(const ir::Function& fn) {
         const std::string next = i + 1 < fn.blocks.size() ? fn.blocks[i + 1].label : "";
         for (const auto& in : fn.blocks[i].insts)
             if (!e.inst(in, next)) { r.why = e.why; return r; }
+        e.endBlock();
     }
 
     // the native entry: the parameters from the ZP block into the frame
@@ -467,7 +594,7 @@ PcodeResult pcodeEmit(const ir::Function& fn) {
         t << "\n";
     }
     t << "    .func_flags zp_call\n    endproc\n";
-    t << fn.name << "__pc:\n" << e.pc.str() << "\n";
+    t << fn.name << "__pc:\n" << (e.list ? "    ; PCTEMP " + std::to_string(e.k0) + "\n" : std::string()) << e.pc.str() << "\n";
     r.ok = true;
     r.text = t.str();
     r.pcodeBytes = e.bytes;
