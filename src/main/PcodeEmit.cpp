@@ -116,7 +116,8 @@ struct Emitter {
             case P_CALL: {
                 int k = num(x, 2);
                 std::vector<int> r;
-                for (int j = 0; j < k; j++) r.push_back(num(x, 3 + 2 * j));
+                for (int j = 0; j < k; j++)
+                    if (num(x, 4 + 2 * j) != 3) r.push_back(num(x, 3 + 2 * j));   // (3: an immediate)
                 return r;
             }
             case P_MOV: case P_LD: case P_NEG: case P_NOT: case P_ZEXT: case P_SEXT: return {num(x, 2)};
@@ -143,10 +144,44 @@ struct Emitter {
         return true;
     }
 
+    // a CALL's argument (it has at most 3) set by a CONST of a byte, or of a
+    // word under 256, that nothing else reads: the CALLC immediate (width 3)
+    bool constArgs() {
+        for (size_t c = 0; c < blk.size(); c++) {
+            PI& y = blk[c];
+            if (code(y) != P_CALL || num(y, 2) > 3) continue;
+            int n = num(y, 2);
+            for (int j = 0; j < n; j++) {
+                size_t ks = 3 + 2 * (size_t)j;
+                int slot = num(y, ks), aw = num(y, ks + 1);
+                if (aw != 1 && aw != 2) continue;
+                int uses = 0;
+                for (int q = 0; q < n; q++) if (num(y, 4 + 2 * q) != 3 && num(y, 3 + 2 * q) == slot) uses++;
+                if (uses != 1 || !deadAfter(c, slot)) continue;
+                // the slot's last writer before the call, nothing reading it between
+                size_t i = c;
+                bool ok = false;
+                while (i-- > 0) {
+                    auto sr = srcOf(blk[i]);
+                    if (dstOf(blk[i]) == slot) { ok = true; break; }
+                    if (std::find(sr.begin(), sr.end(), slot) != sr.end()) break;
+                }
+                if (!ok || code(blk[i]) != P_CONST || wOf(blk[i]) != aw || blk[i].items.size() != 2 + (size_t)aw) continue;   // (not an address)
+                int v = num(blk[i], 2) | (aw == 2 ? num(blk[i], 3) << 8 : 0);
+                if (v > 255) continue;
+                y.items[ks] = std::to_string(v);
+                y.items[ks + 1] = "3";
+                blk.erase(blk.begin() + i);
+                return true;
+            }
+        }
+        return false;
+    }
+
     // a pair of instructions as one: the first's result used by the second only
     void peephole() {
         for (bool changed = true; changed;) {
-            changed = false;
+            changed = constArgs();
             for (size_t j = 0; j + 1 < blk.size(); j++) {
                 PI& x = blk[j];
                 PI& y = blk[j + 1];
@@ -230,12 +265,13 @@ struct Emitter {
     // the block written: the peepholes, then each instruction (ADV before
     // one that would take the run past 240 bytes)
     // CALL with at most 3 arguments as CALLC @f, d, v x n, [r]: d n and the
-    // arguments' widths (2 bits each), the result's width in the opcode
+    // arguments' widths (2 bits each; 3 an immediate byte, zero-extended into
+    // its 2-byte slot), the result's width in the opcode
     static void compactCall(PI& x) {
         if (code(x) != P_CALL) return;
         int n = num(x, 2);
         if (n > 3) return;
-        auto wc = [](int w) { return w == 1 ? 0 : w == 2 ? 1 : w == 4 ? 2 : -1; };
+        auto wc = [](int w) { return w == 1 ? 0 : w == 2 ? 1 : w == 4 ? 2 : w == 3 ? 3 : -1; };
         int d = n;
         std::vector<std::string> slots;
         for (int j = 0; j < n; j++) {
@@ -576,6 +612,14 @@ struct Emitter {
                 for (const auto& a : in.args) {
                     int aw = widthOf(a);
                     if (aw != 1 && aw != 2 && aw != 4) return fail("a call argument of " + std::to_string(aw) + " bytes");
+                    // (a constant byte, or a word under 256, as CALLC's immediate: the width 3; the
+                    // call then always CALLC: at most 3 arguments)
+                    if (in.args.size() <= 3 && a.isImm() && aw <= 2 &&
+                        ((uint64_t)a.immVal & (aw == 1 ? 0xFFu : 0xFFFFu)) < 256) {
+                        args.push_back({(int)((uint64_t)a.immVal & 0xFF), 3});
+                        zp += 2;
+                        continue;
+                    }
                     int o = a.isVreg() ? var(a) : materialize(a, aw, sc);
                     if (!a.isVreg()) sc += std::max(2, aw);
                     args.push_back({o, aw});

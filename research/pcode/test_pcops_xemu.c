@@ -114,6 +114,10 @@ static void calls(u8 i) {
     u32 r = mix3(v32[i % N32], v8[i], v16[i]);
     w32(r); w8(mix3b(v16[i], v8[i], v32[i % N32])); w16(mix2(v8[i], v32[i % N32]));
     tick(); w8(hits);
+    /* constant arguments: CALLC's immediate bytes (and 0x1234, 70000: not) */
+    w8(mix3b(200, 0xFF, v32[i % N32])); w8(mix3b(0x1234, 0, v32[i % N32]));
+    w16(mix2(7, v32[i % N32])); w16(mix2(v8[i], 70000UL));
+    w32(mix3(v32[i % N32], 0, 255)); w32(mix3(1, v8[i], 256));
     w32(mix(v8[i], v16[i], v32[i % N32], v8));
     w8(inc8(v8[i])); w16((u16)neg16((s16)v16[i]));
 }
