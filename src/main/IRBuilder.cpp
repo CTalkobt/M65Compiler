@@ -4637,8 +4637,22 @@ void IRBuilder::visit(VariableDeclaration& node) {
 
     // Local static variables: allocate as globals, not frame locals
     if (node.isStatic && currentFunc_) {
-        // Create unique global name
-        std::string globalName = "_" + currentFunc_->name + "__local_" + node.name;
+        // Create unique global name: _f__local_x; another x of the same
+        // function (in another block) _f__local_x__2, ... (#828: both were
+        // one variable, the last initializer winning)
+        std::string& nameOf = staticLocalName_[&node];
+        if (nameOf.empty()) {
+            std::string base = "_" + currentFunc_->name + "__local_" + node.name;
+            auto taken = [&](const std::string& nm) {
+                for (const auto& g : module_.globals) if (g.name == nm) return true;
+                for (const auto& [d, nm2] : staticLocalName_) if (d != &node && nm2 == nm) return true;
+                return false;
+            };
+            std::string cand = base;
+            for (int k = 2; taken(cand); ++k) cand = base + "__" + std::to_string(k);
+            nameOf = cand;
+        }
+        const std::string globalName = nameOf;
 
         // Add to globals list (DATA segment)
         ir::Module::GlobalVar gv;
