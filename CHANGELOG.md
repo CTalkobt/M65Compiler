@@ -4,6 +4,16 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### ca45: transfers and loads the loop registers left; TailDedup and local labels (#827)
+
+- Pass 2b drops an `ldax #v` whose A, X and flags are all dead (`dead-ldax`: what is left once its stores are
+  dropped), a dead `txa` / `tya` / `tza`, a transfer undoing the one before it (`tza; taz`), and a `txa` whose A
+  nothing reads after an `inx` / `dex` / `ldx` set its N / Z (`dex; txa; bne` → `dex; bne`; `redundant-transfer`).
+  The library 98 bytes smaller (`c45.lib`; `c45_stack.lib` 84).
+- TailDedup compared operands as written: two procs ending `bne @l` / `rts`, each `@l` its own proc's, were one tail,
+  so the second's loop ran the first's body. An operand naming a local label now matches only the same label.
+- Tests: `test_assembler.sh` (loop-register procs 8, 10 and 11; tails naming local labels).
+
 ### A loop's byte values kept in X, Y or Z (#827)
 
 - cc45 finds each innermost natural loop with no call or inline asm (`ir::naturalLoops`, dominator-based: a rotated

@@ -3358,6 +3358,28 @@ bool AssemblerOptimizer::optimizeInternal(
             }
             if (cc) for (size_t k = i; k < e; ++k) cc45At[k] = true;
         }
+        // an ldax #v whose A, X and flags are all dead (#827: its stores
+        // dropped as dead): bit 1 A, 2 X dead after it; 4 / 8 the flags in
+        // the X / A pass
+        std::vector<uint8_t> ldwDead(n, 0);
+        auto isLdaxImm = [&](const AssemblerParser::Statement* s) {
+            return s->type == AssemblerParser::Statement::LDW && s->instr.operand == ".ax" && s->exprTokenIndex >= 0 &&
+                   s->exprTokenIndex < (int)parser->tokens.size() &&
+                   parser->tokens[s->exprTokenIndex].type == AssemblerTokenType::HASH;
+        };
+        // the statement before i that runs just before it (no label on i;
+        // .loc and deleted statements passed over), or -1
+        auto prevCode = [&](size_t i) -> long {
+            if (!st[i]->label.empty()) return -1;
+            for (size_t k = i; k-- > 0; ) {
+                auto* t = st[k].get();
+                if (t->deleted) continue;
+                if (t->type == AssemblerParser::Statement::DIRECTIVE && lower(t->dir.name) == "loc" && t->label.empty()) continue;
+                if (t->type != AssemblerParser::Statement::INSTRUCTION || t->noOpt) return -1;
+                return (long)k;
+            }
+            return -1;
+        };
         for (char reg : {'X', 'A', 'Y', 'Z'}) {
         if (reg == 'Z' && parser->cpu6502) continue;      // (no Z register on the 6502)
         std::vector<uint8_t> eff(n, 0);
@@ -3371,9 +3393,7 @@ bool AssemblerOptimizer::optimizeInternal(
                 e = quietDirs.count(lower(s->dir.name)) ? FALL : OPAQUE;
                 continue;
             }
-            if (s->type == AssemblerParser::Statement::LDW && s->instr.operand == ".ax" && s->exprTokenIndex >= 0 &&
-                s->exprTokenIndex < (int)parser->tokens.size() &&
-                parser->tokens[s->exprTokenIndex].type == AssemblerTokenType::HASH) {
+            if (isLdaxImm(s)) {
                 e = (reg == 'Y' || reg == 'Z' ? 0 : WX) | WF | FALL;   // ldax #v: lda #<v / ldx #>v
                 continue;
             }
@@ -3462,6 +3482,21 @@ bool AssemblerOptimizer::optimizeInternal(
                 if (in != liveIn[k]) { liveIn[k] = in; more = true; }
             }
         }
+        if (reg == 'X' || reg == 'A') {
+            for (size_t i = 0; i < n; ++i) {
+                auto* s = st[i].get();
+                if (s->deleted || s->noOpt || !s->label.empty() || !cc45At[i] || !isLdaxImm(s)) continue;
+                uint8_t out = liveOut(i);
+                if (!(out & 1)) ldwDead[i] |= reg == 'A' ? 1 : 2;
+                if (!(out & 2)) ldwDead[i] |= reg == 'A' ? 8 : 4;
+                if (reg == 'A' && ldwDead[i] == 15) {
+                    report("dead-ldax", s, "LDAX " + s->instr.operand + " eliminated (A, X and the flags written before they are read)");
+                    s->deleted = true;
+                    s->size = 0;
+                    changed = true;
+                }
+            }
+        }
         const std::string ld = reg == 'X' ? "ldx" : reg == 'Y' ? "ldy" : reg == 'Z' ? "ldz" : "lda";
         const std::string inc = reg == 'X' ? "inx" : reg == 'Z' ? "inz" : "iny";
         const std::string dec = reg == 'X' ? "dex" : reg == 'Z' ? "dez" : "dey";
@@ -3470,6 +3505,41 @@ bool AssemblerOptimizer::optimizeInternal(
             if (s->deleted || s->noOpt || s->type != AssemblerParser::Statement::INSTRUCTION || !s->label.empty()) continue;
             std::string m = lower(s->instr.mnemonic);
             if (reg != 'X' || m != ld) { if (!cc45At[i]) continue; }
+            // a transfer between A and X / Y / Z (#827): undoing the one just
+            // before it (tza / taz: the register and the flags as they are),
+            // or t<R>a with A not read after and the flags from R already
+            // (dex / txa / bne)
+            if (reg == 'A' && m.size() == 3 && m[0] == 't' && (m[1] == 'a') != (m[2] == 'a') &&
+                std::string("xyz").find(m[1] == 'a' ? m[2] : m[1]) != std::string::npos) {
+                char r = m[1] == 'a' ? m[2] : m[1];
+                long k = prevCode(i);
+                std::string pm = k >= 0 ? lower(st[k]->instr.mnemonic) : "";
+                std::string rev = {'t', m[2], m[1]};
+                if (k >= 0 && pm == rev) {
+                    report("redundant-transfer", s, upper(m) + " eliminated (after " + upper(pm) + ")");
+                    s->deleted = true;
+                    s->size = 0;
+                    changed = true;
+                    continue;
+                }
+                bool fromR = m[2] == 'a';
+                std::string R(1, r);
+                if (fromR && liveOut(i) == 0) {
+                    report("dead-lda", s, upper(m) + " eliminated (A written before it is read)");
+                    s->deleted = true;
+                    s->size = 0;
+                    changed = true;
+                    continue;
+                }
+                if (k >= 0 && fromR && !(liveOut(i) & 1) &&
+                    (pm == "in" + R || pm == "de" + R || pm == "ld" + R || pm == "pl" + R)) {
+                    report("redundant-transfer", s, upper(m) + " eliminated (A not read; N/Z from " + upper(pm) + ")");
+                    s->deleted = true;
+                    s->size = 0;
+                    changed = true;
+                    continue;
+                }
+            }
             if (m == ld && (s->instr.mode == AddressingMode::IMMEDIATE ||
                             (reg != 'X' && reg != 'Z' && s->instr.mode == AddressingMode::BASE_PAGE))) {
                 if (liveOut(i) == 0) {
@@ -3666,6 +3736,26 @@ bool AssemblerOptimizer::optimizeInternal(
                         return "";
                 }
             };
+            // a label an operand names, as the label is kept (a local one,
+            // @b or one in a proc, has its scope: two procs' bne @b branch
+            // to different code, #827 found a tail merged across them)
+            std::set<std::string> labelNames;
+            for (const auto& t : parser->statements)
+                if (!t->deleted && !t->label.empty()) labelNames.insert(t->label);
+            auto labelOf = [&](size_t k) -> std::string {
+                const auto* s = parser->statements[k].get();
+                std::string op = s->instr.operand;
+                size_t c = op.find(',');                              // bbr0 $12, @x
+                if (c != std::string::npos && s->instr.mode == AddressingMode::BASE_PAGE_RELATIVE) op = op.substr(c + 1);
+                op.erase(0, op.find_first_not_of(" \t"));
+                op.erase(op.find_last_not_of(" \t") + 1);
+                if (op.empty()) return "";
+                for (const std::string& l : {s->scopePrefix + op, s->localLabelScope + ":" + op})
+                    if (l != op && labelNames.count(l)) return "=" + l;
+                // (an expression with a local label in it: only its own scope's tails match)
+                if (op.find('@') != std::string::npos) return "=" + s->localLabelScope + ":" + s->scopePrefix;
+                return "";
+            };
 
         // Find all procedure end points and extract tail sequences
         if (parser->optFlags.tailDedup) {
@@ -3753,7 +3843,8 @@ bool AssemblerOptimizer::optimizeInternal(
                 auto* instr = parser->statements[idx].get();
                 std::string m = instr->instr.mnemonic;
                 std::transform(m.begin(), m.end(), m.begin(), ::toupper);
-                sig += m + "|" + std::to_string((int)instr->instr.mode) + "|" + instr->instr.operand + ownBasePage(idx) + "|";
+                sig += m + "|" + std::to_string((int)instr->instr.mode) + "|" + instr->instr.operand + ownBasePage(idx) +
+                       labelOf(idx) + "|";
                 tailSize += instr->size;
             }
 
@@ -3866,7 +3957,8 @@ bool AssemblerOptimizer::optimizeInternal(
                         if (shortInstr->instr.mnemonic != longInstr->instr.mnemonic ||
                             shortInstr->instr.mode != longInstr->instr.mode ||
                             shortInstr->instr.operand != longInstr->instr.operand ||
-                            ownBasePage(shortTail[k]) != ownBasePage(longTail[longTail.size() - shortTail.size() + k])) {
+                            ownBasePage(shortTail[k]) != ownBasePage(longTail[longTail.size() - shortTail.size() + k]) ||
+                            labelOf(shortTail[k]) != labelOf(longTail[longTail.size() - shortTail.size() + k])) {
                             isSuffix = false;
                             break;
                         }

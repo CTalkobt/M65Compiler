@@ -1109,10 +1109,13 @@ fi
 # its ldy and the lda tab,y: left in memory; _p8: Z, A dead where the loop
 # is entered (lda b / taz, no pha / pla); _p9: a rotated loop's counter in Y
 # set from a constant (ldy #0, the store dead), A holding Y already at the
-# body (one tya); _p10: a constant start past an ldax (ldx #5)
+# body (one tya); _p10: a constant start past an ldax (ldx #5), the ldax
+# dead once its stores are (no lda #$34 / ldx #$12); _p8 again: no tza / taz
+# pair and no dead tza before the bra; _p11: a rotated count down (dex / bne:
+# no txa, its flags dex's)
 cat > build/test_loopregs.s45 << 'END'
     .segment "code"
-    .global _p1, _p2, _p3, _p4, _p5, _p6, _p7, _p8, _p9, _p10
+    .global _p1, _p2, _p3, _p4, _p5, _p6, _p7, _p8, _p9, _p10, _p11
 proc _p1
     .var cc45.fp = 0
     .loop_vars 1, $36
@@ -1315,6 +1318,22 @@ proc _p10
     .loop 0
     rts
 endproc
+proc _p11
+    .var cc45.fp = 0
+    .loop_vars 1, $36
+    .loop 0
+    lda #8
+    sta $36
+    .loop 1
+@b:
+    lda #1
+    sta $0421
+    dec $36
+    lda $36
+    bne @b
+    .loop 0
+    rts
+endproc
 END
 D=$($AS -c build/test_loopregs.s45 -o build/test_loopregs.o45 2>&1 >/dev/null && ./bin/objdump45 -d build/test_loopregs.o45 | awk -F'\t' '/^[0-9a-f]+ </{print} NF>=3{print $3, $4}')
 proc_of() { awk -v p="<_$1>:" 'index($0, p){on=1;next} /^[0-9a-f]+ </{on=0} on' <<< "$D"; }
@@ -1326,9 +1345,10 @@ P=$(proc_of p4); grep -q 'adc \$36' <<< "$P" && grep -q 'inc \$36' <<< "$P" && !
 P=$(proc_of p5); grep -q 'inc \$36' <<< "$P" || { lr_ok=0; lr_why+=" p5"; }
 P=$(proc_of p6); ! grep -q 'ldy \$30' <<< "$P" && grep -q '^iny' <<< "$P" && grep -q 'lda \$0600,y' <<< "$P" && [ "$(grep -c '^sty' <<< "$P")" -le 1 ] || { lr_ok=0; lr_why+=" p6"; }
 P=$(proc_of p7); grep -q 'ldy \$30' <<< "$P" && grep -q 'inc \$30' <<< "$P" || { lr_ok=0; lr_why+=" p7"; }
-P=$(proc_of p8); grep -q '^inz' <<< "$P" && grep -q '^taz' <<< "$P" && ! grep -q 'pha' <<< "$P" && ! grep -q '\$36' <<< "$P" || { lr_ok=0; lr_why+=" p8"; }
+P=$(proc_of p8); grep -q '^inz' <<< "$P" && grep -q '^taz' <<< "$P" && ! grep -q 'pha' <<< "$P" && ! grep -q '\$36' <<< "$P" && [ "$(grep -c '^tza' <<< "$P")" -eq 1 ] && [ "$(grep -c '^taz' <<< "$P")" -eq 1 ] || { lr_ok=0; lr_why+=" p8"; }
 P=$(proc_of p9); grep -q '^ldy #\$00' <<< "$P" && [ "$(grep -c '^tya' <<< "$P")" -eq 1 ] && ! grep -q '\$30' <<< "$P" || { lr_ok=0; lr_why+=" p9"; }
-P=$(proc_of p10); grep -q '^ldx #\$05' <<< "$P" && grep -q '^dex' <<< "$P" && ! grep -q '\$36' <<< "$P" || { lr_ok=0; lr_why+=" p10"; }
+P=$(proc_of p10); grep -q '^ldx #\$05' <<< "$P" && grep -q '^dex' <<< "$P" && ! grep -q '\$36' <<< "$P" && ! grep -q '#\$34\|#\$12' <<< "$P" || { lr_ok=0; lr_why+=" p10"; }
+P=$(proc_of p11); grep -q '^ldx #\$08' <<< "$P" && grep -q '^dex' <<< "$P" && ! grep -q '^txa' <<< "$P" && ! grep -q '\$36' <<< "$P" || { lr_ok=0; lr_why+=" p11"; }
 if [ $lr_ok -eq 1 ]; then
     echo "SUCCESS: loop registers: counters and values in X / Y / Z, index registers, calls and other uses left in memory (#827)"
     passed=$((passed + 1))
@@ -1370,6 +1390,57 @@ if [ -n "$D" ] && ! grep -q 'sta \$3[01]' <<< "$D"; then
     passed=$((passed + 1))
 else
     echo "FAIL: dead stores in an object (#827): $(tr '\n' ';' <<< "$D")"
+    failed=$((failed + 1))
+fi
+
+# Tails naming local labels (#827): two procs ending dex / bne @l / rts,
+# each @l its own proc's: not one tail (the second's loop would run the
+# first's body); the same tail with a global label still shared
+cat > build/test_tail_local.s45 << 'END'
+    .segment "code"
+    .global _t1, _t2, _t3, _t4
+proc _t1
+    ldx #4
+@l: sta $0400,x
+    lda #1
+    dex
+    bne @l
+    rts
+endproc
+proc _t2
+    ldx #4
+@l: sta $0500,x
+    lda #1
+    dex
+    bne @l
+    rts
+endproc
+proc _t3
+    lda #3
+    sta $0600
+    lda $41
+    adc #9
+    bne _shared
+    sta $33
+    rts
+endproc
+proc _t4
+    lda $41
+    adc #9
+    bne _shared
+    sta $33
+    rts
+endproc
+_shared:
+    rts
+END
+D=$($AS -c -O2 build/test_tail_local.s45 -o build/test_tail_local.o45 2>&1 >/dev/null && ./bin/objdump45 -d build/test_tail_local.o45 | awk -F'\t' '/^[0-9a-f]+ </{print} NF>=3{print $3, $4}')
+T2=$(awk 'index($0,"<_t2>:"){on=1;next} /^[0-9a-f]+ </{on=0} on' <<< "$D")
+if [ -n "$D" ] && grep -q '^bne' <<< "$T2" && grep -q '^jmp' <<< "$D"; then
+    echo "SUCCESS: tails naming a proc's local labels kept apart, a global one's shared (#827)"
+    passed=$((passed + 1))
+else
+    echo "FAIL: tails with local labels (#827): $(tr '\n' ';' <<< "$D")"
     failed=$((failed + 1))
 fi
 
