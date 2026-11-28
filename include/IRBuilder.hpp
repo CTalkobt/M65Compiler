@@ -633,6 +633,9 @@ private:
     bool registeringStructs_ = false;  // registerAllStructDefinitions pre-pass
     int ptrArrayRowSize(Expression* e);
     std::map<std::string, int> declaredAlign_;  // variable -> declared alignment
+    // a block-scope static's global name, per declaration (#828: two in one
+    // function with the same name are two variables: _f__local_g, _f__local_g__2)
+    std::map<const void*, std::string> staticLocalName_;
     std::map<std::string, int> funcAlign_;      // function -> __attribute__((aligned))
     std::map<std::string, std::vector<int>> globalPtrArrayDims_;  // global T (*p)[M] -> {0, M}
     void keepStaticLink(ir::Function* f);

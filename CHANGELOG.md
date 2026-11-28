@@ -4,6 +4,13 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### Block-scope statics of the same name in one function are separate variables (#828)
+
+- Two `static` locals of the same name in different blocks of one function (a table per `case`) were one symbol,
+  `__f__local_g`, the last initializer winning: every letter of a font drawn as the last. The second is now
+  `__f__local_g__2`, then `__3`, … (a name already taken, as by a static named `g__2`, skipped).
+- Tests: `test_block_statics_xemu.c` (both conventions).
+
 ### ca45: transfers and loads the loop registers left; TailDedup and local labels (#827)
 
 - Pass 2b drops an `ldax #v` whose A, X and flags are all dead (`dead-ldax`: what is left once its stores are
