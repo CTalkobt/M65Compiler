@@ -1097,6 +1097,282 @@ else
     failed=$((failed + 1))
 fi
 
+# Loop registers (#827): cc45's .loop / .loop_vars name a loop's byte values;
+# ca45 keeps each in a register the loop's code leaves alone. _p1: a counter
+# in X (entered by a branch, read after the loop: stored there, which the
+# register tracking then drops); _p2: X used by the loop, the counter in Y and
+# a value only written there in Z (not loaded at the entry); _p3: X read after
+# the loop, the counter in Y; _p4: a byte read by adc stays in memory, another
+# goes to X; _p5: a loop with a call left as it is; _p6: an index loaded with
+# ldy and read by lda tab,y kept in Y (the ldy goes; the store after the loop
+# once, at the place both exits reach); _p7: the same index changed between
+# its ldy and the lda tab,y: left in memory; _p8: Z, A dead where the loop
+# is entered (lda b / taz, no pha / pla); _p9: a rotated loop's counter in Y
+# set from a constant (ldy #0, the store dead), A holding Y already at the
+# body (one tya); _p10: a constant start past an ldax (ldx #5)
+cat > build/test_loopregs.s45 << 'END'
+    .segment "code"
+    .global _p1, _p2, _p3, _p4, _p5, _p6, _p7, _p8, _p9, _p10
+proc _p1
+    .var cc45.fp = 0
+    .loop_vars 1, $36
+    .loop 0
+    lda #8
+    sta $36
+    bra @t
+    .loop 1
+@b:
+    lda #1
+    sta $0400
+    dec $36
+@t:
+    lda $36
+    bne @b
+    .loop 0
+    lda $36
+    sta $0401
+    rts
+endproc
+proc _p2
+    .var cc45.fp = 0
+    .loop_vars 1, $36, $37
+    .loop 0
+    lda #0
+    sta $36
+    sta $37
+    .loop 1
+@b:
+    ldx #3
+    lda $0500,x
+    sta $37
+    inc $36
+    lda $36
+    cmp #10
+    bne @b
+    .loop 0
+    lda $37
+    sta $0402
+    rts
+endproc
+proc _p3
+    .var cc45.fp = 0
+    .loop_vars 1, $36
+    .loop 0
+    lda #0
+    sta $36
+    ldx #5
+    .loop 1
+@b:
+    lda $36
+    clc
+    adc #1
+    sta $36
+    cmp #10
+    bne @b
+    .loop 0
+    stx $0403
+    rts
+endproc
+proc _p4
+    .var cc45.fp = 0
+    .loop_vars 1, $36, $38
+    .loop 0
+    lda #0
+    sta $36
+    sta $38
+    .loop 1
+@b:
+    lda $38
+    adc $36
+    sta $38
+    inc $36
+    lda $36
+    sta $36
+    bne @b
+    .loop 0
+    lda $38
+    sta $0404
+    rts
+endproc
+proc _p5
+    .var cc45.fp = 0
+    .loop_vars 1, $36
+    .loop 0
+    lda #0
+    sta $36
+    .loop 1
+@b:
+    jsr _p1
+    inc $36
+    lda $36
+    bne @b
+    .loop 0
+    rts
+endproc
+proc _p6
+    .var cc45.fp = 0
+    .loop_vars 1, $30
+    .loop 0
+    lda #0
+    sta $30
+    bra @t
+    .loop 1
+@b:
+    ldy $30
+    lda $0600,y
+    cmp $10
+    beq @x
+    inc $30
+@t:
+    lda $30
+    cmp #64
+    bcc @b
+    .loop 0
+@x:
+    lda $30
+    sta $0405
+    rts
+endproc
+proc _p7
+    .var cc45.fp = 0
+    .loop_vars 1, $30
+    .loop 0
+    lda #0
+    sta $30
+    .loop 1
+@b:
+    ldy $30
+    inc $30
+    lda $0600,y
+    sta $0700,y
+    lda $30
+    cmp #64
+    bcc @b
+    .loop 0
+    rts
+endproc
+proc _p8
+    .var cc45.fp = 0
+    .loop_vars 1, $36
+    .loop 0
+    lda $20
+    sta $36
+    lda $21
+    sta $0410
+    bra @t
+    .loop 1
+@b:
+    ldx #1
+    ldy #2
+    stx $0411
+    sty $0412
+    inc $36
+@t:
+    lda $36
+    cmp #10
+    bcc @b
+    .loop 0
+    rts
+endproc
+proc _p9
+    .var cc45.fp = 0
+    .loop_vars 1, $30
+    .loop 0
+    lda #0
+    sta $30
+    bra @t
+    .loop 1
+@b:
+    ldy $30
+    lda $30
+    sta $0600,y
+    inc $30
+@t:
+    lda $30
+    cmp $10
+    bcc @b
+    .loop 0
+    rts
+endproc
+proc _p10
+    .var cc45.fp = 0
+    .loop_vars 1, $36
+    .loop 0
+    lda #5
+    sta $36
+    ldax #$1234
+    sta $34
+    stx $35
+    bra @t
+    .loop 1
+@b:
+    lda #1
+    sta $0420
+    dec $36
+@t:
+    lda $36
+    bne @b
+    .loop 0
+    rts
+endproc
+END
+D=$($AS -c build/test_loopregs.s45 -o build/test_loopregs.o45 2>&1 >/dev/null && ./bin/objdump45 -d build/test_loopregs.o45 | awk -F'\t' '/^[0-9a-f]+ </{print} NF>=3{print $3, $4}')
+proc_of() { awk -v p="<_$1>:" 'index($0, p){on=1;next} /^[0-9a-f]+ </{on=0} on' <<< "$D"; }
+lr_ok=1; lr_why=""
+P=$(proc_of p1); grep -q '^ldx #\$08' <<< "$P" && grep -q '^dex' <<< "$P" && ! grep -q '\$36' <<< "$P" || { lr_ok=0; lr_why+=" p1"; }
+P=$(proc_of p2); grep -q '^iny' <<< "$P" && grep -q '^taz' <<< "$P" && ! grep -q 'lda \$37' <<< "$P" && ! grep -q 'pha' <<< "$P" || { lr_ok=0; lr_why+=" p2"; }
+P=$(proc_of p3); grep -q '^tya' <<< "$P" && grep -q '^tay' <<< "$P" && grep -q 'stx \$0403' <<< "$P" || { lr_ok=0; lr_why+=" p3"; }
+P=$(proc_of p4); grep -q 'adc \$36' <<< "$P" && grep -q 'inc \$36' <<< "$P" && ! grep -q 'lda \$38' <<< "$P" || { lr_ok=0; lr_why+=" p4"; }
+P=$(proc_of p5); grep -q 'inc \$36' <<< "$P" || { lr_ok=0; lr_why+=" p5"; }
+P=$(proc_of p6); ! grep -q 'ldy \$30' <<< "$P" && grep -q '^iny' <<< "$P" && grep -q 'lda \$0600,y' <<< "$P" && [ "$(grep -c '^sty' <<< "$P")" -le 1 ] || { lr_ok=0; lr_why+=" p6"; }
+P=$(proc_of p7); grep -q 'ldy \$30' <<< "$P" && grep -q 'inc \$30' <<< "$P" || { lr_ok=0; lr_why+=" p7"; }
+P=$(proc_of p8); grep -q '^inz' <<< "$P" && grep -q '^taz' <<< "$P" && ! grep -q 'pha' <<< "$P" && ! grep -q '\$36' <<< "$P" || { lr_ok=0; lr_why+=" p8"; }
+P=$(proc_of p9); grep -q '^ldy #\$00' <<< "$P" && [ "$(grep -c '^tya' <<< "$P")" -eq 1 ] && ! grep -q '\$30' <<< "$P" || { lr_ok=0; lr_why+=" p9"; }
+P=$(proc_of p10); grep -q '^ldx #\$05' <<< "$P" && grep -q '^dex' <<< "$P" && ! grep -q '\$36' <<< "$P" || { lr_ok=0; lr_why+=" p10"; }
+if [ $lr_ok -eq 1 ]; then
+    echo "SUCCESS: loop registers: counters and values in X / Y / Z, index registers, calls and other uses left in memory (#827)"
+    passed=$((passed + 1))
+else
+    echo "FAIL: loop registers (#827):$lr_why: $(tr '\n' ';' <<< "$D")"
+    failed=$((failed + 1))
+fi
+
+# Dead base-page stores in an object (#827): a table of the file's own
+# segment indexed (sta _tab,y: its value the offset in DATA until linked) and
+# an ldax of an address read no base-page byte
+cat > build/test_ds_obj.s45 << 'END'
+    .segment "code"
+    .global _d1, _d2
+proc _d1
+    .var cc45.fp = 0
+    lda $10
+    sta $30
+    ldy $11
+    sta _tab,y
+    rts
+endproc
+proc _d2
+    .var cc45.fp = 0
+    lda $10
+    sta $31
+    ldax #_tab
+    sta $0400
+    stx $0401
+    rts
+endproc
+    .segment "data"
+_tab:
+    .byte 0, 0, 0, 0
+END
+D=$($AS -c build/test_ds_obj.s45 -o build/test_ds_obj.o45 2>&1 >/dev/null && ./bin/objdump45 -d build/test_ds_obj.o45 | awk -F'\t' 'NF>=3{print $3, $4}')
+if [ -n "$D" ] && ! grep -q 'sta \$3[01]' <<< "$D"; then
+    echo "SUCCESS: dead stores past an indexed table of the object's own and an ldax (#827)"
+    passed=$((passed + 1))
+else
+    echo "FAIL: dead stores in an object (#827): $(tr '\n' ';' <<< "$D")"
+    failed=$((failed + 1))
+fi
+
 # Register knowledge at a merge (#350): a ?: result stored on both paths is
 # in A / X at the label (no reload); a byte stored from a register holding a
 # constant, loaded into another register holding the same one, is a
