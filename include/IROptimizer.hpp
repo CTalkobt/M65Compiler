@@ -1,6 +1,7 @@
 #pragma once
 #include "IR.hpp"
 #include <functional>
+#include <map>
 #include <set>
 #include <ostream>
 
@@ -78,6 +79,11 @@ void optimizeBlockReorder(Module& mod);
 // edges (a branch to a block at or before the branch's, as cc45 lays out
 // structured code)
 std::set<size_t> loopBlocks(const Function& fn);
+// The natural loops of fn by header block (a back edge's target dominates
+// its source; a rotated loop's header is its test): the blocks of every back
+// edge's loop to that header (#827). Unlike loopBlocks, a block jumping into
+// the loop's test from outside is not in it
+std::map<size_t, std::set<size_t>> naturalLoops(const Function& fn);
 
     // Strength reduction: replace expensive ops with cheaper equivalents
     // (MUL by power-of-2 → LSL, DIV_U by power-of-2 → LSR, MOD_U by power-of-2 → AND)

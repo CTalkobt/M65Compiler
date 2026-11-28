@@ -666,6 +666,11 @@ private:
     bool tryFusedRMW(const ir::Inst& load, const std::string& zpPair, int yOff);
     size_t currentBlockIdx_ = 0;
     std::set<size_t> loopBlocks_;   // the current function's blocks inside a loop (ir::loopBlocks)
+    // #827: the innermost loop (1..n) each block of the current function is
+    // in, for the loops whose byte values ca45 may keep in a register
+    // (.loop / .loop_vars); empty when no loop has candidates
+    std::map<size_t, int> blockLoop_;
+    void planLoopRegisters(const ir::Function& fn);
     size_t currentInstInBlock_ = 0; // index within current block's inst vector
 
     // Peek at the next instruction in the current block (or null if at end)

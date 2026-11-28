@@ -13,6 +13,7 @@
 #include <cctype>
 #include <cstdlib>
 #include <iterator>
+#include <functional>
 
 // A .loc line (source line info, no label): the passes look past it, so a
 // file assembles to the same code with or without line info
@@ -20,6 +21,733 @@
 static bool isLocDirective(const AssemblerParser::Statement* s) {
     if (s->type != AssemblerParser::Statement::DIRECTIVE || !s->label.empty()) return false;
     return s->dir.name == "loc" || s->dir.name == "LOC" || s->dir.name == "equ";
+}
+
+// --- Loop registers (#827) ---
+// cc45 tags each block of a function with the innermost loop it is in (.loop
+// N, 0 outside one) and lists the loop's byte values worth a register, best
+// first (.loop_vars N, $36, $30). Here, once the loop's code exists, each such
+// base-page byte the loop reaches only as a plain lda / sta / inc / dec (or a
+// load or store of the register it gets) is kept in X, Y or Z, whichever the
+// loop's code does not use otherwise: lda b -> txa, sta b -> tax (where N / Z
+// after it are not read), inc / dec b -> inx / dex, stx / ldx b -> nothing
+// (an index: ldy b / lda tab,y, every ,y read of the loop finding Y holding b
+// in the code as written). The register is loaded from the byte where the
+// loop is entered, if the loop reads the byte there (falling in, or an
+// unconditional branch from outside), and stored back before each way out,
+// or once at a place only the loop's exits reach (stx / sty / stz change no
+// flag; a store the byte does not need is left out by the dead-store pass).
+// Only a loop with no call, no simulated instruction and no statement the
+// pass does not follow; the byte one of the proc's own (cc45's register
+// pool, $30-$7F, or its .zar block); the register not read after the loop
+// before it is written again. Z: on the 45GS02 only, loaded as pha / lda b /
+// taz / pla (ldz has no base-page form). A dead ld<R> #imm in the loop (a
+// byte's zero extension cc45 leaves for Pass 2b) is dropped
+using LoopRegRtsReads = std::function<int(size_t)>;
+using LoopRegReport = std::function<void(const char*, const AssemblerParser::Statement*, const std::string&)>;
+using LoopRegEval = std::function<bool(const AssemblerParser::Statement*, uint32_t&)>;
+
+static bool promoteLoopRegisters(AssemblerParser* parser, const LoopRegRtsReads& rtsReads, const LoopRegReport& report,
+                                 const LoopRegEval& opAddr) {
+    using S = AssemblerParser::Statement;
+    auto& st = parser->statements;
+    auto upper = [](std::string m) { std::transform(m.begin(), m.end(), m.begin(), ::toupper); return m; };
+    auto lowerDir = [](const S* t) { std::string d = t->dir.name; std::transform(d.begin(), d.end(), d.begin(), ::tolower); return d; };
+    auto isLoopDir = [&](const S* t) {
+        if (t->deleted || t->type != S::DIRECTIVE) return false;
+        std::string d = lowerDir(t);
+        return d == "loop" || d == "loop_vars";
+    };
+    bool any = false;
+    for (const auto& t : st) if (isLoopDir(t.get())) { any = true; break; }
+    if (!any) return false;
+    bool changed = false;
+    // (a label is kept as "proc:name"; operands name it "name")
+    auto bare = [](const std::string& l) { size_t c = l.find(':'); return c == std::string::npos ? l : l.substr(c + 1); };
+    auto parseByte = [](const std::string& a, int& v) {
+        try {
+            size_t used = 0;
+            if (!a.empty() && a[0] == '$') { v = std::stoi(a.substr(1), &used, 16); return used == a.size() - 1 && v >= 0 && v < 256; }
+            v = std::stoi(a, &used, 10);
+            return used == a.size() && v >= 0 && v < 256;
+        } catch (...) { return false; }
+    };
+    auto isBranch = [&](const std::string& tm) { return tm.size() == 3 && tm[0] == 'B' && tm != "BIT" && tm != "BRK"; };
+    auto isLongBranch = [&](const std::string& tm) { return tm.size() == 4 && tm[0] == 'L' && tm[1] == 'B'; };
+    // does the statement use register R (X / Y / Z) at all (read or write;
+    // anything not understood: yes)
+    auto touchesReg = [&](const S* t, char R) -> bool {
+        if (t->type == S::NONE) return false;
+        if (t->type == S::DIRECTIVE) return t->size > 0;
+        if (t->type != S::INSTRUCTION || t->isSimulatedOp()) return true;
+        std::string tm = upper(t->instr.mnemonic);
+        AddressingMode md = t->instr.mode;
+        if (tm == "JSR" || tm == "BSR" || tm == "RTI" || tm == "MAP" || tm == "BRK") return true;
+        if (tm.size() >= 3 && tm.back() == 'Q' && tm != "BEQ") return true;   // (Q is A:X:Y:Z)
+        if (tm.find(R) != std::string::npos) return true;   // (ldx, stx, inx, txa, phx, cpx, tsx, txs ...)
+        if (R == 'X' && (md == AddressingMode::BASE_PAGE_X || md == AddressingMode::ABSOLUTE_X ||
+                         md == AddressingMode::BASE_PAGE_X_INDIRECT || md == AddressingMode::ABSOLUTE_X_INDIRECT ||
+                         md == AddressingMode::LINEAR_ABSOLUTE_X))
+            return true;
+        if (R == 'Y' && (md == AddressingMode::BASE_PAGE_Y || md == AddressingMode::ABSOLUTE_Y ||
+                         md == AddressingMode::BASE_PAGE_INDIRECT_Y || md == AddressingMode::BASE_PAGE_INDIRECT_SP_Y ||
+                         md == AddressingMode::STACK_RELATIVE_INDIRECT_Y || md == AddressingMode::LINEAR_ABSOLUTE_Y))
+            return true;
+        if (R == 'Z' && (md == AddressingMode::BASE_PAGE_INDIRECT_Z || md == AddressingMode::FLAT_INDIRECT_Z))
+            return true;
+        return false;
+    };
+    // does the statement use register R only as an index (lda tab,y; sta
+    // (p),y): read, never written
+    auto indexOnly = [&](const S* t, char R) -> bool {
+        if (t->type != S::INSTRUCTION || t->isSimulatedOp()) return false;
+        std::string tm = upper(t->instr.mnemonic);
+        if (tm == "JSR" || tm == "BSR" || tm == "RTI" || tm == "MAP" || tm == "BRK") return false;
+        if (tm.size() >= 3 && tm.back() == 'Q' && tm != "BEQ") return false;
+        if (tm.find(R) != std::string::npos) return false;
+        return touchesReg(t, R);
+    };
+    // could the statement read or write base-page byte b other than as a
+    // plain base-page operand of its own (true: an indexed base-page operand,
+    // a pointer pair holding b, a wider access covering it, not understood)
+    // kind: 0 no, 1 a plain one-byte access of exactly b, 2 any other
+    auto touchesByte = [&](const S* t, int b) -> int {
+        if (t->type == S::NONE) return 0;
+        if (t->type == S::DIRECTIVE) return t->size > 0 ? 2 : 0;
+        if (t->type != S::INSTRUCTION || t->isSimulatedOp()) return 2;
+        std::string tm = upper(t->instr.mnemonic);
+        AddressingMode md = t->instr.mode;
+        if (md == AddressingMode::IMPLIED || md == AddressingMode::ACCUMULATOR) return 0;
+        if (md == AddressingMode::IMMEDIATE || md == AddressingMode::IMMEDIATE16)
+            return t->instr.operand.find_first_of("<>") != std::string::npos ? 2 : 0;
+        if (isBranch(tm) || isLongBranch(tm) || tm == "BRA" || tm == "BRL") return 0;
+        if (md == AddressingMode::ABSOLUTE || md == AddressingMode::ABSOLUTE_X || md == AddressingMode::ABSOLUTE_Y ||
+            md == AddressingMode::LINEAR_ABSOLUTE || md == AddressingMode::LINEAR_ABSOLUTE_X ||
+            md == AddressingMode::LINEAR_ABSOLUTE_Y || md == AddressingMode::RELATIVE || md == AddressingMode::RELATIVE16)
+            return 0;   // (an absolute address: not the base page the B register points at)
+        if (md == AddressingMode::BASE_PAGE_X || md == AddressingMode::BASE_PAGE_Y) return 2;
+        uint32_t v;
+        if (!opAddr(t, v)) return 2;
+        if (v >= 256) return 2;
+        bool bit = tm.size() == 4 && (tm.compare(0, 3, "BBR") == 0 || tm.compare(0, 3, "BBS") == 0 ||
+                                      tm.compare(0, 3, "RMB") == 0 || tm.compare(0, 3, "SMB") == 0);
+        int w = tm.back() == 'Q' || md == AddressingMode::FLAT_INDIRECT_Z ? 4
+              : (md == AddressingMode::BASE_PAGE_INDIRECT_Y || md == AddressingMode::BASE_PAGE_INDIRECT_Z ||
+                 md == AddressingMode::BASE_PAGE_X_INDIRECT || md == AddressingMode::BASE_PAGE_INDIRECT_SP_Y ||
+                 md == AddressingMode::INDIRECT || tm == "INW" || tm == "DEW" || tm == "ASW" || tm == "ROW" ||
+                 tm == "PHW") ? 2 : 1;
+        if ((int)v > b || (int)v + w <= b) return 0;
+        return (w == 1 && md == AddressingMode::BASE_PAGE && !bit) ? 1 : 2;
+    };
+
+    for (size_t p = 0; p < st.size(); ++p) {
+        auto* ps = st[p].get();
+        if (ps->deleted || ps->type != S::INSTRUCTION || ps->instr.mnemonic != "proc" || !ps->procCtx) continue;
+        size_t end = p + 1;
+        while (end < st.size() && !(st[end]->type == S::INSTRUCTION &&
+                                    (st[end]->instr.mnemonic == "endproc" || st[end]->instr.mnemonic == "proc")))
+            ++end;
+        // the loops' candidates, and the loop of each statement
+        std::map<int, std::vector<int>> vars;
+        std::vector<int> loopOf(end - p, 0);
+        bool cc45Proc = false;
+        int cur = 0;
+        for (size_t k = p + 1; k < end; ++k) {
+            auto* t = st[k].get();
+            if (t->type == S::DIRECTIVE && t->dir.name == "var" && t->dir.varName.find("cc45.fp") != std::string::npos)
+                cc45Proc = true;
+            if (isLoopDir(t)) {
+                std::vector<std::string> args;
+                for (const auto& a : t->dir.arguments) {
+                    // (arguments may come as one string with spaces or commas)
+                    std::string w;
+                    for (char c : a + " ") {
+                        if (c == ' ' || c == ',' || c == '\t') { if (!w.empty()) args.push_back(w); w.clear(); }
+                        else w += c;
+                    }
+                }
+                int n = 0;
+                if (args.empty() || !parseByte(args[0], n)) continue;
+                if (lowerDir(t) == "loop") cur = n;
+                else {
+                    for (size_t i = 1; i < args.size(); i++) {
+                        int b;
+                        if (parseByte(args[i], b)) vars[n].push_back(b);
+                    }
+                }
+                continue;
+            }
+            loopOf[k - p] = cur;
+        }
+        if (vars.empty()) continue;
+        int lo = ps->procCtx->zarStart, hi = lo + ps->procCtx->zarLen - 1;
+        auto ownByte = [&](int a) { return (lo >= 0 && ps->procCtx->zarLen > 0 && a >= lo && a <= hi) || (cc45Proc && a >= 0x30 && a < 0x80); };
+        auto live = [](const S* t) { return !t->deleted && t->type != S::NONE && !(t->type == S::DIRECTIVE && t->size == 0); };
+        // code statements of the proc in order; a label -> the position of
+        // the statement it names (the next code statement)
+        std::vector<size_t> at;
+        std::map<std::string, size_t> labelPos;
+        std::vector<std::string> pending;
+        for (size_t k = p + 1; k < end; ++k) {
+            auto* t = st[k].get();
+            if (t->deleted) continue;
+            if (!t->label.empty()) pending.push_back(bare(t->label));
+            if (!live(t)) continue;
+            for (const auto& l : pending) labelPos[l] = at.size();
+            pending.clear();
+            at.push_back(k);
+        }
+        size_t n = at.size();
+        for (const auto& l : pending) labelPos[l] = n;
+        // successors of code statement i: positions (n: out of the proc's
+        // code, the exit); unknown (a jump through a pointer, a label not
+        // found) sets unknown
+        struct Succ { std::vector<size_t> to; bool falls = false; bool unknown = false; bool leaves = false; };
+        std::vector<Succ> succ(n);
+        for (size_t i = 0; i < n; ++i) {
+            auto* t = st[at[i]].get();
+            Succ& s = succ[i];
+            if (t->isSimulatedOp()) {
+                // (one that branches or selects: not followed)
+                std::string sm = t->instr.mnemonic;
+                std::transform(sm.begin(), sm.end(), sm.begin(), ::tolower);
+                if (sm.rfind("branch", 0) == 0 || sm == "select") s.unknown = true;
+                else { s.falls = true; s.to.push_back(i + 1); }
+                continue;
+            }
+            if (t->type != S::INSTRUCTION) { s.unknown = true; continue; }
+            std::string tm = upper(t->instr.mnemonic);
+            AddressingMode md = t->instr.mode;
+            auto target = [&](const std::string& l) {
+                auto it = labelPos.find(l);
+                if (it == labelPos.end()) s.unknown = true;
+                else s.to.push_back(it->second);
+            };
+            bool bit = tm.size() == 4 && (tm.compare(0, 3, "BBR") == 0 || tm.compare(0, 3, "BBS") == 0);
+            if (tm == "RTS" || tm == "RTI" || tm == "RTN") s.leaves = true;
+            else if (tm == "JMP") {
+                if (md == AddressingMode::ABSOLUTE && labelPos.count(t->instr.operand)) target(t->instr.operand);
+                else s.unknown = true;
+            } else if (tm == "BRA" || tm == "BRL" || tm == "LBRA") target(t->instr.operand);
+            else if (bit) { target(t->instr.bitBranchTarget); s.falls = true; }
+            else if (isBranch(tm) || isLongBranch(tm)) { target(t->instr.operand); s.falls = true; }
+            else s.falls = true;
+            if (s.falls) s.to.push_back(i + 1);
+        }
+        // is register R read on a path from position i before it is written
+        // (a path out of the proc: the caller's reads at an rts, everything
+        // anywhere else)?
+        auto regLiveAt = [&](size_t i0, char R) {
+            std::vector<size_t> todo{i0};
+            std::set<size_t> seen;
+            while (!todo.empty()) {
+                size_t i = todo.back();
+                todo.pop_back();
+                if (!seen.insert(i).second) continue;
+                if (seen.size() > 200) return true;
+                if (i >= n) return true;
+                auto* t = st[at[i]].get();
+                if (t->deleted) { for (size_t x : succ[i].to) todo.push_back(x); continue; }   // (eliminated by this pass)
+                if (t->isSimulatedOp()) {
+                    // (its registers: those its operand names, .AX, ,y; and
+                    // those it clobbers, OpEffect's)
+                    std::string sm = t->instr.mnemonic;
+                    std::transform(sm.begin(), sm.end(), sm.begin(), ::tolower);
+                    if (!isKnownOp(sm) || succ[i].unknown) return true;
+                    std::string o = upper(t->instr.operand);
+                    bool named = false;
+                    for (size_t q = 0; q < o.size(); q++)
+                        if (o[q] == R && (q == 0 || o[q - 1] == '.' || o[q - 1] == ',' || std::isalpha((unsigned char)o[q - 1])))
+                            named = true;
+                    if (named) return true;
+                    uint8_t bitR = R == 'X' ? OpEffect::X : R == 'Y' ? OpEffect::Y : OpEffect::Z;
+                    if (getOpEffect(sm).clobbers & bitR) continue;
+                    for (size_t x : succ[i].to) todo.push_back(x);
+                    continue;
+                }
+                if (t->type != S::INSTRUCTION) return true;
+                std::string tm = upper(t->instr.mnemonic);
+                AddressingMode md = t->instr.mode;
+                if (tm == "RTS" || tm == "RTN") {
+                    int r = rtsReads(at[i]);
+                    if ((R == 'X' && (r & 2)) || ((R == 'Y' || R == 'Z') && (r & 4))) return true;
+                    continue;
+                }
+                if (succ[i].unknown || tm == "JSR" || tm == "BSR" || tm == "RTI") return true;
+                // writes R without reading it: dead on this path
+                bool writes = (tm == std::string("LD") + R || tm == std::string("TA") + R || tm == std::string("PL") + R ||
+                               (R == 'X' && tm == "TSX") || (R == 'Y' && (tm == "TSY" || tm == "TXY")));
+                (void)md;
+                if (writes) continue;
+                if (touchesReg(t, R)) return true;
+                for (size_t x : succ[i].to) todo.push_back(x);
+            }
+            return false;
+        };
+        // can N or Z as they are when position i0 runs be read (on any path:
+        // a beq / bne / bmi / bpl / php before both are set again; an rts
+        // whose caller reads them; anything not understood)?
+        auto nzReadAt = [&](size_t i0) {
+            static const std::set<std::string> setsNZ = {
+                "LDA", "LDX", "LDY", "LDZ", "TAX", "TXA", "TAY", "TYA", "TAZ", "TZA", "TBA",
+                "TSX", "TSY", "PLA", "PLX", "PLY", "PLZ", "PLP", "ADC", "SBC", "AND", "ORA", "EOR",
+                "ASL", "LSR", "ROL", "ROR", "ASR", "INC", "DEC", "NEG", "INX", "DEX", "INY", "DEY",
+                "INZ", "DEZ", "INW", "DEW", "ASW", "ROW", "CMP", "CPX", "CPY", "CPZ", "BIT"};
+            static const std::set<std::string> readsNZ = {"BEQ", "BNE", "BMI", "BPL", "PHP", "LBEQ", "LBNE", "LBMI", "LBPL"};
+            std::vector<size_t> todo{i0};
+            std::set<size_t> seen;
+            while (!todo.empty()) {
+                size_t i = todo.back();
+                todo.pop_back();
+                if (!seen.insert(i).second) continue;
+                if (seen.size() > 200 || i >= n) return true;
+                auto* t = st[at[i]].get();
+                if (t->deleted) { for (size_t x : succ[i].to) todo.push_back(x); continue; }   // (eliminated by this pass)
+                if (succ[i].unknown) return true;
+                if (t->isSimulatedOp()) {
+                    // (one that sets the flags computes them; select and
+                    // branch.16 read them)
+                    std::string sm = t->instr.mnemonic;
+                    std::transform(sm.begin(), sm.end(), sm.begin(), ::tolower);
+                    if (!isKnownOp(sm) || !getOpEffect(sm).clobbersFlags || sm == "select" || sm.rfind("branch", 0) == 0)
+                        return true;
+                    continue;
+                }
+                if (t->type != S::INSTRUCTION) return true;
+                std::string tm = upper(t->instr.mnemonic);
+                if (readsNZ.count(tm)) return true;
+                if (tm == "RTS" || tm == "RTN") { if (rtsReads(at[i]) & 1) return true; continue; }
+                if (tm == "JSR" || tm == "BSR" || tm == "RTI") return true;
+                if (setsNZ.count(tm)) continue;
+                for (size_t x : succ[i].to) todo.push_back(x);
+            }
+            return false;
+        };
+        // is A written before it is read from position i0 on (the straight
+        // code there: a few statements that leave A alone, then one that
+        // sets A without reading it)?
+        auto aDeadAt = [&](size_t i0) {
+            static const std::set<std::string> setsA = {"LDA", "PLA", "TXA", "TYA", "TZA", "TBA"};
+            static const std::set<std::string> leavesA = {"LDX", "LDY", "LDZ", "STX", "STY", "CLC", "SEC",
+                                                          "INX", "INY", "INZ", "DEX", "DEY", "DEZ"};
+            for (size_t i = i0; i < n && i < i0 + 6; ++i) {
+                auto* t = st[at[i]].get();
+                if (t->deleted) continue;   // (eliminated by this pass)
+                if (t->type != S::INSTRUCTION || t->isSimulatedOp() || succ[i].unknown) return false;
+                std::string tm = upper(t->instr.mnemonic);
+                if (setsA.count(tm)) return true;
+                if (!leavesA.count(tm) || succ[i].to.size() != 1 || succ[i].to[0] != i + 1) return false;
+            }
+            return false;
+        };
+        // is byte b read on a path from position i0 before it is written
+        // (out of the proc by an rts: no, it is the proc's own)?
+        auto byteLiveAt = [&](size_t i0, int b) {
+            std::vector<size_t> todo{i0};
+            std::set<size_t> seen;
+            while (!todo.empty()) {
+                size_t i = todo.back();
+                todo.pop_back();
+                if (!seen.insert(i).second) continue;
+                if (seen.size() > 200 || i >= n) return true;
+                auto* t = st[at[i]].get();
+                if (succ[i].unknown) return true;
+                int k = touchesByte(t, b);
+                if (k == 2) return true;
+                if (k == 1) {
+                    std::string tm = upper(t->instr.mnemonic);
+                    if (tm == "STA" || tm == "STX" || tm == "STY" || tm == "STZ") continue;   // written: dead here
+                    return true;
+                }
+                if (succ[i].leaves) continue;
+                std::string tm = t->type == S::INSTRUCTION ? upper(t->instr.mnemonic) : "";
+                if (tm == "JSR" || tm == "BSR") return true;
+                for (size_t x : succ[i].to) todo.push_back(x);
+            }
+            return false;
+        };
+        // the lda #v whose value byte b holds when statement k runs: straight
+        // code back from k (no label after the lda, k's own too when it is
+        // reached by its label: atK) to an sta b, then back to the lda #v,
+        // with nothing between writing b or A, calling or branching; or null
+        auto constBefore = [&](size_t k, int b, bool atK) -> const S* {
+            auto plainCode = [&](const S* t) { return t->type == S::INSTRUCTION && !t->isSimulatedOp() && !t->noOpt; };
+            if (atK && k < st.size() && !st[k]->label.empty()) return nullptr;
+            static const std::set<std::string> flow = {"JSR", "BSR", "JMP", "RTS", "RTI", "RTN", "BRK"};
+            bool stored = false;
+            for (size_t j = k; j-- > p + 1;) {
+                auto* t = st[j].get();
+                if (t->deleted) continue;
+                if (t->type != S::INSTRUCTION && !t->isSimulatedOp()) {
+                    if (t->size != 0 || !t->label.empty()) return nullptr;
+                    continue;
+                }
+                if (!stored && t->isSimulatedOp() && !t->noOpt) {
+                    // (before the store: a load into the registers, ldax
+                    // #_tab, leaves b alone)
+                    std::string sm = t->instr.mnemonic;
+                    std::transform(sm.begin(), sm.end(), sm.begin(), ::tolower);
+                    if (!isKnownOp(sm) || sm.rfind("ld", 0) != 0 || !t->label.empty()) return nullptr;
+                    continue;
+                }
+                if (!plainCode(t)) return nullptr;
+                std::string tm = upper(t->instr.mnemonic);
+                if (flow.count(tm) || (tm.size() == 3 && tm[0] == 'B' && tm != "BIT") || tm.rfind("LB", 0) == 0) return nullptr;
+                if (!stored) {
+                    int kb = touchesByte(t, b);
+                    if (kb == 2 || (kb == 1 && tm != "STA" && tm != "LDA")) return nullptr;
+                    if (kb == 1 && tm == "STA") stored = true;
+                } else {
+                    if (touchesByte(t, b) != 0) return nullptr;
+                    if (tm == "LDA") return t->instr.mode == AddressingMode::IMMEDIATE ? t : nullptr;
+                    static const std::set<std::string> leaveA = {"STA", "STX", "STY", "LDX", "LDY", "LDZ", "CLC", "SEC",
+                                                                 "INX", "INY", "INZ", "DEX", "DEY", "DEZ"};
+                    if (!leaveA.count(tm)) return nullptr;
+                }
+                if (!t->label.empty()) return nullptr;   // (reached another way: A and b unknown there)
+            }
+            return nullptr;
+        };
+        // (statement index to insert before, statement, may take that
+        // statement's label: placed before a branch everything reaching it
+        // must run)
+        struct Insert { size_t at; std::unique_ptr<S> s; bool takeLabel; };
+        std::vector<Insert> inserts;
+        for (auto& [id, bytes] : vars) {
+            // the loop's code statements
+            std::vector<bool> in(n + 1, false);
+            bool ok = true;
+            size_t count = 0;
+            for (size_t i = 0; i < n; ++i)
+                if (loopOf[at[i] - p] == id) { in[i] = true; count++; }
+            if (!count) { report("loop-regs", ps, "loop " + std::to_string(id) + ": no code of it found"); continue; }
+            for (size_t i = 0; i < n && ok; ++i) {
+                if (!in[i]) continue;
+                auto* t = st[at[i]].get();
+                if (t->noOpt || t->selfModified || succ[i].unknown) ok = false;
+                std::string tm = t->type == S::INSTRUCTION ? upper(t->instr.mnemonic) : "";
+                if (tm == "JSR" || tm == "BSR" || tm == "RTI" || t->isSimulatedOp() ||
+                    (t->type != S::INSTRUCTION)) ok = false;
+            }
+            if (!ok) { report("loop-regs", st[at[0]].get(), "loop " + std::to_string(id) + " left as is (a call, a simulated instruction or code not understood)"); continue; }
+            // its entries: edges from outside into it; its exits: edges out
+            struct Edge { size_t from, to; bool fall; };
+            std::vector<Edge> entries, exits;
+            bool fromProcStart = in[0];   // (the proc's first statement is the loop's: entered from the call)
+            for (size_t i = 0; i < n; ++i) {
+                for (size_t x : succ[i].to) {
+                    bool fall = succ[i].falls && x == i + 1;
+                    if (!in[i] && x < n && in[x]) entries.push_back({i, x, fall});
+                    if (in[i] && (x >= n || !in[x])) exits.push_back({i, x, fall});
+                }
+            }
+            // an entry by a branch must be an unconditional one (a load before
+            // a conditional branch would change its flags)
+            for (const auto& e : entries) {
+                if (e.fall) continue;
+                std::string tm = upper(st[at[e.from]]->instr.mnemonic);
+                if (!(tm == "BRA" || tm == "BRL" || tm == "LBRA" || tm == "JMP")) ok = false;
+            }
+            if (fromProcStart) ok = false;
+            if (!ok) { report("loop-regs", st[at[0]].get(), "loop " + std::to_string(id) + " left as is (entered by a conditional branch)"); continue; }
+            std::set<char> used;   // registers given to a byte of this loop
+            for (int b : bytes) {
+                auto keep = [&](const std::string& why) {
+                    char h[8];
+                    snprintf(h, sizeof h, "$%02X", b);
+                    report("loop-regs", st[at[0]].get(), "loop " + std::to_string(id) + ": " + h + " kept in memory (" + why + ")");
+                };
+                if (!ownByte(b)) { keep("not one of the proc's own bytes"); continue; }
+                // every access of b in the loop: a plain lda / sta / inc / dec,
+                // or a store of the register b gets
+                std::vector<size_t> acc;
+                bool plain = true;
+                for (size_t i = 0; i < n && plain; ++i) {
+                    if (!in[i]) continue;
+                    int k = touchesByte(st[at[i]].get(), b);
+                    if (k == 2) plain = false;
+                    else if (k == 1) acc.push_back(i);
+                }
+                if (!plain || acc.empty()) { keep(acc.empty() ? "not used in the loop" : "used other than by lda / sta / inc / dec"); continue; }
+                char R = 0;
+                std::map<char, std::vector<size_t>> deadLdFor;
+                std::string whyNot;
+                auto no = [&](char c, const std::string& w) { whyNot += std::string(whyNot.empty() ? "" : "; ") + c + ": " + w; };
+                for (char c : {'X', 'Y', 'Z'}) {
+                    if (used.count(c)) { no(c, "another byte's"); continue; }
+                    if (c == 'Z' && parser->cpu6502) continue;
+                    // (an ld<R> #imm whose value and flags nothing reads, the
+                    // zero extension of a byte cc45 leaves for Pass 2b: dropped)
+                    std::vector<size_t> deadLd, indexReads;
+                    const S* user = nullptr;
+                    for (size_t i = 0; i < n && !user; ++i) {
+                        if (!in[i] || !touchesReg(st[at[i]].get(), c)) continue;
+                        auto* t = st[at[i]].get();
+                        // (b loaded into the register b would be kept in, an index:
+                        // ldy b / lda tab,y; or stored from it)
+                        if (touchesByte(t, b) == 1) {
+                            std::string tm = upper(t->instr.mnemonic);
+                            if (tm == std::string("LD") + c || tm == std::string("ST") + c) continue;
+                        }
+                        if (t->type == S::INSTRUCTION && !t->isSimulatedOp() && upper(t->instr.mnemonic) == std::string("LD") + c &&
+                            (t->instr.mode == AddressingMode::IMMEDIATE) && !regLiveAt(i + 1, c) && !nzReadAt(i + 1)) {
+                            deadLd.push_back(i);
+                            continue;
+                        }
+                        if (indexOnly(t, c)) { indexReads.push_back(i); continue; }
+                        user = t;
+                    }
+                    // an index read must find the register holding b already in
+                    // the code as written: an ld<R> b before it on every path
+                    // through the loop, b not changed since (forward, to a fixed
+                    // point; not synced where the loop is entered)
+                    if (!user && !indexReads.empty()) {
+                        std::vector<char> syncIn(n, 1), syncOut(n, 1);
+                        std::vector<std::vector<size_t>> pred(n);
+                        for (size_t i = 0; i < n; ++i)
+                            if (in[i]) for (size_t x : succ[i].to) if (x < n && in[x]) pred[x].push_back(i);
+                        std::set<size_t> entered;
+                        for (const auto& e : entries) entered.insert(e.to);
+                        for (bool more = true; more;) {
+                            more = false;
+                            for (size_t i = 0; i < n; ++i) {
+                                if (!in[i]) continue;
+                                char sIn = entered.count(i) ? 0 : 1;
+                                if (pred[i].empty()) sIn = 0;
+                                for (size_t q : pred[i]) sIn = sIn && syncOut[q];
+                                auto* t = st[at[i]].get();
+                                char sOut = sIn;
+                                int k = touchesByte(t, b);
+                                std::string tm = upper(t->instr.mnemonic);
+                                if (k == 1 && (tm == std::string("LD") + c || tm == std::string("ST") + c)) sOut = 1;
+                                else if (k == 1 && tm != "LDA") sOut = 0;   // (b written: sta, inc, dec)
+                                if (sIn != syncIn[i] || sOut != syncOut[i]) { syncIn[i] = sIn; syncOut[i] = sOut; more = true; }
+                            }
+                        }
+                        for (size_t i : indexReads)
+                            if (!syncIn[i]) { user = st[at[i]].get(); break; }
+                    }
+                    if (user) { no(c, "used by " + user->instr.mnemonic + (user->instr.operand.empty() ? "" : " " + user->instr.operand)); continue; }
+                    // the accesses: those it can rewrite
+                    bool fits = true;
+                    for (size_t i : acc) {
+                        std::string tm = upper(st[at[i]]->instr.mnemonic);
+                        if (tm == "LDA" || tm == "INC" || tm == "DEC") continue;
+                        if (tm == std::string("ST") + c) continue;
+                        if (tm == std::string("LD") + c) {
+                            if (nzReadAt(i + 1)) { no(c, "N / Z read after an " + st[at[i]]->instr.mnemonic); fits = false; break; }
+                            continue;
+                        }
+                        if (tm == "STA") {
+                            if (nzReadAt(i + 1)) { no(c, "N / Z read after a store"); fits = false; break; }
+                            continue;
+                        }
+                        no(c, "accessed by " + st[at[i]]->instr.mnemonic);
+                        fits = false;
+                    }
+                    if (!fits) continue;
+                    // not read after the loop (its value then is the loop's)
+                    for (const auto& e : exits)
+                        if (e.to < n && regLiveAt(e.to, c)) { no(c, "read after the loop"); fits = false; break; }
+                    if (!fits) continue;
+                    // (the load at an entry sets N / Z: not read where the
+                    // loop is entered)
+                    for (const auto& e : entries)
+                        if (nzReadAt(e.to)) { no(c, "N / Z read where the loop is entered"); fits = false; break; }
+                    if (!fits) continue;
+                    R = c;
+                    deadLdFor[c] = deadLd;
+                    break;
+                }
+                if (!R) { keep(whyNot); continue; }
+                used.insert(R);
+                for (size_t i : deadLdFor[R]) {
+                    auto* t = st[at[i]].get();
+                    report("loop-regs", t, t->instr.mnemonic + " " + t->instr.operand + " eliminated (its value is not read: the loop keeps a byte in " + std::string(1, R) + ")");
+                    if (t->label.empty()) { t->deleted = true; t->size = 0; }
+                    else { t->type = S::NONE; t->size = 0; }
+                }
+                std::string r(1, (char)std::tolower(R));
+                const S* model = st[at[acc[0]]].get();   // (a base-page access of b: its operand tokens)
+                auto make = [&](const std::string& mn, bool operand) {
+                    auto s = std::make_unique<S>();
+                    s->type = S::INSTRUCTION;
+                    s->instr.mnemonic = mn;
+                    s->instr.mode = operand ? AddressingMode::BASE_PAGE : AddressingMode::IMPLIED;
+                    if (operand) { s->instr.operand = model->instr.operand; s->instr.operandTokenIndex = model->instr.operandTokenIndex; }
+                    s->size = operand ? 2 : 1;
+                    s->line = model->line;
+                    s->sourceFile = model->sourceFile;
+                    s->sourceLine = model->sourceLine;
+                    s->segmentName = model->segmentName;
+                    s->localLabelScope = model->localLabelScope;
+                    s->scopePrefix = model->scopePrefix;
+                    s->procCtx = model->procCtx;
+                    s->bpIndex = model->bpIndex;
+                    return s;
+                };
+                // loads where it is entered
+                for (const auto& e : entries) {
+                    if (!byteLiveAt(e.to, b)) continue;   // (the loop writes it before it reads it)
+                    // falling in: right after the statement falling in (before
+                    // the loop's labels: its own branches to them skip the
+                    // load); by a branch: before it
+                    size_t k = e.fall ? at[e.from] + 1 : at[e.from];
+                    bool take = !e.fall;
+                    // b a constant there (lda #v / sta b just before, straight
+                    // code, b and A not changed since: the loop's counter set
+                    // to its start): ld<R> #v, and the store may become dead
+                    if (const S* imm = constBefore(k, b, !e.fall)) {
+                        auto s = make("ld" + r, false);
+                        s->instr.mode = AddressingMode::IMMEDIATE;
+                        s->instr.operand = imm->instr.operand;
+                        s->instr.operandTokenIndex = imm->instr.operandTokenIndex;
+                        s->scopePrefix = imm->scopePrefix;
+                        s->size = 2;
+                        inserts.push_back({k, std::move(s), take});
+                        continue;
+                    }
+                    if (R == 'Z') {
+                        // A kept (pha / pla around it) unless A already holds
+                        // b (the statement before stores or loads it: taz
+                        // alone) or A is written before it is read where the
+                        // loop starts (lda b / taz; N and Z not read there)
+                        auto* prev = k > 0 ? st[k - 1].get() : nullptr;
+                        bool aHolds = prev && !prev->deleted && prev->type == S::INSTRUCTION && !prev->isSimulatedOp() &&
+                                      prev->instr.mode == AddressingMode::BASE_PAGE && prev->instr.operand == model->instr.operand &&
+                                      (upper(prev->instr.mnemonic) == "STA" || upper(prev->instr.mnemonic) == "LDA") &&
+                                      (e.fall || st[k]->label.empty());
+                        if (aHolds) { inserts.push_back({k, make("taz", false), take}); continue; }
+                        if (aDeadAt(e.to) && !nzReadAt(e.to)) {
+                            inserts.push_back({k, make("lda", true), take});
+                            inserts.push_back({k, make("taz", false), false});
+                            continue;
+                        }
+                        inserts.push_back({k, make("pha", false), take});
+                        inserts.push_back({k, make("lda", true), false});
+                        inserts.push_back({k, make("taz", false), false});
+                        inserts.push_back({k, make("pla", false), false});
+                    } else {
+                        inserts.push_back({k, make("ld" + r, true), take});
+                    }
+                }
+                // stores before each way out (or after the statement falling
+                // out); one at the place the loop leaves to when every way
+                // there comes from the loop (not run each time round)
+                std::set<size_t> sunk;
+                for (const auto& e : exits) {
+                    if (e.to >= n || sunk.count(e.to)) continue;
+                    bool onlyLoop = true;
+                    for (size_t q = 0; q < n && onlyLoop; ++q) if (succ[q].unknown) onlyLoop = false;   // (a jump through a pointer may go there)
+                    for (size_t q = 0; q < n && onlyLoop; ++q)
+                        for (size_t x : succ[q].to) if (x == e.to && !in[q]) onlyLoop = false;
+                    if (onlyLoop && e.to > 0) sunk.insert(e.to);
+                }
+                for (size_t t2 : sunk) inserts.push_back({at[t2], make("st" + r, true), true});
+                for (const auto& e : exits) {
+                    if (succ[e.from].leaves || (e.to < n && sunk.count(e.to))) continue;   // (an rts: the byte is dead in the caller)
+                    if (e.fall) inserts.push_back({at[e.from] + 1, make("st" + r, true), false});
+                    else inserts.push_back({at[e.from], make("st" + r, true), true});
+                }
+                // the accesses
+                for (size_t i : acc) {
+                    auto* t = st[at[i]].get();
+                    std::string tm = upper(t->instr.mnemonic);
+                    std::string was = t->instr.mnemonic + " " + t->instr.operand;
+                    std::string to;
+                    if (tm == "LDA") to = "t" + r + "a";
+                    else if (tm == "STA") to = "ta" + r;
+                    else if (tm == "INC") to = "in" + r;
+                    else if (tm == "DEC") to = "de" + r;
+                    if (to.empty()) {   // (st<R> b / ld<R> b: b is the register's already)
+                        report("loop-regs", t, was + " eliminated (the byte is in " + std::string(1, R) + " in the loop)");
+                        if (t->label.empty()) { t->deleted = true; t->size = 0; }
+                        else { t->type = S::NONE; t->size = 0; }
+                        continue;
+                    }
+                    report("loop-regs", t, was + " -> " + to + " (the byte is in " + std::string(1, R) + " in the loop, #827)");
+                    t->instr.mnemonic = to;
+                    t->instr.mode = AddressingMode::IMPLIED;
+                    t->instr.operand.clear();
+                    t->instr.operandTokenIndex = -1;
+                    t->size = 1;
+                }
+                changed = true;
+            }
+            // a t<R>a where A already holds R on every way there (after a
+            // tya / tay, A and R left alone since: the loop's test reading the
+            // counter and the body reading it again) is dropped (forward, to a
+            // fixed point; not where the loop is entered)
+            for (char R : used) {
+                std::vector<char> eqIn(n, 1), eqOut(n, 1);
+                std::vector<std::vector<size_t>> pred(n);
+                for (size_t i = 0; i < n; ++i)
+                    if (in[i]) for (size_t x : succ[i].to) if (x < n && in[x]) pred[x].push_back(i);
+                std::set<size_t> entered;
+                for (const auto& e : entries) entered.insert(e.to);
+                // what an instruction does to "A == R": 1 makes it so, 0 ends it, -1 keeps it
+                auto effect = [&](const S* t) -> int {
+                    if (t->deleted) return -1;
+                    if (t->type != S::INSTRUCTION || t->isSimulatedOp()) return 0;
+                    std::string tm = upper(t->instr.mnemonic);
+                    if (tm == "T" + std::string(1, R) + "A" || tm == "TA" + std::string(1, R)) return 1;
+                    static const std::set<std::string> keepsA = {
+                        "STA", "STX", "STY", "STZ", "CMP", "CPX", "CPY", "CPZ", "CLC", "SEC", "CLV",
+                        "PHA", "PHX", "PHY", "PHZ", "NOP", "BRA", "BEQ", "BNE", "BCC", "BCS", "BMI",
+                        "BPL", "BVC", "BVS", "LBRA", "LBEQ", "LBNE", "LBCC", "LBCS", "LBMI", "LBPL", "BRL", "JMP",
+                        "LDX", "LDY", "LDZ", "INX", "INY", "INZ", "DEX", "DEY", "DEZ", "TAX", "TAY", "TAZ", "INC", "DEC"};
+                    if (!keepsA.count(tm)) return 0;
+                    if ((tm == "INC" || tm == "DEC") && (t->instr.mode == AddressingMode::IMPLIED || t->instr.mode == AddressingMode::ACCUMULATOR))
+                        return 0;   // (inc a)
+                    // (one writing R: ld<R>, in<R>, de<R>, ta<R> handled above)
+                    if (tm.size() == 3 && tm[2] == R && (tm.rfind("LD", 0) == 0 || tm.rfind("IN", 0) == 0 || tm.rfind("DE", 0) == 0))
+                        return 0;
+                    return -1;
+                };
+                for (bool more = true; more;) {
+                    more = false;
+                    for (size_t i = 0; i < n; ++i) {
+                        if (!in[i]) continue;
+                        char e = (entered.count(i) || pred[i].empty()) ? 0 : 1;
+                        for (size_t q : pred[i]) e = e && eqOut[q];
+                        int f = effect(st[at[i]].get());
+                        char o = f < 0 ? e : (char)f;
+                        if (e != eqIn[i] || o != eqOut[i]) { eqIn[i] = e; eqOut[i] = o; more = true; }
+                    }
+                }
+                for (size_t i = 0; i < n; ++i) {
+                    if (!in[i] || !eqIn[i]) continue;
+                    auto* t = st[at[i]].get();
+                    if (t->deleted || t->type != S::INSTRUCTION || upper(t->instr.mnemonic) != "T" + std::string(1, R) + "A") continue;
+                    if (nzReadAt(i + 1)) continue;   // (its N and Z)
+                    report("loop-regs", t, t->instr.mnemonic + " eliminated (A holds " + std::string(1, R) + " already)");
+                    if (t->label.empty()) { t->deleted = true; t->size = 0; }
+                    else { t->type = S::NONE; t->size = 0; }
+                }
+            }
+        }
+        // the inserts, from the last place to the first; a statement inserted
+        // before a labelled one takes the label when the label's branches must
+        // run it too (a branch entry or exit at that statement)
+        std::stable_sort(inserts.begin(), inserts.end(), [](const Insert& x, const Insert& y) { return x.at > y.at; });
+        for (size_t a = 0; a < inserts.size();) {
+            size_t k = inserts[a].at;
+            size_t b = a;
+            bool take = false;
+            while (b < inserts.size() && inserts[b].at == k) { take = take || inserts[b].takeLabel; ++b; }
+            if (take && k < st.size() && !st[k]->label.empty()) {
+                inserts[a].s->label = st[k]->label;
+                st[k]->label.clear();
+            }
+            for (size_t c = b; c-- > a;)
+                st.insert(st.begin() + (long)k, std::move(inserts[c].s));
+            a = b;
+        }
+    }
+    // the tags are done with (and say nothing to the other passes)
+    for (auto& t : st)
+        if (isLoopDir(t.get())) { t->deleted = true; t->size = 0; }
+    return changed;
 }
 
 bool AssemblerOptimizer::optimize(AssemblerParser* parser, bool verbose, bool traceMachState) {
@@ -586,12 +1314,19 @@ bool AssemblerOptimizer::optimizeInternal(
                 }
                 if (shared) continue;
             }
-            // the operand's symbol (name [+|- n], index) is imported
+            // the operand's symbol (name [+|- n], index) is imported, or a
+            // label of a relocatable segment other than "zp" (sta _buf,y in an
+            // object: its value the offset in DATA until linked, never the
+            // base page)
             auto externBase = [&](const AssemblerParser::Statement* t) {
                 std::string op = t->instr.operand;
                 op = op.substr(0, op.find_first_of("+-,"));
                 op.erase(std::remove_if(op.begin(), op.end(), [](char c) { return c == ' ' || c == '\t'; }), op.end());
-                return !op.empty() && parser->isExternSymbol(op);
+                if (op.empty()) return false;
+                if (parser->isExternSymbol(op)) return true;
+                return (parser->isRelocatableSymbol(t->scopePrefix + op) || parser->isRelocatableSymbol(op) ||
+                        parser->isRelocatableSymbolIn(op, t->scopePrefix)) &&
+                       !parser->isZpSegmentSymbolIn(op, t->scopePrefix);
             };
             std::vector<std::pair<size_t, int>> stores;   // (statement, its byte)
             std::set<int> read;
@@ -608,6 +1343,9 @@ bool AssemblerOptimizer::optimizeInternal(
                     // (a product or quotient of the registers, mul.16 .AX, #35:
                     // its other operand read like theirs; into memory: not followed)
                     case ST::MUL: case ST::DIV:
+                        return !t->instr.operand.empty() && t->instr.operand[0] == '.';
+                    // (a load into the registers, ldax #_tab (LDW .AX): what it reads)
+                    case ST::LDW: case ST::LDAX: case ST::LDAY: case ST::LDAZ:
                         return !t->instr.operand.empty() && t->instr.operand[0] == '.';
                     default:
                         return false;
@@ -1241,7 +1979,7 @@ bool AssemblerOptimizer::optimizeInternal(
             if (n->type == AssemblerParser::Statement::DIRECTIVE) {
                 std::string d = n->dir.name;
                 std::transform(d.begin(), d.end(), d.begin(), ::tolower);
-                if (d == "loc") continue;
+                if (d == "loc" || d == "loop" || d == "loop_vars") continue;   // (#827: no code)
                 why = "." + d;
                 return true;
             }
@@ -2620,6 +3358,28 @@ bool AssemblerOptimizer::optimizeInternal(
             }
             if (cc) for (size_t k = i; k < e; ++k) cc45At[k] = true;
         }
+        // an ldax #v whose A, X and flags are all dead (#827: its stores
+        // dropped as dead): bit 1 A, 2 X dead after it; 4 / 8 the flags in
+        // the X / A pass
+        std::vector<uint8_t> ldwDead(n, 0);
+        auto isLdaxImm = [&](const AssemblerParser::Statement* s) {
+            return s->type == AssemblerParser::Statement::LDW && s->instr.operand == ".ax" && s->exprTokenIndex >= 0 &&
+                   s->exprTokenIndex < (int)parser->tokens.size() &&
+                   parser->tokens[s->exprTokenIndex].type == AssemblerTokenType::HASH;
+        };
+        // the statement before i that runs just before it (no label on i;
+        // .loc and deleted statements passed over), or -1
+        auto prevCode = [&](size_t i) -> long {
+            if (!st[i]->label.empty()) return -1;
+            for (size_t k = i; k-- > 0; ) {
+                auto* t = st[k].get();
+                if (t->deleted) continue;
+                if (t->type == AssemblerParser::Statement::DIRECTIVE && lower(t->dir.name) == "loc" && t->label.empty()) continue;
+                if (t->type != AssemblerParser::Statement::INSTRUCTION || t->noOpt) return -1;
+                return (long)k;
+            }
+            return -1;
+        };
         for (char reg : {'X', 'A', 'Y', 'Z'}) {
         if (reg == 'Z' && parser->cpu6502) continue;      // (no Z register on the 6502)
         std::vector<uint8_t> eff(n, 0);
@@ -2633,9 +3393,7 @@ bool AssemblerOptimizer::optimizeInternal(
                 e = quietDirs.count(lower(s->dir.name)) ? FALL : OPAQUE;
                 continue;
             }
-            if (s->type == AssemblerParser::Statement::LDW && s->instr.operand == ".ax" && s->exprTokenIndex >= 0 &&
-                s->exprTokenIndex < (int)parser->tokens.size() &&
-                parser->tokens[s->exprTokenIndex].type == AssemblerTokenType::HASH) {
+            if (isLdaxImm(s)) {
                 e = (reg == 'Y' || reg == 'Z' ? 0 : WX) | WF | FALL;   // ldax #v: lda #<v / ldx #>v
                 continue;
             }
@@ -2724,6 +3482,21 @@ bool AssemblerOptimizer::optimizeInternal(
                 if (in != liveIn[k]) { liveIn[k] = in; more = true; }
             }
         }
+        if (reg == 'X' || reg == 'A') {
+            for (size_t i = 0; i < n; ++i) {
+                auto* s = st[i].get();
+                if (s->deleted || s->noOpt || !s->label.empty() || !cc45At[i] || !isLdaxImm(s)) continue;
+                uint8_t out = liveOut(i);
+                if (!(out & 1)) ldwDead[i] |= reg == 'A' ? 1 : 2;
+                if (!(out & 2)) ldwDead[i] |= reg == 'A' ? 8 : 4;
+                if (reg == 'A' && ldwDead[i] == 15) {
+                    report("dead-ldax", s, "LDAX " + s->instr.operand + " eliminated (A, X and the flags written before they are read)");
+                    s->deleted = true;
+                    s->size = 0;
+                    changed = true;
+                }
+            }
+        }
         const std::string ld = reg == 'X' ? "ldx" : reg == 'Y' ? "ldy" : reg == 'Z' ? "ldz" : "lda";
         const std::string inc = reg == 'X' ? "inx" : reg == 'Z' ? "inz" : "iny";
         const std::string dec = reg == 'X' ? "dex" : reg == 'Z' ? "dez" : "dey";
@@ -2732,6 +3505,41 @@ bool AssemblerOptimizer::optimizeInternal(
             if (s->deleted || s->noOpt || s->type != AssemblerParser::Statement::INSTRUCTION || !s->label.empty()) continue;
             std::string m = lower(s->instr.mnemonic);
             if (reg != 'X' || m != ld) { if (!cc45At[i]) continue; }
+            // a transfer between A and X / Y / Z (#827): undoing the one just
+            // before it (tza / taz: the register and the flags as they are),
+            // or t<R>a with A not read after and the flags from R already
+            // (dex / txa / bne)
+            if (reg == 'A' && m.size() == 3 && m[0] == 't' && (m[1] == 'a') != (m[2] == 'a') &&
+                std::string("xyz").find(m[1] == 'a' ? m[2] : m[1]) != std::string::npos) {
+                char r = m[1] == 'a' ? m[2] : m[1];
+                long k = prevCode(i);
+                std::string pm = k >= 0 ? lower(st[k]->instr.mnemonic) : "";
+                std::string rev = {'t', m[2], m[1]};
+                if (k >= 0 && pm == rev) {
+                    report("redundant-transfer", s, upper(m) + " eliminated (after " + upper(pm) + ")");
+                    s->deleted = true;
+                    s->size = 0;
+                    changed = true;
+                    continue;
+                }
+                bool fromR = m[2] == 'a';
+                std::string R(1, r);
+                if (fromR && liveOut(i) == 0) {
+                    report("dead-lda", s, upper(m) + " eliminated (A written before it is read)");
+                    s->deleted = true;
+                    s->size = 0;
+                    changed = true;
+                    continue;
+                }
+                if (k >= 0 && fromR && !(liveOut(i) & 1) &&
+                    (pm == "in" + R || pm == "de" + R || pm == "ld" + R || pm == "pl" + R)) {
+                    report("redundant-transfer", s, upper(m) + " eliminated (A not read; N/Z from " + upper(pm) + ")");
+                    s->deleted = true;
+                    s->size = 0;
+                    changed = true;
+                    continue;
+                }
+            }
             if (m == ld && (s->instr.mode == AddressingMode::IMMEDIATE ||
                             (reg != 'X' && reg != 'Z' && s->instr.mode == AddressingMode::BASE_PAGE))) {
                 if (liveOut(i) == 0) {
@@ -2851,6 +3659,23 @@ bool AssemblerOptimizer::optimizeInternal(
         }
     }
 
+    // --- Loop registers (#827): a loop's byte values in a register cc45's
+    // .loop / .loop_vars name, the register picked from those its code
+    // leaves alone (promoteLoopRegisters, above); the tags removed either way ---
+    if (parser->optFlags.loopRegs && !getenv("CA45_NO_LOOP_REGS")) {
+        auto evalOp = [&](const AssemblerParser::Statement* t, uint32_t& v) {
+            if (t->instr.operandTokenIndex < 0) return false;
+            try { v = parser->evaluateExpressionAt(t->instr.operandTokenIndex, t->scopePrefix); }
+            catch (...) { return false; }
+            return true;
+        };
+        if (promoteLoopRegisters(parser, rtsReads, report, evalOp)) changed = true;
+    } else {
+        for (auto& t : parser->statements)
+            if (!t->deleted && t->type == AssemblerParser::Statement::DIRECTIVE &&
+                (t->dir.name == "loop" || t->dir.name == "loop_vars")) { t->deleted = true; t->size = 0; }
+    }
+
     // --- Pass 3: Function tail deduplication (with re-scanning for convergence) ---
     // Iteratively find and eliminate duplicate instruction sequences at function tails.
     // Re-scans after each pass because earlier optimizations may:
@@ -2910,6 +3735,26 @@ bool AssemblerOptimizer::optimizeInternal(
                     default:
                         return "";
                 }
+            };
+            // a label an operand names, as the label is kept (a local one,
+            // @b or one in a proc, has its scope: two procs' bne @b branch
+            // to different code, #827 found a tail merged across them)
+            std::set<std::string> labelNames;
+            for (const auto& t : parser->statements)
+                if (!t->deleted && !t->label.empty()) labelNames.insert(t->label);
+            auto labelOf = [&](size_t k) -> std::string {
+                const auto* s = parser->statements[k].get();
+                std::string op = s->instr.operand;
+                size_t c = op.find(',');                              // bbr0 $12, @x
+                if (c != std::string::npos && s->instr.mode == AddressingMode::BASE_PAGE_RELATIVE) op = op.substr(c + 1);
+                op.erase(0, op.find_first_not_of(" \t"));
+                op.erase(op.find_last_not_of(" \t") + 1);
+                if (op.empty()) return "";
+                for (const std::string& l : {s->scopePrefix + op, s->localLabelScope + ":" + op})
+                    if (l != op && labelNames.count(l)) return "=" + l;
+                // (an expression with a local label in it: only its own scope's tails match)
+                if (op.find('@') != std::string::npos) return "=" + s->localLabelScope + ":" + s->scopePrefix;
+                return "";
             };
 
         // Find all procedure end points and extract tail sequences
@@ -2998,7 +3843,8 @@ bool AssemblerOptimizer::optimizeInternal(
                 auto* instr = parser->statements[idx].get();
                 std::string m = instr->instr.mnemonic;
                 std::transform(m.begin(), m.end(), m.begin(), ::toupper);
-                sig += m + "|" + std::to_string((int)instr->instr.mode) + "|" + instr->instr.operand + ownBasePage(idx) + "|";
+                sig += m + "|" + std::to_string((int)instr->instr.mode) + "|" + instr->instr.operand + ownBasePage(idx) +
+                       labelOf(idx) + "|";
                 tailSize += instr->size;
             }
 
@@ -3111,7 +3957,8 @@ bool AssemblerOptimizer::optimizeInternal(
                         if (shortInstr->instr.mnemonic != longInstr->instr.mnemonic ||
                             shortInstr->instr.mode != longInstr->instr.mode ||
                             shortInstr->instr.operand != longInstr->instr.operand ||
-                            ownBasePage(shortTail[k]) != ownBasePage(longTail[longTail.size() - shortTail.size() + k])) {
+                            ownBasePage(shortTail[k]) != ownBasePage(longTail[longTail.size() - shortTail.size() + k]) ||
+                            labelOf(shortTail[k]) != labelOf(longTail[longTail.size() - shortTail.size() + k])) {
                             isSuffix = false;
                             break;
                         }

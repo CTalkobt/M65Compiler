@@ -75,6 +75,7 @@ struct OptimizationFlags {
     bool fcmpOpt = true;              // Floating-point compare optimization
     bool tsxRedundant = true;         // Eliminate redundant TSX instructions
     bool quadMove = true;             // sta/stx/sty/stz (lda/ldx/ldy/ldz) of 4 bytes -> stq (ldq)
+    bool loopRegs = true;             // a loop's byte values (.loop_vars) kept in a free X / Y / Z (#827)
     bool variableSizeOpt = true;      // Phase 96.2: Variable-size field pointer caching
 
     // Constructor to reset all flags based on optimization level
@@ -105,6 +106,7 @@ struct OptimizationFlags {
             flags.fcmpOpt = false;
             flags.quadMove = false;
             flags.tsxRedundant = false;
+            flags.loopRegs = false;
         }
         // Level 1+: basic optimizations (all enabled by default)
         // Level 2+: default (all enabled)

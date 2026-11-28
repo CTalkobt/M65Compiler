@@ -3962,7 +3962,9 @@ std::string IRCodeGen::pruneDeadFlagRestores(const std::string& text) {
     auto parse = [](const std::string& l, std::string& mn) {
         size_t q = l.find_first_not_of(" \t");
         if (q == std::string::npos || l[q] == ';') return 0;                         // blank, comment
-        if (l.compare(q, 4, ".loc") == 0 || l.compare(q, 4, ".var") == 0 || l.compare(q, 5, ".dbg_") == 0) return 0;
+        if (l.compare(q, 4, ".loc") == 0 || l.compare(q, 4, ".var") == 0 || l.compare(q, 5, ".dbg_") == 0 ||
+            l.compare(q, 5, ".loop") == 0)   // (.loop / .loop_vars: tags for ca45, #827)
+            return 0;
         if (l[q] == '.') return 2;                                                   // another directive
         if (l.substr(0, l.find(';')).find(':') != std::string::npos) return 3;       // a label (not a comment's ':')
         std::string body = l.substr(q);
@@ -4026,7 +4028,7 @@ std::string IRCodeGen::pruneDeadLdx(const std::string& text) {
             const std::string& l = lines[j];
             size_t q = l.find_first_not_of(" \t");
             if (q == std::string::npos || l[q] == ';' || l.compare(q, 4, ".loc") == 0 ||
-                l.compare(q, 5, ".dbg_") == 0) continue;
+                l.compare(q, 5, ".dbg_") == 0 || l.compare(q, 5, ".loop") == 0) continue;
             if (l[q] == '.' || l.substr(0, l.find(';')).find(':') != std::string::npos || l[q] == '@')
                 break;   // a directive, a label (not a comment's ':')
             std::string body = l.substr(q);
@@ -4068,7 +4070,8 @@ std::string IRCodeGen::pruneDeadPoolStores(const std::string& text) {
                 }
                 std::transform(ln.mn.begin(), ln.mn.end(), ln.mn.begin(), ::tolower);
             } else if (p != std::string::npos && l[p] != ';' && l.compare(p, 4, ".var") != 0 &&
-                       l.compare(p, 4, ".loc") != 0 && l.compare(p, 5, ".dbg_") != 0) {
+                       l.compare(p, 4, ".loc") != 0 && l.compare(p, 5, ".dbg_") != 0 &&
+                       l.compare(p, 5, ".loop") != 0) {   // (.loop / .loop_vars: tags for ca45, #827)
                 ln.mn = ".";   // a directive or a label line: any address in it counts as read
                 ln.operand = code.substr(p);
             }
@@ -4195,6 +4198,78 @@ std::string IRCodeGen::pruneDeadPoolStores(const std::string& text) {
         out += '\n';
     }
     return out;
+}
+
+// #827: the byte values of each innermost loop worth keeping in a register
+// across it, best first. The loop's blocks are tagged in the assembly
+// (.loop N before each block, 0 outside a loop) and the candidates listed
+// (.loop_vars N $36 $30): which register is free is known only once the
+// loop's code exists, so ca45 picks it (or keeps the byte in memory).
+// Candidates: byte values in the register pool ($30-$7F), not in memory
+// (volatile, address taken), in a loop with no call or inline asm; counters
+// (stepped by a constant and compared) first, then by uses in the loop
+void IRCodeGen::planLoopRegisters(const ir::Function& fn) {
+    blockLoop_.clear();
+    static const bool off = getenv("CC45_NO_LOOP_REGS") != nullptr;
+    if (off || fn.noOptimize || fn.blocks.size() < 2) return;
+    auto loops = ir::naturalLoops(fn);
+    int id = 0;
+    std::vector<std::string> lines;
+    for (const auto& [header, blocks] : loops) {
+        // innermost: no other loop's header inside it
+        bool inner = true;
+        for (const auto& [h2, b2] : loops)
+            if (h2 != header && blocks.count(h2) && b2.size() < blocks.size()) inner = false;
+        if (!inner) continue;
+        bool plain = true;
+        std::map<uint32_t, int> uses;
+        std::set<uint32_t> stepped, compared;
+        auto ref = [&](const ir::Operand& o) { if (o.isVreg()) uses[o.vregId]++; };
+        for (size_t b : blocks) {
+            for (const auto& in : fn.blocks[b].insts) {
+                if (in.op == ir::Op::CALL || in.op == ir::Op::CALL_VOID || in.op == ir::Op::CALL_INDIRECT ||
+                    in.op == ir::Op::ASM_INLINE)
+                    plain = false;
+                ref(in.dest); ref(in.src1); ref(in.src2);
+                for (const auto& a : in.args) ref(a);
+                if ((in.op == ir::Op::ADD || in.op == ir::Op::SUB) && in.src2.isImm()) {
+                    if (in.dest.isVreg()) stepped.insert(in.dest.vregId);
+                    if (in.src1.isVreg()) stepped.insert(in.src1.vregId);
+                }
+                if (in.op >= ir::Op::CMP_EQ && in.op <= ir::Op::CMP_GEU) {
+                    if (in.src1.isVreg()) compared.insert(in.src1.vregId);
+                    if (in.src2.isVreg()) compared.insert(in.src2.vregId);
+                }
+            }
+        }
+        if (!plain) continue;
+        std::vector<std::pair<int, int>> cand;   // (rank, ZP address)
+        std::set<int> seen;
+        for (const auto& [v, n] : uses) {
+            auto t = fn.vregTypes.find(v);
+            if (t == fn.vregTypes.end() || t->second != ir::Type::I8 || fn.memoryVregs.count(v) || !alloc_.hasAlloc(v))
+                continue;
+            auto a = alloc_.getAlloc(v);
+            if (a.loc != VRegAllocator::IN_ZP || a.offset < 0x30 || a.offset >= 0x80) continue;
+            int rank = n + (stepped.count(v) && compared.count(v) ? 1000 : 0);
+            if (!seen.insert(a.offset).second) {
+                for (auto& c : cand) if (c.second == a.offset) c.first += rank;
+                continue;
+            }
+            cand.push_back({rank, a.offset});
+        }
+        if (cand.empty()) continue;
+        std::stable_sort(cand.begin(), cand.end(), [](const auto& x, const auto& y) { return x.first > y.first; });
+        // (more than the three registers: ca45 keeps those it cannot place
+        // in memory, and an IR temporary may have no code left by then)
+        if (cand.size() > 6) cand.resize(6);
+        ++id;
+        std::string line = ".loop_vars " + std::to_string(id);
+        for (const auto& c : cand) line += ", $" + hex8((uint8_t)c.second);
+        lines.push_back(line);
+        for (size_t b : blocks) blockLoop_[b] = id;
+    }
+    for (const auto& l : lines) emit(l, "loop values ca45 may keep in a register (#827)");
 }
 
 void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMainWithZPSave) {
@@ -6229,6 +6304,7 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
     currentInstIdx_ = 0;
     currentFn_ = &fn;
     loopBlocks_ = ir::loopBlocks(fn);
+    planLoopRegisters(fn);
     // how often each label is a jump target (inline asm may name any: none
     // counts as single then)
     labelRefs_.clear();
@@ -6325,7 +6401,10 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
         if (coldStart < fn.blocks.size()) {
             if (bi + 1 == coldStart) nextBlockLabel_ = "__return";
             else if (bi + 1 == fn.blocks.size()) nextBlockLabel_.clear();
-            if (bi == coldStart) emitEpilogue();
+            if (bi == coldStart) {
+                if (!blockLoop_.empty()) emit(".loop 0");
+                emitEpilogue();
+            }
         }
         // the element address cache carries into a block reached only by
         // the conditional branch that ends the block before it
@@ -6363,6 +6442,10 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
                         last.op == ir::Op::RET_VOID || last.op == ir::Op::SWITCH || last.op == ir::Op::BR_INDIRECT;
             f32Carry = brHere ? refs == 1 : (refs == 0 && !ends);
         }
+        if (!blockLoop_.empty()) {
+            auto bl = blockLoop_.find(bi);
+            emit(".loop " + std::to_string(bl == blockLoop_.end() ? 0 : bl->second));
+        }
         if (fallOnly) {
             emitComment("@" + block.label + " (reached by falling through only)");
             carried = ElemCache();
@@ -6388,7 +6471,10 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
     }
     nextBlockLabel_.clear();
 
-    if (coldStart == fn.blocks.size()) emitEpilogue();
+    if (coldStart == fn.blocks.size()) {
+        if (!blockLoop_.empty()) emit(".loop 0");
+        emitEpilogue();
+    }
 
     // Phase 78: Finalize SMC parameter metadata based on access counts
     // Set useSMC = true for parameters accessed >3 times (sufficient to save >= 1 byte)

@@ -4,6 +4,36 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### ca45: transfers and loads the loop registers left; TailDedup and local labels (#827)
+
+- Pass 2b drops an `ldax #v` whose A, X and flags are all dead (`dead-ldax`: what is left once its stores are
+  dropped), a dead `txa` / `tya` / `tza`, a transfer undoing the one before it (`tza; taz`), and a `txa` whose A
+  nothing reads after an `inx` / `dex` / `ldx` set its N / Z (`dex; txa; bne` → `dex; bne`; `redundant-transfer`).
+  The library 98 bytes smaller (`c45.lib`; `c45_stack.lib` 84).
+- TailDedup compared operands as written: two procs ending `bne @l` / `rts`, each `@l` its own proc's, were one tail,
+  so the second's loop ran the first's body. An operand naming a local label now matches only the same label.
+- Tests: `test_assembler.sh` (loop-register procs 8, 10 and 11; tails naming local labels).
+
+### A loop's byte values kept in X, Y or Z (#827)
+
+- cc45 finds each innermost natural loop with no call or inline asm (`ir::naturalLoops`, dominator-based: a rotated
+  loop's header is its test) and names its byte values in the register pool, counters first (`.loop_vars N, $30, …`),
+  tagging each block with its loop (`.loop N`). ca45's new `LoopRegs` pass (after Pass 2b), once the loop's code
+  exists, keeps each in the register the loop leaves alone and nothing reads after it: `lda b` → `txa`, `sta b` →
+  `tax`, `inc b` → `inx`, an index `ldy b` dropped when every `,y` read finds Y holding b. Loaded at the loop's entries
+  where the loop reads it (`ld<R> #v` when just set from a constant; Z by `taz`, `lda b` / `taz`, or with `pha` / `pla`
+  only when A is live), stored at the exits (once at an exit target only the loop reaches); a `tya` where A holds Y
+  already is dropped, so a rotated loop stays rotated in cc45's size trial.
+- c-bench-64: `crc8` 2.30 s → 1.84 s (−20%, 8 bytes smaller), `aes256` 43.4 s → 42.9 s (57 bytes smaller); the other
+  nine unchanged. The library 215 bytes smaller (39 objects smaller, one 8 bytes larger); on at `-Os` too.
+- `-fno-loop-registers` (ca45 `-PNoLoopRegs`), `CC45_NO_LOOP_REGS=1`, `CA45_NO_LOOP_REGS=1`.
+- ca45's dead base-page stores (Pass 1h): a table of the object's own segment indexed (`sta _buf,y`: its value an offset
+  in DATA until linked) and a load into the registers (`ldax #_tab`) no longer count as reads of the pool, so stores
+  before them are dropped too.
+- `src/bench/run_bench.py --work DIR`: a relative directory works (xemu runs in the output directory; every run timed
+  out).
+- Tests: `test_loop_regs_xemu.c` (both conventions), `test_assembler.sh` (ten procs; dead stores in an object).
+
 ### Division fixes: signed 16-bit `%` (#794), 32-bit division by 1 (#795); ca45 TailDedup and data (#796)
 
 - **#794**: signed 16-bit `%` (ca45 `mod.s16`, the library's `__mods16`) subtracted the high bytes before the low

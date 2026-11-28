@@ -3146,11 +3146,13 @@ bool isHoistCandidate(Op op) {
 
 } // namespace
 
-std::set<size_t> loopBlocks(const Function& fn) {
-    std::set<size_t> in;
+// The CFG of fn: successors and predecessors by block index
+static void blockGraph(const Function& fn, std::vector<std::vector<size_t>>& succs,
+                       std::vector<std::vector<size_t>>& preds) {
     std::map<std::string, size_t> blockIndex;
     for (size_t i = 0; i < fn.blocks.size(); i++) blockIndex[fn.blocks[i].label] = i;
-    std::vector<std::vector<size_t>> succs(fn.blocks.size()), preds(fn.blocks.size());
+    succs.assign(fn.blocks.size(), {});
+    preds.assign(fn.blocks.size(), {});
     for (size_t i = 0; i < fn.blocks.size(); i++) {
         std::vector<std::string> targets;
         collectSuccessors(fn.blocks[i], targets);
@@ -3164,6 +3166,70 @@ std::set<size_t> loopBlocks(const Function& fn) {
             if (it != blockIndex.end()) { succs[i].push_back(it->second); preds[it->second].push_back(i); }
         }
     }
+}
+
+std::map<size_t, std::set<size_t>> naturalLoops(const Function& fn) {
+    std::map<size_t, std::set<size_t>> loops;
+    size_t n = fn.blocks.size();
+    if (n == 0) return loops;
+    std::vector<std::vector<size_t>> succs, preds;
+    blockGraph(fn, succs, preds);
+    // dominators (iterative; block 0 the entry; blocks it never reaches
+    // dominate nothing and are in no loop)
+    std::vector<bool> reach(n, false);
+    std::vector<size_t> work{0};
+    reach[0] = true;
+    while (!work.empty()) {
+        size_t b = work.back();
+        work.pop_back();
+        for (size_t s : succs[b]) if (!reach[s]) { reach[s] = true; work.push_back(s); }
+    }
+    std::vector<std::vector<bool>> dom(n, std::vector<bool>(n, true));
+    dom[0].assign(n, false);
+    dom[0][0] = true;
+    for (bool more = true; more;) {
+        more = false;
+        for (size_t b = 1; b < n; b++) {
+            if (!reach[b]) continue;
+            std::vector<bool> d(n, true);
+            bool any = false;
+            for (size_t p : preds[b]) {
+                if (!reach[p]) continue;
+                any = true;
+                for (size_t k = 0; k < n; k++) d[k] = d[k] && dom[p][k];
+            }
+            if (!any) d.assign(n, false);
+            d[b] = true;
+            if (d != dom[b]) { dom[b] = d; more = true; }
+        }
+    }
+    // a back edge: tail -> header, header dominating tail
+    for (size_t tail = 0; tail < n; tail++) {
+        if (!reach[tail]) continue;
+        for (size_t header : succs[tail]) {
+            if (!dom[tail][header]) continue;
+            std::set<size_t>& loop = loops[header];
+            loop.insert(header);
+            std::vector<size_t> w;
+            if (loop.insert(tail).second || tail != header) w.push_back(tail);
+            while (!w.empty()) {
+                size_t b = w.back();
+                w.pop_back();
+                if (b == header) continue;
+                for (size_t p : preds[b])
+                    if (reach[p] && loop.insert(p).second) w.push_back(p);
+            }
+        }
+    }
+    return loops;
+}
+
+std::set<size_t> loopBlocks(const Function& fn) {
+    std::set<size_t> in;
+    std::map<std::string, size_t> blockIndex;
+    for (size_t i = 0; i < fn.blocks.size(); i++) blockIndex[fn.blocks[i].label] = i;
+    std::vector<std::vector<size_t>> succs(fn.blocks.size()), preds(fn.blocks.size());
+    blockGraph(fn, succs, preds);
     for (size_t tail = 0; tail < fn.blocks.size(); tail++)
         for (size_t header : succs[tail]) {
             if (header > tail) continue;

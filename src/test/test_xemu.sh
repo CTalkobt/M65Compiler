@@ -3708,6 +3708,13 @@ for lsmode in "zp|" "stack|-fno-zpcall"; do
     xemu_case "FAIL: test_lsr_xemu.c $lsname (compilation/linking failed)" "src/test-resources/test_lsr_xemu.c" "build/test/test_lsr_${lsname}_xemu.prg" "$lsflags" -- "test_lsr_$lsname" "build/test/test_lsr_${lsname}_xemu.prg" "C0C0" 8 "01 01 01 01 01 01 01 AA"
 done
 
+# Test: loop registers (#827): a loop's byte values kept in X / Y / Z
+for lrmode in "zp|" "stack|-fno-zpcall"; do
+    IFS='|' read -r lrname lrflags <<< "$lrmode"
+    echo "Testing test_loop_regs_xemu.c ($lrname)..."
+    xemu_case "FAIL: test_loop_regs_xemu.c $lrname (compilation/linking failed)" "src/test-resources/test_loop_regs_xemu.c" "build/test/test_loop_regs_${lrname}_xemu.prg" "$lrflags" -- "test_loop_regs_$lrname" "build/test/test_loop_regs_${lrname}_xemu.prg" "C0C0" 8 "01 01 01 01 01 01 01 AA"
+done
+
 # Test: the second size pass (mul / div from X/Y/Z, __mul16y, (p),y at a
 # byte index, zero-extended byte temporaries read where they live)
 for mmode in "zp|" "stack|-fno-zpcall"; do

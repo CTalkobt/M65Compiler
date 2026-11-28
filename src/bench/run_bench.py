@@ -252,6 +252,7 @@ def main():
         if b not in BENCHMARKS:
             fail("unknown benchmark '%s' (%s)" % (b, " ".join(BENCHMARKS)))
     names = args.benchmarks or list(BENCHMARKS)
+    args.work = os.path.abspath(args.work)   # xemu runs in out_dir: a relative path would not be found
     suite = fetch_suite(args.work)
     if args.fetch_only:
         print(suite)

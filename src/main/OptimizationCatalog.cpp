@@ -225,6 +225,12 @@ void OptimizationCatalog::initializeCatalog() {
     });
 
     catalog_.push_back({
+        "LoopRegisters", "Loop Registers",
+        "A loop's byte counters and values kept in X, Y or Z, whichever its code leaves free (#827)",
+        OptimizationCategory::SPEED, 8, -1, "-floop-registers", true, 1
+    });
+
+    catalog_.push_back({
         "FramePointerOpt", "Frame Pointer Optimization",
         "Lazy frame pointer initialization (SAC mode)",
         OptimizationCategory::SPACE, 8, -1, "-fframe-pointer-optimization", true, 2
@@ -333,6 +339,7 @@ void OptimizationCatalog::initializeCatalog() {
         {"RedundantLoadElim",    OptimizationImpl::ASM_PASS, "RedundantLoad", 0},
         {"DeadStoreElim",        OptimizationImpl::ASM_PASS, "DeadStore", 0},
         {"SeqExtract",           OptimizationImpl::ASM_PASS, "SeqExtract", 0},
+        {"LoopRegisters",        OptimizationImpl::ASM_PASS, "LoopRegs", 0},
     };
     for (const auto& im : impls) {
         for (auto& o : catalog_) {

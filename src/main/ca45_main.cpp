@@ -649,6 +649,7 @@ int main(int argc, char** argv) {
                 else if (n == "FCmpOpt") optFlags.fcmpOpt = enable;
                 else if (n == "TSXRedundant") optFlags.tsxRedundant = enable;
                 else if (n == "QuadMove") optFlags.quadMove = enable;
+                else if (n == "LoopRegs") optFlags.loopRegs = enable;
                 else return false;
                 return true;
             };
